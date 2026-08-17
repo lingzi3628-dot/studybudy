@@ -1,6 +1,5 @@
 @import "tailwindcss";
 @import "tw-animate-css";
-@import "@clerk/ui/dist/themes/shadcn.css";
 
 @custom-variant dark (&:is(.dark *));
 
