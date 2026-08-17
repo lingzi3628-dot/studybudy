@@ -94,16 +94,42 @@ export function Onboarding() {
   const finish = async () => {
     setSaving(true);
     try {
-      // upsert profile — pushes selected subjects/grade/ambitions to /api/user
-      await api.updateUser({
-        grade: grade ?? undefined,
-        subjects: pickedSubjects,
-        ambitions: goal ? [goal] : [],
-        learningLanguage: language,
-        name: role ? `${role} user` : undefined,
-      });
+      // Phase 6 — call /api/user/onboarding to set onboarding_completed=true
+      // plus all the profile fields. Falls back to /api/user POST if Phase 6
+      // endpoint fails (best-effort — don't block onboarding on a network error).
+      try {
+        const r = await fetch("/api/user/onboarding", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            role: role ?? undefined,
+            grade: grade ?? undefined,
+            subjects: pickedSubjects,
+            ambitions: goal ? [goal] : [],
+            preferred_language: language,
+            name: role ? `${role} user` : undefined,
+          }),
+        });
+        if (!r.ok) {
+          // Fallback to Phase 2 /api/user POST
+          await api.updateUser({
+            grade: grade ?? undefined,
+            subjects: pickedSubjects,
+            ambitions: goal ? [goal] : [],
+            learningLanguage: language,
+            name: role ? `${role} user` : undefined,
+          });
+        }
+      } catch {
+        await api.updateUser({
+          grade: grade ?? undefined,
+          subjects: pickedSubjects,
+          ambitions: goal ? [goal] : [],
+          learningLanguage: language,
+          name: role ? `${role} user` : undefined,
+        });
+      }
     } catch (e) {
-      // best-effort — don't block onboarding on a network error
       console.warn("Onboarding upsert failed", e);
     } finally {
       setSaving(false);

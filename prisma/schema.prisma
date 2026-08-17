@@ -25,6 +25,12 @@ model User {
   role              String   @default("user") // 'user' | 'admin'
   banned            Boolean  @default(false)
   lastActive        DateTime?
+  // Phase 6 — auth + profile fields
+  onboardingCompleted Boolean @default(false)
+  avatarUrl         String?
+  notificationsEnabled Boolean @default(true)
+  darkMode          Boolean  @default(false)
+  lastLogin         DateTime?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -37,6 +43,22 @@ model User {
   topicsCreated   Topic[]
   aiCallLogs      AiCallLog[]
   adminLogs       AdminLog[]
+  sessions        UserSession[]
+}
+
+// Phase 6 — login/logout audit trail
+model UserSession {
+  id           String   @id @default(uuid())
+  userId       String
+  sessionType  String   // 'login' | 'logout'
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime @default(now())
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([createdAt])
 }
 
 model StudySet {

@@ -596,6 +596,18 @@ const PROVIDER_TYPES = [
   { value: "pollinations", label: "Pollinations" },
 ];
 
+// Sensible defaults per provider — used to auto-fill baseUrl + model when
+// admin selects a type and those fields are empty (prevents the "openrouter
+// with OpenAI baseUrl" bug where the test call goes to the wrong endpoint).
+const PROVIDER_DEFAULTS: Record<string, { baseUrl: string; model: string }> = {
+  openai:       { baseUrl: "https://api.openai.com/v1",                                  model: "gpt-4o-mini" },
+  glm:          { baseUrl: "https://api.openai.com/v1",                                  model: "glm-4" },
+  gemini:       { baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",   model: "gemini-1.5-flash" },
+  openrouter:   { baseUrl: "https://openrouter.ai/api/v1",                               model: "openai/gpt-4o-mini" },
+  huggingface:  { baseUrl: "https://api-inference.huggingface.co",                       model: "meta-llama/Meta-Llama-3-8B-Instruct" },
+  pollinations: { baseUrl: "https://text.pollinations.ai/openai",                       model: "openai" },
+};
+
 function ProvidersTab() {
   const [providers, setProviders] = useState<Provider[]>([]);
   const [loading, setLoading] = useState(true);
@@ -805,6 +817,17 @@ function ProviderFormModal({ provider, onClose, onSaved }: { provider: Provider 
   const [isDefault, setIsDefault] = useState(provider?.isDefault ?? false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Auto-fill baseUrl + model with sensible defaults when the admin picks a
+  // provider type and those fields are empty. Only fills empty fields — never
+  // overrides admin-edited values. This prevents the OpenRouter-with-OpenAI-
+  // base-URL bug that was hitting "Country, region, or territory not supported".
+  useEffect(() => {
+    const defaults = PROVIDER_DEFAULTS[providerType];
+    if (!defaults) return;
+    setBaseUrl((cur) => (cur.trim() ? cur : defaults.baseUrl));
+    setModel((cur) => (cur.trim() ? cur : defaults.model));
+  }, [providerType]);
 
   const save = async () => {
     setSaving(true);

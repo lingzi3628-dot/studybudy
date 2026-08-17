@@ -14,6 +14,9 @@ import {
   Loader2,
   AlertCircle,
   Shield,
+  Trash2,
+  KeyRound as KeyIcon,
+  Clock,
 } from "lucide-react";
 import { useApp, resetOnboarding } from "../store";
 import { api } from "../api";
@@ -293,10 +296,172 @@ export function Profile() {
           </button>
         </section>
 
+        {/* Phase 6 — account security section */}
+        <section className="mt-6">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Account & Security</h2>
+          <div className="rounded-2xl bg-white border border-gray-200 shadow-sm divide-y divide-gray-100">
+            {/* Sessions */}
+            <button
+              onClick={async () => {
+                try {
+                  const r = await fetch("/api/user/sessions");
+                  const d = await r.json();
+                  alert(
+                    "Recent sessions:\n" +
+                      (d.sessions?.slice(0, 5).map((s: any) =>
+                        `${s.sessionType} · ${new Date(s.createdAt).toLocaleString()}`
+                      ).join("\n") || "No sessions logged yet.")
+                  );
+                } catch (e: any) {
+                  alert("Failed to load sessions: " + e?.message);
+                }
+              }}
+              className="w-full p-4 flex items-center gap-3 hover:bg-gray-50"
+            >
+              <span className="w-9 h-9 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                <Clock className="w-4 h-4" />
+              </span>
+              <div className="flex-1 text-left">
+                <p className="text-sm font-medium text-gray-900">Login history</p>
+                <p className="text-xs text-gray-500">View your recent login/logout events</p>
+              </div>
+              <ChevronRight className="w-4 h-4 text-gray-400" />
+            </button>
+
+            {/* Change password (Clerk-managed) */}
+            <a
+              href="https://your-clerk-app.clerk.accounts.dev/user"
+              target="_blank"
+              rel="noreferrer"
+              className="w-full p-4 flex items-center gap-3 hover:bg-gray-50"
+            >
+              <span className="w-9 h-9 rounded-full bg-violet-50 text-violet-600 flex items-center justify-center">
+                <KeyIcon className="w-4 h-4" />
+              </span>
+              <div className="flex-1 text-left">
+                <p className="text-sm font-medium text-gray-900">Change password</p>
+                <p className="text-xs text-gray-500">Opens Clerk's account portal (configure NEXT_PUBLIC_CLERK_MANAGEMENT_URL)</p>
+              </div>
+              <ChevronRight className="w-4 h-4 text-gray-400" />
+            </a>
+
+            {/* Delete account */}
+            <DeleteAccountButton />
+          </div>
+        </section>
+
         <p className="mt-6 text-center text-[11px] text-gray-400">
-          StudyBuddy AI · v0.2.0 (Phase 2 backend)
+          StudyBuddy AI · v0.6.0 (Phase 6 — auth + sessions)
         </p>
       </div>
     </div>
+  );
+}
+
+function DeleteAccountButton() {
+  const { setScreen } = useApp();
+  const [open, setOpen] = useState(false);
+  const [confirmText, setConfirmText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const doDelete = async () => {
+    if (confirmText !== "DELETE") {
+      setError('Type "DELETE" exactly to confirm.');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await fetch("/api/user/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmation: "DELETE" }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? `HTTP ${r.status}`);
+      // Best-effort: also delete Clerk user via client SDK if available
+      // (Clerk's useUser().delete() — would need to be wired from a Clerk
+      // provider context. For now, just clear local state.)
+      resetOnboarding();
+      setScreen("onboarding");
+      alert("Your StudyBuddy data has been deleted. To also delete your Clerk account, sign in to the Clerk account portal.");
+    } catch (e: any) {
+      setError(e?.message ?? "Delete failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        className="w-full p-4 flex items-center gap-3 hover:bg-rose-50 text-rose-600"
+      >
+        <span className="w-9 h-9 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center">
+          <Trash2 className="w-4 h-4" />
+        </span>
+        <div className="flex-1 text-left">
+          <p className="text-sm font-medium">Delete account</p>
+          <p className="text-xs text-gray-500">Permanently delete all your data</p>
+        </div>
+        <ChevronRight className="w-4 h-4 text-gray-400" />
+      </button>
+
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setOpen(false)} aria-hidden />
+          <div className="relative w-full max-w-md bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-base font-bold text-rose-700">Delete account?</h2>
+              <button
+                onClick={() => setOpen(false)}
+                className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center"
+              >
+                <LogOut className="w-4 h-4 text-gray-500" />
+              </button>
+            </div>
+            <p className="text-xs text-gray-600 leading-relaxed mb-3">
+              This will permanently delete all your study sets, cards, attempts, review history,
+              mastery data, AI call logs, and sessions from our database. This action{" "}
+              <strong>cannot be undone</strong>.
+            </p>
+            <p className="text-xs text-gray-500 mb-2">
+              Type <code className="bg-gray-100 px-1 rounded font-mono">DELETE</code> to confirm:
+            </p>
+            <input
+              value={confirmText}
+              onChange={(e) => setConfirmText(e.target.value)}
+              placeholder="DELETE"
+              className="w-full p-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-100"
+            />
+            {error && (
+              <div className="mt-2 p-2 rounded-lg bg-rose-50 text-rose-700 text-xs flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                <span>{error}</span>
+              </div>
+            )}
+            <button
+              onClick={doDelete}
+              disabled={busy || confirmText !== "DELETE"}
+              className="mt-3 w-full h-11 rounded-full bg-rose-600 text-white font-semibold text-sm shadow-md hover:bg-rose-700 disabled:opacity-50 flex items-center justify-center gap-1.5"
+            >
+              {busy ? (
+                <><Loader2 className="w-4 h-4 animate-spin" /> Deleting…</>
+              ) : (
+                <><Trash2 className="w-4 h-4" /> Delete my account</>
+              )}
+            </button>
+            <button
+              onClick={() => setOpen(false)}
+              className="mt-2 w-full h-10 rounded-full text-gray-500 text-sm hover:bg-gray-100"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
