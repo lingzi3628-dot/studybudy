@@ -19,8 +19,21 @@ import { api, type SearchResult } from "../api";
 const filters = ["All", "Math", "English", "Kiswahili", "Chinese", "Science"];
 const recent = ["photosynthesis", "quadratic equations", "swahili greetings", "world war 2"];
 
+/** Heuristic subject detection from a search query — used when opening Study Room from a search. */
+function autoDetectSubject(q: string): string {
+  const s = q.toLowerCase();
+  if (/algebra|equation|quadratic|geometry|calculus|trigonometry|slope|graph|polynomial|derivative|integral|theorem|math/.test(s)) return "Mathematics";
+  if (/photosynth|cell|atom|biology|chemistry|physics|organelle|plant|animal|ecosystem|science/.test(s)) return "Science";
+  if (/swahili|habari|asante|tanzania|kenya/.test(s)) return "Kiswahili";
+  if (/spanish|french|arabic|chinese|german|hola|bonjour|你好|مرحبا/.test(s)) return "Language";
+  if (/world war|history|revolution|civilization|empire/.test(s)) return "Social Studies";
+  if (/python|javascript|coding|programming|algorithm|function|variable/.test(s)) return "Coding";
+  if (/business|finance|market|entrepreneur|economic/.test(s)) return "Business";
+  return "General";
+}
+
 export function Search() {
-  const { setScreen } = useApp();
+  const { setScreen, setActiveTopicId } = useApp();
   const [query, setQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState("All");
   const [submitted, setSubmitted] = useState<string | null>(null);
@@ -174,25 +187,39 @@ export function Search() {
                 </div>
               )}
 
-              <div className="mt-3 grid grid-cols-3 gap-2">
-                <button className="flex flex-col items-center gap-1 p-2 rounded-xl bg-indigo-50 text-indigo-700 hover:bg-indigo-100">
-                  <BookOpen className="w-4 h-4" />
-                  <span className="text-[10px] font-medium">View Lesson</span>
-                </button>
+              <div className="mt-3 grid grid-cols-2 gap-2">
                 <button
-                  onClick={() => setScreen("quiz")}
-                  className="flex flex-col items-center gap-1 p-2 rounded-xl bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                  onClick={async () => {
+                    // Open Study Room for this topic — upsert topic then navigate
+                    try {
+                      const subject = autoDetectSubject(result.query);
+                      const r = await api.upsertTopic({ name: result.query, subject });
+                      setActiveTopicId(r.topic.id);
+                      setScreen("study");
+                    } catch (e: any) {
+                      setError(e?.message ?? "Could not open Study Room");
+                    }
+                  }}
+                  className="flex items-center justify-center gap-1.5 p-2.5 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 text-xs font-semibold shadow-sm"
                 >
-                  <ListChecks className="w-4 h-4" />
-                  <span className="text-[10px] font-medium">Start Quiz</span>
+                  <BookOpen className="w-4 h-4" /> Open Study Room
                 </button>
-                <button
-                  onClick={() => setScreen("flashcards")}
-                  className="flex flex-col items-center gap-1 p-2 rounded-xl bg-amber-50 text-amber-700 hover:bg-amber-100"
-                >
-                  <Layers className="w-4 h-4" />
-                  <span className="text-[10px] font-medium">Flashcards</span>
-                </button>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button
+                    onClick={() => setScreen("quiz")}
+                    className="flex flex-col items-center gap-0.5 p-1.5 rounded-xl bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                  >
+                    <ListChecks className="w-3.5 h-3.5" />
+                    <span className="text-[10px] font-medium">Quiz</span>
+                  </button>
+                  <button
+                    onClick={() => setScreen("flashcards")}
+                    className="flex flex-col items-center gap-0.5 p-1.5 rounded-xl bg-amber-50 text-amber-700 hover:bg-amber-100"
+                  >
+                    <Layers className="w-3.5 h-3.5" />
+                    <span className="text-[10px] font-medium">Cards</span>
+                  </button>
+                </div>
               </div>
             </div>
 

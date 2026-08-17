@@ -14,6 +14,7 @@ import {
   Loader2,
   FileText,
   AlertCircle,
+  BookOpen,
 } from "lucide-react";
 import { useApp } from "../store";
 import { api, type Progress as ProgressData, type StudySetSummary } from "../api";
@@ -34,6 +35,18 @@ const subjectGradients: Record<string, string> = {
   default: "from-indigo-500 to-violet-500",
 };
 
+// Phase 4 — popular topics carousel
+const popularTopics: { name: string; subject: string; emoji: string }[] = [
+  { name: "Quadratic Equations", subject: "Mathematics", emoji: "📈" },
+  { name: "Photosynthesis", subject: "Science", emoji: "🌱" },
+  { name: "Swahili Greetings", subject: "Kiswahili", emoji: "🗣️" },
+  { name: "World War II", subject: "Social Studies", emoji: "🌍" },
+  { name: "Python Basics", subject: "Coding", emoji: "🐍" },
+  { name: "Linear Functions", subject: "Mathematics", emoji: "📐" },
+  { name: "Human Heart", subject: "Science", emoji: "❤️" },
+  { name: "Chinese Greetings", subject: "Chinese", emoji: "你好" },
+];
+
 function greeting(): string {
   const h = new Date().getHours();
   if (h < 12) return "Good morning";
@@ -42,7 +55,7 @@ function greeting(): string {
 }
 
 export function Home() {
-  const { setScreen, openCreate, setActiveStudySetId } = useApp();
+  const { setScreen, openCreate, setActiveStudySetId, setActiveTopicId } = useApp();
   const [progress, setProgress] = useState<ProgressData | null>(null);
   const [sets, setSets] = useState<StudySetSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -212,7 +225,15 @@ export function Home() {
                   {weakAreas.map((w) => (
                     <button
                       key={`${w.subject}-${w.topic}`}
-                      onClick={() => openCreate()}
+                      onClick={async () => {
+                        try {
+                          const r = await api.upsertTopic({ name: w.topic, subject: w.subject });
+                          setActiveTopicId(r.topic.id);
+                          setScreen("study");
+                        } catch {
+                          openCreate();
+                        }
+                      }}
                       className="flex-shrink-0 w-44 md:w-auto text-left"
                     >
                       <div className="h-24 rounded-2xl bg-gradient-to-br from-amber-500 to-rose-500 p-3 flex flex-col justify-between text-white shadow-md">
@@ -227,6 +248,42 @@ export function Home() {
                 </div>
               </section>
             )}
+
+            {/* Phase 4 — Browse Topics carousel */}
+            <section className="mt-6">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+                  <BookOpen className="w-4 h-4 text-indigo-600" /> Browse Topics
+                </h3>
+                <button
+                  onClick={() => setScreen("search")}
+                  className="text-xs text-indigo-600 font-medium flex items-center"
+                >
+                  Search <ChevronRight className="w-3 h-3" />
+                </button>
+              </div>
+              <div className="-mx-4 px-4 md:mx-0 md:px-0 grid grid-cols-2 md:grid-cols-4 gap-3">
+                {popularTopics.map((t) => (
+                  <button
+                    key={`${t.subject}-${t.name}`}
+                    onClick={async () => {
+                      try {
+                        const r = await api.upsertTopic({ name: t.name, subject: t.subject });
+                        setActiveTopicId(r.topic.id);
+                        setScreen("study");
+                      } catch (e) {
+                        console.warn("Failed to open topic", e);
+                      }
+                    }}
+                    className="text-left rounded-2xl bg-white border border-gray-200 p-3 shadow-sm hover:border-indigo-300 hover:shadow-md transition"
+                  >
+                    <span className="text-2xl">{t.emoji}</span>
+                    <p className="mt-2 text-xs font-semibold text-gray-900 line-clamp-2">{t.name}</p>
+                    <p className="text-[11px] text-gray-500">{t.subject}</p>
+                  </button>
+                ))}
+              </div>
+            </section>
           </>
         )}
       </div>

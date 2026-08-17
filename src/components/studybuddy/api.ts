@@ -383,4 +383,102 @@ export const api = {
     if (!r.ok) await err(r);
     return r.json() as Promise<{ studySet: StudySet & { cards: Card[] } }>;
   },
+
+  // ───── Phase 4 — Study Room / Topic Deep Dive ─────
+
+  // Upsert topic by (subject, name). Returns { topic: { id, subject, name, description } }.
+  upsertTopic: async (body: { name: string; subject?: string; description?: string }) => {
+    const r = await fetch("/api/topics", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) await err(r);
+    return r.json() as Promise<{
+      topic: { id: string; subject: string; name: string; description: string | null; createdAt: string };
+    }>;
+  },
+
+  // Get topic details: topic + cards + mastery + relatedTopics
+  getTopic: async (id: string) => {
+    const r = await fetch(`/api/topics/${id}`);
+    if (!r.ok) await err(r);
+    return r.json() as Promise<{
+      topic: {
+        id: string;
+        subject: string;
+        name: string;
+        description: string | null;
+        createdAt: string;
+      };
+      cards: Card[];
+      mastery: { level: number; totalAttempts: number; correctAttempts: number; dueCount: number };
+      relatedTopics: { id: string; subject: string; name: string; description: string | null }[];
+    }>;
+  },
+
+  // Generate or fetch cached AI lesson for a topic
+  getTopicLesson: async (id: string, body: { level?: "beginner" | "intermediate" | "advanced"; regenerate?: boolean }) => {
+    const r = await fetch(`/api/topics/${id}/lesson`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) await err(r);
+    return r.json() as Promise<{
+      lesson: {
+        introduction?: string;
+        keyConcepts?: { title: string; explanation: string }[];
+        examples?: { title: string; problem: string; steps: string[]; answer: string }[];
+        formulas?: string[];
+        summary?: string;
+      };
+      level: string;
+      cached: boolean;
+      remaining?: number;
+    }>;
+  },
+
+  // Practice cards (due first, then unseen, then seen-not-due)
+  getTopicPractice: async (id: string, limit = 20) => {
+    const r = await fetch(`/api/topics/${id}/practice?limit=${limit}`);
+    if (!r.ok) await err(r);
+    return r.json() as Promise<{
+      cards: Card[];
+      dueCount: number;
+      newCount: number;
+      totalCards: number;
+    }>;
+  },
+
+  // Topic-specific tutor chat
+  askTopicTutor: async (
+    id: string,
+    body: { message: string; chatHistory?: { role: "user" | "assistant"; content: string }[] }
+  ) => {
+    const r = await fetch(`/api/topics/${id}/tutor`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) await err(r);
+    return r.json() as Promise<{ reply: string; role: "assistant"; remaining: number }>;
+  },
+
+  // Step-by-step math problem solver
+  solveStepByStep: async (id: string, problem: string) => {
+    const r = await fetch(`/api/topics/${id}/solver`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ problem }),
+    });
+    if (!r.ok) await err(r);
+    return r.json() as Promise<{
+      problem: string;
+      steps: { explanation: string; expression: string }[];
+      finalAnswer: string;
+      check: string;
+      remaining?: number;
+    }>;
+  },
 };

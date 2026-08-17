@@ -35,22 +35,26 @@ model StudySet {
   id          String   @id @default(uuid())
   userId      String
   title       String
-  sourceType  String   @default("text") // 'text' | 'pdf' | 'image'
+  sourceType  String   @default("text") // 'text' | 'pdf' | 'image' | 'graph'
   sourceText  String?
   subject     String?
   topic       String?
+  topicId     String?  // Phase 4 — optional link to Topic
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  cards  Card[]
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cards     Card[]
+  topicRef  Topic? @relation(fields: [topicId], references: [id], onDelete: SetNull)
 
   @@index([userId])
+  @@index([topicId])
 }
 
 model Card {
   id            String   @id @default(uuid())
   setId         String
+  topicId       String?  // Phase 4 — optional direct link to Topic
   cardType      String   // 'flashcard' | 'mcq'
   front         String?
   back          String?
@@ -63,11 +67,13 @@ model Card {
   createdAt     DateTime @default(now())
 
   set          StudySet    @relation(fields: [setId], references: [id], onDelete: Cascade)
+  topicRef     Topic?      @relation(fields: [topicId], references: [id], onDelete: SetNull)
   attempts     Attempt[]
   cardReviews  CardReview[]
 
   @@index([setId])
   @@index([subject, topic])
+  @@index([topicId])
 }
 
 model Attempt {
@@ -149,4 +155,38 @@ model Lesson {
   path  LearningPath  @relation(fields: [pathId], references: [id], onDelete: Cascade)
 
   @@index([pathId])
+}
+
+// ─────────────────────────────────────────────────────────────
+// Phase 4 — Study Room / Topic Deep Dive
+// ─────────────────────────────────────────────────────────────
+
+model Topic {
+  id          String   @id @default(uuid())
+  subject     String
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  studySets   StudySet[]
+  cards       Card[]
+  lessons     TopicLesson[]
+
+  @@unique([subject, name])
+  @@index([subject])
+}
+
+model TopicLesson {
+  id         String   @id @default(uuid())
+  topicId    String
+  level      String   @default("beginner") // beginner | intermediate | advanced
+  content    Json     // { introduction, keyConcepts[], examples[], formulas[], summary }
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  topic  Topic  @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@unique([topicId, level])
+  @@index([topicId])
 }

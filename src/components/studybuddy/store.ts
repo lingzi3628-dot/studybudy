@@ -13,7 +13,8 @@ export type Screen =
   | "graph"
   | "language"
   | "tutor"
-  | "path";
+  | "path"
+  | "study";
 
 export type CreateOption =
   | "upload"
@@ -33,6 +34,10 @@ interface AppState {
   // active study set (for quiz mode etc)
   activeStudySetId: string | null;
   setActiveStudySetId: (id: string | null) => void;
+
+  // Phase 4 — active topic for Study Room
+  activeTopicId: string | null;
+  setActiveTopicId: (id: string | null) => void;
 
   // create modal
   createOpen: boolean;
@@ -69,6 +74,9 @@ export const useApp = create<AppState>((set) => ({
 
   activeStudySetId: null,
   setActiveStudySetId: (id) => set({ activeStudySetId: id }),
+
+  activeTopicId: null,
+  setActiveTopicId: (id) => set({ activeTopicId: id }),
 
   createOpen: false,
   createOption: null,
