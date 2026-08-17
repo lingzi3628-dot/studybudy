@@ -35,7 +35,7 @@ const subjectGradients: Record<string, string> = {
   default: "from-indigo-500 to-violet-500",
 };
 
-// Phase 4 — popular topics carousel
+// popular topics carousel
 const popularTopics: { name: string; subject: string; emoji: string }[] = [
   { name: "Quadratic Equations", subject: "Mathematics", emoji: "📈" },
   { name: "Photosynthesis", subject: "Science", emoji: "🌱" },
@@ -249,7 +249,7 @@ export function Home() {
               </section>
             )}
 
-            {/* Phase 4 — Browse Topics carousel */}
+            {/* Browse Topics carousel */}
             <section className="mt-6">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">

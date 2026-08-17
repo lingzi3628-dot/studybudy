@@ -85,7 +85,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Image — OCR not implemented per Phase 3 spec
+    // Image — OCR not implemented per spec
     if (
       mimeType.startsWith("image/") ||
       name.endsWith(".png") ||

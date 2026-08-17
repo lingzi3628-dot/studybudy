@@ -60,7 +60,7 @@ export function Profile() {
         if (!mounted) return;
         setHasStoredApiKey(keyStatus.hasKey);
 
-        // Phase 5 — check if user is admin
+        // check if user is admin
         try {
           const r = await fetch("/api/admin/check");
           if (mounted) setIsAdmin(r.ok);
@@ -142,7 +142,7 @@ export function Profile() {
           </div>
         )}
 
-        {/* Phase 6 — admin entry (separate auth; anyone can click, then must log in with admin creds) */}
+        {/* admin entry (separate auth; anyone can click, then must log in with admin creds) */}
         <button
           onClick={() => setScreen("adminLogin")}
           className="mt-4 w-full p-4 flex items-center justify-between rounded-2xl bg-gradient-to-br from-slate-900 to-slate-700 text-white shadow-md hover:from-slate-800 hover:to-slate-600 transition"
@@ -294,7 +294,7 @@ export function Profile() {
           </button>
         </section>
 
-        {/* Phase 6 — account security section */}
+        {/* account security section */}
         <section className="mt-6">
           <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Account & Security</h2>
           <div className="rounded-2xl bg-white border border-gray-200 shadow-sm divide-y divide-gray-100">
@@ -349,7 +349,7 @@ export function Profile() {
         </section>
 
         <p className="mt-6 text-center text-[11px] text-gray-400">
-          StudyBuddy AI · v0.6.0 (Phase 6 — auth + sessions)
+          StudyBuddy AI · v1.0.0
         </p>
       </div>
     </div>

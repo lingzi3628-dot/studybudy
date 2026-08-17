@@ -51,7 +51,7 @@ export async function GET(req: NextRequest) {
  * This is the entrypoint when a user taps "Open Study Room" from Search or Home.
  */
 export async function POST(req: NextRequest) {
-  // Phase 4 says Study Room is accessible without login → use getCurrentUser() which
+  // says Study Room is accessible without login → use getCurrentUser() which
   // returns the dev user when Clerk isn't configured.
   await getCurrentUser();
 

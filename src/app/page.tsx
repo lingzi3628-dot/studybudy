@@ -19,12 +19,13 @@ import { StudyRoom } from "@/components/studybuddy/screens/StudyRoom";
 import { AdminPanel } from "@/components/studybuddy/screens/AdminPanel";
 import { AdminLogin } from "@/components/studybuddy/screens/AdminLogin";
 import { Landing } from "@/components/studybuddy/screens/Landing";
+import { AuthScreen } from "@/components/studybuddy/screens/AuthScreen";
 
 export default function Page() {
   const { screen } = useApp();
 
   // Immersive study modes have their own full-screen layout (no top bar / bottom nav).
-  const immersive = ["flashcards", "quiz", "graph", "language", "tutor", "path", "study", "admin", "adminLogin", "landing", "onboarding"];
+  const immersive = ["flashcards", "quiz", "graph", "language", "tutor", "path", "study", "admin", "adminLogin", "landing", "onboarding", "auth"];
 
   if (screen === "onboarding") {
     return (
@@ -35,11 +36,12 @@ export default function Page() {
     );
   }
 
-  if (screen === "landing" || screen === "adminLogin") {
+  if (screen === "landing" || screen === "adminLogin" || screen === "auth") {
     return (
       <div className="min-h-screen bg-gray-50 text-gray-900">
         {screen === "landing" && <Landing />}
         {screen === "adminLogin" && <AdminLogin />}
+        {screen === "auth" && <AuthScreen />}
         <CreateModal />
       </div>
     );

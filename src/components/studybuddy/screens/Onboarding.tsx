@@ -94,8 +94,8 @@ export function Onboarding() {
   const finish = async () => {
     setSaving(true);
     try {
-      // Phase 6 — call /api/user/onboarding to set onboarding_completed=true
-      // plus all the profile fields. Falls back to /api/user POST if Phase 6
+      // call /api/user/onboarding to set onboarding_completed=true
+      // plus all the profile fields. Falls back to /api/user POST if
       // endpoint fails (best-effort — don't block onboarding on a network error).
       try {
         const r = await fetch("/api/user/onboarding", {
@@ -111,7 +111,7 @@ export function Onboarding() {
           }),
         });
         if (!r.ok) {
-          // Fallback to Phase 2 /api/user POST
+          // Fallback to /api/user POST
           await api.updateUser({
             grade: grade ?? undefined,
             subjects: pickedSubjects,

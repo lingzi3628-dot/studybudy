@@ -30,13 +30,13 @@ export function Landing() {
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setScreen("onboarding")}
+              onClick={() => setScreen("auth")}
               className="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 font-medium"
             >
               Log in
             </button>
             <button
-              onClick={() => setScreen("onboarding")}
+              onClick={() => setScreen("auth")}
               className="px-4 py-1.5 text-sm rounded-full bg-indigo-600 text-white font-semibold shadow hover:bg-indigo-700"
             >
               Get Started
@@ -64,7 +64,7 @@ export function Landing() {
         </p>
         <div className="mt-7 flex items-center justify-center gap-3">
           <button
-            onClick={() => setScreen("onboarding")}
+            onClick={() => setScreen("auth")}
             className="h-12 px-6 rounded-full bg-indigo-600 text-white font-semibold shadow-lg hover:bg-indigo-700 transition flex items-center gap-1.5"
           >
             Get Started Free <ArrowRight className="w-4 h-4" />
@@ -185,7 +185,7 @@ export function Landing() {
             Join thousands of learners using StudyBuddy AI to master any subject.
           </p>
           <button
-            onClick={() => setScreen("onboarding")}
+            onClick={() => setScreen("auth")}
             className="mt-5 h-12 px-8 rounded-full bg-white text-indigo-700 font-semibold shadow hover:bg-indigo-50 transition inline-flex items-center gap-1.5"
           >
             Get Started Free <ChevronRight className="w-4 h-4" />
@@ -200,11 +200,11 @@ export function Landing() {
             <span className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-600 to-violet-500 flex items-center justify-center text-white font-bold text-xs">
               S
             </span>
-            <span>StudyBuddy AI · v0.7.0</span>
+            <span>StudyBuddy AI · v1.0.0</span>
           </div>
           <div className="flex items-center gap-4">
-            <button onClick={() => setScreen("onboarding")} className="hover:text-gray-900">Privacy</button>
-            <button onClick={() => setScreen("onboarding")} className="hover:text-gray-900">Terms</button>
+            <button onClick={() => setScreen("auth")} className="hover:text-gray-900">Privacy</button>
+            <button onClick={() => setScreen("auth")} className="hover:text-gray-900">Terms</button>
             <button
               onClick={() => setScreen("adminLogin")}
               className="hover:text-gray-900 flex items-center gap-1"

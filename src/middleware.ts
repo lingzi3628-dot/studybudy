@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 /**
- * Next.js middleware — Phase 6 route protection.
+ * Next.js middleware — route protection.
  *
  * Note: This middleware runs at the edge before each request. Clerk session
  * verification happens server-side in the actual route handlers via

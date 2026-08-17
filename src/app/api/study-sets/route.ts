@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
   let generate = true;
   let numFlashcards = 6;
   let numMCQs = 4;
-  // Phase 3: optional pre-generated cards from the preview step
+  // optional pre-generated cards from the preview step
   let preGeneratedCards: Array<{
     cardType: string;
     front?: string | null;
@@ -111,7 +111,7 @@ export async function POST(req: NextRequest) {
 
   let cards: Awaited<ReturnType<typeof db.card.createMany>> | { count: number } = { count: 0 };
 
-  // Phase 3: if caller pre-generated cards via /api/generate/cards and edited them in preview,
+  // if caller pre-generated cards via /api/generate/cards and edited them in preview,
   // persist those directly (no AI call, no rate-limit cost).
   if (preGeneratedCards.length) {
     const rows = preGeneratedCards.map((c) => ({

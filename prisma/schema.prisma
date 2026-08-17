@@ -21,11 +21,11 @@ model User {
   subjects          String[]
   ambitions         String[]
   learningLanguage  String   @default("English")
-  // Phase 5 — admin fields
+  admin fields
   role              String   @default("user") // 'user' | 'admin'
   banned            Boolean  @default(false)
   lastActive        DateTime?
-  // Phase 6 — auth + profile fields
+  auth + profile fields
   onboardingCompleted Boolean @default(false)
   avatarUrl         String?
   notificationsEnabled Boolean @default(true)
@@ -46,7 +46,7 @@ model User {
   sessions        UserSession[]
 }
 
-// Phase 6 — login/logout audit trail
+login/logout audit trail
 model UserSession {
   id           String   @id @default(uuid())
   userId       String
@@ -69,7 +69,7 @@ model StudySet {
   sourceText  String?
   subject     String?
   topic       String?
-  topicId     String?  // Phase 4 — optional link to Topic
+  topicId     String?  optional link to Topic
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -84,7 +84,7 @@ model StudySet {
 model Card {
   id            String   @id @default(uuid())
   setId         String
-  topicId       String?  // Phase 4 — optional direct link to Topic
+  topicId       String?  optional direct link to Topic
   cardType      String   // 'flashcard' | 'mcq'
   front         String?
   back          String?
@@ -188,7 +188,7 @@ model Lesson {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Phase 4 — Study Room / Topic Deep Dive
+Study Room / Topic Deep Dive
 // ─────────────────────────────────────────────────────────────
 
 model Topic {
@@ -198,7 +198,7 @@ model Topic {
   description String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-  // Phase 5 — content management
+  content management
   chapterId       String?  // link to a Chapter (if part of a Book)
   published       Boolean  @default(false)
   createdById     String?  // admin who created it
@@ -231,7 +231,7 @@ model TopicLesson {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Phase 5 — Admin Panel & AI Provider Management
+Admin Panel & AI Provider Management
 // ─────────────────────────────────────────────────────────────
 
 model AiProvider {
@@ -322,7 +322,7 @@ model AdminLog {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Phase 6 — Custom admin auth (separate from Clerk)
+Custom admin auth (separate from Clerk)
 // ─────────────────────────────────────────────────────────────
 
 model AdminUser {

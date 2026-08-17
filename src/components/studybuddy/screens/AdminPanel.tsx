@@ -148,7 +148,7 @@ export function AdminPanel() {
             <Shield className="w-5 h-5 text-indigo-600" />
             <h1 className="text-base font-bold text-gray-900">Admin Panel</h1>
           </div>
-          <span className="text-xs text-gray-400 hidden sm:block">Phase 5</span>
+          
         </div>
         {/* Tab bar */}
         <div className="px-4 pb-2 flex gap-1 overflow-x-auto no-scrollbar">
@@ -1491,7 +1491,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 // ════════════════════════════════════════════════════════════════
-// Phase 6 — Account tab (admin profile + change password + logout)
+// Account tab (admin profile + change password + logout)
 // ════════════════════════════════════════════════════════════════
 function AccountTab({ adminEmail, onLogout }: { adminEmail: string | null; onLogout: () => Promise<void> }) {
   const [currentPw, setCurrentPw] = useState("");

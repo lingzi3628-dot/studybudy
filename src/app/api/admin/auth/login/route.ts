@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { signAdminToken, getAdminCookieName, getAdminCookieMaxAge } from "@/lib/admin-jwt";
 import { logAdminActionViaJwt } from "@/lib/admin-session";
+import { ensureInitialAdmin } from "@/app/api/admin/setup/route";
 
 export const runtime = "nodejs";
 
@@ -12,6 +13,10 @@ export const runtime = "nodejs";
  *
  * Verifies credentials against admin_users table (bcrypt compare).
  * On success, signs a JWT and sets it as HTTP-only cookie.
+ *
+ * On the FIRST EVER call when admin_users is empty AND
+ * ADMIN_INITIAL_EMAIL + ADMIN_INITIAL_PASSWORD env vars are set,
+ * auto-seeds the initial admin user from env vars.
  */
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
@@ -22,10 +27,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Email and password are required" }, { status: 400 });
   }
 
+  // Auto-seed initial admin if the table is empty AND env vars are set
+  await ensureInitialAdmin();
+
   const admin = await db.adminUser.findUnique({ where: { email } });
   if (!admin) {
-    // Use the same message for "wrong email" and "wrong password" to avoid
-    // leaking which emails exist in the admin table.
     return NextResponse.json({ error: "Invalid email or password" }, { status: 401 });
   }
 
@@ -34,12 +40,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid email or password" }, { status: 401 });
   }
 
-  // Sign JWT + set cookie
   const token = signAdminToken(admin.id, admin.email);
   const cookieName = getAdminCookieName();
   const maxAge = getAdminCookieMaxAge();
 
-  // Log the login (best-effort)
   await logAdminActionViaJwt(
     { adminId: admin.id, adminEmail: admin.email, name: admin.name },
     "admin.login",
@@ -48,11 +52,7 @@ export async function POST(req: NextRequest) {
 
   const res = NextResponse.json({
     ok: true,
-    admin: {
-      id: admin.id,
-      email: admin.email,
-      name: admin.name,
-    },
+    admin: { id: admin.id, email: admin.email, name: admin.name },
   });
 
   res.cookies.set(cookieName, token, {
@@ -65,3 +65,4 @@ export async function POST(req: NextRequest) {
 
   return res;
 }
+

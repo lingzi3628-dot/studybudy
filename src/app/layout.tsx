@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import { AuthProvider } from "@/components/studybuddy/AuthProvider";
+import { ServiceWorkerRegister } from "@/components/studybuddy/ServiceWorkerRegister";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -11,11 +12,25 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: "StudyBuddy AI – Your personal AI study companion",
-  description: "Mobile-first AI study buddy. Flashcards, quizzes, graphs, language practice and more.",
-  keywords: ["StudyBuddy", "AI", "study", "flashcards", "quiz", "learning"],
+  description: "Mobile-first AI study buddy. Flashcards, quizzes, graphs, language practice, AI tutor, and spaced-repetition memory.",
+  keywords: ["StudyBuddy", "AI", "study", "flashcards", "quiz", "learning", "PWA"],
   authors: [{ name: "StudyBuddy AI" }],
+  applicationName: "StudyBuddy AI",
+  manifest: "/manifest.json",
   icons: {
-    icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/icon-32.png", sizes: "32x32", type: "image/png" },
+      { url: "/icon-16.png", sizes: "16x16", type: "image/png" },
+    ],
+    apple: [
+      { url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
+    ],
+  },
+  appleWebApp: {
+    capable: true,
+    title: "StudyBuddy AI",
+    statusBarStyle: "default",
   },
   openGraph: {
     title: "StudyBuddy AI",
@@ -49,6 +64,7 @@ export default function RootLayout({
       >
         <AuthProvider>{children}</AuthProvider>
         <Toaster />
+        <ServiceWorkerRegister />
       </body>
     </html>
   );

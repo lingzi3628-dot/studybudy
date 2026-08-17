@@ -1,7 +1,7 @@
 /**
  * Admin session — verifies the admin JWT from the request cookie.
  *
- * Used by all /api/admin/* routes. The previous Phase 5 requireAdmin()
+ * Used by all /api/admin/* routes. The previous requireAdmin()
  * (which checked ADMIN_EMAILS env or User.role='admin') is deprecated —
  * the new admin auth is fully separate from Clerk user auth.
  *

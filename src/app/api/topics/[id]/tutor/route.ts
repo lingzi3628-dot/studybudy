@@ -17,7 +17,7 @@ type Params = { params: Promise<{ id: string }> };
  * subject, and the latest lesson summary (if cached) so the AI answers with
  * full topic context.
  *
- * Chat history is sent by the client per Phase 3 spec — no DB persistence.
+ * Chat history is sent by the client per spec — no DB persistence.
  */
 export async function POST(req: NextRequest, { params }: Params) {
   const user = await getCurrentUser();

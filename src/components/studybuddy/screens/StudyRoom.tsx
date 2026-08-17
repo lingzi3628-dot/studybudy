@@ -317,7 +317,7 @@ export function StudyRoom() {
         })),
       ];
       // We need to pass topicId — but the /api/study-sets POST doesn't accept it yet.
-      // For Phase 4 we'll save via /api/study-sets and then patch each card's topicId via the practice endpoint.
+      // For we'll save via /api/study-sets and then patch each card's topicId via the practice endpoint.
       const res = await api.createStudySet({
         title: `${topic.name} practice`,
         sourceType: "text",

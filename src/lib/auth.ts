@@ -9,7 +9,7 @@
  * dev user (alex@studybuddy.ai, clerk_user_id = "dev-user-alex") so the
  * app runs end-to-end without real Clerk credentials.
  *
- * Phase 6 additions:
+ * additions:
  *   - Sync `lastLogin` on every auth check (throttled to once per minute)
  *   - Log every successful auth as a `user_sessions` row (session_type='login')
  *   - Return `onboardingCompleted` + new profile fields
@@ -175,7 +175,7 @@ export function isClerkConfigured(): boolean {
 }
 
 /**
- * Phase 6 — server-side guard for non-admin API routes.
+ * server-side guard for non-admin API routes.
  * Throws 401 if no current user. (Currently always resolves since we have the
  * dev fallback — but once Clerk is fully configured, callers without a Clerk
  * session will get a 401.)

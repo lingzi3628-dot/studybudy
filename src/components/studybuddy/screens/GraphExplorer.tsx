@@ -66,7 +66,7 @@ export function GraphExplorer() {
 
   const generateQuizFromGraph = () => {
     // Drop the user on the Create modal in "quiz" mode, prefilled with the equation as the topic
-    // For Phase 3 simplicity, just route to Create modal where they can choose Generate Quiz
+    // For simplicity, just route to Create modal where they can choose Generate Quiz
     setScreen("home");
     setTimeout(() => useApp.getState().openCreate("quiz"), 100);
   };

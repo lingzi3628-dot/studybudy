@@ -143,7 +143,7 @@ export function AdminLogin() {
         </div>
 
         <p className="text-center text-[11px] text-slate-400 mt-4">
-          StudyBuddy AI · Admin · v0.7.0
+          StudyBuddy AI · Admin · v1.0.0
         </p>
       </div>
     </div>

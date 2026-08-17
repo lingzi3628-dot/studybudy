@@ -334,7 +334,7 @@ export const api = {
     return r.json() as Promise<Progress>;
   },
 
-  // extract text from uploaded file (Phase 3)
+  // extract text from uploaded file
   extractFile: async (file: File) => {
     const fd = new FormData();
     fd.append("file", file);
@@ -348,7 +348,7 @@ export const api = {
     }>;
   },
 
-  // AI tutor chat (Phase 3) — local history, no DB
+  // AI tutor chat — local history, no DB
   askTutor: async (messages: { role: "user" | "assistant"; content: string }[], question?: string) => {
     const r = await fetch("/api/tutor", {
       method: "POST",
@@ -359,7 +359,7 @@ export const api = {
     return r.json() as Promise<{ reply: string; role: "assistant"; remaining: number }>;
   },
 
-  // save graph + optional cards as study set (Phase 3)
+  // save graph + optional cards as study set
   saveGraphAsStudySet: async (body: {
     equation: string;
     explanation?: string;
@@ -384,7 +384,7 @@ export const api = {
     return r.json() as Promise<{ studySet: StudySet & { cards: Card[] } }>;
   },
 
-  // ───── Phase 4 — Study Room / Topic Deep Dive ─────
+  // ───── Study Room / Topic Deep Dive ─────
 
   // Upsert topic by (subject, name). Returns { topic: { id, subject, name, description } }.
   upsertTopic: async (body: { name: string; subject?: string; description?: string }) => {

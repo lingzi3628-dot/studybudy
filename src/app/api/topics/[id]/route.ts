@@ -11,8 +11,8 @@ type Params = { params: Promise<{ id: string }> };
  * Returns: topic details + related cards + topic mastery for current user.
  *
  * Cards are matched by:
- *   1. Direct topicId link (Phase 4)
- *   2. Subject + topic string match (Phase 2 fallback for older data)
+ *   1. Direct topicId link
+ *   2. Subject + topic string match (fallback for older data)
  */
 export async function GET(_req: NextRequest, { params }: Params) {
   const user = await getCurrentUser();

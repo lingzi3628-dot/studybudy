@@ -184,5 +184,5 @@ export function parseJsonLoose<T = unknown>(raw: string): T {
   return JSON.parse(s) as T;
 }
 
-// Backwards-compat exports (Phase 2-4 import callPlatformAI and callBYOKAI directly)
+// Backwards-compat exports (callers may import callPlatformAI and callBYOKAI directly)
 export { callPlatformAI, callBYOKAI };

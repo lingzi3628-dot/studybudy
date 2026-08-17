@@ -9,7 +9,7 @@ export const runtime = "nodejs";
  * to show the AdminLogin screen or skip straight to the dashboard.
  *
  * NOTE: This checks the ADMIN JWT cookie, NOT the Clerk user session.
- * The two auth systems are fully separate per the Phase 6 spec.
+ * The two auth systems are fully separate per the spec.
  */
 export async function GET() {
   const admin = await getOptionalAdminSession();

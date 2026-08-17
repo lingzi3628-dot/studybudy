@@ -17,7 +17,8 @@ export type Screen =
   | "study"
   | "admin"
   | "adminLogin"
-  | "landing";
+  | "landing"
+  | "auth";
 
 export type CreateOption =
   | "upload"
@@ -38,7 +39,7 @@ interface AppState {
   activeStudySetId: string | null;
   setActiveStudySetId: (id: string | null) => void;
 
-  // Phase 4 — active topic for Study Room
+  // active topic for Study Room
   activeTopicId: string | null;
   setActiveTopicId: (id: string | null) => void;
 
@@ -68,7 +69,7 @@ interface AppState {
 const LS_KEY = "studybuddy_onboarded";
 
 // initialize from localStorage on client
-// Default initial screen: if onboarded → home; otherwise → landing (Phase 6)
+// Default initial screen: if onboarded → home; otherwise → landing
 const initialOnboarded =
   typeof window !== "undefined" ? localStorage.getItem(LS_KEY) === "1" : false;
 
