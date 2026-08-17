@@ -279,7 +279,25 @@ export function Profile() {
         </section>
 
         {/* logout */}
-        <section className="mt-6">
+        <section className="mt-6 space-y-2">
+          <button
+            onClick={async () => {
+              try {
+                await fetch("/api/auth/logout", { method: "POST" });
+              } catch {}
+              if (typeof window !== "undefined") {
+                localStorage.removeItem("studybuddy_onboarded");
+              }
+              setScreen("landing");
+            }}
+            className="w-full p-4 flex items-center gap-3 rounded-2xl bg-white border border-indigo-200 text-indigo-600 hover:bg-indigo-50 shadow-sm"
+          >
+            <span className="w-9 h-9 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center">
+              <LogOut className="w-4 h-4" />
+            </span>
+            <span className="text-sm font-medium">Log out</span>
+          </button>
+
           <button
             onClick={() => {
               resetOnboarding();

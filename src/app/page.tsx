@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { useApp } from "@/components/studybuddy/store";
 import { TopBar, DesktopTopBar } from "@/components/studybuddy/TopBar";
 import { BottomNav, Sidebar } from "@/components/studybuddy/BottomNav";
@@ -22,7 +23,25 @@ import { Landing } from "@/components/studybuddy/screens/Landing";
 import { AuthScreen } from "@/components/studybuddy/screens/AuthScreen";
 
 export default function Page() {
-  const { screen } = useApp();
+  const { screen, setScreen } = useApp();
+
+  // Auth check on mount: redirect authed users to home/onboarding,
+  // keep unauthed users on landing.
+  useEffect(() => {
+    let mounted = true;
+    fetch("/api/auth/me")
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => {
+        if (!mounted || !d?.authed) return;
+        if (d.user?.onboardingCompleted) {
+          setScreen("home");
+        } else {
+          setScreen("onboarding");
+        }
+      })
+      .catch(() => {});
+    return () => { mounted = false; };
+  }, [setScreen]);
 
   // Immersive study modes have their own full-screen layout (no top bar / bottom nav).
   const immersive = ["flashcards", "quiz", "graph", "language", "tutor", "path", "study", "admin", "adminLogin", "landing", "onboarding", "auth"];

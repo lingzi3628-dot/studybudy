@@ -68,13 +68,10 @@ interface AppState {
 
 const LS_KEY = "studybuddy_onboarded";
 
-// initialize from localStorage on client
-// Default initial screen: if onboarded → home; otherwise → landing
-const initialOnboarded =
-  typeof window !== "undefined" ? localStorage.getItem(LS_KEY) === "1" : false;
-
+// Always start on landing — auth check in page.tsx redirects authed users
+// to home/onboarding after mount.
 export const useApp = create<AppState>((set) => ({
-  screen: initialOnboarded ? "home" : "landing",
+  screen: "landing",
   setScreen: (s) => set({ screen: s }),
 
   activeStudySetId: null,

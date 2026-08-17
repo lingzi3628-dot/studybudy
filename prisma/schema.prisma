@@ -17,6 +17,7 @@ model User {
   name              String?
   plan              String   @default("free")
   encryptedApiKey   String?
+  passwordHash      String?  // for direct email/password auth (nullable — Clerk users don't have this)
   grade             String?
   subjects          String[]
   ambitions         String[]
