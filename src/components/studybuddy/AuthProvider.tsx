@@ -7,8 +7,8 @@ import { ReactNode } from "react";
  * Wraps the app with ClerkProvider when Clerk env keys are configured,
  * otherwise renders children directly (dev fallback).
  *
- * ClerkProvider is loaded via next/dynamic with ssr:false, so it only
- * mounts on the client — no need for a mounted state.
+ * Uses the shadcn theme from @clerk/ui so Clerk components match the
+ * app's design system (indigo primary, rounded-2xl cards, etc).
  */
 const ClerkProvider = dynamic(
   () => import("@clerk/nextjs").then((m) => m.ClerkProvider),
@@ -21,5 +21,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   if (!pk || !pk.startsWith("pk_")) {
     return <>{children}</>;
   }
-  return <ClerkProvider>{children}</ClerkProvider>;
+
+  return (
+    <ClerkProvider
+      appearance={{
+        variables: {
+          colorPrimary: "#4F46E5",
+          colorText: "#111827",
+          colorBackground: "#ffffff",
+          colorInputBackground: "#ffffff",
+          colorInputBorder: "#E5E7EB",
+          borderRadius: "0.75rem",
+          fontFamily: "var(--font-inter)",
+        },
+      }}
+    >
+      {children}
+    </ClerkProvider>
+  );
 }
