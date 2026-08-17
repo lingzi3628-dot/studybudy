@@ -142,24 +142,22 @@ export function Profile() {
           </div>
         )}
 
-        {/* Phase 5 — admin entry */}
-        {isAdmin && (
-          <button
-            onClick={() => setScreen("admin")}
-            className="mt-4 w-full p-4 flex items-center justify-between rounded-2xl bg-gradient-to-br from-slate-900 to-slate-700 text-white shadow-md hover:from-slate-800 hover:to-slate-600 transition"
-          >
-            <div className="flex items-center gap-3">
-              <span className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center">
-                <Shield className="w-4 h-4 text-white" />
-              </span>
-              <div className="text-left">
-                <p className="text-sm font-semibold">Admin Panel</p>
-                <p className="text-[11px] opacity-80">Manage users, AI providers, content & logs</p>
-              </div>
+        {/* Phase 6 — admin entry (separate auth; anyone can click, then must log in with admin creds) */}
+        <button
+          onClick={() => setScreen("adminLogin")}
+          className="mt-4 w-full p-4 flex items-center justify-between rounded-2xl bg-gradient-to-br from-slate-900 to-slate-700 text-white shadow-md hover:from-slate-800 hover:to-slate-600 transition"
+        >
+          <div className="flex items-center gap-3">
+            <span className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center">
+              <Shield className="w-4 h-4 text-white" />
+            </span>
+            <div className="text-left">
+              <p className="text-sm font-semibold">Admin Panel</p>
+              <p className="text-[11px] opacity-80">Separate admin login (email + password)</p>
             </div>
-            <ChevronRight className="w-4 h-4 opacity-60" />
-          </button>
-        )}
+          </div>
+          <ChevronRight className="w-4 h-4 opacity-60" />
+        </button>
 
         {/* API key (BYOK) */}
         <section className="mt-6">

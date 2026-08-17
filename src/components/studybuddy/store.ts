@@ -15,7 +15,9 @@ export type Screen =
   | "tutor"
   | "path"
   | "study"
-  | "admin";
+  | "admin"
+  | "adminLogin"
+  | "landing";
 
 export type CreateOption =
   | "upload"
@@ -66,11 +68,12 @@ interface AppState {
 const LS_KEY = "studybuddy_onboarded";
 
 // initialize from localStorage on client
+// Default initial screen: if onboarded → home; otherwise → landing (Phase 6)
 const initialOnboarded =
   typeof window !== "undefined" ? localStorage.getItem(LS_KEY) === "1" : false;
 
 export const useApp = create<AppState>((set) => ({
-  screen: initialOnboarded ? "home" : "onboarding",
+  screen: initialOnboarded ? "home" : "landing",
   setScreen: (s) => set({ screen: s }),
 
   activeStudySetId: null,

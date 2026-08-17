@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/admin-auth";
+import { requireAdminJwt as requireAdmin } from "@/lib/admin-session";
 import { db } from "@/lib/db";
 
 export const runtime = "nodejs";

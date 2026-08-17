@@ -320,3 +320,18 @@ model AdminLog {
   @@index([adminUserId])
   @@index([createdAt])
 }
+
+// ─────────────────────────────────────────────────────────────
+// Phase 6 — Custom admin auth (separate from Clerk)
+// ─────────────────────────────────────────────────────────────
+
+model AdminUser {
+  id            String   @id @default(uuid())
+  email         String   @unique
+  passwordHash  String   // bcrypt hash
+  name          String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([email])
+}

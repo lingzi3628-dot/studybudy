@@ -1,14 +1,23 @@
 import { NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/admin-auth";
+import { getOptionalAdminSession } from "@/lib/admin-session";
 
 export const runtime = "nodejs";
 
-/** GET /api/admin/check — returns 200 if user is admin, 403 otherwise. Used by client to show admin entry button. */
+/**
+ * GET /api/admin/check — returns whether the current request is authed
+ * as an admin (via the JWT cookie). Used by the client to decide whether
+ * to show the AdminLogin screen or skip straight to the dashboard.
+ *
+ * NOTE: This checks the ADMIN JWT cookie, NOT the Clerk user session.
+ * The two auth systems are fully separate per the Phase 6 spec.
+ */
 export async function GET() {
-  try {
-    await requireAdmin();
-    return NextResponse.json({ isAdmin: true });
-  } catch (e: any) {
-    return NextResponse.json({ isAdmin: false, error: e?.message }, { status: 403 });
+  const admin = await getOptionalAdminSession();
+  if (!admin) {
+    return NextResponse.json({ isAdmin: false }, { status: 403 });
   }
+  return NextResponse.json({
+    isAdmin: true,
+    admin: { id: admin.adminId, email: admin.adminEmail, name: admin.name },
+  });
 }
