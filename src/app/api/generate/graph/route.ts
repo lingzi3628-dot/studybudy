@@ -142,7 +142,7 @@ export async function POST(req: NextRequest) {
 
     const aiJson = await callAIJson<{
       explanation?: string;
-    }>(messages, apiKey);
+    }>(messages, apiKey, { userId: user.id, route: "/api/generate/graph" });
     explanation = aiJson.explanation ?? "";
   } catch (e: any) {
     refundRateLimit(user.id);

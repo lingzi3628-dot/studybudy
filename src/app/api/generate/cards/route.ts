@@ -85,7 +85,7 @@ export async function POST(req: NextRequest) {
         correct_index: number;
         explanation: string;
       }[];
-    }>(messages, apiKey);
+    }>(messages, apiKey, { userId: user.id, route: "/api/generate/cards" });
 
     // Respect what the caller actually asked for (AI sometimes ignores "0")
     const filteredFlashcards = numFlashcards > 0

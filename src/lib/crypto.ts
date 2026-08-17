@@ -32,8 +32,21 @@ export function decryptApiKey(stored: string | null | undefined): string {
     const ct = Buffer.from(ctHex, "hex");
     const decipher = createDecipheriv("aes-256-cbc", getKey(), iv);
     const decrypted = Buffer.concat([decipher.update(ct), decipher.final()]);
-    return decrypted.toString("utf8");
+    return decrypted.toString("utf-8");
   } catch {
     return "";
   }
+}
+
+/**
+ * Mask an API key for safe display in admin UI.
+ * Decrypts the stored `iv:ciphertext`, then returns `sk-****1234` style.
+ * If decryption fails or the stored value is empty, returns null.
+ */
+export function maskApiKey(storedEncrypted: string | null | undefined): string | null {
+  if (!storedEncrypted) return null;
+  const plain = decryptApiKey(storedEncrypted);
+  if (!plain) return null;
+  if (plain.length <= 8) return "•".repeat(plain.length);
+  return plain.slice(0, 3) + "•".repeat(Math.max(4, plain.length - 7)) + plain.slice(-4);
 }

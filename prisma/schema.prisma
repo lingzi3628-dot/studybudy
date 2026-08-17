@@ -21,14 +21,22 @@ model User {
   subjects          String[]
   ambitions         String[]
   learningLanguage  String   @default("English")
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  // Phase 5 — admin fields
+  role              String   @default("user") // 'user' | 'admin'
+  banned            Boolean  @default(false)
+  lastActive        DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   studySets       StudySet[]
   attempts        Attempt[]
   cardReviews     CardReview[]
   topicMastery    TopicMastery[]
   learningPaths   LearningPath[]
+  booksCreated    Book[]
+  topicsCreated   Topic[]
+  aiCallLogs      AiCallLog[]
+  adminLogs       AdminLog[]
 }
 
 model StudySet {
@@ -168,13 +176,22 @@ model Topic {
   description String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  // Phase 5 — content management
+  chapterId       String?  // link to a Chapter (if part of a Book)
+  published       Boolean  @default(false)
+  createdById     String?  // admin who created it
+  lessonContent   Json?    // cached AI lesson content
 
   studySets   StudySet[]
   cards       Card[]
   lessons     TopicLesson[]
+  chapter     Chapter?  @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  createdBy   User?     @relation(fields: [createdById], references: [id], onDelete: SetNull)
 
   @@unique([subject, name])
   @@index([subject])
+  @@index([chapterId])
+  @@index([published])
 }
 
 model TopicLesson {
@@ -189,4 +206,95 @@ model TopicLesson {
 
   @@unique([topicId, level])
   @@index([topicId])
+}
+
+// ─────────────────────────────────────────────────────────────
+// Phase 5 — Admin Panel & AI Provider Management
+// ─────────────────────────────────────────────────────────────
+
+model AiProvider {
+  id                  String   @id @default(uuid())
+  name                String
+  providerType        String   // 'openai' | 'glm' | 'gemini' | 'openrouter' | 'huggingface' | 'pollinations'
+  enabled             Boolean  @default(true)
+  apiKeyEncrypted     String?
+  baseUrl             String?
+  model               String?
+  maxTokens           Int      @default(2048)
+  costPer1kTokens     Float    @default(0)
+  isDefault           Boolean  @default(false)
+  priority            Int      @default(100) // lower = higher priority
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  aiCallLogs  AiCallLog[]
+
+  @@index([enabled, priority])
+}
+
+model Book {
+  id            String   @id @default(uuid())
+  title         String
+  description   String?
+  coverImageUrl String?
+  createdById   String?
+  published     Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  createdBy  User?      @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  chapters   Chapter[]
+
+  @@index([published])
+  @@index([createdById])
+}
+
+model Chapter {
+  id          String   @id @default(uuid())
+  bookId      String
+  title       String?
+  orderIndex  Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  book    Book    @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  topics  Topic[]
+
+  @@index([bookId])
+}
+
+model AiCallLog {
+  id                String   @id @default(uuid())
+  userId            String?
+  providerId        String?
+  providerType      String?
+  model             String?
+  promptTokens      Int?
+  completionTokens  Int?
+  totalTokens       Int?
+  cost              Float    @default(0)
+  status            String   // 'success' | 'error'
+  errorMessage      String?
+  route             String? // which API route made the call
+  createdAt         DateTime @default(now())
+
+  user      User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  provider  AiProvider?   @relation(fields: [providerId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([providerId])
+  @@index([createdAt])
+}
+
+model AdminLog {
+  id            String   @id @default(uuid())
+  adminUserId   String?
+  action        String
+  details       Json?
+  createdAt     DateTime @default(now())
+
+  adminUser  User?  @relation(fields: [adminUserId], references: [id], onDelete: SetNull)
+
+  @@index([adminUserId])
+  @@index([createdAt])
 }

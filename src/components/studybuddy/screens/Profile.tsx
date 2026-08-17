@@ -13,6 +13,7 @@ import {
   Check,
   Loader2,
   AlertCircle,
+  Shield,
 } from "lucide-react";
 import { useApp, resetOnboarding } from "../store";
 import { api } from "../api";
@@ -40,6 +41,7 @@ export function Profile() {
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -54,6 +56,14 @@ export function Profile() {
         const keyStatus = await api.hasApiKey();
         if (!mounted) return;
         setHasStoredApiKey(keyStatus.hasKey);
+
+        // Phase 5 — check if user is admin
+        try {
+          const r = await fetch("/api/admin/check");
+          if (mounted) setIsAdmin(r.ok);
+        } catch {
+          // not admin
+        }
       } catch (e) {
         // best-effort
       }
@@ -127,6 +137,25 @@ export function Profile() {
               <Sparkles className="w-3 h-3" /> Upgrade
             </button>
           </div>
+        )}
+
+        {/* Phase 5 — admin entry */}
+        {isAdmin && (
+          <button
+            onClick={() => setScreen("admin")}
+            className="mt-4 w-full p-4 flex items-center justify-between rounded-2xl bg-gradient-to-br from-slate-900 to-slate-700 text-white shadow-md hover:from-slate-800 hover:to-slate-600 transition"
+          >
+            <div className="flex items-center gap-3">
+              <span className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center">
+                <Shield className="w-4 h-4 text-white" />
+              </span>
+              <div className="text-left">
+                <p className="text-sm font-semibold">Admin Panel</p>
+                <p className="text-[11px] opacity-80">Manage users, AI providers, content & logs</p>
+              </div>
+            </div>
+            <ChevronRight className="w-4 h-4 opacity-60" />
+          </button>
         )}
 
         {/* API key (BYOK) */}

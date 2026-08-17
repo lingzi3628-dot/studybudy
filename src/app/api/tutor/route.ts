@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
   const apiKey = userRec?.encryptedApiKey ? decryptApiKey(userRec.encryptedApiKey) : null;
 
   try {
-    const reply = await callAI(messagesForAI, apiKey);
+    const reply = await callAI(messagesForAI, apiKey, { userId: user.id, route: "/api/tutor" });
     return NextResponse.json({
       reply,
       role: "assistant" as const,

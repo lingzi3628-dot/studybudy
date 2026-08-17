@@ -75,7 +75,7 @@ export async function POST(req: NextRequest) {
         resources: string[];
         assessment: string;
       }[];
-    }>(messages, apiKey);
+    }>(messages, apiKey, { userId: user.id, route: "/api/generate/learning-path" });
 
     const weeks = json.weeks ?? [];
 

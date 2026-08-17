@@ -14,7 +14,8 @@ export type Screen =
   | "language"
   | "tutor"
   | "path"
-  | "study";
+  | "study"
+  | "admin";
 
 export type CreateOption =
   | "upload"

@@ -1,76 +1,161 @@
 /**
- * AI helper.
+ * AI helper — unified entrypoint for all AI calls in the app.
  *
- * - Platform calls: use z-ai-web-dev-sdk (GLM, no key needed in sandbox).
- * - BYOK: when the user has set an encrypted_api_key, use OpenAI-compatible
- *   chat/completions endpoint with their key.
+ * Resolution order:
+ *   1. BYOK (if user has encrypted_api_key set → call OpenAI-compatible endpoint with their key)
+ *   2. Admin-configured providers (load from ai_providers table, try each in priority order)
+ *   3. Platform AI fallback (z-ai-web-dev-sdk, no key needed in sandbox)
  *
- * Both paths return the same shape: the raw content string from the model.
+ * Every call is logged to ai_call_logs (provider, model, tokens, cost, status).
  */
 import ZAI from "z-ai-web-dev-sdk";
+import { db } from "./db";
+import { decryptApiKey } from "./crypto";
+import { callWithProviders, logAiCall } from "./ai-providers";
 
 export type ChatRole = "system" | "user" | "assistant";
 export type ChatMessage = { role: ChatRole; content: string };
 
 /**
- * Call the platform AI (z-ai-web-dev-sdk / GLM).
- * Returns the assistant's message content as a string.
+ * Call the platform AI (z-ai-web-dev-sdk / GLM) — sandbox fallback.
+ * Logs to ai_call_logs with providerType='glm'.
  */
-export async function callPlatformAI(messages: ChatMessage[]): Promise<string> {
-  const client = await ZAI.create();
-  const completion = await client.chat.completions.create({
-    messages,
-    // let the SDK choose the default model
-  } as any);
-  // OpenAI-compatible response shape
-  const content: string =
-    completion?.choices?.[0]?.message?.content ??
-    completion?.choices?.[0]?.delta?.content ??
-    "";
-  if (!content) throw new Error("AI returned an empty response");
+async function callPlatformAI(
+  messages: ChatMessage[],
+  ctx: { userId: string; route?: string }
+): Promise<string> {
+  let content = "";
+  let errorMessage: string | null = null;
+  try {
+    const client = await ZAI.create();
+    const completion = await client.chat.completions.create({
+      messages,
+    } as any);
+    content =
+      completion?.choices?.[0]?.message?.content ??
+      completion?.choices?.[0]?.delta?.content ??
+      "";
+    if (!content) errorMessage = "Empty response from platform AI";
+  } catch (e: any) {
+    errorMessage = e?.message ?? String(e);
+  }
+
+  // log the call (best-effort)
+  await logAiCall(ctx.userId, {
+    content,
+    providerId: null,
+    providerType: "glm",
+    model: "glm-default",
+    promptTokens: null,
+    completionTokens: null,
+    totalTokens: null,
+    cost: 0,
+    status: content ? "success" : "error",
+    errorMessage,
+  }, ctx.route);
+
+  if (!content) {
+    throw new Error(errorMessage ?? "Platform AI returned empty response");
+  }
   return content;
 }
 
 /**
  * Call an OpenAI-compatible endpoint with the user's BYOK key.
+ * Logs to ai_call_logs with providerType='byok'.
  */
-export async function callBYOKAI(
+async function callBYOKAI(
   messages: ChatMessage[],
   apiKey: string,
-  opts: { baseUrl?: string; model?: string } = {}
+  opts: { baseUrl?: string; model?: string; userId: string; route?: string }
 ): Promise<string> {
   const baseUrl = (opts.baseUrl || "https://api.openai.com/v1").replace(/\/$/, "");
   const model = opts.model || "gpt-4o-mini";
-  const res = await fetch(`${baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({ model, messages, temperature: 0.7 }),
-  });
-  if (!res.ok) {
-    const txt = await res.text().catch(() => "");
-    throw new Error(`BYOK AI call failed (${res.status}): ${txt.slice(0, 200)}`);
+  let content = "";
+  let errorMessage: string | null = null;
+  let usage: any = null;
+
+  try {
+    const res = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({ model, messages, temperature: 0.7 }),
+    });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => "");
+      errorMessage = `HTTP ${res.status}: ${txt.slice(0, 200)}`;
+    } else {
+      const data = await res.json();
+      content = data?.choices?.[0]?.message?.content ?? "";
+      usage = data?.usage;
+      if (!content) errorMessage = "Empty response from BYOK AI";
+    }
+  } catch (e: any) {
+    errorMessage = e?.message ?? String(e);
   }
-  const data = await res.json();
-  const content: string = data?.choices?.[0]?.message?.content ?? "";
-  if (!content) throw new Error("BYOK AI returned an empty response");
+
+  // log the call
+  await logAiCall(opts.userId, {
+    content,
+    providerId: null,
+    providerType: "byok",
+    model,
+    promptTokens: usage?.prompt_tokens ?? null,
+    completionTokens: usage?.completion_tokens ?? null,
+    totalTokens: usage?.total_tokens ?? null,
+    cost: 0,
+    status: content ? "success" : "error",
+    errorMessage,
+  }, opts.route);
+
+  if (!content) {
+    throw new Error(errorMessage ?? "BYOK AI returned empty response");
+  }
   return content;
 }
 
 /**
- * Unified entrypoint. If userApiKey is provided, use BYOK path.
- * Otherwise fall back to platform AI.
+ * Unified entrypoint.
+ *
+ * 1. If userApiKey is provided (BYOK), use it via OpenAI-compatible fetch.
+ * 2. Else try admin-configured providers in priority order.
+ * 3. Else fall back to z-ai-web-dev-sdk (platform).
  */
 export async function callAI(
   messages: ChatMessage[],
-  userApiKey?: string | null
+  userApiKey?: string | null,
+  ctx?: { userId?: string; route?: string }
 ): Promise<string> {
+  // Pull the user ID from ctx, or fall back to a sentinel "system" id
+  const userId = ctx?.userId ?? "system";
+  const route = ctx?.route;
+
+  // 1) BYOK
   if (userApiKey && userApiKey.trim()) {
-    return callBYOKAI(messages, userApiKey.trim());
+    try {
+      return await callBYOKAI(messages, userApiKey.trim(), {
+        userId,
+        route,
+      });
+    } catch (e) {
+      // fall through to admin providers
+      console.warn("BYOK call failed, falling back to admin providers:", e?.message ?? e);
+    }
   }
-  return callPlatformAI(messages);
+
+  // 2) Admin-configured providers
+  try {
+    const r = await callWithProviders(messages, { userId, route });
+    if (r.content) return r.content;
+  } catch (e) {
+    console.warn("Admin provider call failed:", e?.message ?? e);
+  }
+
+  // 3) Platform fallback
+  return callPlatformAI(messages, { userId, route });
 }
 
 /**
@@ -78,9 +163,10 @@ export async function callAI(
  */
 export async function callAIJson<T = unknown>(
   messages: ChatMessage[],
-  userApiKey?: string | null
+  userApiKey?: string | null,
+  ctx?: { userId?: string; route?: string }
 ): Promise<T> {
-  const raw = await callAI(messages, userApiKey);
+  const raw = await callAI(messages, userApiKey, ctx);
   return parseJsonLoose<T>(raw);
 }
 
@@ -97,3 +183,6 @@ export function parseJsonLoose<T = unknown>(raw: string): T {
   if (lastObj >= 0) s = s.slice(0, lastObj + 1);
   return JSON.parse(s) as T;
 }
+
+// Backwards-compat exports (Phase 2-4 import callPlatformAI and callBYOKAI directly)
+export { callPlatformAI, callBYOKAI };

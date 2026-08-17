@@ -82,7 +82,7 @@ export async function POST(req: NextRequest, { params }: Params) {
       steps?: { explanation: string; expression: string }[];
       finalAnswer?: string;
       check?: string;
-    }>(messages, apiKey);
+    }>(messages, apiKey, { userId: user.id, route: "/api/topics/[id]/solver" });
 
     return NextResponse.json({
       problem: json.problem ?? problem,

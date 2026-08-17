@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
     const json = await callAIJson<{
       translation?: string;
       pronunciation?: string;
-    }>(messages, apiKey);
+    }>(messages, apiKey, { userId: user.id, route: "/api/language/translate" });
     return NextResponse.json({
       original: text,
       targetLanguage,

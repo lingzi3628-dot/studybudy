@@ -110,7 +110,7 @@ export async function POST(req: NextRequest, { params }: Params) {
       examples?: { title: string; problem: string; steps: string[]; answer: string }[];
       formulas?: string[];
       summary?: string;
-    }>(messages, apiKey);
+    }>(messages, apiKey, { userId: user.id, route: "/api/topics/[id]/lesson" });
 
     // Cache the lesson
     const saved = await db.topicLesson.upsert({
