@@ -1,0 +1,62 @@
+"use client";
+
+import { useApp } from "@/components/studybuddy/store";
+import { TopBar, DesktopTopBar } from "@/components/studybuddy/TopBar";
+import { BottomNav, Sidebar } from "@/components/studybuddy/BottomNav";
+import { CreateModal } from "@/components/studybuddy/screens/CreateModal";
+import { Onboarding } from "@/components/studybuddy/screens/Onboarding";
+import { Home } from "@/components/studybuddy/screens/Home";
+import { Search } from "@/components/studybuddy/screens/Search";
+import { Progress } from "@/components/studybuddy/screens/Progress";
+import { Profile } from "@/components/studybuddy/screens/Profile";
+import { Flashcards } from "@/components/studybuddy/screens/Flashcards";
+import { Quiz } from "@/components/studybuddy/screens/Quiz";
+import { GraphExplorer } from "@/components/studybuddy/screens/GraphExplorer";
+import { LanguagePractice } from "@/components/studybuddy/screens/LanguagePractice";
+
+export default function Page() {
+  const { screen } = useApp();
+
+  // Immersive study modes have their own full-screen layout (no top bar / bottom nav).
+  const immersive = ["flashcards", "quiz", "graph", "language"];
+
+  if (screen === "onboarding") {
+    return (
+      <div className="min-h-screen bg-gray-50 text-gray-900">
+        <Onboarding />
+        <CreateModal />
+      </div>
+    );
+  }
+
+  if (immersive.includes(screen)) {
+    return (
+      <div className="min-h-screen bg-gray-50 text-gray-900">
+        {screen === "flashcards" && <Flashcards />}
+        {screen === "quiz" && <Quiz />}
+        {screen === "graph" && <GraphExplorer />}
+        {screen === "language" && <LanguagePractice />}
+        <CreateModal />
+      </div>
+    );
+  }
+
+  // Tabbed screens — sidebar on desktop, top bar + bottom nav on mobile
+  return (
+    <div className="min-h-screen bg-gray-50 text-gray-900">
+      <Sidebar />
+      <div className="md:pl-60">
+        <TopBar />
+        <DesktopTopBar />
+        <main>
+          {screen === "home" && <Home />}
+          {screen === "search" && <Search />}
+          {screen === "progress" && <Progress />}
+          {screen === "profile" && <Profile />}
+        </main>
+      </div>
+      <BottomNav />
+      <CreateModal />
+    </div>
+  );
+}

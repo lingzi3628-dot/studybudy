@@ -1,0 +1,97 @@
+"use client";
+
+import { create } from "zustand";
+
+export type Screen =
+  | "onboarding"
+  | "home"
+  | "search"
+  | "progress"
+  | "profile"
+  | "flashcards"
+  | "quiz"
+  | "graph"
+  | "language";
+
+export type CreateOption =
+  | "upload"
+  | "paste"
+  | "flashcards"
+  | "quiz"
+  | "graph"
+  | "tutor"
+  | "path"
+  | null;
+
+interface AppState {
+  // navigation
+  screen: Screen;
+  setScreen: (s: Screen) => void;
+
+  // active study set (for quiz mode etc)
+  activeStudySetId: string | null;
+  setActiveStudySetId: (id: string | null) => void;
+
+  // create modal
+  createOpen: boolean;
+  openCreate: (option?: CreateOption) => void;
+  closeCreate: () => void;
+  createOption: CreateOption;
+
+  // onboarding completion (persists in localStorage)
+  onboarded: boolean;
+  completeOnboarding: () => void;
+
+  // profile settings
+  darkMode: boolean;
+  notifications: boolean;
+  toggleDarkMode: () => void;
+  toggleNotifications: () => void;
+  apiKey: string;
+  hasStoredApiKey: boolean;
+  setApiKey: (v: string) => void;
+  setHasStoredApiKey: (v: boolean) => void;
+  languageOfInstruction: string;
+  setLanguageOfInstruction: (v: string) => void;
+}
+
+const LS_KEY = "studybuddy_onboarded";
+
+// initialize from localStorage on client
+const initialOnboarded =
+  typeof window !== "undefined" ? localStorage.getItem(LS_KEY) === "1" : false;
+
+export const useApp = create<AppState>((set) => ({
+  screen: initialOnboarded ? "home" : "onboarding",
+  setScreen: (s) => set({ screen: s }),
+
+  activeStudySetId: null,
+  setActiveStudySetId: (id) => set({ activeStudySetId: id }),
+
+  createOpen: false,
+  createOption: null,
+  openCreate: (option = null) => set({ createOpen: true, createOption: option }),
+  closeCreate: () => set({ createOpen: false, createOption: null }),
+
+  onboarded: initialOnboarded,
+  completeOnboarding: () => {
+    if (typeof window !== "undefined") localStorage.setItem(LS_KEY, "1");
+    set({ onboarded: true, screen: "home" });
+  },
+
+  darkMode: false,
+  notifications: true,
+  toggleDarkMode: () => set((s) => ({ darkMode: !s.darkMode })),
+  toggleNotifications: () => set((s) => ({ notifications: !s.notifications })),
+  apiKey: "",
+  hasStoredApiKey: false,
+  setApiKey: (v) => set({ apiKey: v }),
+  setHasStoredApiKey: (v) => set({ hasStoredApiKey: v }),
+  languageOfInstruction: "English",
+  setLanguageOfInstruction: (v) => set({ languageOfInstruction: v }),
+}));
+
+export function resetOnboarding() {
+  if (typeof window !== "undefined") localStorage.removeItem(LS_KEY);
+  useApp.setState({ onboarded: false, screen: "onboarding" });
+}

@@ -1,0 +1,152 @@
+// Prisma schema for StudyBuddy AI on Neon Postgres
+// Learn more: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                String   @id @default(uuid())
+  clerkUserId       String   @unique
+  email             String?  @unique
+  name              String?
+  plan              String   @default("free")
+  encryptedApiKey   String?
+  grade             String?
+  subjects          String[]
+  ambitions         String[]
+  learningLanguage  String   @default("English")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  studySets       StudySet[]
+  attempts        Attempt[]
+  cardReviews     CardReview[]
+  topicMastery    TopicMastery[]
+  learningPaths   LearningPath[]
+}
+
+model StudySet {
+  id          String   @id @default(uuid())
+  userId      String
+  title       String
+  sourceType  String   @default("text") // 'text' | 'pdf' | 'image'
+  sourceText  String?
+  subject     String?
+  topic       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cards  Card[]
+
+  @@index([userId])
+}
+
+model Card {
+  id            String   @id @default(uuid())
+  setId         String
+  cardType      String   // 'flashcard' | 'mcq'
+  front         String?
+  back          String?
+  question      String?
+  options       Json?
+  correctIndex  Int?
+  explanation   String?
+  subject       String?
+  topic         String?
+  createdAt     DateTime @default(now())
+
+  set          StudySet    @relation(fields: [setId], references: [id], onDelete: Cascade)
+  attempts     Attempt[]
+  cardReviews  CardReview[]
+
+  @@index([setId])
+  @@index([subject, topic])
+}
+
+model Attempt {
+  id              String   @id @default(uuid())
+  userId          String
+  cardId          String
+  selectedIndex   Int?
+  isCorrect       Boolean?
+  responseTimeMs  Int?
+  createdAt       DateTime @default(now())
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  card  Card  @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([cardId])
+  @@index([userId, cardId])
+}
+
+model CardReview {
+  id              String   @id @default(uuid())
+  userId          String
+  cardId          String
+  easeFactor      Float    @default(2.5)
+  intervalDays    Float    @default(0)
+  repetitions     Int      @default(0)
+  dueDate         DateTime @default(now())
+  lapses          Int      @default(0)
+  lastReviewDate  DateTime?
+  createdAt       DateTime @default(now())
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  card  Card  @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, cardId])
+  @@index([userId, dueDate])
+}
+
+model TopicMastery {
+  id               String   @id @default(uuid())
+  userId           String
+  subject          String
+  topic            String
+  masteryLevel     Float    @default(0) // 0..1
+  totalAttempts    Int      @default(0)
+  correctAttempts  Int      @default(0)
+  lastUpdated      DateTime @default(now())
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, subject, topic])
+  @@index([userId])
+}
+
+model LearningPath {
+  id         String   @id @default(uuid())
+  userId     String
+  skill      String
+  level      String
+  goal       String?
+  roadmap    Json
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lessons  Lesson[]
+
+  @@index([userId])
+}
+
+model Lesson {
+  id          String   @id @default(uuid())
+  pathId      String
+  title       String
+  content     String?
+  orderIndex  Int      @default(0)
+  completed   Boolean  @default(false)
+
+  path  LearningPath  @relation(fields: [pathId], references: [id], onDelete: Cascade)
+
+  @@index([pathId])
+}
