@@ -1,7 +1,27 @@
 "use client";
 
 import { useState } from "react";
-import { X, Pencil, Bot, ListChecks, Loader2, AlertCircle, Activity } from "lucide-react";
+import {
+  X,
+  Pencil,
+  Bot,
+  ListChecks,
+  Loader2,
+  AlertCircle,
+  Activity,
+  Save,
+  Check,
+} from "lucide-react";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  ReferenceLine,
+} from "recharts";
 import { useApp } from "../store";
 import { api, type GraphResult } from "../api";
 
@@ -11,6 +31,7 @@ export function GraphExplorer() {
   const [result, setResult] = useState<GraphResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [savedToast, setSavedToast] = useState(false);
 
   const draw = async () => {
     if (!equation.trim()) return;
@@ -27,33 +48,38 @@ export function GraphExplorer() {
     }
   };
 
-  // graph bounds: x in [-5, 5], y derived from sample points
-  const points = result?.samplePoints ?? [];
-  const yMin = points.length ? Math.min(...points.map((p) => p.y)) : -10;
-  const yMax = points.length ? Math.max(...points.map((p) => p.y)) : 10;
-  const yPad = (yMax - yMin) * 0.1 || 1;
-  const yLo = yMin - yPad;
-  const yHi = yMax + yPad;
-  const xLo = -5;
-  const xHi = 5;
+  const saveAsStudySet = async () => {
+    if (!result) return;
+    try {
+      await api.saveGraphAsStudySet({
+        equation: result.equation,
+        explanation: result.explanation,
+        subject: "Mathematics",
+        topic: "Graphs",
+      });
+      setSavedToast(true);
+      setTimeout(() => setSavedToast(false), 2500);
+    } catch (e: any) {
+      setError(e?.message ?? "Save failed");
+    }
+  };
 
-  // convert (x, y) → SVG coords
-  const toX = (x: number) => ((x - xLo) / (xHi - xLo)) * 100;
-  const toY = (y: number) => 100 - ((y - yLo) / (yHi - yLo)) * 100;
+  const generateQuizFromGraph = () => {
+    // Drop the user on the Create modal in "quiz" mode, prefilled with the equation as the topic
+    // For Phase 3 simplicity, just route to Create modal where they can choose Generate Quiz
+    setScreen("home");
+    setTimeout(() => useApp.getState().openCreate("quiz"), 100);
+  };
 
-  const pathD = points.length
-    ? points
-        .map((p, i) => {
-          const sx = toX(p.x);
-          const sy = toY(p.y);
-          return `${i === 0 ? "M" : "L"}${sx.toFixed(2)},${sy.toFixed(2)}`;
-        })
-        .join(" ")
-    : "";
+  // chart data
+  const chartData = (result?.samplePoints ?? []).map((p) => ({ x: p.x, y: p.y }));
+  const yValues = chartData.map((p) => p.y);
+  const yMin = yValues.length ? Math.min(...yValues) : -10;
+  const yMax = yValues.length ? Math.max(...yValues) : 10;
+  const yPad = Math.max(1, (yMax - yMin) * 0.1);
 
   return (
     <div className="min-h-screen bg-gray-50 max-w-5xl mx-auto flex flex-col">
-      {/* top bar */}
       <header className="bg-white border-b border-gray-200 px-4 h-14 flex items-center justify-between sticky top-0 z-10">
         <button
           onClick={() => setScreen("home")}
@@ -75,7 +101,7 @@ export function GraphExplorer() {
               value={equation}
               onChange={(e) => setEquation(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && draw()}
-              placeholder="e.g. y = 2x + 3"
+              placeholder="e.g. y = 2x + 3 or y = x^2 - 4"
               className="flex-1 p-3 rounded-2xl border border-gray-200 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
             />
             <button
@@ -86,6 +112,9 @@ export function GraphExplorer() {
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Pencil className="w-4 h-4" />} Draw
             </button>
           </div>
+          <p className="mt-1 text-[11px] text-gray-400">
+            Try: <code className="bg-gray-100 px-1 rounded">y = 2x + 3</code>, <code className="bg-gray-100 px-1 rounded">y = x^2 - 4</code>, <code className="bg-gray-100 px-1 rounded">y = sin(x)</code>
+          </p>
         </div>
 
         {error && (
@@ -95,7 +124,7 @@ export function GraphExplorer() {
           </div>
         )}
 
-        {/* graph area */}
+        {/* graph */}
         <div className="rounded-2xl bg-white border border-gray-200 p-4 shadow-sm">
           <div className="flex items-center justify-between mb-3">
             <p className="text-sm font-semibold text-gray-900">
@@ -107,95 +136,131 @@ export function GraphExplorer() {
               </span>
             )}
           </div>
-          <div className="relative w-full h-56 md:h-72 rounded-xl bg-gray-50 border border-gray-200 overflow-hidden">
-            {/* grid */}
-            <div
-              className="absolute inset-0"
-              style={{
-                backgroundImage:
-                  "linear-gradient(to right, #E5E7EB 1px, transparent 1px), linear-gradient(to bottom, #E5E7EB 1px, transparent 1px)",
-                backgroundSize: "10% 10%",
-              }}
-            />
-            {/* axes */}
-            {toY(0) >= 0 && toY(0) <= 100 && (
-              <div className="absolute left-0 right-0 bg-gray-400" style={{ top: `${toY(0)}%`, height: "1px" }} />
+
+          <div className="h-72 md:h-80 w-full">
+            {chartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 20 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+                  <XAxis
+                    dataKey="x"
+                    type="number"
+                    domain={[-10, 10]}
+                    ticks={[-10, -8, -6, -4, -2, 0, 2, 4, 6, 8, 10]}
+                    stroke="#9CA3AF"
+                    fontSize={11}
+                    label={{ value: "x", position: "insideBottom", offset: -10, fill: "#6B7280" }}
+                  />
+                  <YAxis
+                    domain={[yMin - yPad, yMax + yPad]}
+                    stroke="#9CA3AF"
+                    fontSize={11}
+                    label={{ value: "y", angle: -90, position: "insideLeft", fill: "#6B7280" }}
+                  />
+                  <Tooltip
+                    formatter={(value: any) => [Number(value).toFixed(2), "y"]}
+                    labelFormatter={(label: any) => `x = ${Number(label).toFixed(2)}`}
+                    contentStyle={{ borderRadius: 12, border: "1px solid #E5E7EB", fontSize: 12 }}
+                  />
+                  <ReferenceLine x={0} stroke="#9CA3AF" strokeDasharray="2 2" />
+                  <ReferenceLine y={0} stroke="#9CA3AF" strokeDasharray="2 2" />
+                  <Line
+                    type="monotone"
+                    dataKey="y"
+                    stroke="#4F46E5"
+                    strokeWidth={2.5}
+                    dot={false}
+                    isAnimationActive={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex items-center justify-center text-gray-400 text-sm">
+                Type an equation and tap Draw to see the graph
+              </div>
             )}
-            {toX(0) >= 0 && toX(0) <= 100 && (
-              <div className="absolute top-0 bottom-0 bg-gray-400" style={{ left: `${toX(0)}%`, width: "1px" }} />
-            )}
-            {/* line via SVG (viewBox 0..100) */}
-            <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
-              {pathD && (
-                <path d={pathD} fill="none" stroke="#4F46E5" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
-              )}
-              {points.length > 0 && (
-                <circle cx={toX(0)} cy={toY(result?.yIntercept ?? 0)} r="0.6" fill="#4F46E5" vectorEffect="non-scaling-stroke" />
-              )}
-            </svg>
-            {/* axis labels */}
-            <span className="absolute top-1 right-1 text-[10px] text-gray-400 font-medium">x</span>
-            <span className="absolute top-1 left-1 text-[10px] text-gray-400 font-medium">y</span>
           </div>
         </div>
 
-        {/* AI explanation */}
+        {/* AI explanation + properties */}
         {result && (
-          <div className="rounded-2xl bg-white border border-gray-200 p-4 shadow-sm max-w-2xl">
-            <div className="flex items-center gap-2 mb-2">
-              <span className="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center">
-                <Bot className="w-3.5 h-3.5 text-white" />
-              </span>
-              <span className="text-xs font-semibold uppercase tracking-wide text-indigo-600">AI Explanation</span>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="md:col-span-2 rounded-2xl bg-white border border-gray-200 p-4 shadow-sm">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center">
+                  <Bot className="w-3.5 h-3.5 text-white" />
+                </span>
+                <span className="text-xs font-semibold uppercase tracking-wide text-indigo-600">
+                  AI Explanation
+                </span>
+              </div>
+              <p className="text-sm text-gray-700 leading-relaxed">{result.explanation}</p>
             </div>
-            <p className="text-sm text-gray-700 leading-relaxed">{result.explanation}</p>
-            <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+
+            <div className="rounded-2xl bg-white border border-gray-200 p-4 shadow-sm space-y-2 text-xs">
+              <p className="font-semibold text-gray-500 uppercase tracking-wide">Properties</p>
               {result.slope !== null && (
-                <div className="p-2 rounded-lg bg-gray-50">
-                  <p className="text-gray-500">Slope</p>
-                  <p className="font-semibold text-gray-900">{result.slope}</p>
+                <div className="flex items-center justify-between p-2 rounded-lg bg-gray-50">
+                  <span className="text-gray-500">Slope</span>
+                  <span className="font-semibold text-gray-900">{result.slope}</span>
                 </div>
               )}
               {result.yIntercept !== null && (
-                <div className="p-2 rounded-lg bg-gray-50">
-                  <p className="text-gray-500">Y-intercept</p>
-                  <p className="font-semibold text-gray-900">{result.yIntercept}</p>
+                <div className="flex items-center justify-between p-2 rounded-lg bg-gray-50">
+                  <span className="text-gray-500">Y-intercept</span>
+                  <span className="font-semibold text-gray-900">{result.yIntercept}</span>
                 </div>
               )}
               {result.vertex && (
-                <div className="p-2 rounded-lg bg-gray-50">
-                  <p className="text-gray-500">Vertex</p>
-                  <p className="font-semibold text-gray-900">
+                <div className="flex items-center justify-between p-2 rounded-lg bg-gray-50">
+                  <span className="text-gray-500">Vertex</span>
+                  <span className="font-semibold text-gray-900">
                     ({result.vertex.x}, {result.vertex.y})
-                  </p>
+                  </span>
                 </div>
               )}
-              <div className="p-2 rounded-lg bg-gray-50">
-                <p className="text-gray-500">Sample points</p>
-                <p className="font-semibold text-gray-900 flex items-center gap-1">
+              <div className="flex items-center justify-between p-2 rounded-lg bg-gray-50">
+                <span className="text-gray-500">Sample points</span>
+                <span className="font-semibold text-gray-900 flex items-center gap-1">
                   <Activity className="w-3 h-3" /> {result.samplePoints.length}
-                </p>
+                </span>
               </div>
             </div>
           </div>
         )}
 
         {/* actions */}
-        <div className="grid grid-cols-2 gap-3 max-w-2xl">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-2xl">
           <button
-            onClick={() => setScreen("search")}
-            className="h-11 rounded-2xl bg-white border border-gray-200 text-sm font-medium text-gray-700 flex items-center justify-center gap-1.5 shadow-sm hover:border-indigo-300"
+            onClick={saveAsStudySet}
+            disabled={!result}
+            className="h-11 rounded-2xl bg-white border border-gray-200 text-sm font-medium text-gray-700 flex items-center justify-center gap-1.5 shadow-sm hover:border-indigo-300 disabled:opacity-50"
           >
-            <Bot className="w-4 h-4 text-indigo-600" /> Ask about this graph
+            <Save className="w-4 h-4 text-indigo-600" /> Save as study set
           </button>
           <button
-            onClick={() => setScreen("quiz")}
-            className="h-11 rounded-2xl bg-white border border-gray-200 text-sm font-medium text-gray-700 flex items-center justify-center gap-1.5 shadow-sm hover:border-indigo-300"
+            onClick={() => setScreen("tutor")}
+            disabled={!result}
+            className="h-11 rounded-2xl bg-white border border-gray-200 text-sm font-medium text-gray-700 flex items-center justify-center gap-1.5 shadow-sm hover:border-indigo-300 disabled:opacity-50"
+          >
+            <Bot className="w-4 h-4 text-rose-600" /> Ask about graph
+          </button>
+          <button
+            onClick={generateQuizFromGraph}
+            disabled={!result}
+            className="h-11 rounded-2xl bg-white border border-gray-200 text-sm font-medium text-gray-700 flex items-center justify-center gap-1.5 shadow-sm hover:border-indigo-300 disabled:opacity-50"
           >
             <ListChecks className="w-4 h-4 text-emerald-600" /> Generate quiz
           </button>
         </div>
       </div>
+
+      {/* saved toast */}
+      {savedToast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-emerald-500 text-white px-4 py-2 rounded-full text-sm font-semibold shadow-lg flex items-center gap-1.5 animate-in slide-in-from-bottom-4">
+          <Check className="w-4 h-4" /> Saved to your study sets
+        </div>
+      )}
     </div>
   );
 }

@@ -43,11 +43,17 @@ export async function POST(req: NextRequest) {
     ? decryptApiKey(userRec.encryptedApiKey)
     : null;
 
+  // Build the "what to generate" phrase so the AI doesn't see "0 flashcards"
+  const flashcardPart = numFlashcards > 0 ? `${numFlashcards} flashcards` : "";
+  const mcqPart = numMCQs > 0 ? `${numMCQs} multiple-choice questions` : "";
+  const parts = [flashcardPart, mcqPart].filter(Boolean).join(" and ");
+  const whatToGenerate = parts || "study cards";
+
   const messages: ChatMessage[] = [
     {
       role: "system",
       content:
-        `You are an expert exam prep tutor. Based on the following study material, generate ${numFlashcards} flashcards and ${numMCQs} multiple-choice questions.\n` +
+        `You are an expert exam prep tutor. Based on the following study material, generate ${whatToGenerate}.\n` +
         `Subject: ${subject ?? "General"}\nTopic: ${topic ?? "General"}\n` +
         "Return ONLY valid JSON in this format:\n" +
         JSON.stringify(
@@ -64,7 +70,8 @@ export async function POST(req: NextRequest) {
           },
           null,
           2
-        ),
+        ) +
+        "\nIf you were asked for only flashcards, return an empty `mcqs` array. If asked for only MCQs, return an empty `flashcards` array.",
     },
     { role: "user", content: "Study material:\n\n" + text.slice(0, 12_000) },
   ];
@@ -80,9 +87,17 @@ export async function POST(req: NextRequest) {
       }[];
     }>(messages, apiKey);
 
+    // Respect what the caller actually asked for (AI sometimes ignores "0")
+    const filteredFlashcards = numFlashcards > 0
+      ? (json.flashcards ?? []).slice(0, numFlashcards)
+      : [];
+    const filteredMcqs = numMCQs > 0
+      ? (json.mcqs ?? []).slice(0, numMCQs)
+      : [];
+
     return NextResponse.json({
-      flashcards: json.flashcards ?? [],
-      mcqs: json.mcqs ?? [],
+      flashcards: filteredFlashcards,
+      mcqs: filteredMcqs,
       remaining: rl.remaining,
     });
   } catch (e: any) {

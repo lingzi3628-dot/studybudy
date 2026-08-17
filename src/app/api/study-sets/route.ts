@@ -47,6 +47,16 @@ export async function POST(req: NextRequest) {
   let generate = true;
   let numFlashcards = 6;
   let numMCQs = 4;
+  // Phase 3: optional pre-generated cards from the preview step
+  let preGeneratedCards: Array<{
+    cardType: string;
+    front?: string | null;
+    back?: string | null;
+    question?: string | null;
+    options?: string[] | null;
+    correctIndex?: number | null;
+    explanation?: string | null;
+  }> = [];
 
   if (contentType.includes("multipart/form-data")) {
     const form = await req.formData();
@@ -72,6 +82,10 @@ export async function POST(req: NextRequest) {
     subject = body.subject ?? null;
     topic = body.topic ?? null;
     generate = body.generate !== false;
+    if (Array.isArray(body.cards) && body.cards.length) {
+      preGeneratedCards = body.cards;
+      generate = false; // skip AI when caller provided cards
+    }
     if (body.numFlashcards) numFlashcards = Number(body.numFlashcards);
     if (body.numMCQs) numMCQs = Number(body.numMCQs);
   }
@@ -97,7 +111,23 @@ export async function POST(req: NextRequest) {
 
   let cards: Awaited<ReturnType<typeof db.card.createMany>> | { count: number } = { count: 0 };
 
-  if (generate && sourceText.trim()) {
+  // Phase 3: if caller pre-generated cards via /api/generate/cards and edited them in preview,
+  // persist those directly (no AI call, no rate-limit cost).
+  if (preGeneratedCards.length) {
+    const rows = preGeneratedCards.map((c) => ({
+      setId: studySet.id,
+      cardType: c.cardType,
+      front: c.front ?? null,
+      back: c.back ?? null,
+      question: c.question ?? null,
+      options: c.options ?? null,
+      correctIndex: c.correctIndex ?? null,
+      explanation: c.explanation ?? null,
+      subject,
+      topic,
+    }));
+    await db.card.createMany({ data: rows });
+  } else if (generate && sourceText.trim()) {
     // rate limit
     const rl = checkRateLimit(user.id, user.plan);
     if (!rl.allowed) {
@@ -124,8 +154,8 @@ export async function POST(req: NextRequest) {
       {
         role: "system",
         content:
-          "You are an expert exam prep tutor. Based on the following study material, generate " +
-          `${numFlashcards} flashcards and ${numMCQs} multiple-choice questions. ` +
+          `You are an expert exam prep tutor. Based on the following study material, generate ${[numFlashcards > 0 ? `${numFlashcards} flashcards` : "", numMCQs > 0 ? `${numMCQs} multiple-choice questions` : ""].filter(Boolean).join(" and ") || "study cards"}.\n` +
+          `Subject: ${subject ?? "General"}\nTopic: ${topic ?? "General"}\n` +
           "Return ONLY valid JSON in this format:\n" +
           JSON.stringify(
             {
@@ -143,7 +173,8 @@ export async function POST(req: NextRequest) {
             },
             null,
             2
-          ),
+          ) +
+          "\nIf asked for only flashcards, return an empty `mcqs` array. If only MCQs, return an empty `flashcards` array.",
       },
       {
         role: "user",
@@ -162,8 +193,9 @@ export async function POST(req: NextRequest) {
         }[];
       }>(messages, apiKey);
 
-      const flashcards = (json.flashcards ?? []).slice(0, numFlashcards);
-      const mcqs = (json.mcqs ?? []).slice(0, numMCQs);
+      // Respect what was requested (filter out extras if AI ignored "0")
+      const flashcards = numFlashcards > 0 ? (json.flashcards ?? []).slice(0, numFlashcards) : [];
+      const mcqs = numMCQs > 0 ? (json.mcqs ?? []).slice(0, numMCQs) : [];
 
       const rows: Array<{
         setId: string;

@@ -60,9 +60,9 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // sample points across [-5, 5]
+  // sample points across [-10, 10] in 0.5 steps (41 points)
   const samplePoints: { x: number; y: number }[] = [];
-  for (let i = -5; i <= 5; i += 0.5) {
+  for (let i = -10; i <= 10; i += 0.5) {
     try {
       const y = node.evaluate({ x: i });
       if (typeof y === "number" && Number.isFinite(y)) {

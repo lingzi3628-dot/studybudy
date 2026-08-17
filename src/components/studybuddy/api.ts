@@ -200,6 +200,15 @@ export const api = {
     generate?: boolean;
     numFlashcards?: number;
     numMCQs?: number;
+    cards?: Array<{
+      cardType: "flashcard" | "mcq";
+      front?: string | null;
+      back?: string | null;
+      question?: string | null;
+      options?: string[] | null;
+      correctIndex?: number | null;
+      explanation?: string | null;
+    }>;
   }) => {
     const r = await fetch("/api/study-sets", {
       method: "POST",
@@ -323,5 +332,55 @@ export const api = {
     const r = await fetch("/api/progress");
     if (!r.ok) await err(r);
     return r.json() as Promise<Progress>;
+  },
+
+  // extract text from uploaded file (Phase 3)
+  extractFile: async (file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const r = await fetch("/api/extract/file", { method: "POST", body: fd });
+    if (!r.ok) await err(r);
+    return r.json() as Promise<{
+      text: string;
+      filename: string;
+      fileSize: number;
+      mimeType: string;
+    }>;
+  },
+
+  // AI tutor chat (Phase 3) — local history, no DB
+  askTutor: async (messages: { role: "user" | "assistant"; content: string }[], question?: string) => {
+    const r = await fetch("/api/tutor", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages, question }),
+    });
+    if (!r.ok) await err(r);
+    return r.json() as Promise<{ reply: string; role: "assistant"; remaining: number }>;
+  },
+
+  // save graph + optional cards as study set (Phase 3)
+  saveGraphAsStudySet: async (body: {
+    equation: string;
+    explanation?: string;
+    subject?: string;
+    topic?: string;
+    cards?: Array<{
+      cardType: "flashcard" | "mcq";
+      front?: string | null;
+      back?: string | null;
+      question?: string | null;
+      options?: string[] | null;
+      correctIndex?: number | null;
+      explanation?: string | null;
+    }>;
+  }) => {
+    const r = await fetch("/api/study-sets/from-graph", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) await err(r);
+    return r.json() as Promise<{ studySet: StudySet & { cards: Card[] } }>;
   },
 };

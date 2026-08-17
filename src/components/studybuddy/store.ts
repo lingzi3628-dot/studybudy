@@ -11,7 +11,9 @@ export type Screen =
   | "flashcards"
   | "quiz"
   | "graph"
-  | "language";
+  | "language"
+  | "tutor"
+  | "path";
 
 export type CreateOption =
   | "upload"

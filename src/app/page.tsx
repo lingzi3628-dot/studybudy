@@ -13,12 +13,14 @@ import { Flashcards } from "@/components/studybuddy/screens/Flashcards";
 import { Quiz } from "@/components/studybuddy/screens/Quiz";
 import { GraphExplorer } from "@/components/studybuddy/screens/GraphExplorer";
 import { LanguagePractice } from "@/components/studybuddy/screens/LanguagePractice";
+import { AITutor } from "@/components/studybuddy/screens/AITutor";
+import { LearningPathScreen } from "@/components/studybuddy/screens/LearningPath";
 
 export default function Page() {
   const { screen } = useApp();
 
   // Immersive study modes have their own full-screen layout (no top bar / bottom nav).
-  const immersive = ["flashcards", "quiz", "graph", "language"];
+  const immersive = ["flashcards", "quiz", "graph", "language", "tutor", "path"];
 
   if (screen === "onboarding") {
     return (
@@ -36,6 +38,8 @@ export default function Page() {
         {screen === "quiz" && <Quiz />}
         {screen === "graph" && <GraphExplorer />}
         {screen === "language" && <LanguagePractice />}
+        {screen === "tutor" && <AITutor />}
+        {screen === "path" && <LearningPathScreen />}
         <CreateModal />
       </div>
     );
