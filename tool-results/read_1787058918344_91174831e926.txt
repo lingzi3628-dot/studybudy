@@ -1,0 +1,1946 @@
+     1→     1→"use client";
+     2→     2→
+     3→     3→import { useEffect, useState, useCallback } from "react";
+     4→     4→import {
+     5→     5→  X,
+     6→     6→  ChevronLeft,
+     7→     7→  ChevronRight,
+     8→     8→  Loader2,
+     9→     9→  AlertCircle,
+    10→    10→  Search,
+    11→    11→  Shield,
+    12→    12→  Users as UsersIcon,
+    13→    13→  Bot,
+    14→    14→  BookOpen,
+    15→    15→  Activity,
+    16→    16→  FileText,
+    17→    17→  Check,
+    18→    18→  Trash2,
+    19→    19→  Pencil,
+    20→    20→  Plus,
+    21→    21→  Zap,
+    22→    22→  DollarSign,
+    23→    23→  Sparkles,
+    24→    24→  Send,
+    25→    25→  KeyRound,
+    26→    26→  LogOut,
+    27→    27→  Crown,
+    28→    28→} from "lucide-react";
+    29→    29→import { useApp } from "../store";
+    30→    30→import { api } from "../api";
+    31→    31→
+    32→    32→type Tab = "dashboard" | "users" | "providers" | "content" | "logs" | "account" | "monetization";
+    33→    33→
+    34→    34→type Stats = {
+    35→    35→  totalUsers: number;
+    36→    36→  totalStudySets: number;
+    37→    37→  totalCards: number;
+    38→    38→  totalTopics: number;
+    39→    39→  totalBooks: number;
+    40→    40→  bannedUsers: number;
+    41→    41→  proUsers: number;
+    42→    42→  activeUsers: number;
+    43→    43→  aiCallsToday: number;
+    44→    44→  aiCallsSuccess: number;
+    45→    45→  aiCallsError: number;
+    46→    46→  totalCostToday: number;
+    47→    47→};
+    48→    48→type AdminUser = {
+    49→    49→  id: string; email: string | null; name: string | null; plan: string; role: string;
+    50→    50→  banned: boolean; createdAt: string; lastActive: string | null; grade: string | null;
+    51→    51→  hasApiKey: boolean; _count: { studySets: number; attempts: number; aiCallLogs: number };
+    52→    52→};
+    53→    53→type Provider = {
+    54→    54→  id: string; name: string; providerType: string; enabled: boolean;
+    55→    55→  baseUrl: string | null; model: string | null; maxTokens: number; costPer1kTokens: number;
+    56→    56→  isDefault: boolean; priority: number; apiKeyMasked: string | null;
+    57→    57→};
+    58→    58→type Book = { id: string; title: string; description: string | null; published: boolean; createdAt: string; _count?: { chapters: number } };
+    59→    59→type Chapter = { id: string; title: string | null; orderIndex: number; bookId: string; _count?: { topics: number }; book?: { title: string } };
+    60→    60→type AdminTopic = {
+    61→    61→  id: string; subject: string; name: string; description: string | null;
+    62→    62→  published: boolean; createdAt: string; _count?: { cards: number; lessons: number };
+    63→    63→  chapter?: { id: string; title: string | null; book?: { title: string } } | null;
+    64→    64→};
+    65→    65→type AiLog = {
+    66→    66→  id: string; createdAt: string; status: string; providerType: string | null;
+    67→    67→  model: string | null; totalTokens: number | null; cost: number;
+    68→    68→  errorMessage: string | null; route: string | null;
+    69→    69→  user?: { email: string | null; name: string | null } | null;
+    70→    70→};
+    71→    71→type AdminActionLog = {
+    72→    72→  id: string; createdAt: string; action: string; details: any;
+    73→    73→  adminUser?: { email: string | null; name: string | null } | null;
+    74→    74→};
+    75→    75→
+    76→    76→export function AdminPanel() {
+    77→    77→  const { setScreen } = useApp();
+    78→    78→  const [tab, setTab] = useState<Tab>("dashboard");
+    79→    79→  const [authChecked, setAuthChecked] = useState(false);
+    80→    80→  const [isAdmin, setIsAdmin] = useState(false);
+    81→    81→  const [adminEmail, setAdminEmail] = useState<string | null>(null);
+    82→    82→
+    83→    83→  useEffect(() => {
+    84→    84→    (async () => {
+    85→    85→      try {
+    86→    86→        const r = await fetch("/api/admin/check");
+    87→    87→        if (r.ok) {
+    88→    88→          const d = await r.json();
+    89→    89→          setIsAdmin(true);
+    90→    90→          setAdminEmail(d.admin?.email ?? null);
+    91→    91→        } else {
+    92→    92→          setIsAdmin(false);
+    93→    93→        }
+    94→    94→      } catch {
+    95→    95→        setIsAdmin(false);
+    96→    96→      } finally {
+    97→    97→        setAuthChecked(true);
+    98→    98→      }
+    99→    99→    })();
+   100→   100→  }, []);
+   101→   101→
+   102→   102→  if (!authChecked) {
+   103→   103→    return (
+   104→   104→      <div className="min-h-screen max-w-5xl mx-auto flex items-center justify-center text-gray-400">
+   105→   105→        <Loader2 className="w-6 h-6 animate-spin" />
+   106→   106→        <span className="ml-2 text-sm">Checking admin access…</span>
+   107→   107→      </div>
+   108→   108→    );
+   109→   109→  }
+   110→   110→
+   111→   111→  if (!isAdmin) {
+   112→   112→    // Not authed → kick to admin login
+   113→   113→    return (
+   114→   114→      <div className="min-h-screen max-w-md mx-auto flex flex-col items-center justify-center text-center px-4">
+   115→   115→        <Shield className="w-12 h-12 text-rose-500" />
+   116→   116→        <h1 className="mt-3 text-xl font-bold text-gray-900">Admin login required</h1>
+   117→   117→        <p className="mt-1 text-sm text-gray-500">
+   118→   118→          You need to sign in with admin credentials to access this area.
+   119→   119→        </p>
+   120→   120→        <button
+   121→   121→          onClick={() => setScreen("adminLogin")}
+   122→   122→          className="mt-6 px-6 h-11 rounded-full bg-indigo-600 text-white font-semibold text-sm shadow-md hover:bg-indigo-700"
+   123→   123→        >
+   124→   124→          Go to admin login
+   125→   125→        </button>
+   126→   126→        <button
+   127→   127→          onClick={() => setScreen("home")}
+   128→   128→          className="mt-2 text-xs text-gray-500 hover:underline"
+   129→   129→        >
+   130→   130→          Back to home
+   131→   131→        </button>
+   132→   132→      </div>
+   133→   133→    );
+   134→   134→  }
+   135→   135→
+   136→   136→  return (
+   137→   137→    <div className="min-h-screen bg-gray-50 max-w-6xl mx-auto">
+   138→   138→      {/* Top bar */}
+   139→   139→      <header className="bg-white border-b border-gray-200 sticky top-0 z-20">
+   140→   140→        <div className="px-4 h-14 flex items-center justify-between">
+   141→   141→          <div className="flex items-center gap-2">
+   142→   142→            <button
+   143→   143→              onClick={() => setScreen("home")}
+   144→   144→              aria-label="Back"
+   145→   145→              className="w-9 h-9 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-700"
+   146→   146→            >
+   147→   147→              <ChevronLeft className="w-5 h-5" />
+   148→   148→            </button>
+   149→   149→            <Shield className="w-5 h-5 text-indigo-600" />
+   150→   150→            <h1 className="text-base font-bold text-gray-900">Admin Panel</h1>
+   151→   151→          </div>
+   152→   152→          
+   153→   153→        </div>
+   154→   154→        {/* Tab bar */}
+   155→   155→        <div className="px-4 pb-2 flex gap-1 overflow-x-auto no-scrollbar">
+   156→   156→          {[
+   157→   157→            { key: "dashboard" as const, label: "Dashboard", icon: Activity },
+   158→   158→            { key: "users" as const, label: "Users", icon: UsersIcon },
+   159→   159→            { key: "providers" as const, label: "AI Providers", icon: Bot },
+   160→   160→            { key: "content" as const, label: "Content", icon: BookOpen },
+   161→   161→            { key: "logs" as const, label: "Logs", icon: FileText },
+   162→   162→            { key: "monetization" as const, label: "💰 Plans", icon: Crown },
+   163→   163→            { key: "account" as const, label: "Account", icon: Shield },
+   164→   164→          ].map((t) => {
+   165→   165→            const Icon = t.icon;
+   166→   166→            const active = tab === t.key;
+   167→   167→            return (
+   168→   168→              <button
+   169→   169→                key={t.key}
+   170→   170→                onClick={() => setTab(t.key)}
+   171→   171→                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition flex-shrink-0 ${
+   172→   172→                  active ? "bg-indigo-600 text-white shadow-sm" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+   173→   173→                }`}
+   174→   174→              >
+   175→   175→                <Icon className="w-3.5 h-3.5" /> {t.label}
+   176→   176→              </button>
+   177→   177→            );
+   178→   178→          })}
+   179→   179→        </div>
+   180→   180→      </header>
+   181→   181→
+   182→   182→      <div className="px-4 py-4 pb-24">
+   183→   183→        {tab === "dashboard" && <DashboardTab />}
+   184→   184→        {tab === "users" && <UsersTab />}
+   185→   185→        {tab === "providers" && <ProvidersTab />}
+   186→   186→        {tab === "content" && <ContentTab />}
+   187→   187→        {tab === "logs" && <LogsTab />}
+   188→   188→        {tab === "monetization" && <MonetizationTab />}
+   189→   189→        {tab === "account" && <AccountTab adminEmail={adminEmail} onLogout={async () => {
+   190→   190→          await fetch("/api/admin/auth/logout", { method: "POST" });
+   191→   191→          setScreen("home");
+   192→   192→        }} />}
+   193→   193→      </div>
+   194→   194→    </div>
+   195→   195→  );
+   196→   196→}
+   197→   197→
+   198→   198→// ════════════════════════════════════════════════════════════════
+   199→   199→// Dashboard tab
+   200→   200→// ════════════════════════════════════════════════════════════════
+   201→   201→function DashboardTab() {
+   202→   202→  const [stats, setStats] = useState<Stats | null>(null);
+   203→   203→  const [recent, setRecent] = useState<AdminUser[]>([]);
+   204→   204→  const [loading, setLoading] = useState(true);
+   205→   205→  const [error, setError] = useState<string | null>(null);
+   206→   206→
+   207→   207→  useEffect(() => {
+   208→   208→    (async () => {
+   209→   209→      setLoading(true);
+   210→   210→      setError(null);
+   211→   211→      try {
+   212→   212→        const r = await fetch("/api/admin/stats");
+   213→   213→        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+   214→   214→        const d = await r.json();
+   215→   215→        setStats(d.stats);
+   216→   216→        setRecent(d.recentSignups);
+   217→   217→      } catch (e: any) {
+   218→   218→        setError(e?.message ?? "Failed to load stats");
+   219→   219→      } finally {
+   220→   220→        setLoading(false);
+   221→   221→      }
+   222→   222→    })();
+   223→   223→  }, []);
+   224→   224→
+   225→   225→  if (loading) return <Spinner label="Loading stats…" />;
+   226→   226→  if (error || !stats) return <ErrorBox message={error ?? "No data"} />;
+   227→   227→
+   228→   228→  const cards: { label: string; value: string | number; icon: any; color: string }[] = [
+   229→   229→    { label: "Total users", value: stats.totalUsers, icon: UsersIcon, color: "bg-indigo-50 text-indigo-600" },
+   230→   230→    { label: "Active (24h)", value: stats.activeUsers, icon: Zap, color: "bg-emerald-50 text-emerald-600" },
+   231→   231→    { label: "Pro users", value: stats.proUsers, icon: Shield, color: "bg-amber-50 text-amber-600" },
+   232→   232→    { label: "Banned", value: stats.bannedUsers, icon: X, color: "bg-rose-50 text-rose-600" },
+   233→   233→    { label: "Study sets", value: stats.totalStudySets, icon: BookOpen, color: "bg-violet-50 text-violet-600" },
+   234→   234→    { label: "Cards", value: stats.totalCards, icon: FileText, color: "bg-sky-50 text-sky-600" },
+   235→   235→    { label: "Topics", value: stats.totalTopics, icon: Sparkles, color: "bg-teal-50 text-teal-600" },
+   236→   236→    { label: "Books", value: stats.totalBooks, icon: BookOpen, color: "bg-fuchsia-50 text-fuchsia-600" },
+   237→   237→  ];
+   238→   238→
+   239→   239→  return (
+   240→   240→    <div className="space-y-4">
+   241→   241→      {/* stat cards */}
+   242→   242→      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+   243→   243→        {cards.map((c) => {
+   244→   244→          const Icon = c.icon;
+   245→   245→          return (
+   246→   246→            <div key={c.label} className="rounded-2xl bg-white border border-gray-200 p-3 shadow-sm">
+   247→   247→              <span className={`w-8 h-8 rounded-full flex items-center justify-center ${c.color}`}>
+   248→   248→                <Icon className="w-4 h-4" />
+   249→   249→              </span>
+   250→   250→              <p className="mt-2 text-xl font-bold text-gray-900">{c.value}</p>
+   251→   251→              <p className="text-[11px] text-gray-500">{c.label}</p>
+   252→   252→            </div>
+   253→   253→          );
+   254→   254→        })}
+   255→   255→      </div>
+   256→   256→
+   257→   257→      {/* AI usage today */}
+   258→   258→      <div className="rounded-2xl bg-white border border-gray-200 p-4 shadow-sm">
+   259→   259→        <h2 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-1.5">
+   260→   260→          <Bot className="w-4 h-4 text-indigo-600" /> AI usage today
+   261→   261→        </h2>
+   262→   262→        <div className="grid grid-cols-3 gap-3 text-xs">
+   263→   263→          <div className="p-2.5 rounded-xl bg-emerald-50">
+   264→   264→            <p className="text-gray-500">Success</p>
+   265→   265→            <p className="text-lg font-bold text-emerald-700">{stats.aiCallsSuccess}</p>
+   266→   266→          </div>
+   267→   267→          <div className="p-2.5 rounded-xl bg-rose-50">
+   268→   268→            <p className="text-gray-500">Errors</p>
+   269→   269→            <p className="text-lg font-bold text-rose-700">{stats.aiCallsError}</p>
+   270→   270→          </div>
+   271→   271→          <div className="p-2.5 rounded-xl bg-indigo-50">
+   272→   272→            <p className="text-gray-500">Est. cost</p>
+   273→   273→            <p className="text-lg font-bold text-indigo-700 flex items-center">
+   274→   274→              <DollarSign className="w-3 h-3" />
+   275→   275→              {stats.totalCostToday.toFixed(4)}
+   276→   276→            </p>
+   277→   277→          </div>
+   278→   278→        </div>
+   279→   279→        <div className="mt-3 h-2 bg-gray-100 rounded-full overflow-hidden flex">
+   280→   280→          <div
+   281→   281→            className="h-full bg-emerald-500"
+   282→   282→            style={{ width: `${stats.aiCallsToday > 0 ? (stats.aiCallsSuccess / stats.aiCallsToday) * 100 : 0}%` }}
+   283→   283→          />
+   284→   284→          <div
+   285→   285→            className="h-full bg-rose-500"
+   286→   286→            style={{ width: `${stats.aiCallsToday > 0 ? (stats.aiCallsError / stats.aiCallsToday) * 100 : 0}%` }}
+   287→   287→          />
+   288→   288→        </div>
+   289→   289→        <p className="mt-1 text-[11px] text-gray-500 text-right">
+   290→   290→          {stats.aiCallsToday} total calls today
+   291→   291→        </p>
+   292→   292→      </div>
+   293→   293→
+   294→   294→      {/* Recent signups */}
+   295→   295→      <div className="rounded-2xl bg-white border border-gray-200 p-4 shadow-sm">
+   296→   296→        <h2 className="text-sm font-semibold text-gray-900 mb-3">Recent signups</h2>
+   297→   297→        {recent.length === 0 ? (
+   298→   298→          <p className="text-xs text-gray-400 py-4 text-center">No users yet.</p>
+   299→   299→        ) : (
+   300→   300→          <div className="space-y-1.5">
+   301→   301→            {recent.map((u) => (
+   302→   302→              <div key={u.id} className="flex items-center justify-between text-xs">
+   303→   303→                <div className="flex items-center gap-2 min-w-0">
+   304→   304→                  <span className="w-6 h-6 rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 text-white flex items-center justify-center font-bold flex-shrink-0">
+   305→   305→                    {(u.email ?? "U").charAt(0).toUpperCase()}
+   306→   306→                  </span>
+   307→   307→                  <div className="min-w-0">
+   308→   308→                    <p className="font-medium text-gray-900 truncate">{u.email ?? "(no email)"}</p>
+   309→   309→                    <p className="text-[10px] text-gray-400">{new Date(u.createdAt).toLocaleString()}</p>
+   310→   310→                  </div>
+   311→   311→                </div>
+   312→   312→                <div className="flex items-center gap-1 flex-shrink-0">
+   313→   313→                  {u.role === "admin" && (
+   314→   314→                    <span className="text-[9px] font-bold uppercase bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded-full">Admin</span>
+   315→   315→                  )}
+   316→   316→                  <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full ${u.plan === "pro" ? "bg-amber-50 text-amber-700" : "bg-gray-100 text-gray-600"}`}>
+   317→   317→                    {u.plan}
+   318→   318→                  </span>
+   319→   319→                </div>
+   320→   320→              </div>
+   321→   321→            ))}
+   322→   322→          </div>
+   323→   323→        )}
+   324→   324→      </div>
+   325→   325→    </div>
+   326→   326→  );
+   327→   327→}
+   328→   328→
+   329→   329→// ════════════════════════════════════════════════════════════════
+   330→   330→// Users tab
+   331→   331→// ════════════════════════════════════════════════════════════════
+   332→   332→function UsersTab() {
+   333→   333→  const [users, setUsers] = useState<AdminUser[]>([]);
+   334→   334→  const [loading, setLoading] = useState(true);
+   335→   335→  const [error, setError] = useState<string | null>(null);
+   336→   336→  const [q, setQ] = useState("");
+   337→   337→  const [planFilter, setPlanFilter] = useState("all");
+   338→   338→  const [roleFilter, setRoleFilter] = useState("all");
+   339→   339→  const [page, setPage] = useState(1);
+   340→   340→  const [totalPages, setTotalPages] = useState(1);
+   341→   341→  const [editing, setEditing] = useState<AdminUser | null>(null);
+   342→   342→
+   343→   343→  const load = useCallback(async () => {
+   344→   344→    setLoading(true);
+   345→   345→    setError(null);
+   346→   346→    try {
+   347→   347→      const url = new URL("/api/admin/users", window.location.origin);
+   348→   348→      url.searchParams.set("q", q);
+   349→   349→      url.searchParams.set("plan", planFilter);
+   350→   350→      url.searchParams.set("role", roleFilter);
+   351→   351→      url.searchParams.set("page", String(page));
+   352→   352→      const r = await fetch(url);
+   353→   353→      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+   354→   354→      const d = await r.json();
+   355→   355→      setUsers(d.users);
+   356→   356→      setTotalPages(d.totalPages);
+   357→   357→    } catch (e: any) {
+   358→   358→      setError(e?.message ?? "Failed to load users");
+   359→   359→    } finally {
+   360→   360→      setLoading(false);
+   361→   361→    }
+   362→   362→  }, [q, planFilter, roleFilter, page]);
+   363→   363→
+   364→   364→  useEffect(() => {
+   365→   365→    load();
+   366→   366→  }, [load]);
+   367→   367→
+   368→   368→  const updateUser = async (id: string, body: { plan?: string; role?: string; banned?: boolean }) => {
+   369→   369→    try {
+   370→   370→      const r = await fetch(`/api/admin/users/${id}`, {
+   371→   371→        method: "PUT",
+   372→   372→        headers: { "Content-Type": "application/json" },
+   373→   373→        body: JSON.stringify(body),
+   374→   374→      });
+   375→   375→      if (!r.ok) {
+   376→   376→        const d = await r.json().catch(() => ({}));
+   377→   377→        throw new Error(d.error ?? `HTTP ${r.status}`);
+   378→   378→      }
+   379→   379→      await load();
+   380→   380→    } catch (e: any) {
+   381→   381→      setError(e?.message ?? "Update failed");
+   382→   382→    }
+   383→   383→  };
+   384→   384→
+   385→   385→  const deleteUser = async (id: string) => {
+   386→   386→    if (!confirm("Delete this user and all their data? This cannot be undone.")) return;
+   387→   387→    try {
+   388→   388→      const r = await fetch(`/api/admin/users/${id}`, { method: "DELETE" });
+   389→   389→      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+   390→   390→      await load();
+   391→   391→    } catch (e: any) {
+   392→   392→      setError(e?.message ?? "Delete failed");
+   393→   393→    }
+   394→   394→  };
+   395→   395→
+   396→   396→  if (loading) return <Spinner label="Loading users…" />;
+   397→   397→  if (error) return <ErrorBox message={error} />;
+   398→   398→
+   399→   399→  return (
+   400→   400→    <div className="space-y-3">
+   401→   401→      {/* search + filters */}
+   402→   402→      <div className="flex gap-2">
+   403→   403→        <div className="flex-1 flex items-center gap-2 bg-white border border-gray-200 rounded-full px-3 h-10">
+   404→   404→          <Search className="w-4 h-4 text-gray-400" />
+   405→   405→          <input
+   406→   406→            value={q}
+   407→   407→            onChange={(e) => { setQ(e.target.value); setPage(1); }}
+   408→   408→            placeholder="Search by email, name, or ID…"
+   409→   409→            className="flex-1 bg-transparent outline-none text-sm"
+   410→   410→          />
+   411→   411→        </div>
+   412→   412→        <select value={planFilter} onChange={(e) => { setPlanFilter(e.target.value); setPage(1); }} className="bg-white border border-gray-200 rounded-full px-3 h-10 text-xs">
+   413→   413→          <option value="all">All plans</option>
+   414→   414→          <option value="free">Free</option>
+   415→   415→          <option value="pro">Pro</option>
+   416→   416→        </select>
+   417→   417→        <select value={roleFilter} onChange={(e) => { setRoleFilter(e.target.value); setPage(1); }} className="bg-white border border-gray-200 rounded-full px-3 h-10 text-xs">
+   418→   418→          <option value="all">All roles</option>
+   419→   419→          <option value="user">User</option>
+   420→   420→          <option value="admin">Admin</option>
+   421→   421→        </select>
+   422→   422→      </div>
+   423→   423→
+   424→   424→      {/* table */}
+   425→   425→      <div className="rounded-2xl bg-white border border-gray-200 shadow-sm overflow-hidden">
+   426→   426→        <table className="w-full text-xs">
+   427→   427→          <thead className="bg-gray-50 text-gray-500 uppercase tracking-wide text-[10px]">
+   428→   428→            <tr>
+   429→   429→              <th className="text-left p-2.5">User</th>
+   430→   430→              <th className="text-left p-2.5 hidden sm:table-cell">Plan</th>
+   431→   431→              <th className="text-left p-2.5 hidden sm:table-cell">Role</th>
+   432→   432→              <th className="text-left p-2.5 hidden md:table-cell">Stats</th>
+   433→   433→              <th className="text-left p-2.5">Actions</th>
+   434→   434→            </tr>
+   435→   435→          </thead>
+   436→   436→          <tbody className="divide-y divide-gray-100">
+   437→   437→            {users.map((u) => (
+   438→   438→              <tr key={u.id} className="hover:bg-gray-50">
+   439→   439→                <td className="p-2.5">
+   440→   440→                  <div className="flex items-center gap-2 min-w-0">
+   441→   441→                    <span className="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 text-white flex items-center justify-center font-bold flex-shrink-0">
+   442→   442→                      {(u.email ?? "U").charAt(0).toUpperCase()}
+   443→   443→                    </span>
+   444→   444→                    <div className="min-w-0">
+   445→   445→                      <p className="font-medium text-gray-900 truncate">{u.email ?? "(no email)"}</p>
+   446→   446→                      <p className="text-[10px] text-gray-400">
+   447→   447→                        {new Date(u.createdAt).toLocaleDateString()}
+   448→   448→                        {u.hasApiKey && " · BYOK ✓"}
+   449→   449→                        {u.banned && " · BANNED"}
+   450→   450→                      </p>
+   451→   451→                    </div>
+   452→   452→                  </div>
+   453→   453→                </td>
+   454→   454→                <td className="p-2.5 hidden sm:table-cell">
+   455→   455→                  <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-full ${u.plan === "pro" ? "bg-amber-50 text-amber-700" : "bg-gray-100 text-gray-600"}`}>
+   456→   456→                    {u.plan}
+   457→   457→                  </span>
+   458→   458→                </td>
+   459→   459→                <td className="p-2.5 hidden sm:table-cell">
+   460→   460→                  <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-full ${u.role === "admin" ? "bg-indigo-50 text-indigo-700" : "bg-gray-100 text-gray-600"}`}>
+   461→   461→                    {u.role}
+   462→   462→                  </span>
+   463→   463→                </td>
+   464→   464→                <td className="p-2.5 hidden md:table-cell text-[10px] text-gray-500">
+   465→   465→                  {u._count.studySets} sets · {u._count.attempts} attempts · {u._count.aiCallLogs} AI
+   466→   466→                </td>
+   467→   467→                <td className="p-2.5">
+   468→   468→                  <div className="flex items-center gap-1">
+   469→   469→                    <button onClick={() => setEditing(u)} aria-label="Edit" className="w-7 h-7 rounded-full hover:bg-indigo-50 text-indigo-600 flex items-center justify-center">
+   470→   470→                      <Pencil className="w-3.5 h-3.5" />
+   471→   471→                    </button>
+   472→   472→                    <button
+   473→   473→                      onClick={() => updateUser(u.id, { banned: !u.banned })}
+   474→   474→                      aria-label={u.banned ? "Unban" : "Ban"}
+   475→   475→                      className={`w-7 h-7 rounded-full hover:bg-amber-50 flex items-center justify-center ${u.banned ? "text-emerald-600" : "text-amber-600"}`}
+   476→   476→                    >
+   477→   477→                      <Shield className="w-3.5 h-3.5" />
+   478→   478→                    </button>
+   479→   479→                    <button onClick={() => deleteUser(u.id)} aria-label="Delete" className="w-7 h-7 rounded-full hover:bg-rose-50 text-rose-600 flex items-center justify-center">
+   480→   480→                      <Trash2 className="w-3.5 h-3.5" />
+   481→   481→                    </button>
+   482→   482→                  </div>
+   483→   483→                </td>
+   484→   484→              </tr>
+   485→   485→            ))}
+   486→   486→          </tbody>
+   487→   487→        </table>
+   488→   488→      </div>
+   489→   489→
+   490→   490→      {/* pagination */}
+   491→   491→      <div className="flex items-center justify-between text-xs text-gray-500">
+   492→   492→        <span>Page {page} of {totalPages}</span>
+   493→   493→        <div className="flex gap-1">
+   494→   494→          <button
+   495→   495→            onClick={() => setPage((p) => Math.max(1, p - 1))}
+   496→   496→            disabled={page === 1}
+   497→   497→            className="w-8 h-8 rounded-full bg-white border border-gray-200 flex items-center justify-center disabled:opacity-30"
+   498→   498→          >
+   499→   499→            <ChevronLeft className="w-4 h-4" />
+   500→   500→          </button>
+   501→   501→          <button
+   502→   502→            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+   503→   503→            disabled={page >= totalPages}
+   504→   504→            className="w-8 h-8 rounded-full bg-white border border-gray-200 flex items-center justify-center disabled:opacity-30"
+   505→   505→          >
+   506→   506→            <ChevronRight className="w-4 h-4" />
+   507→   507→          </button>
+   508→   508→        </div>
+   509→   509→      </div>
+   510→   510→
+   511→   511→      {/* edit modal */}
+   512→   512→      {editing && (
+   513→   513→        <EditUserModal
+   514→   514→          user={editing}
+   515→   515→          onClose={() => setEditing(null)}
+   516→   516→          onSave={async (body) => {
+   517→   517→            await updateUser(editing.id, body);
+   518→   518→            setEditing(null);
+   519→   519→          }}
+   520→   520→        />
+   521→   521→      )}
+   522→   522→    </div>
+   523→   523→  );
+   524→   524→}
+   525→   525→
+   526→   526→function EditUserModal({ user, onClose, onSave }: { user: AdminUser; onClose: () => void; onSave: (body: { plan?: string; role?: string; banned?: boolean }) => Promise<void> }) {
+   527→   527→  const [plan, setPlan] = useState(user.plan);
+   528→   528→  const [role, setRole] = useState(user.role);
+   529→   529→  const [banned, setBanned] = useState(user.banned);
+   530→   530→  const [saving, setSaving] = useState(false);
+   531→   531→
+   532→   532→  return (
+   533→   533→    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+   534→   534→      <div className="absolute inset-0 bg-black/40" onClick={onClose} aria-hidden />
+   535→   535→      <div className="relative w-full max-w-md bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl p-5">
+   536→   536→        <div className="flex items-center justify-between mb-3">
+   537→   537→          <h2 className="text-base font-bold text-gray-900">Edit user</h2>
+   538→   538→          <button onClick={onClose} className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center">
+   539→   539→            <X className="w-4 h-4" />
+   540→   540→          </button>
+   541→   541→        </div>
+   542→   542→        <div className="flex items-center gap-3 p-3 rounded-2xl bg-gray-50 mb-3">
+   543→   543→          <span className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 text-white flex items-center justify-center font-bold">
+   544→   544→            {(user.email ?? "U").charAt(0).toUpperCase()}
+   545→   545→          </span>
+   546→   546→          <div className="min-w-0">
+   547→   547→            <p className="text-sm font-semibold text-gray-900 truncate">{user.email}</p>
+   548→   548→            <p className="text-[11px] text-gray-500">Joined {new Date(user.createdAt).toLocaleDateString()}</p>
+   549→   549→          </div>
+   550→   550→        </div>
+   551→   551→        <div className="space-y-3">
+   552→   552→          <div>
+   553→   553→            <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Plan</label>
+   554→   554→            <div className="mt-1 grid grid-cols-2 gap-2">
+   555→   555→              {["free", "pro"].map((p) => (
+   556→   556→                <button
+   557→   557→                  key={p}
+   558→   558→                  onClick={() => setPlan(p)}
+   559→   559→                  className={`h-10 rounded-xl border-2 text-sm font-medium capitalize ${plan === p ? "border-indigo-600 bg-indigo-50 text-indigo-700" : "border-gray-200 text-gray-700"}`}
+   560→   560→                >
+   561→   561→                  {p}
+   562→   562→                </button>
+   563→   563→              ))}
+   564→   564→            </div>
+   565→   565→          </div>
+   566→   566→          <div>
+   567→   567→            <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Role</label>
+   568→   568→            <div className="mt-1 grid grid-cols-2 gap-2">
+   569→   569→              {["user", "admin"].map((r) => (
+   570→   570→                <button
+   571→   571→                  key={r}
+   572→   572→                  onClick={() => setRole(r)}
+   573→   573→                  className={`h-10 rounded-xl border-2 text-sm font-medium capitalize ${role === r ? "border-indigo-600 bg-indigo-50 text-indigo-700" : "border-gray-200 text-gray-700"}`}
+   574→   574→                >
+   575→   575→                  {r}
+   576→   576→                </button>
+   577→   577→              ))}
+   578→   578→            </div>
+   579→   579→          </div>
+   580→   580→          <button
+   581→   581→            onClick={() => setBanned(!banned)}
+   582→   582→            className={`w-full p-3 rounded-xl border-2 text-sm font-medium flex items-center justify-between ${banned ? "border-rose-500 bg-rose-50 text-rose-700" : "border-gray-200 text-gray-700"}`}
+   583→   583→          >
+   584→   584→            <span>{banned ? "Banned" : "Active"}</span>
+   585→   585→            <span className={`w-10 h-5 rounded-full relative ${banned ? "bg-rose-500" : "bg-emerald-500"}`}>
+   586→   586→              <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition ${banned ? "left-0.5" : "translate-x-5 left-0.5"}`} />
+   587→   587→            </span>
+   588→   588→          </button>
+   589→   589→          <button
+   590→   590→            onClick={async () => {
+   591→   591→              setSaving(true);
+   592→   592→              await onSave({ plan, role, banned });
+   593→   593→              setSaving(false);
+   594→   594→            }}
+   595→   595→            disabled={saving}
+   596→   596→            className="w-full h-11 rounded-full bg-indigo-600 text-white font-semibold text-sm shadow-md hover:bg-indigo-700 disabled:opacity-50"
+   597→   597→          >
+   598→   598→            {saving ? "Saving…" : "Save changes"}
+   599→   599→          </button>
+   600→   600→        </div>
+   601→   601→      </div>
+   602→   602→    </div>
+   603→   603→  );
+   604→   604→}
+   605→   605→
+   606→   606→// ════════════════════════════════════════════════════════════════
+   607→   607→// AI Providers tab
+   608→   608→// ════════════════════════════════════════════════════════════════
+   609→   609→const PROVIDER_TYPES = [
+   610→   610→  { value: "openai", label: "OpenAI" },
+   611→   611→  { value: "glm", label: "GLM (Z.ai)" },
+   612→   612→  { value: "gemini", label: "Google Gemini" },
+   613→   613→  { value: "openrouter", label: "OpenRouter" },
+   614→   614→  { value: "huggingface", label: "Hugging Face" },
+   615→   615→  { value: "pollinations", label: "Pollinations" },
+   616→   616→];
+   617→   617→
+   618→   618→// Provider presets — auto-fills baseUrl + model dropdown + shows "Get Key" link
+   619→   619→const PROVIDER_PRESETS: Record<string, {
+   620→   620→  dashboardUrl: string;
+   621→   621→  dashboardLabel: string;
+   622→   622→  baseUrl: string;
+   623→   623→  models: string[];
+   624→   624→  note?: string;
+   625→   625→}> = {
+   626→   626→  openai: {
+   627→   627→    dashboardUrl: "https://platform.openai.com/api-keys",
+   628→   628→    dashboardLabel: "Get OpenAI API Key →",
+   629→   629→    baseUrl: "https://api.openai.com/v1",
+   630→   630→    models: ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo", "o1-mini", "o1-preview"],
+   631→   631→    note: "Pay-as-you-go. gpt-4o-mini is cheapest (~$0.15/1M tokens).",
+   632→   632→  },
+   633→   633→  glm: {
+   634→   634→    dashboardUrl: "https://open.bigmodel.cn/usercenter/apikeys",
+   635→   635→    dashboardLabel: "Get GLM API Key →",
+   636→   636→    baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+   637→   637→    models: ["glm-4-plus", "glm-4", "glm-4-flash", "glm-4-long"],
+   638→   638→    note: "Zhipu AI — Chinese provider. glm-4-flash is free tier.",
+   639→   639→  },
+   640→   640→  gemini: {
+   641→   641→    dashboardUrl: "https://aistudio.google.com/app/apikey",
+   642→   642→    dashboardLabel: "Get Gemini API Key →",
+   643→   643→    baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+   644→   644→    models: ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-1.5-flash-8b"],
+   645→   645→    note: "Google AI Studio — free tier available (15 RPM, 1500/day).",
+   646→   646→  },
+   647→   647→  openrouter: {
+   648→   648→    dashboardUrl: "https://openrouter.ai/keys",
+   649→   649→    dashboardLabel: "Get OpenRouter API Key →",
+   650→   650→    baseUrl: "https://openrouter.ai/api/v1",
+   651→   651→    models: [
+   652→   652→      "meta-llama/llama-3.1-8b-instruct",
+   653→   653→      "meta-llama/llama-3.1-70b-instruct",
+   654→   654→      "openai/gpt-4o-mini",
+   655→   655→      "openai/gpt-4o",
+   656→   656→      "google/gemini-flash-1.5",
+   657→   657→      "Qwen/Qwen2.5-7B-Instruct",
+   658→   658→      "mistralai/mistral-7b-instruct",
+   659→   659→      "deepseek/deepseek-chat",
+   660→   660→      "anthropic/claude-3.5-sonnet",
+   661→   661→    ],
+   662→   662→    note: "Aggregator — access 100+ models with one key. Some models are free.",
+   663→   663→  },
+   664→   664→  huggingface: {
+   665→   665→    dashboardUrl: "https://huggingface.co/settings/tokens",
+   666→   666→    dashboardLabel: "Get Hugging Face Token →",
+   667→   667→    baseUrl: "https://router.huggingface.co/v1",
+   668→   668→    models: [
+   669→   669→      "Qwen/Qwen2.5-7B-Instruct",
+   670→   670→      "meta-llama/Meta-Llama-3-8B-Instruct",
+   671→   671→      "meta-llama/Llama-3.2-3B-Instruct",
+   672→   672→      "mistralai/Mistral-7B-Instruct-v0.3",
+   673→   673→      "microsoft/Phi-3-mini-4k-instruct",
+   674→   674→      "google/gemma-2-2b-it",
+   675→   675→      "HuggingFaceH4/zephyr-7b-beta",
+   676→   676→    ],
+   677→   677→    note: "Free inference router. Enable providers at huggingface.co/settings/inference-providers",
+   678→   678→  },
+   679→   679→  pollinations: {
+   680→   680→    dashboardUrl: "https://pollinations.ai",
+   681→   681→    dashboardLabel: "Pollinations (free, no key needed) →",
+   682→   682→    baseUrl: "https://text.pollinations.ai/openai",
+   683→   683→    models: ["openai", "mistral", "llama", "deepseek"],
+   684→   684→    note: "Completely free, no API key required. Rate-limited.",
+   685→   685→  },
+   686→   686→};
+   687→   687→
+   688→   688→// Sensible defaults per provider — used to auto-fill baseUrl + model when
+   689→   689→// admin selects a type and those fields are empty (prevents the "openrouter
+   690→   690→// with OpenAI baseUrl" bug where the test call goes to the wrong endpoint).
+   691→   691→const PROVIDER_DEFAULTS: Record<string, { baseUrl: string; model: string }> = {
+   692→   692→  openai:       { baseUrl: "https://api.openai.com/v1",                                  model: "gpt-4o-mini" },
+   693→   693→  glm:          { baseUrl: "https://api.openai.com/v1",                                  model: "glm-4" },
+   694→   694→  gemini:       { baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",   model: "gemini-1.5-flash" },
+   695→   695→  openrouter:   { baseUrl: "https://openrouter.ai/api/v1",                               model: "openai/gpt-4o-mini" },
+   696→   696→  huggingface:  { baseUrl: "https://api-inference.huggingface.co",                       model: "meta-llama/Meta-Llama-3-8B-Instruct" },
+   697→   697→  pollinations: { baseUrl: "https://text.pollinations.ai/openai",                       model: "openai" },
+   698→   698→};
+   699→   699→
+   700→   700→function ProvidersTab() {
+   701→   701→  const [providers, setProviders] = useState<Provider[]>([]);
+   702→   702→  const [loading, setLoading] = useState(true);
+   703→   703→  const [error, setError] = useState<string | null>(null);
+   704→   704→  const [editing, setEditing] = useState<Provider | null>(null);
+   705→   705→  const [adding, setAdding] = useState(false);
+   706→   706→  const [testing, setTesting] = useState<string | null>(null);
+   707→   707→  const [testResult, setTestResult] = useState<{ [id: string]: any }>({});
+   708→   708→
+   709→   709→  const load = useCallback(async () => {
+   710→   710→    setLoading(true);
+   711→   711→    setError(null);
+   712→   712→    try {
+   713→   713→      const r = await fetch("/api/admin/providers");
+   714→   714→      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+   715→   715→      const d = await r.json();
+   716→   716→      setProviders(d.providers);
+   717→   717→    } catch (e: any) {
+   718→   718→      setError(e?.message ?? "Failed to load providers");
+   719→   719→    } finally {
+   720→   720→      setLoading(false);
+   721→   721→    }
+   722→   722→  }, []);
+   723→   723→
+   724→   724→  useEffect(() => {
+   725→   725→    load();
+   726→   726→  }, [load]);
+   727→   727→
+   728→   728→  const testProvider = async (id: string) => {
+   729→   729→    setTesting(id);
+   730→   730→    setTestResult((r) => ({ ...r, [id]: null }));
+   731→   731→    try {
+   732→   732→      const r = await fetch(`/api/admin/providers/${id}/test`, { method: "POST" });
+   733→   733→      const d = await r.json();
+   734→   734→      setTestResult((r) => ({ ...r, [id]: d }));
+   735→   735→    } catch (e: any) {
+   736→   736→      setTestResult((r) => ({ ...r, [id]: { status: "error", error: e?.message } }));
+   737→   737→    } finally {
+   738→   738→      setTesting(null);
+   739→   739→    }
+   740→   740→  };
+   741→   741→
+   742→   742→  const toggleEnabled = async (p: Provider) => {
+   743→   743→    try {
+   744→   744→      await fetch(`/api/admin/providers/${p.id}`, {
+   745→   745→        method: "PUT",
+   746→   746→        headers: { "Content-Type": "application/json" },
+   747→   747→        body: JSON.stringify({ enabled: !p.enabled }),
+   748→   748→      });
+   749→   749→      await load();
+   750→   750→    } catch (e: any) {
+   751→   751→      setError(e?.message ?? "Toggle failed");
+   752→   752→    }
+   753→   753→  };
+   754→   754→
+   755→   755→  const setDefault = async (p: Provider) => {
+   756→   756→    try {
+   757→   757→      await fetch(`/api/admin/providers/${p.id}`, {
+   758→   758→        method: "PUT",
+   759→   759→        headers: { "Content-Type": "application/json" },
+   760→   760→        body: JSON.stringify({ isDefault: true }),
+   761→   761→      });
+   762→   762→      await load();
+   763→   763→    } catch (e: any) {
+   764→   764→      setError(e?.message ?? "Failed");
+   765→   765→    }
+   766→   766→  };
+   767→   767→
+   768→   768→  const deleteProvider = async (p: Provider) => {
+   769→   769→    if (!confirm(`Delete provider "${p.name}"?`)) return;
+   770→   770→    try {
+   771→   771→      await fetch(`/api/admin/providers/${p.id}`, { method: "DELETE" });
+   772→   772→      await load();
+   773→   773→    } catch (e: any) {
+   774→   774→      setError(e?.message ?? "Delete failed");
+   775→   775→    }
+   776→   776→  };
+   777→   777→
+   778→   778→  if (loading) return <Spinner label="Loading providers…" />;
+   779→   779→  if (error) return <ErrorBox message={error} />;
+   780→   780→
+   781→   781→  return (
+   782→   782→    <div className="space-y-3">
+   783→   783→      <div className="flex items-center justify-between">
+   784→   784→        <p className="text-xs text-gray-500">
+   785→   785→          App AI calls use these in priority order. BYOK (user-set keys) always take precedence.
+   786→   786→        </p>
+   787→   787→        <button
+   788→   788→          onClick={() => setAdding(true)}
+   789→   789→          className="h-9 px-3 rounded-full bg-indigo-600 text-white text-xs font-semibold flex items-center gap-1 hover:bg-indigo-700"
+   790→   790→        >
+   791→   791→          <Plus className="w-3.5 h-3.5" /> Add Provider
+   792→   792→        </button>
+   793→   793→      </div>
+   794→   794→
+   795→   795→      {providers.length === 0 && (
+   796→   796→        <div className="rounded-2xl bg-white border-2 border-dashed border-gray-200 p-6 text-center">
+   797→   797→          <Bot className="w-8 h-8 mx-auto text-gray-300" />
+   798→   798→          <p className="mt-2 text-sm font-medium text-gray-900">No AI providers configured</p>
+   799→   799→          <p className="mt-1 text-xs text-gray-500">
+   800→   800→            The app currently falls back to the built-in GLM SDK (z-ai-web-dev-sdk).
+   801→   801→            Add an OpenAI-compatible provider to route calls through it.
+   802→   802→          </p>
+   803→   803→        </div>
+   804→   804→      )}
+   805→   805→
+   806→   806→      <div className="space-y-2">
+   807→   807→        {providers.map((p) => {
+   808→   808→          const result = testResult[p.id];
+   809→   809→          return (
+   810→   810→            <div key={p.id} className={`rounded-2xl bg-white border-2 p-3 shadow-sm ${p.isDefault ? "border-indigo-300" : "border-gray-200"}`}>
+   811→   811→              <div className="flex items-start justify-between gap-2">
+   812→   812→                <div className="flex items-center gap-2 min-w-0">
+   813→   813→                  <span className={`w-9 h-9 rounded-full flex items-center justify-center ${p.enabled ? "bg-indigo-50 text-indigo-600" : "bg-gray-100 text-gray-400"}`}>
+   814→   814→                    <Bot className="w-4 h-4" />
+   815→   815→                  </span>
+   816→   816→                  <div className="min-w-0">
+   817→   817→                    <div className="flex items-center gap-1.5 flex-wrap">
+   818→   818→                      <p className="text-sm font-semibold text-gray-900 truncate">{p.name}</p>
+   819→   819→                      {p.isDefault && (
+   820→   820→                        <span className="text-[9px] font-bold uppercase bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full">Default</span>
+   821→   821→                      )}
+   822→   822→                      {!p.enabled && (
+   823→   823→                        <span className="text-[9px] font-bold uppercase bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded-full">Disabled</span>
+   824→   824→                      )}
+   825→   825→                    </div>
+   826→   826→                    <p className="text-[11px] text-gray-500">
+   827→   827→                      {p.providerType} · {p.model ?? "(no model)"} · priority {p.priority}
+   828→   828→                    </p>
+   829→   829→                    {p.apiKeyMasked && (
+   830→   830→                      <p className="text-[10px] text-gray-400 font-mono">key: {p.apiKeyMasked}</p>
+   831→   831→                    )}
+   832→   832→                  </div>
+   833→   833→                </div>
+   834→   834→                <div className="flex items-center gap-1 flex-shrink-0">
+   835→   835→                  <button onClick={() => setEditing(p)} className="w-7 h-7 rounded-full hover:bg-indigo-50 text-indigo-600 flex items-center justify-center">
+   836→   836→                    <Pencil className="w-3.5 h-3.5" />
+   837→   837→                  </button>
+   838→   838→                  <button
+   839→   839→                    onClick={() => testProvider(p.id)}
+   840→   840→                    disabled={testing === p.id}
+   841→   841→                    className="h-7 px-2 rounded-full bg-emerald-50 text-emerald-700 text-[11px] font-semibold flex items-center gap-1 hover:bg-emerald-100 disabled:opacity-50"
+   842→   842→                  >
+   843→   843→                    {testing === p.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+   844→   844→                    Test
+   845→   845→                  </button>
+   846→   846→                  <button onClick={() => deleteProvider(p)} className="w-7 h-7 rounded-full hover:bg-rose-50 text-rose-600 flex items-center justify-center">
+   847→   847→                    <Trash2 className="w-3.5 h-3.5" />
+   848→   848→                  </button>
+   849→   849→                </div>
+   850→   850→              </div>
+   851→   851→              <div className="mt-2 flex items-center gap-2 text-[11px]">
+   852→   852→                <button
+   853→   853→                  onClick={() => toggleEnabled(p)}
+   854→   854→                  className={`px-2 py-1 rounded-full font-semibold ${p.enabled ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-600"}`}
+   855→   855→                >
+   856→   856→                  {p.enabled ? "Enabled" : "Disabled"}
+   857→   857→                </button>
+   858→   858→                {!p.isDefault && (
+   859→   859→                  <button
+   860→   860→                    onClick={() => setDefault(p)}
+   861→   861→                    className="px-2 py-1 rounded-full bg-indigo-50 text-indigo-700 font-semibold"
+   862→   862→                  >
+   863→   863→                    Set as default
+   864→   864→                  </button>
+   865→   865→                )}
+   866→   866→              </div>
+   867→   867→              {result && (
+   868→   868→                <div className={`mt-2 p-2 rounded-xl text-xs ${result.status === "success" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>
+   869→   869→                  {result.status === "success" ? (
+   870→   870→                    <span>✓ "{result.reply}" · {result.latencyMs}ms · model {result.model}</span>
+   871→   871→                  ) : (
+   872→   872→                    <span>✗ {result.error ?? "Failed"}</span>
+   873→   873→                  )}
+   874→   874→                </div>
+   875→   875→              )}
+   876→   876→            </div>
+   877→   877→          );
+   878→   878→        })}
+   879→   879→      </div>
+   880→   880→
+   881→   881→      {(editing || adding) && (
+   882→   882→        <ProviderFormModal
+   883→   883→          provider={editing}
+   884→   884→          onClose={() => { setEditing(null); setAdding(false); }}
+   885→   885→          onSaved={async () => {
+   886→   886→            setEditing(null);
+   887→   887→            setAdding(false);
+   888→   888→            await load();
+   889→   889→          }}
+   890→   890→        />
+   891→   891→      )}
+   892→   892→    </div>
+   893→   893→  );
+   894→   894→}
+   895→   895→
+   896→   896→function ProviderFormModal({ provider, onClose, onSaved }: { provider: Provider | null; onClose: () => void; onSaved: () => Promise<void> }) {
+   897→   897→  const [name, setName] = useState(provider?.name ?? "");
+   898→   898→  const [providerType, setProviderType] = useState(provider?.providerType ?? "openai");
+   899→   899→  const [apiKey, setApiKey] = useState("");
+   900→   900→  const [baseUrl, setBaseUrl] = useState(provider?.baseUrl ?? "");
+   901→   901→  const [model, setModel] = useState(provider?.model ?? "");
+   902→   902→  const [maxTokens, setMaxTokens] = useState(provider?.maxTokens ?? 2048);
+   903→   903→  const [costPer1kTokens, setCostPer1kTokens] = useState(provider?.costPer1kTokens ?? 0);
+   904→   904→  const [priority, setPriority] = useState(provider?.priority ?? 100);
+   905→   905→  const [enabled, setEnabled] = useState(provider?.enabled ?? true);
+   906→   906→  const [isDefault, setIsDefault] = useState(provider?.isDefault ?? false);
+   907→   907→  const [saving, setSaving] = useState(false);
+   908→   908→  const [error, setError] = useState<string | null>(null);
+   909→   909→
+   910→   910→  const preset = PROVIDER_PRESETS[providerType];
+   911→   911→
+   912→   912→  // Auto-fill baseUrl + model when provider type changes
+   913→   913→  useEffect(() => {
+   914→   914→    if (!preset) return;
+   915→   915→    setBaseUrl((cur) => (cur.trim() ? cur : preset.baseUrl));
+   916→   916→    setModel((cur) => (cur.trim() ? cur : preset.models[0]));
+   917→   917→  }, [providerType, preset]);
+   918→   918→
+   919→   919→  const save = async () => {
+   920→   920→    setSaving(true);
+   921→   921→    setError(null);
+   922→   922→    try {
+   923→   923→      const body: any = {
+   924→   924→        name,
+   925→   925→        providerType,
+   926→   926→        baseUrl: baseUrl || null,
+   927→   927→        model: model || null,
+   928→   928→        maxTokens,
+   929→   929→        costPer1kTokens,
+   930→   930→        priority,
+   931→   931→        enabled,
+   932→   932→        isDefault,
+   933→   933→      };
+   934→   934→      if (apiKey) body.apiKey = apiKey;
+   935→   935→      const url = provider ? `/api/admin/providers/${provider.id}` : "/api/admin/providers";
+   936→   936→      const method = provider ? "PUT" : "POST";
+   937→   937→      const r = await fetch(url, {
+   938→   938→        method,
+   939→   939→        headers: { "Content-Type": "application/json" },
+   940→   940→        body: JSON.stringify(body),
+   941→   941→      });
+   942→   942→      if (!r.ok) {
+   943→   943→        const d = await r.json().catch(() => ({}));
+   944→   944→        throw new Error(d.error ?? `HTTP ${r.status}`);
+   945→   945→      }
+   946→   946→      await onSaved();
+   947→   947→    } catch (e: any) {
+   948→   948→      setError(e?.message ?? "Save failed");
+   949→   949→    } finally {
+   950→   950→      setSaving(false);
+   951→   951→    }
+   952→   952→  };
+   953→   953→
+   954→   954→  return (
+   955→   955→    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+   956→   956→      <div className="absolute inset-0 bg-black/40" onClick={onClose} aria-hidden />
+   957→   957→      <div className="relative w-full max-w-md bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl max-h-[90vh] overflow-y-auto">
+   958→   958→        <div className="sticky top-0 bg-white px-5 pt-5 pb-3 border-b border-gray-100 flex items-center justify-between">
+   959→   959→          <h2 className="text-base font-bold text-gray-900">{provider ? "Edit provider" : "Add AI provider"}</h2>
+   960→   960→          <button onClick={onClose} className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center">
+   961→   961→            <X className="w-4 h-4" />
+   962→   962→          </button>
+   963→   963→        </div>
+   964→   964→        <div className="p-5 space-y-3">
+   965→   965→          <Field label="Name">
+   966→   966→            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="My OpenAI key" className="w-full p-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-indigo-400" />
+   967→   967→          </Field>
+   968→   968→          <Field label="Provider type">
+   969→   969→            <select value={providerType} onChange={(e) => setProviderType(e.target.value)} className="w-full p-2.5 rounded-xl border border-gray-200 text-sm bg-white">
+   970→   970→              {PROVIDER_TYPES.map((t) => (
+   971→   971→                <option key={t.value} value={t.value}>{t.label}</option>
+   972→   972→              ))}
+   973→   973→            </select>
+   974→   974→          </Field>
+   975→   975→
+   976→   976→          {/* Get API Key link */}
+   977→   977→          {preset && (
+   978→   978→            <a
+   979→   979→              href={preset.dashboardUrl}
+   980→   980→              target="_blank"
+   981→   981→              rel="noreferrer"
+   982→   982→              className="inline-flex items-center gap-1 text-xs text-indigo-600 font-semibold hover:underline"
+   983→   983→            >
+   984→   984→              {preset.dashboardLabel}
+   985→   985→            </a>
+   986→   986→          )}
+   987→   987→
+   988→   988→          {/* Provider note */}
+   989→   989→          {preset?.note && (
+   990→   990→            <p className="text-[11px] text-gray-400 italic">{preset.note}</p>
+   991→   991→          )}
+   992→   992→
+   993→   993→          <Field label={provider ? "API key (leave blank to keep current)" : "API key"}>
+   994→   994→            <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="sk-..." className="w-full p-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-indigo-400" />
+   995→   995→            <p className="text-[10px] text-gray-400 mt-1">Encrypted with AES-256-CBC before storage.</p>
+   996→   996→          </Field>
+   997→   997→          <Field label="Base URL">
+   998→   998→            <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder={preset?.baseUrl ?? "https://api.openai.com/v1"} className="w-full p-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-indigo-400" />
+   999→   999→          </Field>
+  1000→  1000→
+  1001→  1001→          {/* Model — dropdown with known models + custom input option */}
+  1002→  1002→          <Field label="Model">
+  1003→  1003→            <select
+  1004→  1004→              value={preset?.models.includes(model) ? model : "__custom__"}
+  1005→  1005→              onChange={(e) => {
+  1006→  1006→                if (e.target.value === "__custom__") {
+  1007→  1007→                  // keep current model value
+  1008→  1008→                } else {
+  1009→  1009→                  setModel(e.target.value);
+  1010→  1010→                }
+  1011→  1011→              }}
+  1012→  1012→              className="w-full p-2.5 rounded-xl border border-gray-200 text-sm bg-white outline-none focus:border-indigo-400"
+  1013→  1013→            >
+  1014→  1014→              {preset?.models.map((m) => (
+  1015→  1015→                <option key={m} value={m}>{m}</option>
+  1016→  1016→              ))}
+  1017→  1017→              <option value="__custom__">{!model || preset?.models.includes(model) ? "Custom model..." : `Custom: ${model}`}</option>
+  1018→  1018→            </select>
+  1019→  1019→            {/* If custom is selected, show text input */}
+  1020→  1020→            {(!preset?.models.includes(model) || model === "") && (
+  1021→  1021→              <input
+  1022→  1022→                value={model}
+  1023→  1023→                onChange={(e) => setModel(e.target.value)}
+  1024→  1024→                placeholder="Enter custom model name"
+  1025→  1025→                className="mt-1.5 w-full p-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-indigo-400"
+  1026→  1026→              />
+  1027→  1027→            )}
+  1028→  1028→          </Field>
+  1029→  1029→          <div className="grid grid-cols-3 gap-2">
+  1030→  1030→            <Field label="Max tokens">
+  1031→  1031→              <input type="number" value={maxTokens} onChange={(e) => setMaxTokens(Number(e.target.value))} className="w-full p-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-indigo-400" />
+  1032→  1032→            </Field>
+  1033→  1033→            <Field label="Cost/1k">
+  1034→  1034→              <input type="number" step="0.0001" value={costPer1kTokens} onChange={(e) => setCostPer1kTokens(Number(e.target.value))} className="w-full p-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-indigo-400" />
+  1035→  1035→            </Field>
+  1036→  1036→            <Field label="Priority">
+  1037→  1037→              <input type="number" value={priority} onChange={(e) => setPriority(Number(e.target.value))} className="w-full p-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-indigo-400" />
+  1038→  1038→            </Field>
+  1039→  1039→          </div>
+  1040→  1040→          <div className="flex items-center gap-4">
+  1041→  1041→            <label className="flex items-center gap-1.5 text-sm">
+  1042→  1042→              <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} className="accent-indigo-600" />
+  1043→  1043→              Enabled
+  1044→  1044→            </label>
+  1045→  1045→            <label className="flex items-center gap-1.5 text-sm">
+  1046→  1046→              <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} className="accent-indigo-600" />
+  1047→  1047→              Default
+  1048→  1048→            </label>
+  1049→  1049→          </div>
+  1050→  1050→          {error && <ErrorBox message={error} />}
+  1051→  1051→          <button
+  1052→  1052→            onClick={save}
+  1053→  1053→            disabled={saving || !name}
+  1054→  1054→            className="w-full h-11 rounded-full bg-indigo-600 text-white font-semibold text-sm shadow-md hover:bg-indigo-700 disabled:opacity-50"
+  1055→  1055→          >
+  1056→  1056→            {saving ? "Saving…" : provider ? "Save changes" : "Add provider"}
+  1057→  1057→          </button>
+  1058→  1058→        </div>
+  1059→  1059→      </div>
+  1060→  1060→    </div>
+  1061→  1061→  );
+  1062→  1062→}
+  1063→  1063→
+  1064→  1064→// ════════════════════════════════════════════════════════════════
+  1065→  1065→// Content tab — Books / Chapters / Topics + Generate
+  1066→  1066→// ════════════════════════════════════════════════════════════════
+  1067→  1067→function ContentTab() {
+  1068→  1068→  const [subtab, setSubtab] = useState<"books" | "chapters" | "topics" | "generate">("books");
+  1069→  1069→  return (
+  1070→  1070→    <div className="space-y-3">
+  1071→  1071→      <div className="grid grid-cols-4 gap-1 p-1 bg-gray-100 rounded-xl text-[11px] font-medium">
+  1072→  1072→        {[
+  1073→  1073→          { key: "books" as const, label: "Books" },
+  1074→  1074→          { key: "chapters" as const, label: "Chapters" },
+  1075→  1075→          { key: "topics" as const, label: "Topics" },
+  1076→  1076→          { key: "generate" as const, label: "Generate" },
+  1077→  1077→        ].map((t) => (
+  1078→  1078→          <button
+  1079→  1079→            key={t.key}
+  1080→  1080→            onClick={() => setSubtab(t.key)}
+  1081→  1081→            className={`py-1.5 rounded-lg transition ${subtab === t.key ? "bg-white shadow text-indigo-600" : "text-gray-500"}`}
+  1082→  1082→          >
+  1083→  1083→            {t.label}
+  1084→  1084→          </button>
+  1085→  1085→        ))}
+  1086→  1086→      </div>
+  1087→  1087→      {subtab === "books" && <BooksSubtab />}
+  1088→  1088→      {subtab === "chapters" && <ChaptersSubtab />}
+  1089→  1089→      {subtab === "topics" && <TopicsSubtab />}
+  1090→  1090→      {subtab === "generate" && <GenerateSubtab />}
+  1091→  1091→    </div>
+  1092→  1092→  );
+  1093→  1093→}
+  1094→  1094→
+  1095→  1095→function BooksSubtab() {
+  1096→  1096→  const [books, setBooks] = useState<Book[]>([]);
+  1097→  1097→  const [loading, setLoading] = useState(true);
+  1098→  1098→  const [error, setError] = useState<string | null>(null);
+  1099→  1099→  const [adding, setAdding] = useState(false);
+  1100→  1100→  const [newTitle, setNewTitle] = useState("");
+  1101→  1101→  const [newDesc, setNewDesc] = useState("");
+  1102→  1102→
+  1103→  1103→  const load = async () => {
+  1104→  1104→    setLoading(true);
+  1105→  1105→    try {
+  1106→  1106→      const r = await fetch("/api/admin/books");
+  1107→  1107→      const d = await r.json();
+  1108→  1108→      setBooks(d.books);
+  1109→  1109→    } catch (e: any) {
+  1110→  1110→      setError(e?.message);
+  1111→  1111→    } finally {
+  1112→  1112→      setLoading(false);
+  1113→  1113→    }
+  1114→  1114→  };
+  1115→  1115→  useEffect(() => { load(); }, []);
+  1116→  1116→
+  1117→  1117→  const add = async () => {
+  1118→  1118→    if (!newTitle.trim()) return;
+  1119→  1119→    await fetch("/api/admin/books", {
+  1120→  1120→      method: "POST",
+  1121→  1121→      headers: { "Content-Type": "application/json" },
+  1122→  1122→      body: JSON.stringify({ title: newTitle, description: newDesc || undefined }),
+  1123→  1123→    });
+  1124→  1124→    setNewTitle(""); setNewDesc(""); setAdding(false);
+  1125→  1125→    await load();
+  1126→  1126→  };
+  1127→  1127→
+  1128→  1128→  const togglePublish = async (b: Book) => {
+  1129→  1129→    await fetch(`/api/admin/books/${b.id}`, {
+  1130→  1130→      method: "PUT",
+  1131→  1131→      headers: { "Content-Type": "application/json" },
+  1132→  1132→      body: JSON.stringify({ published: !b.published }),
+  1133→  1133→    });
+  1134→  1134→    await load();
+  1135→  1135→  };
+  1136→  1136→
+  1137→  1137→  const del = async (b: Book) => {
+  1138→  1138→    if (!confirm(`Delete "${b.title}"?`)) return;
+  1139→  1139→    await fetch(`/api/admin/books/${b.id}`, { method: "DELETE" });
+  1140→  1140→    await load();
+  1141→  1141→  };
+  1142→  1142→
+  1143→  1143→  if (loading) return <Spinner label="Loading books…" />;
+  1144→  1144→  if (error) return <ErrorBox message={error} />;
+  1145→  1145→
+  1146→  1146→  return (
+  1147→  1147→    <div className="space-y-2">
+  1148→  1148→      {!adding && (
+  1149→  1149→        <button onClick={() => setAdding(true)} className="w-full h-10 rounded-xl bg-indigo-600 text-white text-sm font-semibold flex items-center justify-center gap-1 hover:bg-indigo-700">
+  1150→  1150→          <Plus className="w-4 h-4" /> Add Book
+  1151→  1151→        </button>
+  1152→  1152→      )}
+  1153→  1153→      {adding && (
+  1154→  1154→        <div className="rounded-2xl bg-white border border-gray-200 p-3 space-y-2">
+  1155→  1155→          <input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Book title" className="w-full p-2.5 rounded-xl border border-gray-200 text-sm" />
+  1156→  1156→          <textarea value={newDesc} onChange={(e) => setNewDesc(e.target.value)} placeholder="Description" rows={2} className="w-full p-2.5 rounded-xl border border-gray-200 text-sm" />
+  1157→  1157→          <div className="flex gap-2">
+  1158→  1158→            <button onClick={add} className="flex-1 h-9 rounded-full bg-indigo-600 text-white text-xs font-semibold">Save</button>
+  1159→  1159→            <button onClick={() => setAdding(false)} className="flex-1 h-9 rounded-full bg-gray-100 text-gray-600 text-xs font-semibold">Cancel</button>
+  1160→  1160→          </div>
+  1161→  1161→        </div>
+  1162→  1162→      )}
+  1163→  1163→      {books.map((b) => (
+  1164→  1164→        <div key={b.id} className="rounded-2xl bg-white border border-gray-200 p-3 shadow-sm flex items-center justify-between">
+  1165→  1165→          <div className="min-w-0">
+  1166→  1166→            <p className="text-sm font-semibold text-gray-900 truncate">{b.title}</p>
+  1167→  1167→            <p className="text-[11px] text-gray-500">
+  1168→  1168→              {b._count?.chapters ?? 0} chapters · {b.published ? "Published" : "Draft"}
+  1169→  1169→            </p>
+  1170→  1170→          </div>
+  1171→  1171→          <div className="flex items-center gap-1">
+  1172→  1172→            <button
+  1173→  1173→              onClick={() => togglePublish(b)}
+  1174→  1174→              className={`px-2 py-1 rounded-full text-[10px] font-semibold ${b.published ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-600"}`}
+  1175→  1175→            >
+  1176→  1176→              {b.published ? "Published" : "Publish"}
+  1177→  1177→            </button>
+  1178→  1178→            <button onClick={() => del(b)} className="w-7 h-7 rounded-full hover:bg-rose-50 text-rose-600 flex items-center justify-center">
+  1179→  1179→              <Trash2 className="w-3.5 h-3.5" />
+  1180→  1180→            </button>
+  1181→  1181→          </div>
+  1182→  1182→        </div>
+  1183→  1183→      ))}
+  1184→  1184→      {books.length === 0 && <p className="text-xs text-gray-400 text-center py-4">No books yet.</p>}
+  1185→  1185→    </div>
+  1186→  1186→  );
+  1187→  1187→}
+  1188→  1188→
+  1189→  1189→function ChaptersSubtab() {
+  1190→  1190→  const [chapters, setChapters] = useState<Chapter[]>([]);
+  1191→  1191→  const [books, setBooks] = useState<Book[]>([]);
+  1192→  1192→  const [loading, setLoading] = useState(true);
+  1193→  1193→  const [adding, setAdding] = useState(false);
+  1194→  1194→  const [newBookId, setNewBookId] = useState("");
+  1195→  1195→  const [newTitle, setNewTitle] = useState("");
+  1196→  1196→
+  1197→  1197→  const load = async () => {
+  1198→  1198→    setLoading(true);
+  1199→  1199→    try {
+  1200→  1200→      const [c, b] = await Promise.all([
+  1201→  1201→        fetch("/api/admin/chapters").then((r) => r.json()),
+  1202→  1202→        fetch("/api/admin/books").then((r) => r.json()),
+  1203→  1203→      ]);
+  1204→  1204→      setChapters(c.chapters);
+  1205→  1205→      setBooks(b.books);
+  1206→  1206→      if (!newBookId && b.books[0]) setNewBookId(b.books[0].id);
+  1207→  1207→    } catch (e: any) {
+  1208→  1208→      // ignore
+  1209→  1209→    } finally {
+  1210→  1210→      setLoading(false);
+  1211→  1211→    }
+  1212→  1212→  };
+  1213→  1213→  useEffect(() => { load(); }, []);
+  1214→  1214→
+  1215→  1215→  const add = async () => {
+  1216→  1216→    if (!newBookId || !newTitle.trim()) return;
+  1217→  1217→    await fetch("/api/admin/chapters", {
+  1218→  1218→      method: "POST",
+  1219→  1219→      headers: { "Content-Type": "application/json" },
+  1220→  1220→      body: JSON.stringify({ bookId: newBookId, title: newTitle }),
+  1221→  1221→    });
+  1222→  1222→    setNewTitle(""); setAdding(false);
+  1223→  1223→    await load();
+  1224→  1224→  };
+  1225→  1225→
+  1226→  1226→  const del = async (c: Chapter) => {
+  1227→  1227→    if (!confirm(`Delete chapter "${c.title ?? "(untitled)"}"?`)) return;
+  1228→  1228→    await fetch(`/api/admin/chapters/${c.id}`, { method: "DELETE" });
+  1229→  1229→    await load();
+  1230→  1230→  };
+  1231→  1231→
+  1232→  1232→  if (loading) return <Spinner label="Loading chapters…" />;
+  1233→  1233→
+  1234→  1234→  return (
+  1235→  1235→    <div className="space-y-2">
+  1236→  1236→      {!adding && (
+  1237→  1237→        <button onClick={() => setAdding(true)} className="w-full h-10 rounded-xl bg-indigo-600 text-white text-sm font-semibold flex items-center justify-center gap-1">
+  1238→  1238→          <Plus className="w-4 h-4" /> Add Chapter
+  1239→  1239→        </button>
+  1240→  1240→      )}
+  1241→  1241→      {adding && (
+  1242→  1242→        <div className="rounded-2xl bg-white border border-gray-200 p-3 space-y-2">
+  1243→  1243→          <select value={newBookId} onChange={(e) => setNewBookId(e.target.value)} className="w-full p-2.5 rounded-xl border border-gray-200 text-sm bg-white">
+  1244→  1244→            {books.map((b) => <option key={b.id} value={b.id}>{b.title}</option>)}
+  1245→  1245→          </select>
+  1246→  1246→          <input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Chapter title" className="w-full p-2.5 rounded-xl border border-gray-200 text-sm" />
+  1247→  1247→          <div className="flex gap-2">
+  1248→  1248→            <button onClick={add} className="flex-1 h-9 rounded-full bg-indigo-600 text-white text-xs font-semibold">Save</button>
+  1249→  1249→            <button onClick={() => setAdding(false)} className="flex-1 h-9 rounded-full bg-gray-100 text-gray-600 text-xs font-semibold">Cancel</button>
+  1250→  1250→          </div>
+  1251→  1251→        </div>
+  1252→  1252→      )}
+  1253→  1253→      {chapters.map((c) => (
+  1254→  1254→        <div key={c.id} className="rounded-2xl bg-white border border-gray-200 p-3 shadow-sm flex items-center justify-between">
+  1255→  1255→          <div className="min-w-0">
+  1256→  1256→            <p className="text-sm font-semibold text-gray-900 truncate">{c.title ?? "(untitled)"}</p>
+  1257→  1257→            <p className="text-[11px] text-gray-500">
+  1258→  1258→              {c.book?.title ?? "—"} · {c._count?.topics ?? 0} topics
+  1259→  1259→            </p>
+  1260→  1260→          </div>
+  1261→  1261→          <button onClick={() => del(c)} className="w-7 h-7 rounded-full hover:bg-rose-50 text-rose-600 flex items-center justify-center">
+  1262→  1262→            <Trash2 className="w-3.5 h-3.5" />
+  1263→  1263→          </button>
+  1264→  1264→        </div>
+  1265→  1265→      ))}
+  1266→  1266→      {chapters.length === 0 && <p className="text-xs text-gray-400 text-center py-4">No chapters yet.</p>}
+  1267→  1267→    </div>
+  1268→  1268→  );
+  1269→  1269→}
+  1270→  1270→
+  1271→  1271→function TopicsSubtab() {
+  1272→  1272→  const [topics, setTopics] = useState<AdminTopic[]>([]);
+  1273→  1273→  const [loading, setLoading] = useState(true);
+  1274→  1274→  const [adding, setAdding] = useState(false);
+  1275→  1275→  const [newSubject, setNewSubject] = useState("");
+  1276→  1276→  const [newName, setNewName] = useState("");
+  1277→  1277→
+  1278→  1278→  const load = async () => {
+  1279→  1279→    setLoading(true);
+  1280→  1280→    try {
+  1281→  1281→      const r = await fetch("/api/admin/topics");
+  1282→  1282→      const d = await r.json();
+  1283→  1283→      setTopics(d.topics);
+  1284→  1284→    } finally {
+  1285→  1285→      setLoading(false);
+  1286→  1286→    }
+  1287→  1287→  };
+  1288→  1288→  useEffect(() => { load(); }, []);
+  1289→  1289→
+  1290→  1290→  const add = async () => {
+  1291→  1291→    if (!newName.trim()) return;
+  1292→  1292→    await fetch("/api/admin/topics", {
+  1293→  1293→      method: "POST",
+  1294→  1294→      headers: { "Content-Type": "application/json" },
+  1295→  1295→      body: JSON.stringify({ subject: newSubject || "General", name: newName }),
+  1296→  1296→    });
+  1297→  1297→    setNewSubject(""); setNewName(""); setAdding(false);
+  1298→  1298→    await load();
+  1299→  1299→  };
+  1300→  1300→
+  1301→  1301→  const togglePublish = async (t: AdminTopic) => {
+  1302→  1302→    await fetch(`/api/admin/topics/${t.id}`, {
+  1303→  1303→      method: "PUT",
+  1304→  1304→      headers: { "Content-Type": "application/json" },
+  1305→  1305→      body: JSON.stringify({ published: !t.published }),
+  1306→  1306→    });
+  1307→  1307→    await load();
+  1308→  1308→  };
+  1309→  1309→
+  1310→  1310→  const del = async (t: AdminTopic) => {
+  1311→  1311→    if (!confirm(`Delete topic "${t.name}"?`)) return;
+  1312→  1312→    await fetch(`/api/admin/topics/${t.id}`, { method: "DELETE" });
+  1313→  1313→    await load();
+  1314→  1314→  };
+  1315→  1315→
+  1316→  1316→  if (loading) return <Spinner label="Loading topics…" />;
+  1317→  1317→
+  1318→  1318→  return (
+  1319→  1319→    <div className="space-y-2">
+  1320→  1320→      {!adding && (
+  1321→  1321→        <button onClick={() => setAdding(true)} className="w-full h-10 rounded-xl bg-indigo-600 text-white text-sm font-semibold flex items-center justify-center gap-1">
+  1322→  1322→          <Plus className="w-4 h-4" /> Add Topic
+  1323→  1323→        </button>
+  1324→  1324→      )}
+  1325→  1325→      {adding && (
+  1326→  1326→        <div className="rounded-2xl bg-white border border-gray-200 p-3 space-y-2">
+  1327→  1327→          <input value={newSubject} onChange={(e) => setNewSubject(e.target.value)} placeholder="Subject (e.g. Mathematics)" className="w-full p-2.5 rounded-xl border border-gray-200 text-sm" />
+  1328→  1328→          <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Topic name (e.g. Quadratic Equations)" className="w-full p-2.5 rounded-xl border border-gray-200 text-sm" />
+  1329→  1329→          <div className="flex gap-2">
+  1330→  1330→            <button onClick={add} className="flex-1 h-9 rounded-full bg-indigo-600 text-white text-xs font-semibold">Save</button>
+  1331→  1331→            <button onClick={() => setAdding(false)} className="flex-1 h-9 rounded-full bg-gray-100 text-gray-600 text-xs font-semibold">Cancel</button>
+  1332→  1332→          </div>
+  1333→  1333→        </div>
+  1334→  1334→      )}
+  1335→  1335→      {topics.map((t) => (
+  1336→  1336→        <div key={t.id} className="rounded-2xl bg-white border border-gray-200 p-3 shadow-sm flex items-center justify-between">
+  1337→  1337→          <div className="min-w-0">
+  1338→  1338→            <p className="text-sm font-semibold text-gray-900 truncate">{t.name}</p>
+  1339→  1339→            <p className="text-[11px] text-gray-500">
+  1340→  1340→              {t.subject} · {t._count?.cards ?? 0} cards · {t._count?.lessons ?? 0} lessons
+  1341→  1341→              {t.chapter?.book?.title && ` · ${t.chapter.book.title}`}
+  1342→  1342→            </p>
+  1343→  1343→          </div>
+  1344→  1344→          <div className="flex items-center gap-1">
+  1345→  1345→            <button
+  1346→  1346→              onClick={() => togglePublish(t)}
+  1347→  1347→              className={`px-2 py-1 rounded-full text-[10px] font-semibold ${t.published ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-600"}`}
+  1348→  1348→            >
+  1349→  1349→              {t.published ? "Published" : "Draft"}
+  1350→  1350→            </button>
+  1351→  1351→            <button onClick={() => del(t)} className="w-7 h-7 rounded-full hover:bg-rose-50 text-rose-600 flex items-center justify-center">
+  1352→  1352→              <Trash2 className="w-3.5 h-3.5" />
+  1353→  1353→            </button>
+  1354→  1354→          </div>
+  1355→  1355→        </div>
+  1356→  1356→      ))}
+  1357→  1357→      {topics.length === 0 && <p className="text-xs text-gray-400 text-center py-4">No topics yet.</p>}
+  1358→  1358→    </div>
+  1359→  1359→  );
+  1360→  1360→}
+  1361→  1361→
+  1362→  1362→function GenerateSubtab() {
+  1363→  1363→  const [mode, setMode] = useState<"book" | "topic">("book");
+  1364→  1364→  const [text, setText] = useState("");
+  1365→  1365→  const [topicName, setTopicName] = useState("");
+  1366→  1366→  const [subject, setSubject] = useState("");
+  1367→  1367→  const [numFlashcards, setNumFlashcards] = useState(5);
+  1368→  1368→  const [numMCQs, setNumMCQs] = useState(5);
+  1369→  1369→  const [generating, setGenerating] = useState(false);
+  1370→  1370→  const [result, setResult] = useState<any>(null);
+  1371→  1371→  const [error, setError] = useState<string | null>(null);
+  1372→  1372→
+  1373→  1373→  const generate = async () => {
+  1374→  1374→    setGenerating(true);
+  1375→  1375→    setError(null);
+  1376→  1376→    setResult(null);
+  1377→  1377→    try {
+  1378→  1378→      const url = mode === "book" ? "/api/admin/generate/book" : "/api/admin/generate/topic";
+  1379→  1379→      const body = mode === "book"
+  1380→  1380→        ? { text }
+  1381→  1381→        : { topicName, subject: subject || "General", numFlashcards, numMCQs, text: text || undefined };
+  1382→  1382→      const r = await fetch(url, {
+  1383→  1383→        method: "POST",
+  1384→  1384→        headers: { "Content-Type": "application/json" },
+  1385→  1385→        body: JSON.stringify(body),
+  1386→  1386→      });
+  1387→  1387→      const d = await r.json();
+  1388→  1388→      if (!r.ok) throw new Error(d.error ?? `HTTP ${r.status}`);
+  1389→  1389→      setResult(d);
+  1390→  1390→    } catch (e: any) {
+  1391→  1391→      setError(e?.message ?? "Generation failed");
+  1392→  1392→    } finally {
+  1393→  1393→      setGenerating(false);
+  1394→  1394→    }
+  1395→  1395→  };
+  1396→  1396→
+  1397→  1397→  return (
+  1398→  1398→    <div className="space-y-3">
+  1399→  1399→      <div className="grid grid-cols-2 gap-1 p-1 bg-gray-100 rounded-xl text-[11px] font-medium">
+  1400→  1400→        {[
+  1401→  1401→          { key: "book" as const, label: "From material → Book outline" },
+  1402→  1402→          { key: "topic" as const, label: "Topic lesson + cards" },
+  1403→  1403→        ].map((m) => (
+  1404→  1404→          <button
+  1405→  1405→            key={m.key}
+  1406→  1406→            onClick={() => setMode(m.key)}
+  1407→  1407→            className={`py-1.5 rounded-lg transition ${mode === m.key ? "bg-white shadow text-indigo-600" : "text-gray-500"}`}
+  1408→  1408→          >
+  1409→  1409→            {m.label}
+  1410→  1410→          </button>
+  1411→  1411→        ))}
+  1412→  1412→      </div>
+  1413→  1413→
+  1414→  1414→      {mode === "topic" && (
+  1415→  1415→        <div className="grid grid-cols-2 gap-2">
+  1416→  1416→          <Field label="Topic name">
+  1417→  1417→            <input value={topicName} onChange={(e) => setTopicName(e.target.value)} placeholder="e.g. Photosynthesis" className="w-full p-2.5 rounded-xl border border-gray-200 text-sm" />
+  1418→  1418→          </Field>
+  1419→  1419→          <Field label="Subject">
+  1420→  1420→            <input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="e.g. Science" className="w-full p-2.5 rounded-xl border border-gray-200 text-sm" />
+  1421→  1421→          </Field>
+  1422→  1422→          <Field label="Flashcards">
+  1423→  1423→            <input type="number" min={0} max={12} value={numFlashcards} onChange={(e) => setNumFlashcards(Number(e.target.value))} className="w-full p-2.5 rounded-xl border border-gray-200 text-sm" />
+  1424→  1424→          </Field>
+  1425→  1425→          <Field label="MCQs">
+  1426→  1426→            <input type="number" min={0} max={12} value={numMCQs} onChange={(e) => setNumMCQs(Number(e.target.value))} className="w-full p-2.5 rounded-xl border border-gray-200 text-sm" />
+  1427→  1427→          </Field>
+  1428→  1428→        </div>
+  1429→  1429→      )}
+  1430→  1430→
+  1431→  1431→      <Field label="Source text (optional for topic, required for book)">
+  1432→  1432→        <textarea
+  1433→  1433→          value={text}
+  1434→  1434→          onChange={(e) => setText(e.target.value)}
+  1435→  1435→          rows={6}
+  1436→  1436→          placeholder="Paste notes, PDF text, or any study material…"
+  1437→  1437→          className="w-full p-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-indigo-400 resize-none"
+  1438→  1438→        />
+  1439→  1439→      </Field>
+  1440→  1440→
+  1441→  1441→      {error && <ErrorBox message={error} />}
+  1442→  1442→
+  1443→  1443→      <button
+  1444→  1444→        onClick={generate}
+  1445→  1445→        disabled={generating || (mode === "book" && !text.trim()) || (mode === "topic" && !topicName.trim())}
+  1446→  1446→        className="w-full h-11 rounded-full bg-indigo-600 text-white font-semibold text-sm shadow-md hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-1.5"
+  1447→  1447→      >
+  1448→  1448→        {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+  1449→  1449→        {generating ? "Generating…" : `Generate ${mode}`}
+  1450→  1450→      </button>
+  1451→  1451→
+  1452→  1452→      {result && mode === "book" && (
+  1453→  1453→        <div className="rounded-2xl bg-white border border-gray-200 p-3 shadow-sm space-y-2">
+  1454→  1454→          <p className="text-sm font-bold text-gray-900">{result.title}</p>
+  1455→  1455→          <p className="text-xs text-gray-600">{result.description}</p>
+  1456→  1456→          {result.chapters?.map((c: any, i: number) => (
+  1457→  1457→            <div key={i} className="rounded-xl bg-gray-50 p-2">
+  1458→  1458→              <p className="text-xs font-semibold text-gray-900">{i + 1}. {c.title}</p>
+  1459→  1459→              <ul className="mt-1 ml-3 list-disc text-[11px] text-gray-600">
+  1460→  1460→                {c.topics?.map((t: any, j: number) => <li key={j}>{t.name} ({t.subject})</li>)}
+  1461→  1461→              </ul>
+  1462→  1462→            </div>
+  1463→  1463→          ))}
+  1464→  1464→          <p className="text-[10px] text-gray-400 italic">Preview only — save via Books tab.</p>
+  1465→  1465→        </div>
+  1466→  1466→      )}
+  1467→  1467→
+  1468→  1468→      {result && mode === "topic" && (
+  1469→  1469→        <div className="rounded-2xl bg-white border border-gray-200 p-3 shadow-sm space-y-2">
+  1470→  1470→          <p className="text-sm font-bold text-gray-900">{result.topicName}</p>
+  1471→  1471→          {result.lesson?.introduction && (
+  1472→  1472→            <p className="text-xs text-gray-700">{result.lesson.introduction}</p>
+  1473→  1473→          )}
+  1474→  1474→          {result.lesson?.keyConcepts && (
+  1475→  1475→            <p className="text-[11px] text-gray-500">{result.lesson.keyConcepts.length} key concepts generated</p>
+  1476→  1476→          )}
+  1477→  1477→          <p className="text-[11px] text-gray-500">
+  1478→  1478→            {result.flashcards?.length ?? 0} flashcards · {result.mcqs?.length ?? 0} MCQs
+  1479→  1479→          </p>
+  1480→  1480→          <p className="text-[10px] text-gray-400 italic">Preview only — save via Topics tab + /api/study-sets.</p>
+  1481→  1481→        </div>
+  1482→  1482→      )}
+  1483→  1483→    </div>
+  1484→  1484→  );
+  1485→  1485→}
+  1486→  1486→
+  1487→  1487→// ════════════════════════════════════════════════════════════════
+  1488→  1488→// Logs tab
+  1489→  1489→// ════════════════════════════════════════════════════════════════
+  1490→  1490→function LogsTab() {
+  1491→  1491→  const [subtab, setSubtab] = useState<"ai" | "actions">("ai");
+  1492→  1492→  const [aiLogs, setAiLogs] = useState<AiLog[]>([]);
+  1493→  1493→  const [actionLogs, setActionLogs] = useState<AdminActionLog[]>([]);
+  1494→  1494→  const [loading, setLoading] = useState(true);
+  1495→  1495→
+  1496→  1496→  const load = async () => {
+  1497→  1497→    setLoading(true);
+  1498→  1498→    try {
+  1499→  1499→      const [a, b] = await Promise.all([
+  1500→  1500→        fetch("/api/admin/logs/ai?limit=50").then((r) => r.json()),
+  1501→  1501→        fetch("/api/admin/logs/actions?limit=50").then((r) => r.json()),
+  1502→  1502→      ]);
+  1503→  1503→      setAiLogs(a.logs);
+  1504→  1504→      setActionLogs(b.logs);
+  1505→  1505→    } finally {
+  1506→  1506→      setLoading(false);
+  1507→  1507→    }
+  1508→  1508→  };
+  1509→  1509→  useEffect(() => { load(); }, []);
+  1510→  1510→
+  1511→  1511→  if (loading) return <Spinner label="Loading logs…" />;
+  1512→  1512→
+  1513→  1513→  return (
+  1514→  1514→    <div className="space-y-3">
+  1515→  1515→      <div className="grid grid-cols-2 gap-1 p-1 bg-gray-100 rounded-xl text-[11px] font-medium">
+  1516→  1516→        {[
+  1517→  1517→          { key: "ai" as const, label: "AI Calls" },
+  1518→  1518→          { key: "actions" as const, label: "Admin Actions" },
+  1519→  1519→        ].map((t) => (
+  1520→  1520→          <button
+  1521→  1521→            key={t.key}
+  1522→  1522→            onClick={() => setSubtab(t.key)}
+  1523→  1523→            className={`py-1.5 rounded-lg transition ${subtab === t.key ? "bg-white shadow text-indigo-600" : "text-gray-500"}`}
+  1524→  1524→          >
+  1525→  1525→            {t.label}
+  1526→  1526→          </button>
+  1527→  1527→        ))}
+  1528→  1528→      </div>
+  1529→  1529→
+  1530→  1530→      {subtab === "ai" && (
+  1531→  1531→        <div className="space-y-1.5">
+  1532→  1532→          {aiLogs.length === 0 && <p className="text-xs text-gray-400 text-center py-4">No AI calls logged yet.</p>}
+  1533→  1533→          {aiLogs.map((l) => (
+  1534→  1534→            <div key={l.id} className={`rounded-xl p-2.5 text-xs border ${l.status === "success" ? "bg-emerald-50 border-emerald-100" : "bg-rose-50 border-rose-100"}`}>
+  1535→  1535→              <div className="flex items-center justify-between">
+  1536→  1536→                <span className="font-semibold text-gray-900">
+  1537→  1537→                  {l.providerType ?? "—"} · {l.model ?? "—"}
+  1538→  1538→                </span>
+  1539→  1539→                <span className={`text-[10px] font-bold uppercase ${l.status === "success" ? "text-emerald-700" : "text-rose-700"}`}>
+  1540→  1540→                  {l.status}
+  1541→  1541→                </span>
+  1542→  1542→              </div>
+  1543→  1543→              <p className="text-[10px] text-gray-500 mt-0.5">
+  1544→  1544→                {l.user?.email ?? "system"} · {l.totalTokens ?? 0} tokens · ${l.cost.toFixed(4)} · {l.route ?? ""}
+  1545→  1545→              </p>
+  1546→  1546→              {l.errorMessage && <p className="text-[10px] text-rose-600 mt-0.5 truncate">{l.errorMessage}</p>}
+  1547→  1547→              <p className="text-[10px] text-gray-400 mt-0.5">{new Date(l.createdAt).toLocaleString()}</p>
+  1548→  1548→            </div>
+  1549→  1549→          ))}
+  1550→  1550→        </div>
+  1551→  1551→      )}
+  1552→  1552→
+  1553→  1553→      {subtab === "actions" && (
+  1554→  1554→        <div className="space-y-1.5">
+  1555→  1555→          {actionLogs.length === 0 && <p className="text-xs text-gray-400 text-center py-4">No admin actions logged yet.</p>}
+  1556→  1556→          {actionLogs.map((l) => (
+  1557→  1557→            <div key={l.id} className="rounded-xl bg-white border border-gray-200 p-2.5 text-xs">
+  1558→  1558→              <div className="flex items-center justify-between">
+  1559→  1559→                <span className="font-semibold text-gray-900">{l.action}</span>
+  1560→  1560→                <span className="text-[10px] text-gray-400">{new Date(l.createdAt).toLocaleString()}</span>
+  1561→  1561→              </div>
+  1562→  1562→              <p className="text-[10px] text-gray-500 mt-0.5">
+  1563→  1563→                by {l.adminUser?.email ?? "—"}
+  1564→  1564→              </p>
+  1565→  1565→              {l.details && (
+  1566→  1566→                <pre className="text-[10px] text-gray-400 mt-1 bg-gray-50 p-1 rounded overflow-x-auto">
+  1567→  1567→                  {JSON.stringify(l.details, null, 2)}
+  1568→  1568→                </pre>
+  1569→  1569→              )}
+  1570→  1570→            </div>
+  1571→  1571→          ))}
+  1572→  1572→        </div>
+  1573→  1573→      )}
+  1574→  1574→    </div>
+  1575→  1575→  );
+  1576→  1576→}
+  1577→  1577→
+  1578→  1578→// ════════════════════════════════════════════════════════════════
+  1579→  1579→// Shared helpers
+  1580→  1580→// ════════════════════════════════════════════════════════════════
+  1581→  1581→function Spinner({ label }: { label: string }) {
+  1582→  1582→  return (
+  1583→  1583→    <div className="py-12 flex flex-col items-center justify-center text-gray-400">
+  1584→  1584→      <Loader2 className="w-6 h-6 animate-spin" />
+  1585→  1585→      <span className="mt-2 text-xs">{label}</span>
+  1586→  1586→    </div>
+  1587→  1587→  );
+  1588→  1588→}
+  1589→  1589→
+  1590→  1590→function ErrorBox({ message }: { message: string }) {
+  1591→  1591→  return (
+  1592→  1592→    <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-start gap-2">
+  1593→  1593→      <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+  1594→  1594→      <span>{message}</span>
+  1595→  1595→    </div>
+  1596→  1596→  );
+  1597→  1597→}
+  1598→  1598→
+  1599→  1599→function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  1600→  1600→  return (
+  1601→  1601→    <div>
+  1602→  1602→      <label className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 block mb-1">{label}</label>
+  1603→  1603→      {children}
+  1604→  1604→    </div>
+  1605→  1605→  );
+  1606→  1606→}
+  1607→  1607→
+  1608→  1608→// ════════════════════════════════════════════════════════════════
+  1609→  1609→// Account tab (admin profile + change password + logout)
+  1610→  1610→// ════════════════════════════════════════════════════════════════
+  1611→  1611→function AccountTab({ adminEmail, onLogout }: { adminEmail: string | null; onLogout: () => Promise<void> }) {
+  1612→  1612→  const [currentPw, setCurrentPw] = useState("");
+  1613→  1613→  const [newPw, setNewPw] = useState("");
+  1614→  1614→  const [confirmPw, setConfirmPw] = useState("");
+  1615→  1615→  const [busy, setBusy] = useState(false);
+  1616→  1616→  const [error, setError] = useState<string | null>(null);
+  1617→  1617→  const [success, setSuccess] = useState(false);
+  1618→  1618→  const [loggingOut, setLoggingOut] = useState(false);
+  1619→  1619→
+  1620→  1620→  const changePassword = async () => {
+  1621→  1621→    setError(null);
+  1622→  1622→    setSuccess(false);
+  1623→  1623→    if (!currentPw || !newPw || !confirmPw) {
+  1624→  1624→      setError("All three fields are required.");
+  1625→  1625→      return;
+  1626→  1626→    }
+  1627→  1627→    if (newPw !== confirmPw) {
+  1628→  1628→      setError("New password and confirmation don't match.");
+  1629→  1629→      return;
+  1630→  1630→    }
+  1631→  1631→    if (newPw.length < 6) {
+  1632→  1632→      setError("New password must be at least 6 characters.");
+  1633→  1633→      return;
+  1634→  1634→    }
+  1635→  1635→    setBusy(true);
+  1636→  1636→    try {
+  1637→  1637→      const r = await fetch("/api/admin/auth/change-password", {
+  1638→  1638→        method: "POST",
+  1639→  1639→        headers: { "Content-Type": "application/json" },
+  1640→  1640→        body: JSON.stringify({ currentPassword: currentPw, newPassword: newPw }),
+  1641→  1641→      });
+  1642→  1642→      const d = await r.json();
+  1643→  1643→      if (!r.ok) throw new Error(d.error ?? `HTTP ${r.status}`);
+  1644→  1644→      setSuccess(true);
+  1645→  1645→      setCurrentPw("");
+  1646→  1646→      setNewPw("");
+  1647→  1647→      setConfirmPw("");
+  1648→  1648→    } catch (e: any) {
+  1649→  1649→      setError(e?.message ?? "Change failed");
+  1650→  1650→    } finally {
+  1651→  1651→      setBusy(false);
+  1652→  1652→    }
+  1653→  1653→  };
+  1654→  1654→
+  1655→  1655→  const logout = async () => {
+  1656→  1656→    setLoggingOut(true);
+  1657→  1657→    try {
+  1658→  1658→      await onLogout();
+  1659→  1659→    } finally {
+  1660→  1660→      setLoggingOut(false);
+  1661→  1661→    }
+  1662→  1662→  };
+  1663→  1663→
+  1664→  1664→  return (
+  1665→  1665→    <div className="space-y-4">
+  1666→  1666→      {/* Admin info */}
+  1667→  1667→      <div className="rounded-2xl bg-gradient-to-br from-slate-900 to-indigo-900 p-4 text-white shadow-md">
+  1668→  1668→        <div className="flex items-center gap-3">
+  1669→  1669→          <span className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center">
+  1670→  1670→            <Shield className="w-6 h-6" />
+  1671→  1671→          </span>
+  1672→  1672→          <div className="min-w-0">
+  1673→  1673→            <p className="text-xs uppercase tracking-wide opacity-80">Signed in as</p>
+  1674→  1674→            <p className="text-sm font-bold truncate">{adminEmail ?? "Admin"}</p>
+  1675→  1675→          </div>
+  1676→  1676→        </div>
+  1677→  1677→      </div>
+  1678→  1678→
+  1679→  1679→      {/* Change Password */}
+  1680→  1680→      <div className="rounded-2xl bg-white border border-gray-200 p-4 shadow-sm space-y-3">
+  1681→  1681→        <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+  1682→  1682→          <KeyRound className="w-4 h-4 text-indigo-600" /> Change Password
+  1683→  1683→        </h2>
+  1684→  1684→        <Field label="Current password">
+  1685→  1685→          <input
+  1686→  1686→            type="password"
+  1687→  1687→            value={currentPw}
+  1688→  1688→            onChange={(e) => setCurrentPw(e.target.value)}
+  1689→  1689→            placeholder="••••••••"
+  1690→  1690→            className="w-full p-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+  1691→  1691→          />
+  1692→  1692→        </Field>
+  1693→  1693→        <div className="grid grid-cols-2 gap-2">
+  1694→  1694→          <Field label="New password">
+  1695→  1695→            <input
+  1696→  1696→              type="password"
+  1697→  1697→              value={newPw}
+  1698→  1698→              onChange={(e) => setNewPw(e.target.value)}
+  1699→  1699→              placeholder="At least 6 chars"
+  1700→  1700→              className="w-full p-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+  1701→  1701→            />
+  1702→  1702→          </Field>
+  1703→  1703→          <Field label="Confirm new">
+  1704→  1704→            <input
+  1705→  1705→              type="password"
+  1706→  1706→              value={confirmPw}
+  1707→  1707→              onChange={(e) => setConfirmPw(e.target.value)}
+  1708→  1708→              placeholder="Re-type new"
+  1709→  1709→              className="w-full p-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+  1710→  1710→            />
+  1711→  1711→          </Field>
+  1712→  1712→        </div>
+  1713→  1713→        {error && (
+  1714→  1714→          <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-start gap-2">
+  1715→  1715→            <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+  1716→  1716→            <span>{error}</span>
+  1717→  1717→          </div>
+  1718→  1718→        )}
+  1719→  1719→        {success && (
+  1720→  1720→          <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs flex items-center gap-2">
+  1721→  1721→            <Check className="w-4 h-4" /> Password updated successfully.
+  1722→  1722→          </div>
+  1723→  1723→        )}
+  1724→  1724→        <button
+  1725→  1725→          onClick={changePassword}
+  1726→  1726→          disabled={busy}
+  1727→  1727→          className="w-full h-11 rounded-full bg-indigo-600 text-white font-semibold text-sm shadow-md hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-1.5"
+  1728→  1728→        >
+  1729→  1729→          {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />}
+  1730→  1730→          {busy ? "Updating…" : "Update password"}
+  1731→  1731→        </button>
+  1732→  1732→      </div>
+  1733→  1733→
+  1734→  1734→      {/* Logout */}
+  1735→  1735→      <button
+  1736→  1736→        onClick={logout}
+  1737→  1737→        disabled={loggingOut}
+  1738→  1738→        className="w-full p-4 flex items-center gap-3 rounded-2xl bg-white border border-rose-200 text-rose-600 hover:bg-rose-50 shadow-sm disabled:opacity-50"
+  1739→  1739→      >
+  1740→  1740→        <span className="w-9 h-9 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center">
+  1741→  1741→          <LogOut className="w-4 h-4" />
+  1742→  1742→        </span>
+  1743→  1743→        <span className="text-sm font-medium">
+  1744→  1744→          {loggingOut ? "Logging out…" : "Log out of admin"}
+  1745→  1745→        </span>
+  1746→  1746→      </button>
+  1747→  1747→
+  1748→  1748→      <p className="text-center text-[11px] text-gray-400">
+  1749→  1749→        Admin auth is separate from user (Clerk) auth.
+  1750→  1750→      </p>
+  1751→  1751→    </div>
+  1752→  1752→  );
+  1753→  1753→}
+  1754→  1754→
+  1755→  1755→// ════════════════════════════════════════════════════════════════
+  1756→  1756→// Monetization tab — Plans, Payments, Activation Keys
+  1757→  1757→// ════════════════════════════════════════════════════════════════
+  1758→  1758→function MonetizationTab() {
+  1759→  1759→  const [subtab, setSubtab] = useState<"plans" | "keys" | "payments">("plans");
+  1760→  1760→  const [plans, setPlans] = useState<any[]>([]);
+  1761→  1761→  const [keys, setKeys] = useState<any[]>([]);
+  1762→  1762→  const [txs, setTxs] = useState<any[]>([]);
+  1763→  1763→  const [loading, setLoading] = useState(true);
+  1764→  1764→  const [genPlanId, setGenPlanId] = useState("");
+  1765→  1765→
+  1766→  1766→  useEffect(() => {
+  1767→  1767→    let mounted = true;
+  1768→  1768→    (async () => {
+  1769→  1769→      setLoading(true);
+  1770→  1770→      try {
+  1771→  1771→        const [p, k, t] = await Promise.all([
+  1772→  1772→          fetch("/api/admin/plans").then(r => r.json()).catch(() => ({ plans: [] })),
+  1773→  1773→          fetch("/api/admin/activation-keys").then(r => r.json()).catch(() => ({ keys: [] })),
+  1774→  1774→          fetch("/api/admin/payments").then(r => r.json()).catch(() => ({ transactions: [] })),
+  1775→  1775→        ]);
+  1776→  1776→        if (!mounted) return;
+  1777→  1777→        setPlans(p.plans || []);
+  1778→  1778→        setKeys(k.keys || []);
+  1779→  1779→        setTxs(t.transactions || []);
+  1780→  1780→        if (!genPlanId && p.plans?.[0]) setGenPlanId(p.plans[0].id);
+  1781→  1781→      } catch {}
+  1782→  1782→      if (mounted) setLoading(false);
+  1783→  1783→    })();
+  1784→  1784→    return () => { mounted = false; };
+  1785→  1785→  }, []);
+  1786→  1786→
+  1787→  1787→  const generateKey = async (planId: string) => {
+  1788→  1788→    try {
+  1789→  1789→      const r = await fetch("/api/admin/activation-keys", {
+  1790→  1790→        method: "POST",
+  1791→  1791→        headers: { "Content-Type": "application/json" },
+  1792→  1792→        body: JSON.stringify({ planId }),
+  1793→  1793→      });
+  1794→  1794→      const d = await r.json();
+  1795→  1795→      if (d.key) {
+  1796→  1796→        alert(`New activation key: ${d.key.key}\nGive this to the user.`);
+  1797→  1797→        await load();
+  1798→  1798→      }
+  1799→  1799→    } catch {}
+  1800→  1800→  };
+  1801→  1801→
+  1802→  1802→  const approvePayment = async (txId: string) => {
+  1803→  1803→    try {
+  1804→  1804→      const r = await fetch("/api/admin/payments", {
+  1805→  1805→        method: "POST",
+  1806→  1806→        headers: { "Content-Type": "application/json" },
+  1807→  1807→        body: JSON.stringify({ action: "approve", transactionId: txId }),
+  1808→  1808→      });
+  1809→  1809→      const d = await r.json();
+  1810→  1810→      if (d.ok) {
+  1811→  1811→        alert(`Payment approved! Key: ${d.key}`);
+  1812→  1812→        await load();
+  1813→  1813→      }
+  1814→  1814→    } catch {}
+  1815→  1815→  };
+  1816→  1816→
+  1817→  1817→  const rejectPayment = async (txId: string) => {
+  1818→  1818→    try {
+  1819→  1819→      await fetch("/api/admin/payments", {
+  1820→  1820→        method: "POST",
+  1821→  1821→        headers: { "Content-Type": "application/json" },
+  1822→  1822→        body: JSON.stringify({ action: "reject", transactionId: txId }),
+  1823→  1823→      });
+  1824→  1824→      await load();
+  1825→  1825→    } catch {}
+  1826→  1826→  };
+  1827→  1827→
+  1828→  1828→  if (loading) return <Spinner label="Loading monetization…" />;
+  1829→  1829→
+  1830→  1830→  return (
+  1831→  1831→    <div className="space-y-3">
+  1832→  1832→      <div className="grid grid-cols-3 gap-1 p-1 bg-gray-100 rounded-xl text-[11px] font-medium">
+  1833→  1833→        {[
+  1834→  1834→          { key: "plans" as const, label: "Plans" },
+  1835→  1835→          { key: "keys" as const, label: "Activation Keys" },
+  1836→  1836→          { key: "payments" as const, label: "Payments" },
+  1837→  1837→        ].map((t) => (
+  1838→  1838→          <button key={t.key} onClick={() => setSubtab(t.key)}
+  1839→  1839→            className={`py-1.5 rounded-lg transition ${subtab === t.key ? "bg-white shadow text-indigo-600" : "text-gray-500"}`}>
+  1840→  1840→            {t.label}
+  1841→  1841→          </button>
+  1842→  1842→        ))}
+  1843→  1843→      </div>
+  1844→  1844→
+  1845→  1845→      {/* Plans subtab */}
+  1846→  1846→      {subtab === "plans" && (
+  1847→  1847→        <div className="space-y-2">
+  1848→  1848→          {plans.map((p) => (
+  1849→  1849→            <div key={p.id} className="rounded-2xl bg-white border border-gray-200 p-3 shadow-sm flex items-center justify-between">
+  1850→  1850→              <div>
+  1851→  1851→                <p className="text-sm font-semibold">{p.name}</p>
+  1852→  1852→                <p className="text-[11px] text-gray-500">
+  1853→  1853→                  ${p.price} · {p.tokenLimit?.toLocaleString()} tokens · {p.dailyQuizLimit} quizzes/day
+  1854→  1854→                </p>
+  1855→  1855→              </div>
+  1856→  1856→              <button onClick={() => generateKey(p.id)}
+  1857→  1857→                className="px-3 py-1.5 rounded-full bg-indigo-50 text-indigo-700 text-[11px] font-semibold hover:bg-indigo-100">
+  1858→  1858→                + Generate Key
+  1859→  1859→              </button>
+  1860→  1860→            </div>
+  1861→  1861→          ))}
+  1862→  1862→          {plans.length === 0 && <p className="text-xs text-gray-400 text-center py-4">No plans. Run scripts/seed-plans.ts</p>}
+  1863→  1863→        </div>
+  1864→  1864→      )}
+  1865→  1865→
+  1866→  1866→      {/* Activation Keys subtab */}
+  1867→  1867→      {subtab === "keys" && (
+  1868→  1868→        <div className="space-y-2">
+  1869→  1869→          {/* Quick generate */}
+  1870→  1870→          <div className="rounded-2xl bg-white border border-gray-200 p-3 shadow-sm">
+  1871→  1871→            <div className="flex gap-2">
+  1872→  1872→              <select value={genPlanId} onChange={(e) => setGenPlanId(e.target.value)} className="flex-1 p-2 rounded-xl border border-gray-200 text-xs bg-white">
+  1873→  1873→                {plans.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+  1874→  1874→              </select>
+  1875→  1875→              <button onClick={() => generateKey(genPlanId)} className="px-4 h-9 rounded-xl bg-indigo-600 text-white text-xs font-semibold">
+  1876→  1876→                Generate Key
+  1877→  1877→              </button>
+  1878→  1878→            </div>
+  1879→  1879→          </div>
+  1880→  1880→
+  1881→  1881→          {keys.map((k) => (
+  1882→  1882→            <div key={k.id} className="rounded-xl bg-white border border-gray-200 p-3 shadow-sm">
+  1883→  1883→              <div className="flex items-center justify-between">
+  1884→  1884→                <div>
+  1885→  1885→                  <p className="text-xs font-mono font-bold text-gray-900">{k.key}</p>
+  1886→  1886→                  <p className="text-[10px] text-gray-500">
+  1887→  1887→                    {k.plan?.name ?? "—"} · {k.user?.email ?? "unassigned"} · expires {k.expiresAt ? new Date(k.expiresAt).toLocaleDateString() : "—"}
+  1888→  1888→                  </p>
+  1889→  1889→                </div>
+  1890→  1890→                <span className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded-full ${
+  1891→  1891→                  k.status === "active" ? "bg-emerald-50 text-emerald-700" :
+  1892→  1892→                  k.status === "used" ? "bg-gray-100 text-gray-500" :
+  1893→  1893→                  "bg-rose-50 text-rose-700"
+  1894→  1894→                }`}>
+  1895→  1895→                  {k.status}
+  1896→  1896→                </span>
+  1897→  1897→              </div>
+  1898→  1898→            </div>
+  1899→  1899→          ))}
+  1900→  1900→          {keys.length === 0 && <p className="text-xs text-gray-400 text-center py-4">No activation keys yet.</p>}
+  1901→  1901→        </div>
+  1902→  1902→      )}
+  1903→  1903→
+  1904→  1904→      {/* Payments subtab */}
+  1905→  1905→      {subtab === "payments" && (
+  1906→  1906→        <div className="space-y-2">
+  1907→  1907→          {txs.map((t) => (
+  1908→  1908→            <div key={t.id} className="rounded-xl bg-white border border-gray-200 p-3 shadow-sm">
+  1909→  1909→              <div className="flex items-center justify-between">
+  1910→  1910→                <div>
+  1911→  1911→                  <p className="text-xs font-semibold text-gray-900">
+  1912→  1912→                    {t.user?.email ?? "—"} · ${t.amount} · {t.paymentMethod}
+  1913→  1913→                  </p>
+  1914→  1914→                  <p className="text-[10px] text-gray-500">
+  1915→  1915→                    Ref: {t.transactionRef ?? "—"} · {t.plan?.name ?? "—"} · {new Date(t.createdAt).toLocaleDateString()}
+  1916→  1916→                  </p>
+  1917→  1917→                </div>
+  1918→  1918→                <div className="flex items-center gap-1">
+  1919→  1919→                  {t.status === "pending" && (
+  1920→  1920→                    <>
+  1921→  1921→                      <button onClick={() => approvePayment(t.id)}
+  1922→  1922→                        className="px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold hover:bg-emerald-100">
+  1923→  1923→                        Approve & Gen Key
+  1924→  1924→                      </button>
+  1925→  1925→                      <button onClick={() => rejectPayment(t.id)}
+  1926→  1926→                        className="px-2 py-1 rounded-full bg-rose-50 text-rose-700 text-[10px] font-bold hover:bg-rose-100">
+  1927→  1927→                        Reject
+  1928→  1928→                      </button>
+  1929→  1929→                    </>
+  1930→  1930→                  )}
+  1931→  1931→                  {t.status !== "pending" && (
+  1932→  1932→                    <span className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded-full ${
+  1933→  1933→                      t.status === "confirmed" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"
+  1934→  1934→                    }`}>{t.status}</span>
+  1935→  1935→                  )}
+  1936→  1936→                </div>
+  1937→  1937→              </div>
+  1938→  1938→            </div>
+  1939→  1939→          ))}
+  1940→  1940→          {txs.length === 0 && <p className="text-xs text-gray-400 text-center py-4">No payment transactions yet.</p>}
+  1941→  1941→        </div>
+  1942→  1942→      )}
+  1943→  1943→    </div>
+  1944→  1944→  );
+  1945→  1945→}
+  1946→  1946→
