@@ -23,7 +23,7 @@ import {
 import { useApp } from "../store";
 import { api } from "../api";
 
-const TOTAL_STEPS = 5;
+const TOTAL_STEPS = 6;
 
 const roles = [
   { key: "Student", label: "Student", icon: GraduationCap },
@@ -73,6 +73,7 @@ export function Onboarding() {
   const [pickedSubjects, setPickedSubjects] = useState<string[]>([]);
   const [goal, setGoal] = useState<string | null>(null);
   const [language, setLanguage] = useState<string>("English");
+  const [selectedBuddy, setSelectedBuddy] = useState<string>("study_buddy_free");
   const [saving, setSaving] = useState(false);
 
   const next = () => setStep((s) => Math.min(s + 1, TOTAL_STEPS - 1));
@@ -89,7 +90,8 @@ export function Onboarding() {
     (step === 1 && grade) ||
     step === 2 ||
     (step === 3 && goal) ||
-    step === 4;
+    step === 4 ||
+    step === 5;
 
   const finish = async () => {
     setSaving(true);
@@ -110,6 +112,14 @@ export function Onboarding() {
             name: role ? `${role} user` : undefined,
           }),
         });
+        // Also save the selected buddy model
+        if (selectedBuddy) {
+          await fetch("/api/user/model", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ modelName: selectedBuddy }),
+          }).catch(() => {});
+        }
         if (!r.ok) {
           // Fallback to /api/user POST
           await api.updateUser({
@@ -292,6 +302,51 @@ export function Onboarding() {
                 );
               })}
             </div>
+          </section>
+        )}
+
+        {step === 5 && (
+          <section>
+            <h1 className="text-2xl font-bold text-gray-900 mt-4">Pick your Study Buddy! 🤖</h1>
+            <p className="text-sm text-gray-500 mt-1">Choose your AI study companion. You can change this later.</p>
+            <div className="mt-6 space-y-3">
+              {[
+                { model: "study_buddy_free", emoji: "🌱", name: "Study Buddy Free", desc: "Basic AI — great for getting started", color: "from-gray-500 to-gray-600", locked: false },
+                { model: "study_buddy_plus", emoji: "⚡", name: "Study Buddy Plus", desc: "Faster & smarter responses", color: "from-blue-500 to-indigo-600", locked: true },
+                { model: "study_buddy_pro", emoji: "🚀", name: "Study Buddy Pro", desc: "Advanced reasoning & depth", color: "from-indigo-500 to-violet-600", locked: true },
+                { model: "study_buddy_king", emoji: "👑", name: "Study Buddy King", desc: "GPT-4o powered — top tier", color: "from-amber-500 to-orange-600", locked: true },
+                { model: "study_buddy_ultra", emoji: "💎", name: "Study Buddy Ultra", desc: "GLM-4 — unlimited power", color: "from-violet-500 to-purple-700", locked: true },
+                { model: "study_buddy_teddy", emoji: "🧸", name: "Study Buddy Teddy", desc: "Llama 3.1 70B — massive capacity", color: "from-rose-400 to-pink-600", locked: true },
+                { model: "study_buddy_photo", emoji: "📸", name: "Study Buddy Photo", desc: "Image + text generation", color: "from-emerald-500 to-teal-600", locked: true },
+              ].map((b) => {
+                const selected = selectedBuddy === b.model;
+                return (
+                  <button
+                    key={b.model}
+                    onClick={() => !b.locked && setSelectedBuddy(b.model)}
+                    className={`w-full flex items-center gap-3 p-3 rounded-2xl border-2 transition-all ${
+                      selected ? "border-indigo-600 bg-indigo-50" : "border-gray-200 bg-white hover:border-indigo-300"
+                    } ${b.locked ? "opacity-50 cursor-not-allowed" : ""}`}
+                  >
+                    <span className={`w-10 h-10 rounded-full bg-gradient-to-br ${b.color} flex items-center justify-center text-lg flex-shrink-0`}>
+                      {b.emoji}
+                    </span>
+                    <div className="flex-1 text-left">
+                      <p className="text-sm font-semibold text-gray-900">{b.name}</p>
+                      <p className="text-[11px] text-gray-500">{b.desc}</p>
+                    </div>
+                    {b.locked ? (
+                      <span className="text-[9px] font-bold uppercase bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">Premium</span>
+                    ) : (
+                      selected && <Check className="w-5 h-5 text-indigo-600" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-3 text-xs text-center text-gray-400">
+              🔒 Premium buddies unlock with an activation key from the Premium page.
+            </p>
           </section>
         )}
       </div>
