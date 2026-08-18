@@ -16,6 +16,8 @@ const FLAT_COSTS: Record<string, number> = {
   graph: 50,
   translate: 100,
   learning_path: 400,
+  image_search: 10,
+  video_search: 50,
 };
 
 // Daily limits per feature for FREE plan (premium = unlimited)
@@ -27,6 +29,8 @@ const FREE_DAILY_LIMITS: Record<string, number> = {
   graph: 10,
   translate: 10,
   learning_path: 1,
+  image_search: 5,
+  video_search: 3,
 };
 
 export type DeductResult =

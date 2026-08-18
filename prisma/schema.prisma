@@ -55,6 +55,8 @@ model User {
   activationKeys        ActivationKey[]
   tokenUsageLogs        TokenUsageLog[]
   dailyUsages           DailyUsage[]
+
+  // Relations for search settings are handled in SearchSettings model
 }
 
 // login/logout audit trail
@@ -465,4 +467,17 @@ model DailyUsage {
 
   @@unique([userId, feature, usageDate])
   @@index([userId, usageDate])
+}
+
+model SearchSettings {
+  id                        Int      @id @default(1)
+  youtubeApiKeyEncrypted    String?
+  pollinationsBaseUrl       String   @default("https://image.pollinations.ai/prompt/")
+  imageSearchEnabled        Boolean  @default(true)
+  videoSearchEnabled        Boolean  @default(true)
+  imageTokenCost            Int      @default(10)
+  videoTokenCost            Int      @default(50)
+  freeDailyImageLimit       Int      @default(5)
+  freeDailyVideoLimit       Int      @default(3)
+  updatedAt                 DateTime @updatedAt
 }
