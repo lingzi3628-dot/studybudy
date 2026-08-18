@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { checkAndDeductTokens, refundTokens } from "@/lib/monetization";
+import { checkFreeRateLimit, refundDailySlot } from "@/lib/monetization";
 
 export const runtime = "nodejs";
 
 const DEFAULT_POLLINATIONS = "https://image.pollinations.ai/prompt/";
 
-/** POST /api/search/images — generate AI image URLs via Pollinations */
+/** POST /api/search/images — generate AI image URLs via Pollinations
+ *
+ * FREE for all users — rate-limited (default 5/day for free, unlimited for premium).
+ * Does NOT cost tokens.
+ */
 export async function POST(req: NextRequest) {
   const user = await getCurrentUser();
   const body = await req.json().catch(() => ({}));
@@ -18,7 +22,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Prompt required (max 500 chars)" }, { status: 400 });
   }
 
-  // Get settings (admin-configurable)
+  // Get admin-configured settings
   let settings: any = null;
   try {
     settings = await db.searchSettings.findUnique({ where: { id: 1 } });
@@ -30,11 +34,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Image search is disabled by admin" }, { status: 403 });
   }
 
-  // Check & deduct tokens
-  const deduct = await checkAndDeductTokens(user.id, "image_search");
-  if (!deduct.ok) {
+  // Free rate-limit check (NO token deduction — images are free)
+  const limit = await checkFreeRateLimit(user.id, "image_search");
+  if (!limit.ok) {
     return NextResponse.json(
-      { error: deduct.error, code: deduct.code, tokenBalance: user.tokenBalance },
+      { error: limit.error, code: limit.code, tokenBalance: user.tokenBalance },
       { status: 402 }
     );
   }
@@ -54,13 +58,14 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       images,
-      cost: deduct.costTokens,
-      remaining: deduct.newBalance,
-      dailyRemaining: deduct.remaining,
+      cost: 0, // free
+      remaining: user.tokenBalance,
+      dailyRemaining: limit.remaining,
+      isPremium: limit.isPremium,
     });
   } catch (e: any) {
-    // Refund tokens if image generation fails
-    await refundTokens(user.id, "image_search", deduct.costTokens);
+    // Refund the daily slot if generation fails
+    await refundDailySlot(user.id, "image_search");
     return NextResponse.json(
       { error: "Failed to generate images", detail: e?.message ?? String(e) },
       { status: 500 }

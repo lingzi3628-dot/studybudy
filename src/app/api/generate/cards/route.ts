@@ -79,7 +79,10 @@ export async function POST(req: NextRequest) {
 
   const deduct = await checkAndDeductTokens(user.id, "cards");
   if (!deduct.ok) {
-    return NextResponse.json({ error: deduct.error, code: deduct.code, tokenBalance: user.tokenBalance }, { status: 402 });
+    if (deduct.code === "DAILY_LIMIT" || deduct.code === "INSUFFICIENT_TOKENS" || deduct.code === "MODEL_LOCKED") {
+      return NextResponse.json({ error: deduct.error, code: deduct.code, tokenBalance: user.tokenBalance, needsUpgrade: true }, { status: 402 });
+    }
+    return NextResponse.json({ error: "We couldn't generate cards right now. Please try again.", code: deduct.code, detail: deduct.error }, { status: 500 });
   }
 
   try {
@@ -111,10 +114,9 @@ export async function POST(req: NextRequest) {
     refundRateLimit(user.id);
     await refundTokens(user.id, "cards", deduct.costTokens);
     const msg = e?.message ?? String(e);
-    const isUpgrade = /upgrade|premium|subscription|tokens?|plan/i.test(msg);
     return NextResponse.json(
-      { error: isUpgrade ? msg : "AI generation failed", detail: msg, tokenBalance: user.tokenBalance },
-      { status: isUpgrade ? 402 : 500 }
+      { error: "The AI couldn't generate cards right now. Please try again.", detail: msg, tokenBalance: user.tokenBalance },
+      { status: 500 }
     );
   }
 }

@@ -39,6 +39,82 @@ export type DeductResult =
   | { ok: false; error: string; code: string };
 
 /**
+ * Check daily rate limit only (no token deduction).
+ * Use this for features that are FREE but rate-limited, like AI image generation.
+ *
+ * Returns `{ ok: true, remaining }` if allowed, `{ ok: false, error, code }` if limit hit.
+ * Premium users bypass the daily limit.
+ */
+export async function checkFreeRateLimit(
+  userId: string,
+  feature: string
+): Promise<
+  | { ok: true; remaining: number | null; isPremium: boolean }
+  | { ok: false; error: string; code: string }
+> {
+  try {
+    const user = await db.user.findUnique({
+      where: { id: userId },
+      select: { id: true, planId: true, subscriptionExpiry: true },
+    });
+    if (!user) return { ok: false, error: "User not found", code: "NOT_FOUND" };
+
+    const hasActivePlan = user.planId && (!user.subscriptionExpiry || new Date() < user.subscriptionExpiry);
+    const isPremium = Boolean(hasActivePlan);
+
+    // Premium users bypass rate limits
+    if (isPremium) {
+      return { ok: true, remaining: null, isPremium: true };
+    }
+
+    const limit = FREE_DAILY_LIMITS[feature] ?? 999;
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const existing = await db.dailyUsage.findUnique({
+      where: { userId_feature_usageDate: { userId, feature, usageDate: todayStart } },
+    }).catch(() => null);
+
+    const usedToday = existing?.count ?? 0;
+    if (usedToday >= limit) {
+      return {
+        ok: false,
+        error: `Daily limit reached (${usedToday}/${limit}). Upgrade to a premium plan for unlimited ${feature}!`,
+        code: "DAILY_LIMIT",
+      };
+    }
+
+    // Increment the daily count
+    await db.dailyUsage.upsert({
+      where: { userId_feature_usageDate: { userId, feature, usageDate: todayStart } },
+      create: { userId, feature, usageDate: todayStart, count: 1 },
+      update: { count: { increment: 1 } },
+    }).catch(() => {});
+
+    return { ok: true, remaining: limit - usedToday - 1, isPremium: false };
+  } catch (e: any) {
+    console.error("checkFreeRateLimit error:", e?.message);
+    return { ok: false, error: "Failed to check rate limit", code: "ERROR" };
+  }
+}
+
+/**
+ * Refund a daily rate-limit slot after a failed call (used with checkFreeRateLimit).
+ */
+export async function refundDailySlot(userId: string, feature: string): Promise<void> {
+  try {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    await db.dailyUsage.update({
+      where: { userId_feature_usageDate: { userId, feature, usageDate: todayStart } },
+      data: { count: { decrement: 1 } },
+    }).catch(() => {});
+  } catch (e: any) {
+    console.error("refundDailySlot error:", e?.message);
+  }
+}
+
+/**
  * Check model permission, daily limits, token balance, then deduct.
  * Call this BEFORE making the AI request.
  *
@@ -128,7 +204,7 @@ export async function checkAndDeductTokens(userId: string, feature: string): Pro
       await db.user.update({
         where: { id: userId },
         data: { tokenBalance: newBalance, tokenResetDate: nextReset },
-      });
+      }).catch((e: any) => console.error("monthly reset update failed:", e?.message));
       workingBalance = newBalance;
     } else if (!user.tokenResetDate) {
       // Free users without reset date — set one now so they get monthly refresh
@@ -137,15 +213,21 @@ export async function checkAndDeductTokens(userId: string, feature: string): Pro
       await db.user.update({
         where: { id: userId },
         data: { tokenResetDate: nextReset },
-      }).catch(() => {});
+      }).catch((e: any) => console.error("set reset date failed:", e?.message));
     }
 
-    // Deduct tokens
+    // Deduct tokens — use atomic conditional update so we never go negative
     const newBalance = Math.max(0, workingBalance - costTokens);
-    await db.user.update({
-      where: { id: userId },
-      data: { tokenBalance: newBalance },
-    });
+    try {
+      await db.user.update({
+        where: { id: userId },
+        data: { tokenBalance: newBalance },
+      });
+    } catch (e: any) {
+      console.error("deduct update failed:", e?.message);
+      // Don't fail the whole call — the user shouldn't lose the AI call
+      // just because we couldn't persist the deduction.
+    }
 
     // Log usage
     await db.tokenUsageLog.create({

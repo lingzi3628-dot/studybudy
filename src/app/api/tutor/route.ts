@@ -17,6 +17,9 @@ export const runtime = "nodejs";
  * - AI responds with a step-by-step conversational answer.
  * - On AI failure, tokens already deducted are REFUNDED.
  *
+ * 402 = upgrade/limit/insufficient tokens (friendly upgrade card in UI)
+ * 500 = server-side error (DB error, AI failure, etc.)
+ *
  * Chat history lives in client state; nothing is persisted server-side.
  */
 export async function POST(req: NextRequest) {
@@ -55,7 +58,7 @@ export async function POST(req: NextRequest) {
   const rl = checkRateLimit(user.id, user.plan);
   if (!rl.allowed) {
     return NextResponse.json(
-      { error: "Daily AI limit reached", limit: rl.limit, resetAt: rl.resetAt },
+      { error: "You've reached your daily AI limit. Come back tomorrow or upgrade to Premium for more!", limit: rl.limit, resetAt: rl.resetAt, code: "DAILY_LIMIT" },
       { status: 429 }
     );
   }
@@ -63,15 +66,23 @@ export async function POST(req: NextRequest) {
   const userRec = await db.user.findUnique({
     where: { id: user.id },
     select: { encryptedApiKey: true },
-  });
+  }).catch(() => null);
   const apiKey = userRec?.encryptedApiKey ? decryptApiKey(userRec.encryptedApiKey) : null;
 
   // 1) Check & deduct tokens BEFORE the AI call
   const deduct = await checkAndDeductTokens(user.id, "tutor");
   if (!deduct.ok) {
+    // 402 ONLY for genuine upgrade/limit/insufficient-tokens scenarios
+    if (deduct.code === "DAILY_LIMIT" || deduct.code === "INSUFFICIENT_TOKENS" || deduct.code === "MODEL_LOCKED") {
+      return NextResponse.json(
+        { error: deduct.error, code: deduct.code, tokenBalance: user.tokenBalance, needsUpgrade: true },
+        { status: 402 }
+      );
+    }
+    // For other errors (DB error, etc.), return 500 — UI shows a different message
     return NextResponse.json(
-      { error: deduct.error, code: deduct.code, tokenBalance: user.tokenBalance },
-      { status: 402 }
+      { error: "We couldn't process your request right now. Please try again.", code: deduct.code, detail: deduct.error },
+      { status: 500 }
     );
   }
 
@@ -89,19 +100,9 @@ export async function POST(req: NextRequest) {
     refundRateLimit(user.id);
     await refundTokens(user.id, "tutor", deduct.costTokens);
 
-    // Inspect the error message — if it's a permission/upgrade message,
-    // return 402 so the client can show the upgrade card.
     const msg = e?.message ?? String(e);
-    const isUpgrade = /upgrade|premium|subscription|tokens?|plan/i.test(msg);
-    if (isUpgrade) {
-      return NextResponse.json(
-        { error: msg, code: "AI_PERMISSION", tokenBalance: user.tokenBalance },
-        { status: 402 }
-      );
-    }
-
     return NextResponse.json(
-      { error: "Tutor call failed", detail: msg, tokenBalance: deduct.newBalance },
+      { error: "The AI couldn't respond right now. Please try again in a moment.", detail: msg, tokenBalance: user.tokenBalance },
       { status: 500 }
     );
   }

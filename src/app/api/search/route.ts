@@ -13,6 +13,9 @@ export const runtime = "nodejs";
  * Body: { query }
  *
  * Returns: { summary, key_points[], related_topics[], sample_question }
+ *
+ * 402 = upgrade/limit/insufficient tokens (friendly upgrade card in UI)
+ * 500 = server-side error (DB error, AI failure, etc.)
  */
 export async function POST(req: NextRequest) {
   const user = await getCurrentUser();
@@ -26,7 +29,7 @@ export async function POST(req: NextRequest) {
   const rl = checkRateLimit(user.id, user.plan);
   if (!rl.allowed) {
     return NextResponse.json(
-      { error: "Daily AI limit reached", limit: rl.limit, resetAt: rl.resetAt },
+      { error: "You've reached your daily AI limit. Come back tomorrow or upgrade to Premium for more!", limit: rl.limit, resetAt: rl.resetAt, code: "DAILY_LIMIT", needsUpgrade: true },
       { status: 429 }
     );
   }
@@ -34,16 +37,22 @@ export async function POST(req: NextRequest) {
   // Check & deduct tokens BEFORE making the AI call
   const deduct = await checkAndDeductTokens(user.id, "search");
   if (!deduct.ok) {
+    if (deduct.code === "DAILY_LIMIT" || deduct.code === "INSUFFICIENT_TOKENS" || deduct.code === "MODEL_LOCKED") {
+      return NextResponse.json(
+        { error: deduct.error, code: deduct.code, tokenBalance: user.tokenBalance, needsUpgrade: true },
+        { status: 402 }
+      );
+    }
     return NextResponse.json(
-      { error: deduct.error, code: deduct.code, tokenBalance: user.tokenBalance },
-      { status: 402 }
+      { error: "We couldn't process your search right now. Please try again.", code: deduct.code, detail: deduct.error },
+      { status: 500 }
     );
   }
 
   const userRec = await db.user.findUnique({
     where: { id: user.id },
     select: { encryptedApiKey: true },
-  });
+  }).catch(() => null);
   const apiKey = userRec?.encryptedApiKey
     ? decryptApiKey(userRec.encryptedApiKey)
     : null;
@@ -104,10 +113,9 @@ export async function POST(req: NextRequest) {
     refundRateLimit(user.id);
     await refundTokens(user.id, "search", deduct.costTokens);
     const msg = e?.message ?? String(e);
-    const isUpgrade = /upgrade|premium|subscription|tokens?|plan/i.test(msg);
     return NextResponse.json(
-      { error: isUpgrade ? msg : "AI search failed", detail: msg, tokenBalance: user.tokenBalance },
-      { status: isUpgrade ? 402 : 500 }
+      { error: "The AI couldn't complete your search right now. Please try again.", detail: msg, tokenBalance: user.tokenBalance },
+      { status: 500 }
     );
   }
 }

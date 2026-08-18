@@ -54,7 +54,10 @@ export async function POST(req: NextRequest) {
   // Check & deduct tokens up-front
   const deduct = await checkAndDeductTokens(user.id, "graph");
   if (!deduct.ok) {
-    return NextResponse.json({ error: deduct.error, code: deduct.code, tokenBalance: user.tokenBalance }, { status: 402 });
+    if (deduct.code === "DAILY_LIMIT" || deduct.code === "INSUFFICIENT_TOKENS" || deduct.code === "MODEL_LOCKED") {
+      return NextResponse.json({ error: deduct.error, code: deduct.code, tokenBalance: user.tokenBalance, needsUpgrade: true }, { status: 402 });
+    }
+    return NextResponse.json({ error: "We couldn't process the graph right now. Please try again.", code: deduct.code, detail: deduct.error }, { status: 500 });
   }
 
   let node;

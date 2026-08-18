@@ -66,7 +66,10 @@ export function Search() {
       if (tab === "all" || tab === "videos") fetchVideos(trimmed);
     } catch (e: any) {
       const errMsg = e?.message ?? "Search failed";
-      const isUpgrade = /upgrade|premium|subscription|tokens?|limit|plan/i.test(errMsg);
+      // Show upgrade button only when the server explicitly marked it as an upgrade case
+      // (We do NOT have access to the needsUpgrade flag here because api.search throws on !r.ok,
+      // so we still use the regex — but the server only returns upgrade-style messages on 402.)
+      const isUpgrade = /upgrade|premium|subscription|tokens?|limit|plan|daily/i.test(errMsg);
       if (isUpgrade) {
         setError(errMsg + "|UPGRADE");
       } else {
@@ -89,7 +92,7 @@ export function Search() {
       const d = await r.json();
       if (!r.ok) {
         const errMsg = d.error ?? "Failed to generate images";
-        const isUpgrade = r.status === 402 || /upgrade|premium|subscription|tokens?|limit|plan/i.test(errMsg);
+        const isUpgrade = d.needsUpgrade === true || r.status === 402;
         setImageError(errMsg + (isUpgrade ? "|UPGRADE" : ""));
         return;
       }
@@ -114,7 +117,7 @@ export function Search() {
       const d = await r.json();
       if (!r.ok) {
         const errMsg = d.error ?? "Failed to search videos";
-        const isUpgrade = r.status === 402 || /upgrade|premium|subscription|tokens?|limit|plan/i.test(errMsg);
+        const isUpgrade = d.needsUpgrade === true || r.status === 402;
         setVideoError(errMsg + (isUpgrade ? "|UPGRADE" : ""));
         return;
       }
@@ -269,7 +272,7 @@ export function Search() {
                     <ImageIcon className="w-3.5 h-3.5" /> AI Images
                   </span>
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-gray-400">Cost: 10 tokens</span>
+                    <span className="text-[10px] bg-emerald-50 text-emerald-600 px-1.5 py-0.5 rounded-full font-semibold">FREE</span>
                     {images.length > 0 && (
                       <button onClick={() => fetchImages(submitted!)} className="text-[10px] text-indigo-600 font-medium flex items-center gap-1 hover:underline">
                         <RefreshCw className="w-3 h-3" /> Regenerate

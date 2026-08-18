@@ -43,9 +43,15 @@ export async function POST(req: NextRequest) {
   // Check & deduct tokens
   const deduct = await checkAndDeductTokens(user.id, "video_search");
   if (!deduct.ok) {
+    if (deduct.code === "DAILY_LIMIT" || deduct.code === "INSUFFICIENT_TOKENS" || deduct.code === "MODEL_LOCKED") {
+      return NextResponse.json(
+        { error: deduct.error, code: deduct.code, tokenBalance: user.tokenBalance, needsUpgrade: true },
+        { status: 402 }
+      );
+    }
     return NextResponse.json(
-      { error: deduct.error, code: deduct.code, tokenBalance: user.tokenBalance },
-      { status: 402 }
+      { error: "We couldn't search videos right now. Please try again.", code: deduct.code, detail: deduct.error },
+      { status: 500 }
     );
   }
 

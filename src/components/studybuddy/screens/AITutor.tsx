@@ -65,9 +65,10 @@ export function AITutor() {
       });
       const d = await r.json();
       if (!r.ok) {
-        // Check for 402 (token/daily limit/upgrade) — show upgrade prompt
+        // Show upgrade card ONLY when the server explicitly says needsUpgrade=true
+        // OR status is 402 (genuine upgrade/limit/insufficient tokens scenario)
         const errMsg = d.error ?? d.detail ?? `HTTP ${r.status}`;
-        const isUpgrade = r.status === 402 || /upgrade|premium|subscription|tokens?|limit|plan/i.test(errMsg);
+        const isUpgrade = d.needsUpgrade === true || r.status === 402;
         if (isUpgrade) {
           setError(errMsg);
           setShowUpgrade(true);
