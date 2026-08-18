@@ -80,7 +80,7 @@ export function AuthScreen() {
 
           {/* Auth form */}
           <div className="p-5 space-y-3">
-            <AuthForm mode={mode} setScreen={setScreen} />
+            <AuthForm mode={mode} setMode={setMode} setScreen={setScreen} />
           </div>
         </div>
 
@@ -92,7 +92,7 @@ export function AuthScreen() {
   );
 }
 
-function AuthForm({ mode, setScreen }: { mode: Mode; setScreen: (s: any) => void }) {
+function AuthForm({ mode, setMode, setScreen }: { mode: Mode; setMode: (m: Mode) => void; setScreen: (s: any) => void }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");

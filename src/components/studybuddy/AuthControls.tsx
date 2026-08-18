@@ -1,36 +1,14 @@
 "use client";
 
-import dynamic from "next/dynamic";
-import { ReactNode } from "react";
 import { useApp } from "./store";
 
 /**
- * ClerkAuthControls — renders Clerk's SignInButton/SignUpButton/UserButton
- * when Clerk is configured, or custom fallback buttons when not.
- *
- * When Clerk is configured (NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY starts with pk_):
- *   - Shows <SignInButton> + <SignUpButton> when signed out
- *   - Shows <UserButton> when signed in
- *
- * When not configured (dev/sandbox):
- *   - Shows custom "Log in" + "Get Started" buttons that route to the auth screen
+ * AuthControls — always uses custom buttons that route to the auth screen.
+ * We switched to direct email/password auth — no Clerk components needed.
+ * Clerk SignedIn/SignedOut components are not available in Core 3.
  */
-
-const ClerkControls = dynamic(
-  () => import("./clerk-controls").then((m) => m.ClerkControls),
-  { ssr: false }
-);
-
 export function AuthControls() {
   const { setScreen } = useApp();
-  const pk = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
-  const clerkConfigured = Boolean(pk && pk.startsWith("pk_"));
-
-  if (clerkConfigured) {
-    return <ClerkControls />;
-  }
-
-  // Dev fallback
   return (
     <div className="flex items-center gap-2">
       <button
