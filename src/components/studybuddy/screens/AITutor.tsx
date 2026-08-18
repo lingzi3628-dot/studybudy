@@ -30,6 +30,7 @@ export function AITutor() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showUpgrade, setShowUpgrade] = useState(false);
   const [savedToast, setSavedToast] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -57,8 +58,23 @@ export function AITutor() {
     const next: ChatMsg[] = [...messages, { role: "user", content: q }];
     setMessages(next);
     try {
-      const r = await api.askTutor(next, q);
-      setMessages((m) => [...m, { role: "assistant", content: r.reply }]);
+      const r = await fetch("/api/tutor", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: q, chatHistory: next.slice(-10) }),
+      });
+      const d = await r.json();
+      if (!r.ok) {
+        // Check for 402 (token/daily limit) — show upgrade prompt
+        if (r.status === 402) {
+          setError(d.error ?? "Token limit reached");
+          setShowUpgrade(true);
+        } else {
+          throw new Error(d.error ?? `HTTP ${r.status}`);
+        }
+        return;
+      }
+      setMessages((m) => [...m, { role: "assistant", content: d.reply }]);
     } catch (e: any) {
       setError(e?.message ?? "Tutor call failed");
     } finally {
@@ -71,6 +87,7 @@ export function AITutor() {
       { role: "assistant", content: "Chat cleared. What would you like to learn next?" },
     ]);
     setError(null);
+    setShowUpgrade(false);
   };
 
   const saveAsNotes = async () => {
@@ -203,8 +220,21 @@ export function AITutor() {
           </div>
         )}
 
-        {error && (
+        {error && !showUpgrade && (
           <div className="text-xs text-rose-600 text-center p-2">{error}</div>
+        )}
+
+        {showUpgrade && (
+          <div className="rounded-2xl bg-gradient-to-br from-amber-50 to-orange-50 border-2 border-amber-200 p-4 text-center mx-2">
+            <span className="text-3xl">🥲</span>
+            <p className="mt-2 text-sm font-semibold text-gray-900">{error}</p>
+            <button
+              onClick={() => setScreen("premium")}
+              className="mt-3 px-6 h-10 rounded-full bg-indigo-600 text-white font-semibold text-sm shadow-md hover:bg-indigo-700"
+            >
+              Upgrade Now →
+            </button>
+          </div>
         )}
       </div>
 

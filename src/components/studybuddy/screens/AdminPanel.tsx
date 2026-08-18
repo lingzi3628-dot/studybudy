@@ -24,6 +24,7 @@ import {
   Send,
   KeyRound,
   LogOut,
+  Crown,
 } from "lucide-react";
 import { useApp } from "../store";
 import { api } from "../api";
