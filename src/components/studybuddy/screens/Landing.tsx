@@ -193,12 +193,6 @@ export function Landing() {
           <div className="flex items-center gap-4">
             <button onClick={() => setScreen("auth")} className="hover:text-gray-900">Privacy</button>
             <button onClick={() => setScreen("auth")} className="hover:text-gray-900">Terms</button>
-            <button
-              onClick={() => setScreen("adminLogin")}
-              className="hover:text-gray-900 flex items-center gap-1"
-            >
-              Admin
-            </button>
           </div>
         </div>
       </footer>

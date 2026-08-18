@@ -13,7 +13,6 @@ import {
   Check,
   Loader2,
   AlertCircle,
-  Shield,
   Trash2,
   KeyRound as KeyIcon,
   Clock,
@@ -44,7 +43,6 @@ export function Profile() {
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -59,14 +57,6 @@ export function Profile() {
         const keyStatus = await api.hasApiKey();
         if (!mounted) return;
         setHasStoredApiKey(keyStatus.hasKey);
-
-        // check if user is admin
-        try {
-          const r = await fetch("/api/admin/check");
-          if (mounted) setIsAdmin(r.ok);
-        } catch {
-          // not admin
-        }
       } catch (e) {
         // best-effort
       }
@@ -142,22 +132,7 @@ export function Profile() {
           </div>
         )}
 
-        {/* admin entry (separate auth; anyone can click, then must log in with admin creds) */}
-        <button
-          onClick={() => setScreen("adminLogin")}
-          className="mt-4 w-full p-4 flex items-center justify-between rounded-2xl bg-gradient-to-br from-slate-900 to-slate-700 text-white shadow-md hover:from-slate-800 hover:to-slate-600 transition"
-        >
-          <div className="flex items-center gap-3">
-            <span className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center">
-              <Shield className="w-4 h-4 text-white" />
-            </span>
-            <div className="text-left">
-              <p className="text-sm font-semibold">Admin Panel</p>
-              <p className="text-[11px] opacity-80">Separate admin login (email + password)</p>
-            </div>
-          </div>
-          <ChevronRight className="w-4 h-4 opacity-60" />
-        </button>
+        {/* Admin access is hidden — use keyboard code or URL param */}
 
         {/* API key (BYOK) */}
         <section className="mt-6">

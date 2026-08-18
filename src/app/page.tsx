@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useApp } from "@/components/studybuddy/store";
 import { TopBar, DesktopTopBar } from "@/components/studybuddy/TopBar";
 import { BottomNav, Sidebar } from "@/components/studybuddy/BottomNav";
@@ -22,13 +22,31 @@ import { AdminLogin } from "@/components/studybuddy/screens/AdminLogin";
 import { Landing } from "@/components/studybuddy/screens/Landing";
 import { AuthScreen } from "@/components/studybuddy/screens/AuthScreen";
 
+// Secret admin access code — type this word on the keyboard anywhere
+// in the app to unlock the admin login screen.
+// Also accessible via URL param: ?adminorg
+const ADMIN_SECRET = "adminorg";
+
 export default function Page() {
   const { screen, setScreen } = useApp();
+  const keyBuffer = useRef("");
 
-  // Auth check on mount: redirect authed users to home/onboarding,
-  // keep unauthed users on landing.
+  // Auth check on mount + URL param check for hidden admin access
   useEffect(() => {
     let mounted = true;
+
+    // Check for hidden admin URL parameter
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.has(ADMIN_SECRET)) {
+        setScreen("adminLogin");
+        // Clean the URL so the param doesn't persist
+        window.history.replaceState({}, "", window.location.pathname);
+        return;
+      }
+    }
+
+    // Normal auth check
     fetch("/api/auth/me")
       .then((r) => r.ok ? r.json() : null)
       .then((d) => {
@@ -40,7 +58,30 @@ export default function Page() {
         }
       })
       .catch(() => {});
+
     return () => { mounted = false; };
+  }, [setScreen]);
+
+  // Hidden admin keyboard code — type "adminorg" anywhere to unlock
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      // Skip if user is typing in an input/textarea
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
+      // Only track letter keys
+      if (e.key.length !== 1) return;
+
+      keyBuffer.current = (keyBuffer.current + e.key.toLowerCase()).slice(-ADMIN_SECRET.length);
+
+      if (keyBuffer.current === ADMIN_SECRET) {
+        keyBuffer.current = "";
+        setScreen("adminLogin");
+      }
+    };
+
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
   }, [setScreen]);
 
   // Immersive study modes have their own full-screen layout (no top bar / bottom nav).
