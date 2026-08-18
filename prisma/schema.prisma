@@ -17,34 +17,43 @@ model User {
   name              String?
   plan              String   @default("free")
   encryptedApiKey   String?
-  passwordHash      String?  // for direct email/password auth (nullable — Clerk users don't have this)
+  passwordHash      String?
   grade             String?
   subjects          String[]
   ambitions         String[]
   learningLanguage  String   @default("English")
-  // admin fields
-  role              String   @default("user") // 'user' | 'admin'
+  role              String   @default("user")
   banned            Boolean  @default(false)
   lastActive        DateTime?
-  // auth + profile fields
   onboardingCompleted Boolean @default(false)
   avatarUrl         String?
   notificationsEnabled Boolean @default(true)
   darkMode          Boolean  @default(false)
   lastLogin         DateTime?
+  // Monetization fields
+  planId            String?
+  tokenBalance      Int      @default(1000)
+  currentModel      String   @default("study_buddy_free")
+  subscriptionExpiry DateTime?
+  activationKey     String?
+  tokenResetDate    DateTime?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  studySets       StudySet[]
-  attempts        Attempt[]
-  cardReviews     CardReview[]
-  topicMastery    TopicMastery[]
-  learningPaths   LearningPath[]
-  booksCreated    Book[]
-  topicsCreated   Topic[]
-  aiCallLogs      AiCallLog[]
-  adminLogs       AdminLog[]
-  sessions        UserSession[]
+  userPlan              Plan?                @relation(fields: [planId], references: [id], onDelete: SetNull)
+  studySets             StudySet[]
+  attempts              Attempt[]
+  cardReviews           CardReview[]
+  topicMastery          TopicMastery[]
+  learningPaths         LearningPath[]
+  booksCreated          Book[]
+  topicsCreated         Topic[]
+  aiCallLogs            AiCallLog[]
+  adminLogs             AdminLog[]
+  sessions              UserSession[]
+  paymentTransactions   PaymentTransaction[]
+  activationKeys        ActivationKey[]
+  tokenUsageLogs        TokenUsageLog[]
 }
 
 // login/logout audit trail
@@ -335,4 +344,111 @@ model AdminUser {
   updatedAt     DateTime @updatedAt
 
   @@index([email])
+}
+
+// ─────────────────────────────────────────────────────────────
+// Monetization — Plans, Tokens, Payments, Activation Keys
+// ─────────────────────────────────────────────────────────────
+
+model Plan {
+  id                        String   @id @default(uuid())
+  name                      String
+  slug                      String   @unique
+  price                     Float
+  currency                  String   @default("USD")
+  tokenLimit                Int
+  dailyQuizLimit            Int      @default(5)
+  dailyFlashcardGenLimit    Int      @default(3)
+  features                  Json?
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+
+  users                  User[]
+  paymentTransactions    PaymentTransaction[]
+  activationKeys         ActivationKey[]
+  modelMappings          ModelMapping[]
+
+  @@index([slug])
+}
+
+model PaymentTransaction {
+  id              String   @id @default(uuid())
+  userId          String
+  planId          String?
+  amount          Float?
+  currency        String?
+  paymentMethod   String   // 'mpesa','binance','minipay','paypal','bank'
+  transactionRef  String?
+  status          String   @default("pending") // 'pending','confirmed','rejected'
+  activationKeyId String?  @unique
+  createdAt       DateTime @default(now())
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan            Plan?   @relation(fields: [planId], references: [id], onDelete: SetNull)
+  activationKey   ActivationKey? @relation(fields: [activationKeyId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([status])
+}
+
+model ActivationKey {
+  id          String    @id @default(uuid())
+  key         String    @unique
+  planId      String
+  userId      String?
+  createdBy   String?   // admin user id
+  createdAt   DateTime  @default(now())
+  expiresAt   DateTime?
+  usedAt      DateTime?
+  status      String    @default("active") // 'active','used','revoked'
+
+  plan                  Plan    @relation(fields: [planId], references: [id])
+  user                 User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  paymentTransaction   PaymentTransaction?
+
+  @@index([planId])
+  @@index([status])
+  @@index([userId])
+}
+
+model TokenUsageLog {
+  id          String   @id @default(uuid())
+  userId      String
+  model       String
+  tokensUsed  Int
+  costTokens  Int
+  feature     String   // 'flashcards','quiz','search','tutor','graph','translate'
+  createdAt   DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model ModelMapping {
+  id                  String   @id @default(uuid())
+  modelName           String   @unique // 'study_buddy_free', 'study_buddy_king', etc.
+  providerId          String?
+  modelIdentifier     String?  // 'gpt-4','gemini-pro','glm-4', etc.
+  tokenCostMultiplier Float    @default(1.0)
+  requiresPremium     Boolean  @default(false)
+  planSlug            String?  // required plan slug
+  emoji               String   @default("🤖")
+  displayName         String   @default("Study Buddy")
+
+  plan                Plan?    @relation(fields: [planSlug], references: [slug], onDelete: SetNull)
+
+  @@index([modelName])
+}
+
+model PaymentSetting {
+  id              String   @id @default(uuid())
+  method          String   @unique // 'mpesa','binance','minipay','paypal','bank'
+  label           String
+  instructions    String
+  details         Json?    // { paybill, account, address, email, etc. }
+  enabled         Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 }

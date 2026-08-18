@@ -18,7 +18,8 @@ export type Screen =
   | "admin"
   | "adminLogin"
   | "landing"
-  | "auth";
+  | "auth"
+  | "premium";
 
 export type CreateOption =
   | "upload"

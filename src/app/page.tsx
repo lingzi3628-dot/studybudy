@@ -21,6 +21,7 @@ import { AdminPanel } from "@/components/studybuddy/screens/AdminPanel";
 import { AdminLogin } from "@/components/studybuddy/screens/AdminLogin";
 import { Landing } from "@/components/studybuddy/screens/Landing";
 import { AuthScreen } from "@/components/studybuddy/screens/AuthScreen";
+import { PremiumScreen } from "@/components/studybuddy/screens/PremiumScreen";
 
 // Secret admin access code — type this word on the keyboard anywhere
 // in the app to unlock the admin login screen.
@@ -85,7 +86,7 @@ export default function Page() {
   }, [setScreen]);
 
   // Immersive study modes have their own full-screen layout (no top bar / bottom nav).
-  const immersive = ["flashcards", "quiz", "graph", "language", "tutor", "path", "study", "admin", "adminLogin", "landing", "onboarding", "auth"];
+  const immersive = ["flashcards", "quiz", "graph", "language", "tutor", "path", "study", "admin", "adminLogin", "landing", "onboarding", "auth", "premium"];
 
   if (screen === "onboarding") {
     return (
@@ -96,12 +97,13 @@ export default function Page() {
     );
   }
 
-  if (screen === "landing" || screen === "adminLogin" || screen === "auth") {
+  if (screen === "landing" || screen === "adminLogin" || screen === "auth" || screen === "premium") {
     return (
       <div className="min-h-screen bg-gray-50 text-gray-900">
         {screen === "landing" && <Landing />}
         {screen === "adminLogin" && <AdminLogin />}
         {screen === "auth" && <AuthScreen />}
+        {screen === "premium" && <PremiumScreen />}
         <CreateModal />
       </div>
     );

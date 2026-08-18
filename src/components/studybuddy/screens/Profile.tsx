@@ -16,6 +16,8 @@ import {
   Trash2,
   KeyRound as KeyIcon,
   Clock,
+  Crown,
+  Coins,
 } from "lucide-react";
 import { useApp, resetOnboarding } from "../store";
 import { api } from "../api";
@@ -133,6 +135,23 @@ export function Profile() {
         )}
 
         {/* Admin access is hidden — use keyboard code or URL param */}
+
+        {/* Premium entry */}
+        <button
+          onClick={() => setScreen("premium")}
+          className="mt-4 w-full p-4 flex items-center justify-between rounded-2xl bg-gradient-to-br from-amber-500 to-orange-500 text-white shadow-md hover:from-amber-600 hover:to-orange-600 transition"
+        >
+          <div className="flex items-center gap-3">
+            <span className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center">
+              <Crown className="w-4 h-4 text-white" />
+            </span>
+            <div className="text-left">
+              <p className="text-sm font-semibold">Premium Plans</p>
+              <p className="text-[11px] opacity-80">Upgrade · Activate key · Payment</p>
+            </div>
+          </div>
+          <ChevronRight className="w-4 h-4 opacity-60" />
+        </button>
 
         {/* API key (BYOK) */}
         <section className="mt-6">

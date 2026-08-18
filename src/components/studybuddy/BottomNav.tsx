@@ -24,7 +24,7 @@ const tabs: Tab[] = [
 export function BottomNav() {
   const { screen, setScreen, openCreate, createOpen } = useApp();
 
-  const hidden: Screen[] = ["onboarding", "flashcards", "quiz", "graph", "language", "tutor", "path", "study", "admin", "adminLogin", "landing", "auth"];
+  const hidden: Screen[] = ["onboarding", "flashcards", "quiz", "graph", "language", "tutor", "path", "study", "admin", "adminLogin", "landing", "auth", "premium"];
   if (hidden.includes(screen)) return null;
   if (createOpen) return null;
 
@@ -77,7 +77,7 @@ export function BottomNav() {
 export function Sidebar() {
   const { screen, setScreen, openCreate, createOpen } = useApp();
 
-  const hidden: Screen[] = ["onboarding", "flashcards", "quiz", "graph", "language", "tutor", "path", "study", "admin", "adminLogin", "landing", "auth"];
+  const hidden: Screen[] = ["onboarding", "flashcards", "quiz", "graph", "language", "tutor", "path", "study", "admin", "adminLogin", "landing", "auth", "premium"];
   if (hidden.includes(screen)) return null;
   if (createOpen) return null;
 
