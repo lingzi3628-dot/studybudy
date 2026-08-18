@@ -14,12 +14,10 @@ import {
   Loader2,
   AlertCircle,
   Trash2,
-  KeyRound as KeyIcon,
   Clock,
   Crown,
-  Coins,
 } from "lucide-react";
-import { useApp, resetOnboarding } from "../store";
+import { useApp } from "../store";
 import { api } from "../api";
 
 const languages = ["English", "Kiswahili", "Chinese", "French", "Spanish", "Arabic"];
@@ -280,19 +278,6 @@ export function Profile() {
             </span>
             <span className="text-sm font-medium">Log out</span>
           </button>
-
-          <button
-            onClick={() => {
-              resetOnboarding();
-              setScreen("onboarding");
-            }}
-            className="w-full p-4 flex items-center gap-3 rounded-2xl bg-white border border-rose-200 text-rose-600 hover:bg-rose-50 shadow-sm"
-          >
-            <span className="w-9 h-9 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center">
-              <LogOut className="w-4 h-4" />
-            </span>
-            <span className="text-sm font-medium">Reset onboarding (dev)</span>
-          </button>
         </section>
 
         {/* account security section */}
@@ -326,23 +311,6 @@ export function Profile() {
               </div>
               <ChevronRight className="w-4 h-4 text-gray-400" />
             </button>
-
-            {/* Change password (Clerk-managed) */}
-            <a
-              href="https://your-clerk-app.clerk.accounts.dev/user"
-              target="_blank"
-              rel="noreferrer"
-              className="w-full p-4 flex items-center gap-3 hover:bg-gray-50"
-            >
-              <span className="w-9 h-9 rounded-full bg-violet-50 text-violet-600 flex items-center justify-center">
-                <KeyIcon className="w-4 h-4" />
-              </span>
-              <div className="flex-1 text-left">
-                <p className="text-sm font-medium text-gray-900">Change password</p>
-                <p className="text-xs text-gray-500">Opens Clerk's account portal (configure NEXT_PUBLIC_CLERK_MANAGEMENT_URL)</p>
-              </div>
-              <ChevronRight className="w-4 h-4 text-gray-400" />
-            </a>
 
             {/* Delete account */}
             <DeleteAccountButton />
@@ -379,12 +347,12 @@ function DeleteAccountButton() {
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error ?? `HTTP ${r.status}`);
-      // Best-effort: also delete Clerk user via client SDK if available
-      // (Clerk's useUser().delete() — would need to be wired from a Clerk
-      // provider context. For now, just clear local state.)
-      resetOnboarding();
-      setScreen("onboarding");
-      alert("Your StudyBuddy data has been deleted. To also delete your Clerk account, sign in to the Clerk account portal.");
+      // Clear local state
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("studybuddy_onboarded");
+      }
+      setScreen("landing");
+      alert("Your StudyBuddy data has been deleted.");
     } catch (e: any) {
       setError(e?.message ?? "Delete failed");
     } finally {

@@ -69,14 +69,30 @@ export function PremiumScreen() {
     setSelectedPlan(plan);
     setStep("payment");
     setError(null);
-    // Fetch payment settings
+    // Fetch payment settings — try admin endpoint, fall back to hardcoded
     try {
       const r = await fetch("/api/admin/payment-settings");
       if (r.ok) {
         const d = await r.json();
         setPaymentMethods(d.settings.filter((s: any) => s.enabled));
+      } else {
+        // Fallback hardcoded
+        setPaymentMethods([
+          { method: "mpesa", label: "M-Pesa", instructions: "Send money to M-Pesa Paybill:", details: { paybill: "4040404", account: "StudyBuddy" }, enabled: true },
+          { method: "binance", label: "Binance Pay", instructions: "Send USDT via Binance Pay ID:", details: { binanceId: "123456789" }, enabled: true },
+          { method: "minipay", label: "MiniPay", instructions: "Send payment via MiniPay:", details: { address: "0x1234...abcd" }, enabled: true },
+          { method: "paypal", label: "PayPal", instructions: "Send payment to PayPal email:", details: { email: "payments@studybuddy.ai" }, enabled: true },
+          { method: "bank", label: "Bank Transfer", instructions: "Transfer to bank account:", details: { bank: "Equity Bank", account: "0123456789", name: "StudyBuddy AI Ltd" }, enabled: true },
+        ]);
       }
-    } catch {}
+    } catch {
+      // Fallback
+      setPaymentMethods([
+        { method: "mpesa", label: "M-Pesa", enabled: true, instructions: "Send to paybill 4040404", details: { paybill: "4040404", account: "StudyBuddy" } },
+        { method: "paypal", label: "PayPal", enabled: true, instructions: "Send to payments@studybuddy.ai", details: { email: "payments@studybuddy.ai" } },
+        { method: "bank", label: "Bank Transfer", enabled: true, instructions: "Transfer to bank", details: { bank: "Equity Bank", account: "0123456789" } },
+      ]);
+    }
   };
 
   const initiatePayment = async () => {
