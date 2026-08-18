@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { decryptApiKey } from "@/lib/crypto";
 import { callAIJson, type ChatMessage } from "@/lib/ai";
 import { checkRateLimit, refundRateLimit } from "@/lib/rate-limit";
+import { checkAndDeductTokens } from "@/lib/monetization";
 
 export const runtime = "nodejs";
 
@@ -57,6 +58,8 @@ export async function POST(req: NextRequest) {
   ];
 
   try {
+    const _d = await checkAndDeductTokens(user.id, "translate");
+    if (!_d.ok) return NextResponse.json({ error: _d.error }, { status: 402 });
     const json = await callAIJson<{
       translation?: string;
       pronunciation?: string;

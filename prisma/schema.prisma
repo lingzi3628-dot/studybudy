@@ -54,6 +54,7 @@ model User {
   paymentTransactions   PaymentTransaction[]
   activationKeys        ActivationKey[]
   tokenUsageLogs        TokenUsageLog[]
+  dailyUsages           DailyUsage[]
 }
 
 // login/logout audit trail
@@ -451,4 +452,17 @@ model PaymentSetting {
   enabled         Boolean  @default(true)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+}
+
+model DailyUsage {
+  id          String   @id @default(uuid())
+  userId      String
+  feature     String   // 'search','cards','quiz','tutor','graph','translate','learning_path'
+  usageDate   DateTime @default(now())
+  count       Int      @default(0)
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, feature, usageDate])
+  @@index([userId, usageDate])
 }

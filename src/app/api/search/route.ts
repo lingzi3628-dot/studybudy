@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { decryptApiKey } from "@/lib/crypto";
 import { callAIJson, type ChatMessage } from "@/lib/ai";
+import { checkAndDeductTokens } from "@/lib/monetization";
 import { checkRateLimit, refundRateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";

@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Bell, Flame } from "lucide-react";
+import { Bell, Flame, Coins } from "lucide-react";
 import { useApp } from "./store";
 
 function TopBarInner({ mobile }: { mobile: boolean }) {
   const { screen, setScreen } = useApp();
   const [initial, setInitial] = useState("?");
   const [streak, setStreak] = useState(0);
+  const [tokens, setTokens] = useState<number | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -26,7 +27,10 @@ function TopBarInner({ mobile }: { mobile: boolean }) {
         }
         if (progRes.ok) {
           const d = await progRes.json();
-          if (mounted) setStreak(d.streak ?? 0);
+          if (mounted) {
+            setStreak(d.streak ?? 0);
+            setTokens(d.user?.tokenBalance ?? null);
+          }
         }
       } catch {}
     })();
@@ -51,10 +55,18 @@ function TopBarInner({ mobile }: { mobile: boolean }) {
         </button>
 
         {mobile && (
-          <div className="flex items-center gap-1.5 bg-amber-50 text-amber-700 px-2.5 py-1 rounded-full text-sm font-semibold">
-            <Flame className="w-4 h-4 text-amber-500" />
-            <span>{streak}</span>
-            <span className="text-amber-600/80 font-medium hidden xs:inline">streak</span>
+          <div className="flex items-center gap-1.5">
+            {tokens !== null && (
+              <div className="flex items-center gap-1 bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full text-xs font-semibold">
+                <Coins className="w-3 h-3" />
+                <span>{tokens.toLocaleString()}</span>
+              </div>
+            )}
+            <div className="flex items-center gap-1.5 bg-amber-50 text-amber-700 px-2.5 py-1 rounded-full text-sm font-semibold">
+              <Flame className="w-4 h-4 text-amber-500" />
+              <span>{streak}</span>
+              <span className="text-amber-600/80 font-medium hidden xs:inline">streak</span>
+            </div>
           </div>
         )}
 

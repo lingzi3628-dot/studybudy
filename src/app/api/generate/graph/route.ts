@@ -5,6 +5,7 @@ import { decryptApiKey } from "@/lib/crypto";
 import { callAIJson, type ChatMessage } from "@/lib/ai";
 import { checkRateLimit, refundRateLimit } from "@/lib/rate-limit";
 import { parse, simplify } from "mathjs";
+import { checkAndDeductTokens } from "@/lib/monetization";
 
 export const runtime = "nodejs";
 
@@ -52,6 +53,8 @@ export async function POST(req: NextRequest) {
 
   let node;
   try {
+    const _d = await checkAndDeductTokens(user.id, "graph");
+    if (!_d.ok) return NextResponse.json({ error: _d.error }, { status: 402 });
     node = parse(expr);
   } catch (e: any) {
     return NextResponse.json(

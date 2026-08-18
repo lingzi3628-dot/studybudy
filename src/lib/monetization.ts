@@ -1,9 +1,160 @@
 /**
  * Monetization engine — token deduction, model permission, daily limits.
+ *
+ * Token costs (flat rate per feature, multiplied by model multiplier):
+ *   search = 100, cards = 500, quiz = 300, tutor = 200,
+ *   graph = 50, translate = 100, learning_path = 400
  */
 import { db } from "./db";
 
-/** Check if user can use their current model. Returns { allowed, reason } */
+// Flat-rate token costs per feature (before model multiplier)
+const FLAT_COSTS: Record<string, number> = {
+  search: 100,
+  cards: 500,
+  quiz: 300,
+  tutor: 200,
+  graph: 50,
+  translate: 100,
+  learning_path: 400,
+};
+
+// Daily limits per feature for FREE plan (premium = unlimited)
+const FREE_DAILY_LIMITS: Record<string, number> = {
+  search: 10,
+  cards: 3,
+  quiz: 5,
+  tutor: 10,
+  graph: 10,
+  translate: 10,
+  learning_path: 1,
+};
+
+export type DeductResult =
+  | { ok: true; costTokens: number; newBalance: number; remaining: number | null }
+  | { ok: false; error: string; code: string };
+
+/**
+ * Check model permission, daily limits, token balance, then deduct.
+ * Call this BEFORE making the AI request.
+ *
+ * Usage:
+ *   const r = await checkAndDeductTokens(userId, "search");
+ *   if (!r.ok) return NextResponse.json({ error: r.error }, { status: 402 });
+ *   // ... proceed with AI call ...
+ */
+export async function checkAndDeductTokens(userId: string, feature: string): Promise<DeductResult> {
+  try {
+    const user = await db.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        tokenBalance: true,
+        currentModel: true,
+        planId: true,
+        subscriptionExpiry: true,
+        tokenResetDate: true,
+      },
+    });
+
+    if (!user) return { ok: false, error: "User not found", code: "NOT_FOUND" };
+
+    // Check subscription expiry
+    const hasActivePlan = user.planId && (!user.subscriptionExpiry || new Date() < user.subscriptionExpiry);
+    const isPremium = Boolean(hasActivePlan);
+
+    // Check daily limits (only for free users)
+    if (!isPremium) {
+      const limit = FREE_DAILY_LIMITS[feature] ?? 999;
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+
+      const existing = await db.dailyUsage.findUnique({
+        where: {
+          userId_feature_usageDate: { userId, feature, usageDate: todayStart },
+        },
+      }).catch(() => null);
+
+      const usedToday = existing?.count ?? 0;
+      if (usedToday >= limit) {
+        return {
+          ok: false,
+          error: `Daily limit reached (${usedToday}/${limit}). Upgrade to a premium plan for unlimited ${feature}!`,
+          code: "DAILY_LIMIT",
+        };
+      }
+    }
+
+    // Get model multiplier
+    const mapping = await db.modelMapping.findUnique({
+      where: { modelName: user.currentModel },
+    }).catch(() => null);
+    const multiplier = mapping?.tokenCostMultiplier ?? 1;
+
+    // Calculate cost
+    const flatCost = FLAT_COSTS[feature] ?? 100;
+    const costTokens = Math.ceil(flatCost * multiplier);
+
+    // Check token balance
+    if ((user.tokenBalance ?? 0) < costTokens) {
+      return {
+        ok: false,
+        error: `Not enough tokens (need ${costTokens}, have ${user.tokenBalance ?? 0}). Upgrade your plan to get more!`,
+        code: "INSUFFICIENT_TOKENS",
+      };
+    }
+
+    // Monthly token reset
+    if (user.tokenResetDate && new Date() > user.tokenResetDate) {
+      const plan = user.planId ? await db.plan.findUnique({ where: { id: user.planId } }).catch(() => null) : null;
+      const newBalance = plan?.tokenLimit ?? 1000;
+      const nextReset = new Date();
+      nextReset.setMonth(nextReset.getMonth() + 1);
+      await db.user.update({
+        where: { id: userId },
+        data: { tokenBalance: newBalance, tokenResetDate: nextReset },
+      });
+      user.tokenBalance = newBalance;
+    }
+
+    // Deduct tokens
+    const newBalance = Math.max(0, (user.tokenBalance ?? 0) - costTokens);
+    await db.user.update({
+      where: { id: userId },
+      data: { tokenBalance: newBalance },
+    });
+
+    // Log usage
+    await db.tokenUsageLog.create({
+      data: { userId, model: user.currentModel, tokensUsed: flatCost, costTokens, feature },
+    }).catch(() => {});
+
+    // Increment daily usage
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    await db.dailyUsage.upsert({
+      where: { userId_feature_usageDate: { userId, feature, usageDate: todayStart } },
+      create: { userId, feature, usageDate: todayStart, count: 1 },
+      update: { count: { increment: 1 } },
+    }).catch(() => {});
+
+    // Calculate remaining daily (for free users)
+    let remaining: number | null = null;
+    if (!isPremium) {
+      const limit = FREE_DAILY_LIMITS[feature] ?? 999;
+      const updated = await db.dailyUsage.findUnique({
+        where: { userId_feature_usageDate: { userId, feature, usageDate: todayStart } },
+      }).catch(() => null);
+      remaining = limit - (updated?.count ?? 0);
+    }
+
+    return { ok: true, costTokens, newBalance, remaining };
+  } catch (e: any) {
+    console.error("checkAndDeductTokens error:", e?.message);
+    return { ok: false, error: "Failed to check token balance", code: "ERROR" };
+  }
+}
+
+/** Check if user can use their current model (without deducting) */
 export async function checkModelPermission(userId: string) {
   const user = await db.user.findUnique({
     where: { id: userId },
@@ -13,11 +164,10 @@ export async function checkModelPermission(userId: string) {
 
   const mapping = await db.modelMapping.findUnique({
     where: { modelName: user.currentModel },
-  });
-  if (!mapping) return { allowed: true, reason: null }; // unmapped model = free pass
+  }).catch(() => null);
+  if (!mapping) return { allowed: true, reason: null };
 
   if (mapping.requiresPremium) {
-    // Check if user has an active plan
     if (!user.planId) {
       return { allowed: false, reason: `🥲 You need to upgrade to use ${mapping.displayName}. Get an activation key from the Premium page!` };
     }
@@ -26,55 +176,41 @@ export async function checkModelPermission(userId: string) {
     }
   }
 
-  if (user.tokenBalance <= 0) {
+  if ((user.tokenBalance ?? 0) <= 0) {
     return { allowed: false, reason: "Not enough tokens. Upgrade your plan to get more!" };
   }
 
   return { allowed: true, reason: null };
 }
 
-/** Deduct tokens after an AI call. Returns new balance. */
+/** Deduct tokens after an AI call (for actual token-based deduction) */
 export async function deductTokens(userId: string, tokensUsed: number, model: string, feature: string) {
   const mapping = await db.modelMapping.findUnique({
     where: { modelName: model },
-  });
+  }).catch(() => null);
   const multiplier = mapping?.tokenCostMultiplier ?? 1;
   const costTokens = Math.ceil(tokensUsed * multiplier);
 
   const user = await db.user.findUnique({
     where: { id: userId },
-    select: { tokenBalance: true, tokenResetDate: true, planId: true },
+    select: { tokenBalance: true },
   });
   if (!user) throw new Error("User not found");
 
-  // Check if tokens need reset (monthly)
-  if (user.tokenResetDate && new Date() > user.tokenResetDate) {
-    const plan = user.planId ? await db.plan.findUnique({ where: { id: user.planId } }) : null;
-    const newBalance = plan?.tokenLimit ?? 1000;
-    const nextReset = new Date();
-    nextReset.setMonth(nextReset.getMonth() + 1);
-    await db.user.update({
-      where: { id: userId },
-      data: { tokenBalance: newBalance, tokenResetDate: nextReset },
-    });
-  }
-
-  // Deduct
-  const newBalance = Math.max(0, user.tokenBalance - costTokens);
+  const newBalance = Math.max(0, (user.tokenBalance ?? 0) - costTokens);
   await db.user.update({
     where: { id: userId },
     data: { tokenBalance: newBalance },
   });
 
-  // Log usage
   await db.tokenUsageLog.create({
     data: { userId, model, tokensUsed, costTokens, feature },
-  });
+  }).catch(() => {});
 
   return { newBalance, costTokens };
 }
 
-/** Check daily limit for a feature. Returns { allowed, remaining } */
+/** Check daily limit (without deducting) */
 export async function checkDailyLimit(userId: string, feature: "quiz" | "flashcard_gen") {
   const user = await db.user.findUnique({
     where: { id: userId },
@@ -82,24 +218,19 @@ export async function checkDailyLimit(userId: string, feature: "quiz" | "flashca
   });
   if (!user) return { allowed: false, remaining: 0 };
 
-  const plan = user.planId ? await db.plan.findUnique({ where: { id: user.planId } }) : null;
+  const plan = user.planId ? await db.plan.findUnique({ where: { id: user.planId } }).catch(() => null) : null;
   const limit = feature === "quiz" ? (plan?.dailyQuizLimit ?? 5) : (plan?.dailyFlashcardGenLimit ?? 3);
 
-  // Count today's usage
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
   const count = await db.tokenUsageLog.count({
-    where: {
-      userId,
-      feature,
-      createdAt: { gte: todayStart },
-    },
-  });
+    where: { userId, feature, createdAt: { gte: todayStart } },
+  }).catch(() => 0);
 
   return { allowed: count < limit, remaining: Math.max(0, limit - count) };
 }
 
-/** Get all available models for a user (free + their plan's models) */
+/** Get all available models for a user */
 export async function getAvailableModels(userId: string) {
   const user = await db.user.findUnique({
     where: { id: userId },
@@ -110,7 +241,7 @@ export async function getAvailableModels(userId: string) {
 
   const allMappings = await db.modelMapping.findMany({
     orderBy: { tokenCostMultiplier: "asc" },
-  });
+  }).catch(() => []);
 
   return allMappings.map((m) => ({
     ...m,

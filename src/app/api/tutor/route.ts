@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { decryptApiKey } from "@/lib/crypto";
 import { callAI, type ChatMessage } from "@/lib/ai";
 import { checkRateLimit, refundRateLimit } from "@/lib/rate-limit";
+import { checkAndDeductTokens } from "@/lib/monetization";
 
 export const runtime = "nodejs";
 
@@ -54,6 +55,8 @@ export async function POST(req: NextRequest) {
   const apiKey = userRec?.encryptedApiKey ? decryptApiKey(userRec.encryptedApiKey) : null;
 
   try {
+    const _d = await checkAndDeductTokens(user.id, "tutor");
+    if (!_d.ok) return NextResponse.json({ error: _d.error }, { status: 402 });
     const reply = await callAI(messagesForAI, apiKey, { userId: user.id, route: "/api/tutor" });
     return NextResponse.json({
       reply,
