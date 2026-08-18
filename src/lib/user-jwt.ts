@@ -1,11 +1,17 @@
 /**
  * User JWT helpers — for direct email/password auth sessions.
- * Separate from admin JWT (different cookie name, type field in payload).
- * Reuses the same secret (ADMIN_JWT_SECRET) for signing.
+ *
+ * Uses ADMIN_JWT_SECRET if set, falls back to API_KEY_ENCRYPTION_SECRET
+ * (which is always set) so user auth works even on Vercel without
+ * ADMIN_JWT_SECRET configured.
  */
 import jwt from "jsonwebtoken";
 
-const SECRET = process.env.ADMIN_JWT_SECRET || process.env.USER_JWT_SECRET || "";
+const SECRET =
+  process.env.ADMIN_JWT_SECRET ||
+  process.env.API_KEY_ENCRYPTION_SECRET ||
+  "";
+
 const COOKIE_NAME = "user_token";
 const EXPIRES_DAYS = 7;
 
@@ -18,7 +24,9 @@ export type UserJwtPayload = {
 };
 
 export function signUserToken(userId: string, email: string): string {
-  if (!SECRET) throw new Error("ADMIN_JWT_SECRET is not set");
+  if (!SECRET) {
+    throw new Error("Neither ADMIN_JWT_SECRET nor API_KEY_ENCRYPTION_SECRET is set");
+  }
   return jwt.sign({ userId, email, type: "user" }, SECRET, {
     expiresIn: `${EXPIRES_DAYS}d`,
   });
