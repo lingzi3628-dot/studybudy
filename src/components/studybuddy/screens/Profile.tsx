@@ -123,17 +123,6 @@ export function Profile() {
           </div>
         </div>
 
-        {/* upgrade banner */}
-        {plan === "free" && (
-          <div className="mt-4 rounded-2xl bg-gradient-to-br from-indigo-600 to-violet-500 p-4 text-white shadow-md">
-            <p className="text-sm font-semibold">Upgrade to Pro</p>
-            <p className="text-xs opacity-90 mt-1">Unlock unlimited AI tutor sessions, advanced analytics and more.</p>
-            <button className="mt-3 inline-flex items-center gap-1 bg-white text-indigo-700 text-xs font-semibold px-3 py-1.5 rounded-full">
-              <Sparkles className="w-3 h-3" /> Upgrade
-            </button>
-          </div>
-        )}
-
         {/* Admin access is hidden — use keyboard code or URL param */}
 
         {/* Premium entry */}

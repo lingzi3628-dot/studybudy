@@ -328,7 +328,7 @@ export function Onboarding() {
                       selected ? "border-indigo-600 bg-indigo-50" : "border-gray-200 bg-white hover:border-indigo-300"
                     } ${b.locked ? "opacity-50 cursor-not-allowed" : ""}`}
                   >
-                    <span className={`w-10 h-10 rounded-full bg-gradient-to-br ${b.color} flex items-center justify-center text-lg flex-shrink-0`}>
+                    <span className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${b.color} flex items-center justify-center text-2xl flex-shrink-0 shadow-md`}>
                       {b.emoji}
                     </span>
                     <div className="flex-1 text-left">

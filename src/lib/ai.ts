@@ -7,11 +7,13 @@
  *   3. Platform AI fallback (z-ai-web-dev-sdk, no key needed in sandbox)
  *
  * Every call is logged to ai_call_logs (provider, model, tokens, cost, status).
+ * Token deduction is handled by the caller via deductTokens() from monetization.ts.
  */
 import ZAI from "z-ai-web-dev-sdk";
 import { db } from "./db";
 import { decryptApiKey } from "./crypto";
 import { callWithProviders, logAiCall } from "./ai-providers";
+import { checkModelPermission, deductTokens } from "./monetization";
 
 export type ChatRole = "system" | "user" | "assistant";
 export type ChatMessage = { role: ChatRole; content: string };
@@ -120,28 +122,41 @@ async function callBYOKAI(
 /**
  * Unified entrypoint.
  *
- * 1. If userApiKey is provided (BYOK), use it via OpenAI-compatible fetch.
- * 2. Else try admin-configured providers in priority order.
- * 3. Else fall back to z-ai-web-dev-sdk (platform).
+ * 1. Check model permission + token balance (if userId provided)
+ * 2. If userApiKey is provided (BYOK), use it via OpenAI-compatible fetch.
+ * 3. Else try admin-configured providers in priority order.
+ * 4. Else fall back to z-ai-web-dev-sdk (platform).
+ * 5. Deduct tokens after successful call (if userId provided)
  */
 export async function callAI(
   messages: ChatMessage[],
   userApiKey?: string | null,
   ctx?: { userId?: string; route?: string }
 ): Promise<string> {
-  // Pull the user ID from ctx, or fall back to a sentinel "system" id
   const userId = ctx?.userId ?? "system";
   const route = ctx?.route;
+
+  // Check model permission + token balance (skip for "system" sentinel)
+  if (userId !== "system") {
+    const perm = await checkModelPermission(userId).catch(() => ({ allowed: true, reason: null }));
+    if (!perm.allowed) {
+      throw new Error(perm.reason ?? "Not enough tokens. Upgrade your plan.");
+    }
+  }
 
   // 1) BYOK
   if (userApiKey && userApiKey.trim()) {
     try {
-      return await callBYOKAI(messages, userApiKey.trim(), {
+      const content = await callBYOKAI(messages, userApiKey.trim(), {
         userId,
         route,
       });
+      // Deduct tokens (BYOK users still consume tokens for model tier)
+      if (userId !== "system") {
+        await deductTokens(userId, Math.ceil(messages.reduce((s, m) => s + m.content.length / 4, 0)), "byok", route?.replace("/api/", "") ?? "unknown").catch(() => {});
+      }
+      return content;
     } catch (e) {
-      // fall through to admin providers
       console.warn("BYOK call failed, falling back to admin providers:", e?.message ?? e);
     }
   }
@@ -149,13 +164,25 @@ export async function callAI(
   // 2) Admin-configured providers
   try {
     const r = await callWithProviders(messages, { userId, route });
-    if (r.content) return r.content;
+    if (r.content) {
+      // Deduct tokens based on actual usage
+      if (userId !== "system") {
+        const tokensUsed = r.result?.totalTokens ?? Math.ceil(messages.reduce((s, m) => s + m.content.length / 4, 0));
+        await deductTokens(userId, tokensUsed, "admin_provider", route?.replace("/api/", "") ?? "unknown").catch(() => {});
+      }
+      return r.content;
+    }
   } catch (e) {
     console.warn("Admin provider call failed:", e?.message ?? e);
   }
 
   // 3) Platform fallback
-  return callPlatformAI(messages, { userId, route });
+  const content = await callPlatformAI(messages, { userId, route });
+  // Deduct tokens for platform calls too
+  if (userId !== "system") {
+    await deductTokens(userId, Math.ceil(messages.reduce((s, m) => s + m.content.length / 4, 0)), "glm", route?.replace("/api/", "") ?? "unknown").catch(() => {});
+  }
+  return content;
 }
 
 /**
