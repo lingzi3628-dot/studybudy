@@ -85,7 +85,7 @@ export const useApp = create<AppState>((set) => ({
   openCreate: (option = null) => set({ createOpen: true, createOption: option }),
   closeCreate: () => set({ createOpen: false, createOption: null }),
 
-  onboarded: initialOnboarded,
+  onboarded: false,
   completeOnboarding: () => {
     if (typeof window !== "undefined") localStorage.setItem(LS_KEY, "1");
     set({ onboarded: true, screen: "home" });
