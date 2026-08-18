@@ -612,6 +612,76 @@ const PROVIDER_TYPES = [
   { value: "pollinations", label: "Pollinations" },
 ];
 
+// Provider presets — auto-fills baseUrl + model dropdown + shows "Get Key" link
+const PROVIDER_PRESETS: Record<string, {
+  dashboardUrl: string;
+  dashboardLabel: string;
+  baseUrl: string;
+  models: string[];
+  note?: string;
+}> = {
+  openai: {
+    dashboardUrl: "https://platform.openai.com/api-keys",
+    dashboardLabel: "Get OpenAI API Key →",
+    baseUrl: "https://api.openai.com/v1",
+    models: ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo", "o1-mini", "o1-preview"],
+    note: "Pay-as-you-go. gpt-4o-mini is cheapest (~$0.15/1M tokens).",
+  },
+  glm: {
+    dashboardUrl: "https://open.bigmodel.cn/usercenter/apikeys",
+    dashboardLabel: "Get GLM API Key →",
+    baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+    models: ["glm-4-plus", "glm-4", "glm-4-flash", "glm-4-long"],
+    note: "Zhipu AI — Chinese provider. glm-4-flash is free tier.",
+  },
+  gemini: {
+    dashboardUrl: "https://aistudio.google.com/app/apikey",
+    dashboardLabel: "Get Gemini API Key →",
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+    models: ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-1.5-flash-8b"],
+    note: "Google AI Studio — free tier available (15 RPM, 1500/day).",
+  },
+  openrouter: {
+    dashboardUrl: "https://openrouter.ai/keys",
+    dashboardLabel: "Get OpenRouter API Key →",
+    baseUrl: "https://openrouter.ai/api/v1",
+    models: [
+      "meta-llama/llama-3.1-8b-instruct",
+      "meta-llama/llama-3.1-70b-instruct",
+      "openai/gpt-4o-mini",
+      "openai/gpt-4o",
+      "google/gemini-flash-1.5",
+      "Qwen/Qwen2.5-7B-Instruct",
+      "mistralai/mistral-7b-instruct",
+      "deepseek/deepseek-chat",
+      "anthropic/claude-3.5-sonnet",
+    ],
+    note: "Aggregator — access 100+ models with one key. Some models are free.",
+  },
+  huggingface: {
+    dashboardUrl: "https://huggingface.co/settings/tokens",
+    dashboardLabel: "Get Hugging Face Token →",
+    baseUrl: "https://router.huggingface.co/v1",
+    models: [
+      "Qwen/Qwen2.5-7B-Instruct",
+      "meta-llama/Meta-Llama-3-8B-Instruct",
+      "meta-llama/Llama-3.2-3B-Instruct",
+      "mistralai/Mistral-7B-Instruct-v0.3",
+      "microsoft/Phi-3-mini-4k-instruct",
+      "google/gemma-2-2b-it",
+      "HuggingFaceH4/zephyr-7b-beta",
+    ],
+    note: "Free inference router. Enable providers at huggingface.co/settings/inference-providers",
+  },
+  pollinations: {
+    dashboardUrl: "https://pollinations.ai",
+    dashboardLabel: "Pollinations (free, no key needed) →",
+    baseUrl: "https://text.pollinations.ai/openai",
+    models: ["openai", "mistral", "llama", "deepseek"],
+    note: "Completely free, no API key required. Rate-limited.",
+  },
+};
+
 // Sensible defaults per provider — used to auto-fill baseUrl + model when
 // admin selects a type and those fields are empty (prevents the "openrouter
 // with OpenAI baseUrl" bug where the test call goes to the wrong endpoint).
@@ -834,16 +904,14 @@ function ProviderFormModal({ provider, onClose, onSaved }: { provider: Provider 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Auto-fill baseUrl + model with sensible defaults when the admin picks a
-  // provider type and those fields are empty. Only fills empty fields — never
-  // overrides admin-edited values. This prevents the OpenRouter-with-OpenAI-
-  // base-URL bug that was hitting "Country, region, or territory not supported".
+  const preset = PROVIDER_PRESETS[providerType];
+
+  // Auto-fill baseUrl + model when provider type changes
   useEffect(() => {
-    const defaults = PROVIDER_DEFAULTS[providerType];
-    if (!defaults) return;
-    setBaseUrl((cur) => (cur.trim() ? cur : defaults.baseUrl));
-    setModel((cur) => (cur.trim() ? cur : defaults.model));
-  }, [providerType]);
+    if (!preset) return;
+    setBaseUrl((cur) => (cur.trim() ? cur : preset.baseUrl));
+    setModel((cur) => (cur.trim() ? cur : preset.models[0]));
+  }, [providerType, preset]);
 
   const save = async () => {
     setSaving(true);
@@ -901,15 +969,59 @@ function ProviderFormModal({ provider, onClose, onSaved }: { provider: Provider 
               ))}
             </select>
           </Field>
+
+          {/* Get API Key link */}
+          {preset && (
+            <a
+              href={preset.dashboardUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 text-xs text-indigo-600 font-semibold hover:underline"
+            >
+              {preset.dashboardLabel}
+            </a>
+          )}
+
+          {/* Provider note */}
+          {preset?.note && (
+            <p className="text-[11px] text-gray-400 italic">{preset.note}</p>
+          )}
+
           <Field label={provider ? "API key (leave blank to keep current)" : "API key"}>
             <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="sk-..." className="w-full p-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-indigo-400" />
             <p className="text-[10px] text-gray-400 mt-1">Encrypted with AES-256-CBC before storage.</p>
           </Field>
           <Field label="Base URL">
-            <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.openai.com/v1" className="w-full p-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-indigo-400" />
+            <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder={preset?.baseUrl ?? "https://api.openai.com/v1"} className="w-full p-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-indigo-400" />
           </Field>
+
+          {/* Model — dropdown with known models + custom input option */}
           <Field label="Model">
-            <input value={model} onChange={(e) => setModel(e.target.value)} placeholder="gpt-4o-mini" className="w-full p-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-indigo-400" />
+            <select
+              value={preset?.models.includes(model) ? model : "__custom__"}
+              onChange={(e) => {
+                if (e.target.value === "__custom__") {
+                  // keep current model value
+                } else {
+                  setModel(e.target.value);
+                }
+              }}
+              className="w-full p-2.5 rounded-xl border border-gray-200 text-sm bg-white outline-none focus:border-indigo-400"
+            >
+              {preset?.models.map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+              <option value="__custom__">{!model || preset?.models.includes(model) ? "Custom model..." : `Custom: ${model}`}</option>
+            </select>
+            {/* If custom is selected, show text input */}
+            {(!preset?.models.includes(model) || model === "") && (
+              <input
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                placeholder="Enter custom model name"
+                className="mt-1.5 w-full p-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-indigo-400"
+              />
+            )}
           </Field>
           <div className="grid grid-cols-3 gap-2">
             <Field label="Max tokens">
