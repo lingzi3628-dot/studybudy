@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import dynamic from "next/dynamic";
 import {
   ChevronLeft,
   Mail,
@@ -15,17 +14,11 @@ import {
 } from "lucide-react";
 import { useApp } from "../store";
 
-// Lazy-load Clerk components only when configured
-const ClerkSignIn = dynamic(() => import("@clerk/nextjs").then((m) => m.SignIn), { ssr: false });
-const ClerkSignUp = dynamic(() => import("@clerk/nextjs").then((m) => m.SignUp), { ssr: false });
-
 type Mode = "signin" | "signup";
 
 export function AuthScreen() {
   const { setScreen } = useApp();
   const [mode, setMode] = useState<Mode>("signup");
-  const [pk] = useState(() => process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
-  const clerkConfigured = Boolean(pk && pk.startsWith("pk_"));
 
   // Check if already authed → redirect to home
   useEffect(() => {
@@ -44,21 +37,6 @@ export function AuthScreen() {
     }).catch(() => {});
   }, [setScreen]);
 
-  // If Clerk is configured, render Clerk's actual SignIn/SignUp.
-  if (clerkConfigured) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-violet-50 flex items-center justify-center p-4">
-        <div className="w-full max-w-md">
-          <button onClick={() => setScreen("landing")} className="text-gray-500 hover:text-gray-900 text-sm flex items-center gap-1 mb-4">
-            <ChevronLeft className="w-4 h-4" /> Back to home
-          </button>
-          {mode === "signin" ? <ClerkSignIn /> : <ClerkSignUp />}
-        </div>
-      </div>
-    );
-  }
-
-  // Direct email/password auth (no Clerk needed)
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-violet-50 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
@@ -67,7 +45,6 @@ export function AuthScreen() {
         </button>
 
         <div className="rounded-3xl bg-white border border-gray-200 shadow-xl overflow-hidden">
-          {/* Header */}
           <div className="bg-gradient-to-br from-indigo-600 to-violet-600 p-6 text-center text-white">
             <div className="w-12 h-12 mx-auto rounded-2xl bg-white/10 flex items-center justify-center">
               <Sparkles className="w-6 h-6" />
@@ -78,7 +55,6 @@ export function AuthScreen() {
             <p className="text-xs opacity-90 mt-1">StudyBuddy AI</p>
           </div>
 
-          {/* Auth form */}
           <div className="p-5 space-y-3">
             <AuthForm mode={mode} setMode={setMode} setScreen={setScreen} />
           </div>
@@ -130,7 +106,6 @@ function AuthForm({ mode, setMode, setScreen }: { mode: Mode; setMode: (m: Mode)
         throw new Error(d.error ?? `HTTP ${r.status}`);
       }
 
-      // Success — redirect based on onboarding status
       if (d.user?.onboardingCompleted) {
         setScreen("home");
       } else {
@@ -217,7 +192,6 @@ function AuthForm({ mode, setMode, setScreen }: { mode: Mode; setMode: (m: Mode)
         )}
       </button>
 
-      {/* Toggle signin/signup */}
       <p className="text-center text-xs text-gray-500">
         {mode === "signup" ? "Already have an account? " : "Don't have an account? "}
         <button

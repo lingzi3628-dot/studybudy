@@ -16,7 +16,6 @@ export const metadata: Metadata = {
   keywords: ["StudyBuddy", "AI", "study", "flashcards", "quiz", "learning", "PWA"],
   authors: [{ name: "StudyBuddy AI" }],
   applicationName: "StudyBuddy AI",
-  manifest: "/manifest.json",
   icons: {
     icon: [
       { url: "/favicon.ico", sizes: "any" },
@@ -59,6 +58,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        <link rel="manifest" href="/manifest.json" crossOrigin="use-credentials" />
+      </head>
       <body
         className={`${inter.variable} font-sans antialiased bg-gray-50 text-gray-900`}
       >

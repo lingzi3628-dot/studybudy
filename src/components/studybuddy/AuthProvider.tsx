@@ -1,42 +1,14 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import { ReactNode } from "react";
 
 /**
- * Wraps the app with ClerkProvider when Clerk env keys are configured,
- * otherwise renders children directly (dev fallback).
+ * AuthProvider — renders children directly.
  *
- * Uses the shadcn theme from @clerk/ui so Clerk components match the
- * app's design system (indigo primary, rounded-2xl cards, etc).
+ * We use direct email/password auth (JWT cookies via /api/auth/*).
+ * Clerk is NOT used — it was causing ERR_CONNECTION_CLOSED errors
+ * on Vercel because the Clerk proxy subdomain wasn't responding.
  */
-const ClerkProvider = dynamic(
-  () => import("@clerk/nextjs").then((m) => m.ClerkProvider),
-  { ssr: false }
-);
-
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const pk = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
-
-  if (!pk || !pk.startsWith("pk_")) {
-    return <>{children}</>;
-  }
-
-  return (
-    <ClerkProvider
-      appearance={{
-        variables: {
-          colorPrimary: "#4F46E5",
-          colorText: "#111827",
-          colorBackground: "#ffffff",
-          colorInputBackground: "#ffffff",
-          colorInputBorder: "#E5E7EB",
-          borderRadius: "0.75rem",
-          fontFamily: "var(--font-inter)",
-        },
-      }}
-    >
-      {children}
-    </ClerkProvider>
-  );
+  return <>{children}</>;
 }
