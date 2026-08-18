@@ -1,80 +1,48 @@
 /**
- * Service Worker — basic offline caching for StudyBuddy AI.
- * Caches static assets (icon, manifest, fonts) and serves them offline.
- * Does NOT cache API responses (always fresh).
+ * KILL SWITCH service worker.
+ * This file exists ONLY to unregister the old service worker that was
+ * causing infinite "Failed to fetch" errors. When the browser fetches
+ * this file, it will:
+ * 1. Clear all caches
+ * 2. Unregister itself
+ * 3. Not intercept any future requests
  */
-
-const CACHE_NAME = "studybuddy-v1";
-const STATIC_ASSETS = [
-  "/",
-  "/manifest.json",
-  "/icon-192.png",
-  "/icon-512.png",
-  "/favicon.ico",
-  "/apple-touch-icon.png",
-];
-
-// Install — cache static assets
 self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS))
-  );
+  // Skip waiting — activate immediately
   self.skipWaiting();
-});
-
-// Activate — clean up old caches
-self.addEventListener("activate", (event) => {
+  // Clear all caches
   event.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
+      Promise.all(keys.map((k) => caches.delete(k)))
     )
   );
-  self.clients.claim();
 });
 
-// Fetch — network-first for navigation, cache-first for static assets
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    Promise.all([
+      // Clear all caches again
+      caches.keys().then((keys) =>
+        Promise.all(keys.map((k) => caches.delete(k)))
+      ),
+      // Unregister this service worker from all scopes
+      self.registration.unregister().then(() => {
+        console.log("Service worker unregistered — no more interception.");
+      }),
+      // Claim all clients so they see the new SW immediately
+      self.clients.claim(),
+    ])
+  );
+});
+
+// Don't intercept ANY requests — pass through to the network
 self.addEventListener("fetch", (event) => {
-  const { request } = event;
-  // Only handle GET
-  if (request.method !== "GET") return;
+  // Intentionally empty — don't handle fetch events
+  // This prevents any fetch interception
+});
 
-  // Skip API requests — always fresh
-  if (request.url.includes("/api/")) {
-    return;
-  }
-
-  // For navigation requests, try network first (so updates show), fall back to cache
-  if (request.mode === "navigate") {
-    event.respondWith(
-      fetch(request)
-        .then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
-          return res;
-        })
-        .catch(() => caches.match(request).then((cached) => cached || caches.match("/")))
-    );
-    return;
-  }
-
-  // For static assets, cache-first
-  if (
-    request.destination === "image" ||
-    request.destination === "style" ||
-    request.destination === "script" ||
-    request.destination === "font"
-  ) {
-    event.respondWith(
-      caches.match(request).then(
-        (cached) =>
-          cached ||
-          fetch(request).then((res) => {
-            const copy = res.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
-            return res;
-          })
-      )
-    );
-    return;
+self.addEventListener("message", (event) => {
+  if (event.data === "SKIP_WAITING") {
+    self.skipWaiting();
   }
 });
