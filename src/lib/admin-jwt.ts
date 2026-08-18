@@ -1,16 +1,21 @@
 /**
  * Admin JWT helpers — sign/verify HTTP-only cookies for /admin sessions.
  *
- * Uses ADMIN_JWT_SECRET if set. Falls back to API_KEY_ENCRYPTION_SECRET
- * (which is always set) so admin auth works even if ADMIN_JWT_SECRET
- * was accidentally omitted from Vercel env vars.
+ * Secret resolution (in order):
+ *   1. ADMIN_JWT_SECRET
+ *   2. API_KEY_ENCRYPTION_SECRET
+ *   3. Hash of DATABASE_URL (last resort — always present)
  */
 import jwt from "jsonwebtoken";
+import { createHash } from "crypto";
 
-const SECRET =
-  process.env.ADMIN_JWT_SECRET ||
-  process.env.API_KEY_ENCRYPTION_SECRET ||
-  "";
+function getSecret(): string {
+  if (process.env.ADMIN_JWT_SECRET) return process.env.ADMIN_JWT_SECRET;
+  if (process.env.API_KEY_ENCRYPTION_SECRET) return process.env.API_KEY_ENCRYPTION_SECRET;
+  // Last resort: derive from DATABASE_URL (always present)
+  const dbUrl = process.env.DATABASE_URL || "fallback-secret-not-secure";
+  return createHash("sha256").update(dbUrl).digest("hex");
+}
 
 const COOKIE_NAME = process.env.ADMIN_JWT_COOKIE_NAME || "admin_token";
 const EXPIRES_DAYS = Number(process.env.ADMIN_JWT_EXPIRES_DAYS || 7);
@@ -23,18 +28,15 @@ export type AdminJwtPayload = {
 };
 
 export function signAdminToken(adminId: string, adminEmail: string): string {
-  if (!SECRET) {
-    throw new Error("Neither ADMIN_JWT_SECRET nor API_KEY_ENCRYPTION_SECRET is set");
-  }
-  return jwt.sign({ adminId, adminEmail }, SECRET, {
+  return jwt.sign({ adminId, adminEmail }, getSecret(), {
     expiresIn: `${EXPIRES_DAYS}d`,
   });
 }
 
 export function verifyAdminToken(token: string | undefined | null): AdminJwtPayload | null {
-  if (!token || !SECRET) return null;
+  if (!token) return null;
   try {
-    const decoded = jwt.verify(token, SECRET) as AdminJwtPayload;
+    const decoded = jwt.verify(token, getSecret()) as AdminJwtPayload;
     if (!decoded.adminId || !decoded.adminEmail) return null;
     return decoded;
   } catch {
