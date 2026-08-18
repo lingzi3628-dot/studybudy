@@ -8,6 +8,8 @@ export const runtime = "nodejs";
 /**
  * GET /api/auth/me — returns the currently authed user (from JWT cookie)
  * or 401 if not authed.
+ *
+ * Includes monetization fields so the UI can show token balance etc.
  */
 export async function GET() {
   const cookieStore = await cookies();
@@ -33,6 +35,13 @@ export async function GET() {
       avatarUrl: true,
       onboardingCompleted: true,
       banned: true,
+      // Monetization fields
+      tokenBalance: true,
+      currentModel: true,
+      planId: true,
+      subscriptionExpiry: true,
+      tokenResetDate: true,
+      encryptedApiKey: true,
     },
   });
 
@@ -43,8 +52,24 @@ export async function GET() {
   return NextResponse.json({
     authed: true,
     user: {
-      ...user,
-      hasApiKey: false, // TODO: check encryptedApiKey
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      plan: user.plan,
+      role: user.role,
+      grade: user.grade,
+      subjects: user.subjects,
+      ambitions: user.ambitions,
+      learningLanguage: user.learningLanguage,
+      avatarUrl: user.avatarUrl,
+      onboardingCompleted: user.onboardingCompleted,
+      // Monetization
+      tokenBalance: user.tokenBalance ?? 1000,
+      currentModel: user.currentModel ?? "study_buddy_free",
+      planId: user.planId,
+      subscriptionExpiry: user.subscriptionExpiry,
+      tokenResetDate: user.tokenResetDate,
+      hasApiKey: Boolean(user.encryptedApiKey),
     },
   });
 }

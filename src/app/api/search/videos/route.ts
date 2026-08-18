@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { decryptApiKey } from "@/lib/crypto";
-import { checkAndDeductTokens } from "@/lib/monetization";
+import { checkAndDeductTokens, refundTokens } from "@/lib/monetization";
 
 export const runtime = "nodejs";
 
@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
 
   const videoEnabled = settings?.videoSearchEnabled ?? true;
   if (!videoEnabled) {
-    return NextResponse.json({ error: "Video search is disabled" }, { status: 403 });
+    return NextResponse.json({ error: "Video search is disabled by admin" }, { status: 403 });
   }
 
   // Get YouTube API key (decrypt if stored)
@@ -34,34 +34,62 @@ export async function POST(req: NextRequest) {
     apiKey = decryptApiKey(settings.youtubeApiKeyEncrypted);
   }
   if (!apiKey) {
-    return NextResponse.json({ error: "YouTube API key not configured" }, { status: 503 });
+    return NextResponse.json(
+      { error: "YouTube API key not configured. Admin → Search Settings to set it." },
+      { status: 503 }
+    );
   }
 
   // Check & deduct tokens
   const deduct = await checkAndDeductTokens(user.id, "video_search");
   if (!deduct.ok) {
-    return NextResponse.json({ error: deduct.error }, { status: 402 });
+    return NextResponse.json(
+      { error: deduct.error, code: deduct.code, tokenBalance: user.tokenBalance },
+      { status: 402 }
+    );
   }
 
-  // Call YouTube Data API
+  // Call YouTube Data API v3
   try {
     const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&q=${encodeURIComponent(query)}&maxResults=${maxResults}&key=${apiKey}`;
     const res = await fetch(url);
     if (!res.ok) {
       const txt = await res.text().catch(() => "");
+      // Refund since we couldn't return results
+      await refundTokens(user.id, "video_search", deduct.costTokens);
       if (res.status === 403) {
-        return NextResponse.json({ error: "YouTube API quota exceeded or invalid key" }, { status: 503 });
+        return NextResponse.json(
+          { error: "YouTube API quota exceeded or invalid key. Admin → Search Settings to fix." },
+          { status: 503 }
+        );
       }
-      return NextResponse.json({ error: `YouTube API error: ${res.status}` }, { status: 502 });
+      return NextResponse.json(
+        { error: `YouTube API error: ${res.status}`, detail: txt.slice(0, 200) },
+        { status: 502 }
+      );
     }
 
     const data = await res.json();
-    const videos = (data.items ?? []).map((item: any) => ({
-      videoId: item.id?.videoId,
-      title: item.snippet?.title ?? "Untitled",
-      thumbnail: `https://i.yimg.com/vi/${item.id?.videoId}/hqdefault.jpg`,
-      channel: item.snippet?.channelTitle ?? "Unknown",
-    })).filter((v: any) => v.videoId);
+    const videos = (data.items ?? [])
+      .map((item: any) => ({
+        videoId: item.id?.videoId,
+        title: item.snippet?.title ?? "Untitled",
+        thumbnail: `https://i.ytimg.com/vi/${item.id?.videoId}/hqdefault.jpg`,
+        channel: item.snippet?.channelTitle ?? "Unknown",
+      }))
+      .filter((v: any) => v.videoId);
+
+    if (videos.length === 0) {
+      // Refund if no results returned
+      await refundTokens(user.id, "video_search", deduct.costTokens);
+      return NextResponse.json({
+        videos: [],
+        cost: 0,
+        remaining: deduct.newBalance + deduct.costTokens,
+        dailyRemaining: (deduct.remaining ?? 0) + 1,
+        message: "No videos found",
+      });
+    }
 
     return NextResponse.json({
       videos,
@@ -70,6 +98,11 @@ export async function POST(req: NextRequest) {
       dailyRemaining: deduct.remaining,
     });
   } catch (e: any) {
-    return NextResponse.json({ error: "Failed to fetch videos" }, { status: 502 });
+    // Refund on exception
+    await refundTokens(user.id, "video_search", deduct.costTokens);
+    return NextResponse.json(
+      { error: "Failed to fetch videos", detail: e?.message ?? String(e) },
+      { status: 502 }
+    );
   }
 }

@@ -5,7 +5,7 @@ import { decryptApiKey } from "@/lib/crypto";
 import { callAIJson, type ChatMessage } from "@/lib/ai";
 import { checkRateLimit, refundRateLimit } from "@/lib/rate-limit";
 import { parse, simplify } from "mathjs";
-import { checkAndDeductTokens } from "@/lib/monetization";
+import { checkAndDeductTokens, refundTokens } from "@/lib/monetization";
 
 export const runtime = "nodejs";
 
@@ -51,12 +51,17 @@ export async function POST(req: NextRequest) {
     .replace(/\)([a-zA-Z(])/g, ")*$1")
     .replace(/([a-zA-Z])\(/g, "$1*(");
 
+  // Check & deduct tokens up-front
+  const deduct = await checkAndDeductTokens(user.id, "graph");
+  if (!deduct.ok) {
+    return NextResponse.json({ error: deduct.error, code: deduct.code, tokenBalance: user.tokenBalance }, { status: 402 });
+  }
+
   let node;
   try {
-    const _d = await checkAndDeductTokens(user.id, "graph");
-    if (!_d.ok) return NextResponse.json({ error: _d.error }, { status: 402 });
     node = parse(expr);
   } catch (e: any) {
+    await refundTokens(user.id, "graph", deduct.costTokens);
     return NextResponse.json(
       { error: "Could not parse equation", detail: e?.message ?? String(e) },
       { status: 400 }

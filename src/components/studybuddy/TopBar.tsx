@@ -23,13 +23,19 @@ function TopBarInner({ mobile }: { mobile: boolean }) {
           if (mounted && d.authed) {
             const name = d.user?.name || d.user?.email || "?";
             setInitial(name.charAt(0).toUpperCase());
+            // Auth/me now returns tokenBalance too
+            if (typeof d.user?.tokenBalance === "number") {
+              setTokens(d.user.tokenBalance);
+            }
           }
         }
         if (progRes.ok) {
           const d = await progRes.json();
           if (mounted) {
             setStreak(d.streak ?? 0);
-            setTokens(d.user?.tokenBalance ?? null);
+            if (typeof d.user?.tokenBalance === "number") {
+              setTokens(d.user.tokenBalance);
+            }
           }
         }
       } catch {}
@@ -57,10 +63,14 @@ function TopBarInner({ mobile }: { mobile: boolean }) {
         {mobile && (
           <div className="flex items-center gap-1.5">
             {tokens !== null && (
-              <div className="flex items-center gap-1 bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full text-xs font-semibold">
+              <button
+                onClick={() => setScreen("billing")}
+                aria-label="Token balance"
+                className="flex items-center gap-1 bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full text-xs font-semibold hover:bg-indigo-100 transition"
+              >
                 <Coins className="w-3 h-3" />
                 <span>{tokens.toLocaleString()}</span>
-              </div>
+              </button>
             )}
             <div className="flex items-center gap-1.5 bg-amber-50 text-amber-700 px-2.5 py-1 rounded-full text-sm font-semibold">
               <Flame className="w-4 h-4 text-amber-500" />
@@ -80,6 +90,17 @@ function TopBarInner({ mobile }: { mobile: boolean }) {
       </div>
       {!mobile && (
         <div className="flex items-center gap-3">
+          {tokens !== null && (
+            <button
+              onClick={() => setScreen("billing")}
+              aria-label="Token balance"
+              className="flex items-center gap-1.5 bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full text-sm font-semibold hover:bg-indigo-100 transition"
+            >
+              <Coins className="w-4 h-4" />
+              <span>{tokens.toLocaleString()}</span>
+              <span className="text-indigo-600/80 font-medium text-xs">tokens</span>
+            </button>
+          )}
           <div className="flex items-center gap-1.5 bg-amber-50 text-amber-700 px-3 py-1 rounded-full text-sm font-semibold">
             <Flame className="w-4 h-4 text-amber-500" />
             <span>{streak}</span>

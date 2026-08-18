@@ -1,9 +1,10 @@
 /**
- * Monetization engine — token deduction, model permission, daily limits.
+ * Monetization engine — token deduction, model permission, daily limits, refunds.
  *
  * Token costs (flat rate per feature, multiplied by model multiplier):
  *   search = 100, cards = 500, quiz = 300, tutor = 200,
- *   graph = 50, translate = 100, learning_path = 400
+ *   graph = 50, translate = 100, learning_path = 400,
+ *   image_search = 10, video_search = 50
  */
 import { db } from "./db";
 
@@ -45,6 +46,7 @@ export type DeductResult =
  *   const r = await checkAndDeductTokens(userId, "search");
  *   if (!r.ok) return NextResponse.json({ error: r.error }, { status: 402 });
  *   // ... proceed with AI call ...
+ *   // On AI failure, call refundTokens(userId, "search", r.costTokens) to refund.
  */
 export async function checkAndDeductTokens(userId: string, feature: string): Promise<DeductResult> {
   try {
@@ -94,6 +96,15 @@ export async function checkAndDeductTokens(userId: string, feature: string): Pro
     }).catch(() => null);
     const multiplier = mapping?.tokenCostMultiplier ?? 1;
 
+    // Check premium-model permission (e.g. GPT-4/Claude gated behind paid plan)
+    if (mapping?.requiresPremium && !isPremium) {
+      return {
+        ok: false,
+        error: `🥲 You need to upgrade to use ${mapping.displayName}. Get an activation key from the Premium page!`,
+        code: "MODEL_LOCKED",
+      };
+    }
+
     // Calculate cost
     const flatCost = FLAT_COSTS[feature] ?? 100;
     const costTokens = Math.ceil(flatCost * multiplier);
@@ -107,7 +118,8 @@ export async function checkAndDeductTokens(userId: string, feature: string): Pro
       };
     }
 
-    // Monthly token reset
+    // Monthly token reset (must happen BEFORE deduction so user keeps full refresh)
+    let workingBalance = user.tokenBalance ?? 0;
     if (user.tokenResetDate && new Date() > user.tokenResetDate) {
       const plan = user.planId ? await db.plan.findUnique({ where: { id: user.planId } }).catch(() => null) : null;
       const newBalance = plan?.tokenLimit ?? 1000;
@@ -117,11 +129,19 @@ export async function checkAndDeductTokens(userId: string, feature: string): Pro
         where: { id: userId },
         data: { tokenBalance: newBalance, tokenResetDate: nextReset },
       });
-      user.tokenBalance = newBalance;
+      workingBalance = newBalance;
+    } else if (!user.tokenResetDate) {
+      // Free users without reset date — set one now so they get monthly refresh
+      const nextReset = new Date();
+      nextReset.setMonth(nextReset.getMonth() + 1);
+      await db.user.update({
+        where: { id: userId },
+        data: { tokenResetDate: nextReset },
+      }).catch(() => {});
     }
 
     // Deduct tokens
-    const newBalance = Math.max(0, (user.tokenBalance ?? 0) - costTokens);
+    const newBalance = Math.max(0, workingBalance - costTokens);
     await db.user.update({
       where: { id: userId },
       data: { tokenBalance: newBalance },
@@ -158,7 +178,53 @@ export async function checkAndDeductTokens(userId: string, feature: string): Pro
   }
 }
 
-/** Check if user can use their current model (without deducting) */
+/**
+ * Refund tokens for a feature after a failed AI call.
+ * Use the costTokens returned by checkAndDeductTokens.
+ */
+export async function refundTokens(userId: string, feature: string, costTokens: number): Promise<void> {
+  try {
+    const user = await db.user.findUnique({
+      where: { id: userId },
+      select: { tokenBalance: true, currentModel: true },
+    });
+    if (!user) return;
+
+    const newBalance = (user.tokenBalance ?? 0) + costTokens;
+    await db.user.update({
+      where: { id: userId },
+      data: { tokenBalance: newBalance },
+    });
+
+    // Log refund as a negative usage entry
+    await db.tokenUsageLog.create({
+      data: {
+        userId,
+        model: user.currentModel,
+        tokensUsed: -costTokens,
+        costTokens: -costTokens,
+        feature: `${feature}_refund`,
+      },
+    }).catch(() => {});
+
+    // Decrement daily usage count (so the user gets their daily slot back)
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    await db.dailyUsage.update({
+      where: { userId_feature_usageDate: { userId, feature, usageDate: todayStart } },
+      data: { count: { decrement: 1 } },
+    }).catch(() => {});
+  } catch (e: any) {
+    console.error("refundTokens error:", e?.message);
+  }
+}
+
+/**
+ * Check if user can use their current model (without deducting).
+ * NOTE: This does NOT check token balance — the calling route must use
+ * checkAndDeductTokens() first, which handles both balance check and deduction.
+ * This function only checks premium-model gating.
+ */
 export async function checkModelPermission(userId: string) {
   const user = await db.user.findUnique({
     where: { id: userId },
@@ -180,14 +246,14 @@ export async function checkModelPermission(userId: string) {
     }
   }
 
-  if ((user.tokenBalance ?? 0) <= 0) {
-    return { allowed: false, reason: "Not enough tokens. Upgrade your plan to get more!" };
-  }
-
+  // NOTE: We do NOT check token balance here. The calling route is expected
+  // to have called checkAndDeductTokens() first, which already validates
+  // balance + cost. Checking balance<=0 here would block users whose balance
+  // just hit 0 after a legitimate deduction.
   return { allowed: true, reason: null };
 }
 
-/** Deduct tokens after an AI call (for actual token-based deduction) */
+/** Deduct tokens after an AI call (only used for system / unattended routes) */
 export async function deductTokens(userId: string, tokensUsed: number, model: string, feature: string) {
   const mapping = await db.modelMapping.findUnique({
     where: { modelName: model },
@@ -252,3 +318,5 @@ export async function getAvailableModels(userId: string) {
     unlocked: !m.requiresPremium || hasActivePlan,
   }));
 }
+
+export { FLAT_COSTS, FREE_DAILY_LIMITS };

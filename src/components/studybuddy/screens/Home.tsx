@@ -15,6 +15,8 @@ import {
   FileText,
   AlertCircle,
   BookOpen,
+  Coins,
+  Receipt,
 } from "lucide-react";
 import { useApp } from "../store";
 import { api, type Progress as ProgressData, type StudySetSummary } from "../api";
@@ -179,6 +181,26 @@ export function Home() {
                   );
                 })}
               </div>
+            </section>
+
+            {/* Billing & Usage entry */}
+            <section className="mt-4">
+              <button
+                onClick={() => setScreen("billing")}
+                className="w-full rounded-2xl bg-gradient-to-br from-indigo-50 to-violet-50 border border-indigo-200 p-3.5 flex items-center gap-3 hover:border-indigo-300 transition text-left"
+              >
+                <span className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 text-white flex items-center justify-center flex-shrink-0">
+                  <Receipt className="w-5 h-5" />
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+                    <Coins className="w-3.5 h-3.5 text-amber-500" />
+                    Billing & Usage
+                  </p>
+                  <p className="text-[11px] text-gray-500">View token balance, usage history, and payment transactions</p>
+                </div>
+                <ChevronRight className="w-4 h-4 text-gray-400 flex-shrink-0" />
+              </button>
             </section>
 
             {/* Saved study sets */}

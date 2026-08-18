@@ -4,25 +4,37 @@ import { db } from "@/lib/db";
 import { decryptApiKey } from "@/lib/crypto";
 import { callAI, type ChatMessage } from "@/lib/ai";
 import { checkRateLimit, refundRateLimit } from "@/lib/rate-limit";
-import { checkAndDeductTokens } from "@/lib/monetization";
+import { checkAndDeductTokens, refundTokens } from "@/lib/monetization";
 
 export const runtime = "nodejs";
 
 /**
  * POST /api/tutor
- * Body: { messages: ChatMessage[], question?: string }
+ * Body accepts BOTH { message, chatHistory } (from AITutor.tsx) AND
+ *                 { messages, question } (legacy).
  *
- * - If `question` is provided, it's appended to `messages` as a user message.
  * - The system prompt is added automatically.
  * - AI responds with a step-by-step conversational answer.
+ * - On AI failure, tokens already deducted are REFUNDED.
  *
  * Chat history lives in client state; nothing is persisted server-side.
  */
 export async function POST(req: NextRequest) {
   const user = await getCurrentUser();
   const body = await req.json().catch(() => ({}));
-  const incomingMessages: ChatMessage[] = Array.isArray(body.messages) ? body.messages : [];
-  const question: string | undefined = body.question;
+
+  // Accept both new (message/chatHistory) and legacy (messages/question) shapes
+  const incomingMessages: ChatMessage[] = Array.isArray(body.messages)
+    ? body.messages
+    : Array.isArray(body.chatHistory)
+      ? body.chatHistory.map((m: any) => ({
+          role: m.role === "assistant" ? "assistant" : "user",
+          content: String(m.content ?? ""),
+        }) as ChatMessage)
+      : [];
+  const question: string | undefined =
+    typeof body.question === "string" ? body.question :
+    typeof body.message === "string" ? body.message : undefined;
 
   const messagesForAI: ChatMessage[] = [
     {
@@ -54,19 +66,42 @@ export async function POST(req: NextRequest) {
   });
   const apiKey = userRec?.encryptedApiKey ? decryptApiKey(userRec.encryptedApiKey) : null;
 
+  // 1) Check & deduct tokens BEFORE the AI call
+  const deduct = await checkAndDeductTokens(user.id, "tutor");
+  if (!deduct.ok) {
+    return NextResponse.json(
+      { error: deduct.error, code: deduct.code, tokenBalance: user.tokenBalance },
+      { status: 402 }
+    );
+  }
+
+  // 2) Make the AI call
   try {
-    const _d = await checkAndDeductTokens(user.id, "tutor");
-    if (!_d.ok) return NextResponse.json({ error: _d.error }, { status: 402 });
     const reply = await callAI(messagesForAI, apiKey, { userId: user.id, route: "/api/tutor" });
     return NextResponse.json({
       reply,
       role: "assistant" as const,
-      remaining: rl.remaining,
+      remaining: deduct.remaining,
+      tokenBalance: deduct.newBalance,
     });
   } catch (e: any) {
+    // Refund rate-limit + tokens on failure
     refundRateLimit(user.id);
+    await refundTokens(user.id, "tutor", deduct.costTokens);
+
+    // Inspect the error message — if it's a permission/upgrade message,
+    // return 402 so the client can show the upgrade card.
+    const msg = e?.message ?? String(e);
+    const isUpgrade = /upgrade|premium|subscription|tokens?|plan/i.test(msg);
+    if (isUpgrade) {
+      return NextResponse.json(
+        { error: msg, code: "AI_PERMISSION", tokenBalance: user.tokenBalance },
+        { status: 402 }
+      );
+    }
+
     return NextResponse.json(
-      { error: "Tutor call failed", detail: e?.message ?? String(e) },
+      { error: "Tutor call failed", detail: msg, tokenBalance: deduct.newBalance },
       { status: 500 }
     );
   }

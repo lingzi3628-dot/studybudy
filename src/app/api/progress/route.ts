@@ -126,7 +126,17 @@ export async function GET() {
   const dueCount = await countDueCards(user.id);
 
   return NextResponse.json({
-    user: { name: user.name, email: user.email, plan: user.plan },
+    user: {
+      name: user.name,
+      email: user.email,
+      plan: user.plan,
+      tokenBalance: user.tokenBalance,
+      currentModel: user.currentModel,
+      planId: user.planId,
+      subscriptionExpiry: user.subscriptionExpiry,
+      tokenResetDate: user.tokenResetDate,
+      hasApiKey: user.hasApiKey,
+    },
     xp,
     level,
     streak,

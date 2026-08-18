@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { decryptApiKey } from "@/lib/crypto";
 import { callAIJson, type ChatMessage } from "@/lib/ai";
 import { checkRateLimit, refundRateLimit } from "@/lib/rate-limit";
-import { checkAndDeductTokens } from "@/lib/monetization";
+import { checkAndDeductTokens, refundTokens } from "@/lib/monetization";
 
 export const runtime = "nodejs";
 
@@ -77,9 +77,12 @@ export async function POST(req: NextRequest) {
     { role: "user", content: "Study material:\n\n" + text.slice(0, 12_000) },
   ];
 
+  const deduct = await checkAndDeductTokens(user.id, "cards");
+  if (!deduct.ok) {
+    return NextResponse.json({ error: deduct.error, code: deduct.code, tokenBalance: user.tokenBalance }, { status: 402 });
+  }
+
   try {
-    const _d = await checkAndDeductTokens(user.id, "cards");
-    if (!_d.ok) return NextResponse.json({ error: _d.error }, { status: 402 });
     const json = await callAIJson<{
       flashcards?: { front: string; back: string }[];
       mcqs?: {
@@ -102,12 +105,16 @@ export async function POST(req: NextRequest) {
       flashcards: filteredFlashcards,
       mcqs: filteredMcqs,
       remaining: rl.remaining,
+      tokenBalance: deduct.newBalance,
     });
   } catch (e: any) {
     refundRateLimit(user.id);
+    await refundTokens(user.id, "cards", deduct.costTokens);
+    const msg = e?.message ?? String(e);
+    const isUpgrade = /upgrade|premium|subscription|tokens?|plan/i.test(msg);
     return NextResponse.json(
-      { error: "AI generation failed", detail: e?.message ?? String(e) },
-      { status: 500 }
+      { error: isUpgrade ? msg : "AI generation failed", detail: msg, tokenBalance: user.tokenBalance },
+      { status: isUpgrade ? 402 : 500 }
     );
   }
 }

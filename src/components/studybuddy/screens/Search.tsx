@@ -60,11 +60,18 @@ export function Search() {
     try {
       const r = await api.search(trimmed);
       setResult(r);
+      if (r.tokenBalance !== undefined) setTokenBalance(r.tokenBalance);
       // Also fetch images and videos if on "all" tab
       if (tab === "all" || tab === "images") fetchImages(trimmed);
       if (tab === "all" || tab === "videos") fetchVideos(trimmed);
     } catch (e: any) {
-      setError(e?.message ?? "Search failed");
+      const errMsg = e?.message ?? "Search failed";
+      const isUpgrade = /upgrade|premium|subscription|tokens?|limit|plan/i.test(errMsg);
+      if (isUpgrade) {
+        setError(errMsg + "|UPGRADE");
+      } else {
+        setError(errMsg);
+      }
     } finally {
       setLoading(false);
     }
@@ -81,11 +88,9 @@ export function Search() {
       });
       const d = await r.json();
       if (!r.ok) {
-        if (r.status === 402) {
-          setImageError(d.error);
-        } else {
-          setImageError(d.error ?? "Failed to generate images");
-        }
+        const errMsg = d.error ?? "Failed to generate images";
+        const isUpgrade = r.status === 402 || /upgrade|premium|subscription|tokens?|limit|plan/i.test(errMsg);
+        setImageError(errMsg + (isUpgrade ? "|UPGRADE" : ""));
         return;
       }
       setImages(d.images ?? []);
@@ -108,11 +113,9 @@ export function Search() {
       });
       const d = await r.json();
       if (!r.ok) {
-        if (r.status === 402) {
-          setVideoError(d.error);
-        } else {
-          setVideoError(d.error ?? "Failed to search videos");
-        }
+        const errMsg = d.error ?? "Failed to search videos";
+        const isUpgrade = r.status === 402 || /upgrade|premium|subscription|tokens?|limit|plan/i.test(errMsg);
+        setVideoError(errMsg + (isUpgrade ? "|UPGRADE" : ""));
         return;
       }
       setVideos(d.videos ?? []);
@@ -203,7 +206,12 @@ export function Search() {
         {error && !loading && (
           <div className="mt-6 p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-sm flex items-start gap-2">
             <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-            <span>{error}</span>
+            <div>
+              <span>{error.replace(/\|UPGRADE$/, "")}</span>
+              {error.endsWith("|UPGRADE") && (
+                <button onClick={() => useApp.getState().setScreen("premium")} className="ml-2 text-indigo-600 font-semibold underline">Upgrade →</button>
+              )}
+            </div>
           </div>
         )}
 
@@ -282,10 +290,10 @@ export function Search() {
                   <div className="p-3 rounded-xl bg-amber-50 text-amber-700 text-xs flex items-start gap-2">
                     <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
                     <div>
-                      <p>{imageError}</p>
-                      {imageError.includes("token") || imageError.includes("limit") ? (
+                      <p>{imageError.replace(/\|UPGRADE$/, "")}</p>
+                      {(imageError.includes("token") || imageError.includes("limit") || imageError.endsWith("|UPGRADE")) && (
                         <button onClick={() => useApp.getState().setScreen("premium")} className="mt-1 text-indigo-600 font-semibold underline">Upgrade →</button>
-                      ) : null}
+                      )}
                     </div>
                   </div>
                 )}
@@ -333,7 +341,12 @@ export function Search() {
                 {videoError && !videoLoading && (
                   <div className="p-3 rounded-xl bg-amber-50 text-amber-700 text-xs flex items-start gap-2">
                     <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                    <span>{videoError}</span>
+                    <div>
+                      <p>{videoError.replace(/\|UPGRADE$/, "")}</p>
+                      {(videoError.includes("token") || videoError.includes("limit") || videoError.endsWith("|UPGRADE")) && (
+                        <button onClick={() => useApp.getState().setScreen("premium")} className="mt-1 text-indigo-600 font-semibold underline">Upgrade →</button>
+                      )}
+                    </div>
                   </div>
                 )}
 

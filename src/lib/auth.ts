@@ -25,6 +25,13 @@ export type AppUser = {
   notificationsEnabled: boolean;
   darkMode: boolean;
   lastLogin: Date | null;
+  // Monetization fields
+  tokenBalance: number;
+  currentModel: string;
+  planId: string | null;
+  subscriptionExpiry: Date | null;
+  tokenResetDate: Date | null;
+  hasApiKey: boolean;
 };
 
 /**
@@ -71,6 +78,13 @@ function toAppUser(u: any): AppUser {
     notificationsEnabled: u.notificationsEnabled,
     darkMode: u.darkMode,
     lastLogin: u.lastLogin,
+    // Monetization
+    tokenBalance: u.tokenBalance ?? 1000,
+    currentModel: u.currentModel ?? "study_buddy_free",
+    planId: u.planId,
+    subscriptionExpiry: u.subscriptionExpiry,
+    tokenResetDate: u.tokenResetDate,
+    hasApiKey: Boolean(u.encryptedApiKey),
   };
 }
 

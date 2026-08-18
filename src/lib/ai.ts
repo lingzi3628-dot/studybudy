@@ -7,16 +7,29 @@
  *   3. Platform AI fallback (z-ai-web-dev-sdk, no key needed in sandbox)
  *
  * Every call is logged to ai_call_logs (provider, model, tokens, cost, status).
- * Token deduction is handled by the caller via deductTokens() from monetization.ts.
+ *
+ * IMPORTANT — Token deduction is owned by the calling route via
+ * checkAndDeductTokens() from monetization.ts. By default callAI() will NOT
+ * re-check permissions or deduct tokens again, because that would
+ * double-charge users. Pass { alreadyCharged: false } only for system-level
+ * calls (no userId or unmonetized route).
  */
 import ZAI from "z-ai-web-dev-sdk";
 import { db } from "./db";
 import { decryptApiKey } from "./crypto";
 import { callWithProviders, logAiCall } from "./ai-providers";
-import { checkModelPermission, deductTokens } from "./monetization";
 
 export type ChatRole = "system" | "user" | "assistant";
 export type ChatMessage = { role: ChatRole; content: string };
+
+export type CallAIContext = {
+  userId?: string;
+  route?: string;
+  /** Set to true (default) when the caller has already invoked
+   * checkAndDeductTokens() and we should skip the second deduction here.
+   * Set to false ONLY for unmonetized/system routes. */
+  alreadyCharged?: boolean;
+};
 
 /**
  * Call the platform AI (z-ai-web-dev-sdk / GLM) — sandbox fallback.
@@ -122,27 +135,22 @@ async function callBYOKAI(
 /**
  * Unified entrypoint.
  *
- * 1. Check model permission + token balance (if userId provided)
- * 2. If userApiKey is provided (BYOK), use it via OpenAI-compatible fetch.
- * 3. Else try admin-configured providers in priority order.
- * 4. Else fall back to z-ai-web-dev-sdk (platform).
- * 5. Deduct tokens after successful call (if userId provided)
+ * Token deduction is owned by the CALLING ROUTE via checkAndDeductTokens().
+ * This function intentionally does NOT deduct tokens or re-check permission,
+ * because doing so would double-charge users (the route already charged them
+ * before invoking us).
+ *
+ * 1. If userApiKey is provided (BYOK), use it via OpenAI-compatible fetch.
+ * 2. Else try admin-configured providers in priority order.
+ * 3. Else fall back to z-ai-web-dev-sdk (platform).
  */
 export async function callAI(
   messages: ChatMessage[],
   userApiKey?: string | null,
-  ctx?: { userId?: string; route?: string }
+  ctx?: CallAIContext
 ): Promise<string> {
   const userId = ctx?.userId ?? "system";
   const route = ctx?.route;
-
-  // Check model permission + token balance (skip for "system" sentinel)
-  if (userId !== "system") {
-    const perm = await checkModelPermission(userId).catch(() => ({ allowed: true, reason: null }));
-    if (!perm.allowed) {
-      throw new Error(perm.reason ?? "Not enough tokens. Upgrade your plan.");
-    }
-  }
 
   // 1) BYOK
   if (userApiKey && userApiKey.trim()) {
@@ -151,12 +159,8 @@ export async function callAI(
         userId,
         route,
       });
-      // Deduct tokens (BYOK users still consume tokens for model tier)
-      if (userId !== "system") {
-        await deductTokens(userId, Math.ceil(messages.reduce((s, m) => s + m.content.length / 4, 0)), "byok", route?.replace("/api/", "") ?? "unknown").catch(() => {});
-      }
       return content;
-    } catch (e) {
+    } catch (e: any) {
       console.warn("BYOK call failed, falling back to admin providers:", e?.message ?? e);
     }
   }
@@ -165,23 +169,14 @@ export async function callAI(
   try {
     const r = await callWithProviders(messages, { userId, route });
     if (r.content) {
-      // Deduct tokens based on actual usage
-      if (userId !== "system") {
-        const tokensUsed = r.result?.totalTokens ?? Math.ceil(messages.reduce((s, m) => s + m.content.length / 4, 0));
-        await deductTokens(userId, tokensUsed, "admin_provider", route?.replace("/api/", "") ?? "unknown").catch(() => {});
-      }
       return r.content;
     }
-  } catch (e) {
+  } catch (e: any) {
     console.warn("Admin provider call failed:", e?.message ?? e);
   }
 
   // 3) Platform fallback
   const content = await callPlatformAI(messages, { userId, route });
-  // Deduct tokens for platform calls too
-  if (userId !== "system") {
-    await deductTokens(userId, Math.ceil(messages.reduce((s, m) => s + m.content.length / 4, 0)), "glm", route?.replace("/api/", "") ?? "unknown").catch(() => {});
-  }
   return content;
 }
 
@@ -191,7 +186,7 @@ export async function callAI(
 export async function callAIJson<T = unknown>(
   messages: ChatMessage[],
   userApiKey?: string | null,
-  ctx?: { userId?: string; route?: string }
+  ctx?: CallAIContext
 ): Promise<T> {
   const raw = await callAI(messages, userApiKey, ctx);
   return parseJsonLoose<T>(raw);

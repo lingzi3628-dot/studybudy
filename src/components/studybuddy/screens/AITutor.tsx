@@ -61,16 +61,18 @@ export function AITutor() {
       const r = await fetch("/api/tutor", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: q, chatHistory: next.slice(-10) }),
+        body: JSON.stringify({ messages: next.slice(-10).map((m) => ({ role: m.role, content: m.content })), question: q }),
       });
       const d = await r.json();
       if (!r.ok) {
-        // Check for 402 (token/daily limit) — show upgrade prompt
-        if (r.status === 402) {
-          setError(d.error ?? "Token limit reached");
+        // Check for 402 (token/daily limit/upgrade) — show upgrade prompt
+        const errMsg = d.error ?? d.detail ?? `HTTP ${r.status}`;
+        const isUpgrade = r.status === 402 || /upgrade|premium|subscription|tokens?|limit|plan/i.test(errMsg);
+        if (isUpgrade) {
+          setError(errMsg);
           setShowUpgrade(true);
         } else {
-          throw new Error(d.error ?? `HTTP ${r.status}`);
+          throw new Error(errMsg);
         }
         return;
       }

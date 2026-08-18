@@ -3,7 +3,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { decryptApiKey } from "@/lib/crypto";
 import { callAIJson, type ChatMessage } from "@/lib/ai";
-import { checkAndDeductTokens } from "@/lib/monetization";
+import { checkAndDeductTokens, refundTokens } from "@/lib/monetization";
 import { checkRateLimit, refundRateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
@@ -28,6 +28,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       { error: "Daily AI limit reached", limit: rl.limit, resetAt: rl.resetAt },
       { status: 429 }
+    );
+  }
+
+  // Check & deduct tokens BEFORE making the AI call
+  const deduct = await checkAndDeductTokens(user.id, "search");
+  if (!deduct.ok) {
+    return NextResponse.json(
+      { error: deduct.error, code: deduct.code, tokenBalance: user.tokenBalance },
+      { status: 402 }
     );
   }
 
@@ -88,13 +97,17 @@ export async function POST(req: NextRequest) {
       keyPoints: json.key_points ?? [],
       relatedTopics: json.related_topics ?? [],
       sampleQuestion: json.sample_question ?? null,
-      remaining: rl.remaining,
+      remaining: deduct.remaining,
+      tokenBalance: deduct.newBalance,
     });
   } catch (e: any) {
     refundRateLimit(user.id);
+    await refundTokens(user.id, "search", deduct.costTokens);
+    const msg = e?.message ?? String(e);
+    const isUpgrade = /upgrade|premium|subscription|tokens?|plan/i.test(msg);
     return NextResponse.json(
-      { error: "AI search failed", detail: e?.message ?? String(e) },
-      { status: 500 }
+      { error: isUpgrade ? msg : "AI search failed", detail: msg, tokenBalance: user.tokenBalance },
+      { status: isUpgrade ? 402 : 500 }
     );
   }
 }

@@ -11,6 +11,7 @@ export const runtime = "nodejs";
  *
  * Verifies bcrypt password against users table.
  * Sets HTTP-only JWT cookie on success.
+ * Returns user profile + tokenBalance so client can render immediately.
  */
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
@@ -55,6 +56,11 @@ export async function POST(req: NextRequest) {
       email: user.email,
       name: user.name,
       onboardingCompleted: user.onboardingCompleted,
+      tokenBalance: user.tokenBalance ?? 1000,
+      currentModel: user.currentModel ?? "study_buddy_free",
+      planId: user.planId,
+      subscriptionExpiry: user.subscriptionExpiry,
+      hasApiKey: Boolean(user.encryptedApiKey),
     },
   });
 

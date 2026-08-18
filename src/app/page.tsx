@@ -22,6 +22,7 @@ import { AdminLogin } from "@/components/studybuddy/screens/AdminLogin";
 import { Landing } from "@/components/studybuddy/screens/Landing";
 import { AuthScreen } from "@/components/studybuddy/screens/AuthScreen";
 import { PremiumScreen } from "@/components/studybuddy/screens/PremiumScreen";
+import { BillingScreen } from "@/components/studybuddy/screens/BillingScreen";
 
 // Secret admin access code — type this word on the keyboard anywhere
 // in the app to unlock the admin login screen.
@@ -97,13 +98,14 @@ export default function Page() {
     );
   }
 
-  if (screen === "landing" || screen === "adminLogin" || screen === "auth" || screen === "premium") {
+  if (screen === "landing" || screen === "adminLogin" || screen === "auth" || screen === "premium" || screen === "billing") {
     return (
       <div className="min-h-screen bg-gray-50 text-gray-900">
         {screen === "landing" && <Landing />}
         {screen === "adminLogin" && <AdminLogin />}
         {screen === "auth" && <AuthScreen />}
         {screen === "premium" && <PremiumScreen />}
+        {screen === "billing" && <BillingScreen />}
         <CreateModal />
       </div>
     );

@@ -90,6 +90,8 @@ export type SearchResult = {
     correct_index: number;
     explanation: string;
   } | null;
+  tokenBalance?: number;
+  remaining?: number | null;
 };
 
 export type GraphResult = {

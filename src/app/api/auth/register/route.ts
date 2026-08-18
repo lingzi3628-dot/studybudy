@@ -10,6 +10,8 @@ export const runtime = "nodejs";
  * Body: { email, password, name? }
  *
  * Creates a new user with bcrypt-hashed password.
+ * - Default tokenBalance: 1000 (from schema)
+ * - Sets tokenResetDate to +1 month so free users get monthly refresh
  * Sets HTTP-only JWT cookie.
  */
 export async function POST(req: NextRequest) {
@@ -41,6 +43,10 @@ export async function POST(req: NextRequest) {
 
   const passwordHash = bcrypt.hashSync(password, 10);
 
+  // Free users get monthly token reset (1 month from now)
+  const tokenResetDate = new Date();
+  tokenResetDate.setMonth(tokenResetDate.getMonth() + 1);
+
   const user = await db.user.create({
     data: {
       clerkUserId,
@@ -48,6 +54,9 @@ export async function POST(req: NextRequest) {
       name,
       passwordHash,
       lastLogin: new Date(),
+      tokenBalance: 1000,
+      currentModel: "study_buddy_free",
+      tokenResetDate,
     },
   });
 
@@ -64,6 +73,11 @@ export async function POST(req: NextRequest) {
       email: user.email,
       name: user.name,
       onboardingCompleted: user.onboardingCompleted,
+      tokenBalance: user.tokenBalance,
+      currentModel: user.currentModel,
+      planId: user.planId,
+      subscriptionExpiry: user.subscriptionExpiry,
+      hasApiKey: false,
     },
   });
 
