@@ -34,7 +34,7 @@ export default function SignInPage() {
           href="/"
           className="mt-6 inline-block w-full h-11 rounded-full bg-indigo-600 text-white font-semibold leading-[44px]"
         >
-          Continue as dev user (Alex)
+          Continue
         </Link>
       </div>
     </div>

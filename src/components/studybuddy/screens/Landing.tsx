@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { useApp } from "../store";
 import { AuthControls } from "../AuthControls";
+import { AnimatedDemo } from "./AnimatedDemo";
 
 export function Landing() {
   const { setScreen } = useApp();
@@ -57,16 +58,15 @@ export function Landing() {
           >
             Get Started Free <ArrowRight className="w-4 h-4" />
           </button>
-          <button
-            onClick={() => setScreen("home")}
-            className="h-12 px-6 rounded-full bg-white border border-gray-200 text-gray-700 font-semibold hover:bg-gray-50"
-          >
-            See how it works
-          </button>
         </div>
         <p className="mt-3 text-xs text-gray-400">
           No credit card needed · Free forever for the basics
         </p>
+
+        {/* Animated demo */}
+        <div className="mt-10">
+          <AnimatedDemo />
+        </div>
       </section>
 
       {/* Features */}

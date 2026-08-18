@@ -80,7 +80,7 @@ export function Home() {
     };
   }, []);
 
-  const name = progress?.user.name?.split(" ")[0] ?? "Alex";
+  const name = progress?.user.name?.split(" ")[0] ?? progress?.user.email?.split("@")[0] ?? "there";
   const streak = progress?.streak ?? 0;
   const dueCount = progress?.dueCount ?? 0;
   const weakAreas = progress?.weakAreas ?? [];

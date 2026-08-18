@@ -5,7 +5,7 @@
  *   1. Their email is in the ADMIN_EMAILS env var (comma-separated), OR
  *   2. Their `role` field in the users table is "admin"
  *
- * In dev mode (no Clerk keys), the dev user alex@studybuddy.ai is
+ * In dev mode (no Clerk keys), the dev user the dev user is
  * already in ADMIN_EMAILS so the panel is testable without real auth.
  */
 import { db } from "./db";

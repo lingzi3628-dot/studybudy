@@ -38,8 +38,8 @@ export function Profile() {
     setScreen,
   } = useApp();
 
-  const [name, setName] = useState("Alex Kim");
-  const [email, setEmail] = useState("alex@studybuddy.ai");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
   const [plan, setPlan] = useState<"free" | "pro">("free");
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -52,8 +52,8 @@ export function Profile() {
       try {
         const { user } = await api.getUser();
         if (!mounted) return;
-        setName(user.name ?? "Alex Kim");
-        setEmail(user.email ?? "alex@studybuddy.ai");
+        setName(user.name ?? "");
+        setEmail(user.email ?? "");
         setPlan(user.plan);
         if (user.languageOfInstruction) setLanguageOfInstruction(user.languageOfInstruction);
         const keyStatus = await api.hasApiKey();
