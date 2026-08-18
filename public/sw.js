@@ -35,11 +35,8 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-// Don't intercept ANY requests — pass through to the network
-self.addEventListener("fetch", (event) => {
-  // Intentionally empty — don't handle fetch events
-  // This prevents any fetch interception
-});
+// No fetch handler — don't intercept any requests at all
+// (removing the empty handler eliminates the "no-op" browser warning)
 
 self.addEventListener("message", (event) => {
   if (event.data === "SKIP_WAITING") {
