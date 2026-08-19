@@ -83,11 +83,12 @@ export function Search() {
   const fetchImages = async (prompt: string) => {
     setImageLoading(true);
     setImageError(null);
+    setImages([]);  // clear any previous images
     try {
       const r = await fetch("/api/search/images", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, count: 4 }),
+        body: JSON.stringify({ prompt, count: 2 }),
       });
       const d = await r.json();
       if (!r.ok) {
@@ -96,6 +97,8 @@ export function Search() {
         setImageError(errMsg + (isUpgrade ? "|UPGRADE" : ""));
         return;
       }
+      // Set all images at once — server has already fetched them sequentially
+      // with retry-on-429 logic, so they're guaranteed to be loadable data URLs.
       setImages(d.images ?? []);
       setTokenBalance(d.remaining);
     } catch {
@@ -283,8 +286,12 @@ export function Search() {
 
                 {imageLoading && (
                   <div className="grid grid-cols-2 gap-2">
-                    {[1,2,3,4].map((i) => (
-                      <div key={i} className="h-32 rounded-xl bg-gray-100 animate-pulse" />
+                    {[1,2].map((i) => (
+                      <div key={i} className="h-40 rounded-xl bg-gradient-to-br from-indigo-50 to-violet-50 border border-indigo-100 animate-pulse flex flex-col items-center justify-center gap-2">
+                        <Loader2 className="w-5 h-5 animate-spin text-indigo-500" />
+                        <span className="text-[10px] font-medium text-indigo-600">Generating image {i}…</span>
+                        <span className="text-[9px] text-gray-400">AI generation takes 5-15s</span>
+                      </div>
                     ))}
                   </div>
                 )}
@@ -309,7 +316,11 @@ export function Search() {
                   <div className="grid grid-cols-2 gap-2">
                     {images.map((url, i) => (
                       <button key={i} onClick={() => setEnlargedImage(url)} className="relative group">
-                        <ImageWithLoader url={url} alt={`Generated ${i+1}`} />
+                        <img
+                          src={url}
+                          alt={`Generated ${i+1}`}
+                          className="w-full h-40 object-cover rounded-xl"
+                        />
                         <span className="absolute inset-0 rounded-xl bg-black/0 group-hover:bg-black/20 transition flex items-center justify-center pointer-events-none">
                           <Play className="w-6 h-6 text-white opacity-0 group-hover:opacity-100 transition" />
                         </span>
@@ -386,7 +397,7 @@ export function Search() {
       {enlargedImage && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4" onClick={() => setEnlargedImage(null)}>
           <div className="relative max-w-md" onClick={(e) => e.stopPropagation()}>
-            <ImageWithLoader url={enlargedImage} alt="Enlarged" large />
+            <img src={enlargedImage} alt="Enlarged" className="w-full rounded-2xl" />
             <a href={enlargedImage} download="studybuddy-image.jpg" target="_blank" rel="noreferrer"
               className="absolute bottom-2 right-2 w-10 h-10 rounded-full bg-white/90 flex items-center justify-center shadow-lg hover:bg-white">
               <Download className="w-4 h-4 text-gray-700" />
@@ -417,40 +428,6 @@ export function Search() {
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-// ════════════════════════════════════════════════════════════════
-// ImageWithLoader — handles slow AI image generation with loading state
-// and graceful error fallback. Pollinations can take 1-3s per image.
-// ════════════════════════════════════════════════════════════════
-function ImageWithLoader({ url, alt, large }: { url: string; alt: string; large?: boolean }) {
-  const [loaded, setLoaded] = useState(false);
-  const [errored, setErrored] = useState(false);
-
-  return (
-    <div className={`relative ${large ? "aspect-square w-full" : "w-full h-32"} bg-gray-100 rounded-xl overflow-hidden`}>
-      {!loaded && !errored && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 text-gray-400">
-          <Loader2 className="w-5 h-5 animate-spin text-indigo-500" />
-          <span className="text-[10px] font-medium">Generating image…</span>
-        </div>
-      )}
-      {errored && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 text-gray-400 p-2">
-          <AlertCircle className="w-5 h-5 text-amber-500" />
-          <span className="text-[10px] font-medium text-center">Image failed to load</span>
-        </div>
-      )}
-      <img
-        src={url}
-        alt={alt}
-        onLoad={() => setLoaded(true)}
-        onError={() => { setErrored(true); setLoaded(false); }}
-        referrerPolicy="no-referrer"
-        className={`w-full h-full object-cover rounded-xl transition-opacity duration-300 ${loaded && !errored ? "opacity-100" : "opacity-0"}`}
-      />
     </div>
   );
 }
