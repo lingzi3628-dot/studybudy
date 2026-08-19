@@ -309,8 +309,8 @@ export function Search() {
                   <div className="grid grid-cols-2 gap-2">
                     {images.map((url, i) => (
                       <button key={i} onClick={() => setEnlargedImage(url)} className="relative group">
-                        <img src={url} alt={`Generated ${i+1}`} className="w-full h-32 object-cover rounded-xl" loading="lazy" />
-                        <span className="absolute inset-0 rounded-xl bg-black/0 group-hover:bg-black/20 transition flex items-center justify-center">
+                        <ImageWithLoader url={url} alt={`Generated ${i+1}`} />
+                        <span className="absolute inset-0 rounded-xl bg-black/0 group-hover:bg-black/20 transition flex items-center justify-center pointer-events-none">
                           <Play className="w-6 h-6 text-white opacity-0 group-hover:opacity-100 transition" />
                         </span>
                       </button>
@@ -362,8 +362,8 @@ export function Search() {
                     {videos.map((v) => (
                       <button key={v.videoId} onClick={() => setPlayingVideo(v.videoId)}
                         className="w-full flex gap-3 p-2 rounded-xl hover:bg-gray-50 text-left">
-                        <div className="relative flex-shrink-0">
-                          <img src={v.thumbnail} alt={v.title} className="w-24 h-16 object-cover rounded-lg" loading="lazy" />
+                        <div className="relative flex-shrink-0 w-24 h-16 rounded-lg overflow-hidden bg-gray-100">
+                          <img src={v.thumbnail} alt={v.title} className="w-24 h-16 object-cover" loading="eager" referrerPolicy="no-referrer" />
                           <span className="absolute inset-0 flex items-center justify-center">
                             <Play className="w-5 h-5 text-white drop-shadow" />
                           </span>
@@ -385,8 +385,8 @@ export function Search() {
       {/* Image enlarger modal */}
       {enlargedImage && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4" onClick={() => setEnlargedImage(null)}>
-          <div className="relative max-w-md">
-            <img src={enlargedImage} alt="Enlarged" className="w-full rounded-2xl" />
+          <div className="relative max-w-md" onClick={(e) => e.stopPropagation()}>
+            <ImageWithLoader url={enlargedImage} alt="Enlarged" large />
             <a href={enlargedImage} download="studybuddy-image.jpg" target="_blank" rel="noreferrer"
               className="absolute bottom-2 right-2 w-10 h-10 rounded-full bg-white/90 flex items-center justify-center shadow-lg hover:bg-white">
               <Download className="w-4 h-4 text-gray-700" />
@@ -417,6 +417,40 @@ export function Search() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════
+// ImageWithLoader — handles slow AI image generation with loading state
+// and graceful error fallback. Pollinations can take 1-3s per image.
+// ════════════════════════════════════════════════════════════════
+function ImageWithLoader({ url, alt, large }: { url: string; alt: string; large?: boolean }) {
+  const [loaded, setLoaded] = useState(false);
+  const [errored, setErrored] = useState(false);
+
+  return (
+    <div className={`relative ${large ? "aspect-square w-full" : "w-full h-32"} bg-gray-100 rounded-xl overflow-hidden`}>
+      {!loaded && !errored && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 text-gray-400">
+          <Loader2 className="w-5 h-5 animate-spin text-indigo-500" />
+          <span className="text-[10px] font-medium">Generating image…</span>
+        </div>
+      )}
+      {errored && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 text-gray-400 p-2">
+          <AlertCircle className="w-5 h-5 text-amber-500" />
+          <span className="text-[10px] font-medium text-center">Image failed to load</span>
+        </div>
+      )}
+      <img
+        src={url}
+        alt={alt}
+        onLoad={() => setLoaded(true)}
+        onError={() => { setErrored(true); setLoaded(false); }}
+        referrerPolicy="no-referrer"
+        className={`w-full h-full object-cover rounded-xl transition-opacity duration-300 ${loaded && !errored ? "opacity-100" : "opacity-0"}`}
+      />
     </div>
   );
 }
