@@ -20,6 +20,7 @@ import {
   Send,
   ChevronLeft,
   Plus,
+  Map as MapIcon,
 } from "lucide-react";
 import { useApp, type CreateOption } from "../store";
 import { api } from "../api";
@@ -38,6 +39,7 @@ const options: {
   { key: "graph", label: "Draw Graph", desc: "Visualise equations with Recharts", icon: LineChart, color: "bg-sky-50 text-sky-600" },
   { key: "tutor", label: "Ask AI Tutor", desc: "Conversational help on any concept", icon: Bot, color: "bg-rose-50 text-rose-600" },
   { key: "path", label: "Create Learning Path", desc: "Build a 4-week roadmap", icon: Route, color: "bg-teal-50 text-teal-600" },
+  { key: "conceptMap", label: "Generate Concept Map", desc: "Visual node graph of any topic", icon: MapIcon, color: "bg-fuchsia-50 text-fuchsia-600" },
 ];
 
 type GenFlashcard = { front: string; back: string };
@@ -130,7 +132,7 @@ export function CreateModal() {
                   <button
                     key={o.key}
                     onClick={() => {
-                      // Graph/Tutor/Path → redirect to dedicated full screens
+                      // Graph/Tutor/Path/ConceptMap → redirect to dedicated full screens
                       if (o.key === "graph") {
                         closeCreate();
                         setScreen("graph");
@@ -144,6 +146,13 @@ export function CreateModal() {
                       if (o.key === "path") {
                         closeCreate();
                         setScreen("path");
+                        return;
+                      }
+                      if (o.key === "conceptMap") {
+                        closeCreate();
+                        // Clear activeConceptMapId so the screen shows the "create new" view
+                        useApp.getState().setActiveConceptMapId(null);
+                        setScreen("conceptMap");
                         return;
                       }
                       openCreate(o.key);

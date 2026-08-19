@@ -20,7 +20,8 @@ export type Screen =
   | "landing"
   | "auth"
   | "premium"
-  | "billing";
+  | "billing"
+  | "conceptMap";
 
 export type CreateOption =
   | "upload"
@@ -30,6 +31,7 @@ export type CreateOption =
   | "graph"
   | "tutor"
   | "path"
+  | "conceptMap"
   | null;
 
 interface AppState {
@@ -44,6 +46,10 @@ interface AppState {
   // active topic for Study Room
   activeTopicId: string | null;
   setActiveTopicId: (id: string | null) => void;
+
+  // active concept map for ConceptMapScreen
+  activeConceptMapId: string | null;
+  setActiveConceptMapId: (id: string | null) => void;
 
   // create modal
   createOpen: boolean;
@@ -81,6 +87,9 @@ export const useApp = create<AppState>((set) => ({
 
   activeTopicId: null,
   setActiveTopicId: (id) => set({ activeTopicId: id }),
+
+  activeConceptMapId: null,
+  setActiveConceptMapId: (id) => set({ activeConceptMapId: id }),
 
   createOpen: false,
   createOption: null,

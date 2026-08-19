@@ -4,7 +4,7 @@
  * Token costs (flat rate per feature, multiplied by model multiplier):
  *   search = 100, cards = 500, quiz = 300, tutor = 200,
  *   graph = 50, translate = 100, learning_path = 400,
- *   image_search = 10, video_search = 50
+ *   image_search = 10, video_search = 50, concept_map = 300
  */
 import { db } from "./db";
 
@@ -19,6 +19,7 @@ const FLAT_COSTS: Record<string, number> = {
   learning_path: 400,
   image_search: 10,
   video_search: 50,
+  concept_map: 300,
 };
 
 // Daily limits per feature for FREE plan (premium = unlimited)
@@ -32,6 +33,7 @@ const FREE_DAILY_LIMITS: Record<string, number> = {
   learning_path: 1,
   image_search: 5,
   video_search: 3,
+  concept_map: 1,
 };
 
 export type DeductResult =

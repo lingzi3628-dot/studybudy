@@ -18,6 +18,7 @@ import {
   Download,
   RefreshCw,
   Coins,
+  Map as MapIcon,
 } from "lucide-react";
 import { useApp } from "../store";
 import { api, type SearchResult } from "../api";
@@ -264,6 +265,29 @@ export function Search() {
                     </span>
                   )}
                 </div>
+              </div>
+            )}
+
+            {/* CONCEPT MAP quick-action card (only on "all" tab) */}
+            {tab === "all" && (
+              <div className="rounded-2xl bg-gradient-to-br from-fuchsia-50 to-violet-50 border border-fuchsia-200 p-3 flex items-center gap-3">
+                <span className="w-9 h-9 rounded-full bg-gradient-to-br from-fuchsia-500 to-violet-600 text-white flex items-center justify-center flex-shrink-0">
+                  <MapIcon className="w-4 h-4" />
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-gray-900">Concept Map</p>
+                  <p className="text-[10px] text-gray-500">Visual map of key concepts · 300 tokens</p>
+                </div>
+                <button
+                  onClick={() => {
+                    useApp.getState().setActiveTopicId(null);
+                    useApp.getState().setActiveConceptMapId(null);
+                    useApp.getState().setScreen("conceptMap");
+                  }}
+                  className="flex-shrink-0 px-3 h-8 rounded-full bg-fuchsia-600 text-white text-xs font-semibold hover:bg-fuchsia-700 flex items-center gap-1"
+                >
+                  Generate <ChevronRight className="w-3 h-3" />
+                </button>
               </div>
             )}
 

@@ -23,6 +23,7 @@ import { Landing } from "@/components/studybuddy/screens/Landing";
 import { AuthScreen } from "@/components/studybuddy/screens/AuthScreen";
 import { PremiumScreen } from "@/components/studybuddy/screens/PremiumScreen";
 import { BillingScreen } from "@/components/studybuddy/screens/BillingScreen";
+import { ConceptMapScreen } from "@/components/studybuddy/screens/ConceptMapScreen";
 
 // Secret admin access code — type this word on the keyboard anywhere
 // in the app to unlock the admin login screen.
@@ -87,7 +88,7 @@ export default function Page() {
   }, [setScreen]);
 
   // Immersive study modes have their own full-screen layout (no top bar / bottom nav).
-  const immersive = ["flashcards", "quiz", "graph", "language", "tutor", "path", "study", "admin", "adminLogin", "landing", "onboarding", "auth", "premium"];
+  const immersive = ["flashcards", "quiz", "graph", "language", "tutor", "path", "study", "admin", "adminLogin", "landing", "onboarding", "auth", "premium", "conceptMap"];
 
   if (screen === "onboarding") {
     return (
@@ -122,6 +123,7 @@ export default function Page() {
         {screen === "path" && <LearningPathScreen />}
         {screen === "study" && <StudyRoom />}
         {screen === "admin" && <AdminPanel />}
+        {screen === "conceptMap" && <ConceptMapScreen />}
         <CreateModal />
       </div>
     );

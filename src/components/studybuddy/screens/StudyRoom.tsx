@@ -22,6 +22,8 @@ import {
   Plus,
   Sparkles,
   Check,
+  Map as MapIcon,
+  Coins,
 } from "lucide-react";
 import { useApp } from "../store";
 import { api, type Card } from "../api";
@@ -43,7 +45,7 @@ const COLLAPSE_KEYS = ["intro", "concepts", "examples", "formulas", "summary"] a
 type CollapseKey = (typeof COLLAPSE_KEYS)[number];
 
 export function StudyRoom() {
-  const { activeTopicId, setScreen, setActiveTopicId } = useApp();
+  const { activeTopicId, setScreen, setActiveTopicId, setActiveConceptMapId } = useApp();
 
   const [topicData, setTopicData] = useState<TopicDetail | null>(null);
   const [lesson, setLesson] = useState<Lesson | null>(null);
@@ -58,6 +60,10 @@ export function StudyRoom() {
   const [practiceError, setPracticeError] = useState<string | null>(null);
   const [generatingCards, setGeneratingCards] = useState(false);
   const [genStatus, setGenStatus] = useState<string | null>(null);
+
+  // concept map state
+  const [existingConceptMap, setExistingConceptMap] = useState<{ id: string; title: string } | null>(null);
+  const [conceptMapSettings, setConceptMapSettings] = useState<{ tokenCost: number; enabled: boolean } | null>(null);
 
   // flashcard practice state
   const [fcIdx, setFcIdx] = useState(0);
@@ -154,6 +160,42 @@ export function StudyRoom() {
   useEffect(() => {
     if (activeTopicId) loadPractice();
   }, [activeTopicId]);
+
+  // Concept map: fetch settings + check if a public map exists for this topic
+  useEffect(() => {
+    fetch("/api/concept-maps/settings")
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => {
+        if (d) setConceptMapSettings({ tokenCost: d.tokenCost ?? 300, enabled: d.enabled ?? true });
+      })
+      .catch(() => {});
+
+    if (!activeTopicId || !topicData?.topic?.name) return;
+    // Look up public concept maps matching this topic name
+    fetch(`/api/concept-maps`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => {
+        if (!d) return;
+        const matches = [...(d.maps ?? []), ...(d.publicMaps ?? [])].filter((m: any) =>
+          m.title?.toLowerCase().includes(topicData.topic.name.toLowerCase())
+        );
+        if (matches.length > 0) {
+          setExistingConceptMap({ id: matches[0].id, title: matches[0].title });
+        }
+      })
+      .catch(() => {});
+  }, [activeTopicId, topicData?.topic?.name]);
+
+  const generateOrViewConceptMap = () => {
+    if (existingConceptMap) {
+      setActiveConceptMapId(existingConceptMap.id);
+      setScreen("conceptMap");
+    } else {
+      // Open the create-new flow — the ConceptMapScreen will pre-fill the topic
+      setActiveConceptMapId(null);
+      setScreen("conceptMap");
+    }
+  };
 
   // chat auto-scroll
   useEffect(() => {
@@ -578,6 +620,41 @@ export function StudyRoom() {
 
         {/* RIGHT COLUMN — Practice + Tutor */}
         <div className="mt-6 md:mt-0 space-y-4">
+          {/* Concept Map section */}
+          {conceptMapSettings?.enabled && (
+            <section className="rounded-2xl bg-gradient-to-br from-fuchsia-50 to-violet-50 border border-fuchsia-200 p-4 shadow-sm">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="w-9 h-9 rounded-full bg-gradient-to-br from-fuchsia-500 to-violet-600 text-white flex items-center justify-center flex-shrink-0">
+                    <MapIcon className="w-4 h-4" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-gray-900">Concept Map</p>
+                    <p className="text-[11px] text-gray-500 truncate">
+                      {existingConceptMap
+                        ? "A map exists for this topic"
+                        : `Visual map of key concepts${conceptMapSettings.tokenCost ? ` · ${conceptMapSettings.tokenCost} tokens` : ""}`}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={generateOrViewConceptMap}
+                  className={`flex-shrink-0 px-3 h-9 rounded-full text-xs font-semibold flex items-center gap-1 ${
+                    existingConceptMap
+                      ? "bg-white text-fuchsia-700 hover:bg-fuchsia-100"
+                      : "bg-fuchsia-600 text-white hover:bg-fuchsia-700"
+                  }`}
+                >
+                  {existingConceptMap ? (
+                    <>View Map <ChevronRight className="w-3 h-3" /></>
+                  ) : (
+                    <><MapIcon className="w-3 h-3" /> Generate</>
+                  )}
+                </button>
+              </div>
+            </section>
+          )}
+
           {/* Practice Zone */}
           <section className="rounded-2xl bg-white border border-gray-200 p-4 shadow-sm">
             <div className="flex items-center justify-between mb-3">

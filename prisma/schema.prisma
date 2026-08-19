@@ -55,6 +55,7 @@ model User {
   activationKeys        ActivationKey[]
   tokenUsageLogs        TokenUsageLog[]
   dailyUsages           DailyUsage[]
+  conceptMaps           ConceptMap[]
 
   // Relations for search settings are handled in SearchSettings model
 }
@@ -220,6 +221,7 @@ model Topic {
   studySets   StudySet[]
   cards       Card[]
   lessons     TopicLesson[]
+  conceptMaps ConceptMap[]
   chapter     Chapter?  @relation(fields: [chapterId], references: [id], onDelete: Cascade)
   createdBy   User?     @relation(fields: [createdById], references: [id], onDelete: SetNull)
 
@@ -362,6 +364,10 @@ model Plan {
   tokenLimit                Int
   dailyQuizLimit            Int      @default(5)
   dailyFlashcardGenLimit    Int      @default(3)
+  // Phase 11: Concept Map features
+  dailyConceptMapLimit      Int      @default(1)
+  conceptMapEditing         Boolean  @default(false)
+  conceptMapExport         Boolean  @default(false)
   features                  Json?
   createdAt                 DateTime @default(now())
   updatedAt                 DateTime @updatedAt
@@ -479,5 +485,38 @@ model SearchSettings {
   videoTokenCost            Int      @default(50)
   freeDailyImageLimit       Int      @default(5)
   freeDailyVideoLimit       Int      @default(3)
+  updatedAt                 DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────────────────────
+// Phase 11 — Concept Maps
+// ─────────────────────────────────────────────────────────────
+
+model ConceptMap {
+  id          String   @id @default(uuid())
+  userId      String?                          // null = admin-generated global map
+  topicId     String?
+  title       String
+  nodes       Json                              // [{ id, label, description, type? }]
+  edges       Json                              // [{ source, target, label }]
+  isPublic    Boolean  @default(false)
+  sourceType  String   @default("topic")       // 'topic' | 'text' | 'study_set'
+  sourceText  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topic       Topic?   @relation(fields: [topicId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([topicId])
+  @@index([isPublic])
+}
+
+model ConceptMapSettings {
+  id                        Int      @id @default(1)
+  enabled                   Boolean  @default(true)
+  tokenCost                 Int      @default(300)
+  freeDailyLimit            Int      @default(1)
   updatedAt                 DateTime @updatedAt
 }
