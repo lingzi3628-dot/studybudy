@@ -16,10 +16,14 @@ const FLAT_COSTS: Record<string, number> = {
   tutor: 200,
   graph: 50,
   translate: 100,
-  learning_path: 400,
+  learning_path: 500,
   image_search: 10,
   video_search: 50,
   concept_map: 300,
+  ai_teacher: 50,
+  path_lesson: 200,
+  path_flashcards: 150,
+  path_quiz: 150,
 };
 
 // Daily limits per feature for FREE plan (premium = unlimited)
@@ -34,6 +38,10 @@ const FREE_DAILY_LIMITS: Record<string, number> = {
   image_search: 5,
   video_search: 3,
   concept_map: 1,
+  ai_teacher: 10,
+  path_lesson: 3,
+  path_flashcards: 3,
+  path_quiz: 3,
 };
 
 export type DeductResult =

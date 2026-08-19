@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Bell, Flame, Coins } from "lucide-react";
+import { Bell, Flame, Coins, Trophy, Zap } from "lucide-react";
 import { useApp } from "./store";
 
 function TopBarInner({ mobile }: { mobile: boolean }) {
@@ -9,21 +9,23 @@ function TopBarInner({ mobile }: { mobile: boolean }) {
   const [initial, setInitial] = useState("?");
   const [streak, setStreak] = useState(0);
   const [tokens, setTokens] = useState<number | null>(null);
+  const [xp, setXp] = useState<number | null>(null);
+  const [level, setLevel] = useState<number | null>(null);
 
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
-        const [meRes, progRes] = await Promise.all([
+        const [meRes, progRes, xpRes] = await Promise.all([
           fetch("/api/auth/me"),
           fetch("/api/progress"),
+          fetch("/api/user/xp"),
         ]);
         if (meRes.ok) {
           const d = await meRes.json();
           if (mounted && d.authed) {
             const name = d.user?.name || d.user?.email || "?";
             setInitial(name.charAt(0).toUpperCase());
-            // Auth/me now returns tokenBalance too
             if (typeof d.user?.tokenBalance === "number") {
               setTokens(d.user.tokenBalance);
             }
@@ -36,6 +38,14 @@ function TopBarInner({ mobile }: { mobile: boolean }) {
             if (typeof d.user?.tokenBalance === "number") {
               setTokens(d.user.tokenBalance);
             }
+          }
+        }
+        if (xpRes.ok) {
+          const d = await xpRes.json();
+          if (mounted) {
+            if (typeof d.xp === "number") setXp(d.xp);
+            if (typeof d.level === "number") setLevel(d.level);
+            if (typeof d.streak === "number") setStreak(d.streak);
           }
         }
       } catch {}
@@ -62,6 +72,17 @@ function TopBarInner({ mobile }: { mobile: boolean }) {
 
         {mobile && (
           <div className="flex items-center gap-1.5">
+            {level !== null && (
+              <button
+                onClick={() => setScreen("progress")}
+                aria-label="XP and level"
+                className="flex items-center gap-1 bg-violet-50 text-violet-700 px-2 py-0.5 rounded-full text-xs font-semibold hover:bg-violet-100 transition"
+              >
+                <Trophy className="w-3 h-3" />
+                <span>L{level}</span>
+                {xp !== null && <span className="opacity-70 text-[10px]">·{xp}</span>}
+              </button>
+            )}
             {tokens !== null && (
               <button
                 onClick={() => setScreen("billing")}
@@ -90,6 +111,17 @@ function TopBarInner({ mobile }: { mobile: boolean }) {
       </div>
       {!mobile && (
         <div className="flex items-center gap-3">
+          {level !== null && (
+            <button
+              onClick={() => setScreen("progress")}
+              aria-label="XP and level"
+              className="flex items-center gap-1.5 bg-violet-50 text-violet-700 px-3 py-1 rounded-full text-sm font-semibold hover:bg-violet-100 transition"
+            >
+              <Trophy className="w-4 h-4" />
+              <span>L{level}</span>
+              {xp !== null && <span className="opacity-70 text-xs">·{xp.toLocaleString()} XP</span>}
+            </button>
+          )}
           {tokens !== null && (
             <button
               onClick={() => setScreen("billing")}
@@ -114,3 +146,4 @@ function TopBarInner({ mobile }: { mobile: boolean }) {
 
 export function TopBar() { return <TopBarInner mobile />; }
 export function DesktopTopBar() { return <TopBarInner mobile={false} />; }
+

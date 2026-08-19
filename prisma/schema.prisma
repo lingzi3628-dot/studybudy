@@ -56,6 +56,14 @@ model User {
   tokenUsageLogs        TokenUsageLog[]
   dailyUsages           DailyUsage[]
   conceptMaps           ConceptMap[]
+  // Phase 12 — paths, modules, gamification, study room state
+  // (learningPaths is already declared above)
+  pathProgress          UserPathProgress[]
+  userXp                UserXp?
+  badges                UserBadge[]
+  leaderboard           Leaderboard?
+  studyRoomStates       StudyRoomState[]
+  dailyReviews          DailyReview[]
 
   // Relations for search settings are handled in SearchSettings model
 }
@@ -173,19 +181,188 @@ model TopicMastery {
 }
 
 model LearningPath {
-  id         String   @id @default(uuid())
-  userId     String
-  skill      String
-  level      String
-  goal       String?
-  roadmap    Json
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id              String   @id @default(uuid())
+  userId          String?  // null for admin templates
+  skill           String
+  level           String
+  goal            String?
+  subject         String?
+  topicId         String?
+  coverImageUrl   String?
+  roadmap         Json
+  // Phase 12: path lifecycle + template metadata
+  status          String   @default("active")  // 'active' | 'completed' | 'archived'
+  isTemplate      Boolean  @default(false)
+  isPublished     Boolean  @default(false)     // for templates: visible to users
+  sourceTemplateId String? // if cloned from a template, store its id
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  lessons  Lesson[]
+  user            User?           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topic           Topic?          @relation(fields: [topicId], references: [id], onDelete: SetNull)
+  lessons         Lesson[]
+  modules         PathModule[]
+  studyRoomStates StudyRoomState[]
+  dailyReviews   DailyReview[]
 
   @@index([userId])
+  @@index([isTemplate])
+  @@index([topicId])
+}
+
+// ─────────────────────────────────────────────────────────────
+// Phase 12 — Path Modules & Items (the new path timeline)
+// ─────────────────────────────────────────────────────────────
+
+model PathModule {
+  id          String   @id @default(uuid())
+  pathId      String
+  title       String
+  description String?
+  orderIndex  Int      @default(0)
+  status      String   @default("locked")  // 'locked' | 'unlocked' | 'completed'
+  createdAt   DateTime @default(now())
+
+  path        LearningPath @relation(fields: [pathId], references: [id], onDelete: Cascade)
+  items       PathItem[]
+
+  @@index([pathId])
+}
+
+model PathItem {
+  id                 String   @id @default(uuid())
+  moduleId           String
+  type               String   // 'lesson' | 'flashcards' | 'quiz' | 'concept_map' | 'video' | 'project' | 'study_room_start'
+  title              String
+  contentId          String?  // id of generated resource (study set / concept map / etc.)
+  orderIndex         Int      @default(0)
+  difficulty         String   @default("medium")  // 'easy' | 'medium' | 'hard'
+  isRequired        Boolean  @default(true)
+  completionCriteria Json?    // e.g. {"minAccuracy":0.7,"minTimeSec":60}
+  createdAt          DateTime @default(now())
+
+  module             PathModule         @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  userProgress       UserPathProgress[]
+
+  @@index([moduleId])
+}
+
+model UserPathProgress {
+  id            String    @id @default(uuid())
+  userId        String
+  pathItemId    String
+  status        String    @default("not_started")  // 'not_started' | 'in_progress' | 'completed' | 'failed'
+  score         Float?
+  attempts      Int       @default(0)
+  timeSpentSec  Int       @default(0)
+  completedAt   DateTime?
+  updatedAt     DateTime  @default(now()) @updatedAt
+  createdAt     DateTime  @default(now())
+
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pathItem      PathItem  @relation(fields: [pathItemId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, pathItemId])
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────────────────────────
+// Phase 12 — Gamification (XP, badges, streaks, leaderboard)
+// ─────────────────────────────────────────────────────────────
+
+model UserXp {
+  id                String   @id @default(uuid())
+  userId            String   @unique
+  xpAmount         Int      @default(0)
+  level            Int      @default(1)
+  streakDays       Int      @default(0)
+  lastActivityDate DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([xpAmount])
+}
+
+model Badge {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  slug        String   @unique
+  description String?
+  icon        String   @default("🏅")
+  criteria    Json?    // e.g. {"xp":100,"streakDays":3,"type":"quiz_master"}
+  createdAt   DateTime @default(now())
+
+  userBadges  UserBadge[]
+}
+
+model UserBadge {
+  id        String   @id @default(uuid())
+  userId    String
+  badgeId   String
+  earnedAt  DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  badge     Badge    @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, badgeId])
+  @@index([userId])
+}
+
+model Leaderboard {
+  id         String   @id @default(uuid())
+  userId     String   @unique
+  xpTotal    Int      @default(0)
+  weeklyXp   Int      @default(0)
+  monthXp    Int      @default(0)
+  updatedAt  DateTime @updatedAt
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ─────────────────────────────────────────────────────────────
+// Phase 12 — Study Room Persistent State + Daily Review
+// ─────────────────────────────────────────────────────────────
+
+model StudyRoomState {
+  id                String   @id @default(uuid())
+  userId            String
+  topicId           String
+  pathId            String?
+  currentItem        String?  // path item id
+  coverImageUrl     String?
+  aiTeacherName     String   @default("Professor Bloom")
+  aiTeacherAvatar   String   @default("🧙‍♂️")
+  aiTeacherStyle    String   @default("encouraging")  // 'encouraging' | 'strict' | 'fun' | 'academic'
+  lastVisited       DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user              User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topic             Topic          @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  path              LearningPath?  @relation(fields: [pathId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, topicId])
+  @@index([userId])
+}
+
+model DailyReview {
+  id        String   @id @default(uuid())
+  userId    String
+  pathId    String?
+  date      DateTime
+  items     Json     // [{itemId, type, question, options, answer, explanation}]
+  status    String   @default("pending")  // 'pending' | 'completed'
+  score     Float?
+  createdAt DateTime @default(now())
+  completedAt DateTime?
+
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  path      LearningPath?  @relation(fields: [pathId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, date])
+  @@index([userId, date])
 }
 
 model Lesson {
@@ -222,6 +399,8 @@ model Topic {
   cards       Card[]
   lessons     TopicLesson[]
   conceptMaps ConceptMap[]
+  studyRoomStates StudyRoomState[]
+  learningPaths   LearningPath[]
   chapter     Chapter?  @relation(fields: [chapterId], references: [id], onDelete: Cascade)
   createdBy   User?     @relation(fields: [createdById], references: [id], onDelete: SetNull)
 

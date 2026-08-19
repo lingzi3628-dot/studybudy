@@ -30,11 +30,14 @@ import {
   Youtube,
   TestTube,
   Map as MapIcon,
+  Route,
+  Trophy,
+  Award,
 } from "lucide-react";
 import { useApp } from "../store";
 import { api } from "../api";
 
-type Tab = "dashboard" | "users" | "providers" | "content" | "logs" | "account" | "monetization" | "search" | "conceptMap";
+type Tab = "dashboard" | "users" | "providers" | "content" | "logs" | "account" | "monetization" | "search" | "conceptMap" | "pathTemplates" | "badges";
 
 type Stats = {
   totalUsers: number;
@@ -167,6 +170,8 @@ export function AdminPanel() {
             { key: "monetization" as const, label: "💰 Plans", icon: Crown },
             { key: "search" as const, label: "🔍 Search", icon: Search },
             { key: "conceptMap" as const, label: "🗺️ Concept Maps", icon: MapIcon },
+            { key: "pathTemplates" as const, label: "🛤️ Path Templates", icon: Route },
+            { key: "badges" as const, label: "🏆 Badges", icon: Trophy },
             { key: "account" as const, label: "Account", icon: Shield },
           ].map((t) => {
             const Icon = t.icon;
@@ -195,6 +200,8 @@ export function AdminPanel() {
         {tab === "monetization" && <MonetizationTab />}
         {tab === "search" && <SearchSettingsTab />}
         {tab === "conceptMap" && <ConceptMapSettingsTab />}
+        {tab === "pathTemplates" && <PathTemplatesTab />}
+        {tab === "badges" && <BadgesTab />}
         {tab === "account" && <AccountTab adminEmail={adminEmail} onLogout={async () => {
           await fetch("/api/admin/auth/logout", { method: "POST" });
           setScreen("home");
@@ -2471,6 +2478,327 @@ function ConceptMapSettingsTab() {
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════
+// Path Templates tab — manage admin-created learning path templates
+// ════════════════════════════════════════════════════════════════
+function PathTemplatesTab() {
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  const [skill, setSkill] = useState("");
+  const [level, setLevel] = useState("beginner");
+  const [goal, setGoal] = useState("");
+  const [subject, setSubject] = useState("");
+  const [isPublished, setIsPublished] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await fetch("/api/admin/learning-path-templates");
+      const d = await r.json();
+      if (r.ok) setTemplates(d.templates ?? []);
+    } catch {}
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const create = async () => {
+    if (!skill.trim()) { setError("Skill required"); return; }
+    setBusy(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const r = await fetch("/api/admin/learning-path-templates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ skill: skill.trim(), level, goal: goal.trim() || null, subject: subject.trim() || null, isPublished }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Create failed");
+      setSuccess("Template created ✓");
+      setSkill(""); setGoal(""); setSubject("");
+      setTimeout(() => setSuccess(null), 4000);
+      await load();
+    } catch (e: any) {
+      setError(e?.message ?? "Create failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const togglePublish = async (t: any) => {
+    try {
+      await fetch(`/api/admin/learning-path-templates/${t.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isPublished: !t.isPublished }),
+      });
+      await load();
+    } catch {}
+  };
+
+  const remove = async (id: string) => {
+    if (!confirm("Delete this template?")) return;
+    try {
+      await fetch(`/api/admin/learning-path-templates/${id}`, { method: "DELETE" });
+      await load();
+    } catch {}
+  };
+
+  if (loading) return <Spinner label="Loading templates…" />;
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-2xl bg-gradient-to-br from-indigo-50 to-violet-50 border border-indigo-200 p-4">
+        <div className="flex items-center gap-2">
+          <Route className="w-5 h-5 text-indigo-600" />
+          <h2 className="text-sm font-bold text-gray-900">Learning Path Templates</h2>
+        </div>
+        <p className="mt-1 text-xs text-gray-600">Templates are pre-built paths users can clone.</p>
+      </div>
+
+      {error && (
+        <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-start gap-2">
+          <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+          <span>{error}</span>
+        </div>
+      )}
+      {success && (
+        <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs flex items-center gap-2">
+          <Check className="w-4 h-4" /> {success}
+        </div>
+      )}
+
+      <div className="rounded-2xl bg-white border border-gray-200 p-4 shadow-sm space-y-3">
+        <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+          <Plus className="w-4 h-4 text-indigo-500" /> New Template
+        </h3>
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Skill">
+            <input value={skill} onChange={(e) => setSkill(e.target.value)} placeholder="e.g. Calculus" className="w-full p-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-indigo-400" />
+          </Field>
+          <Field label="Level">
+            <select value={level} onChange={(e) => setLevel(e.target.value)} className="w-full p-2.5 rounded-xl border border-gray-200 text-sm bg-white">
+              <option value="beginner">Beginner</option>
+              <option value="intermediate">Intermediate</option>
+              <option value="advanced">Advanced</option>
+            </select>
+          </Field>
+          <Field label="Subject (optional)">
+            <input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Math, Science…" className="w-full p-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-indigo-400" />
+          </Field>
+          <Field label="Goal (optional)">
+            <input value={goal} onChange={(e) => setGoal(e.target.value)} placeholder="Pass AP exam" className="w-full p-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-indigo-400" />
+          </Field>
+        </div>
+        <label className="flex items-center gap-2 text-xs">
+          <input type="checkbox" checked={isPublished} onChange={(e) => setIsPublished(e.target.checked)} className="w-4 h-4 rounded text-indigo-600" />
+          <span>Published (visible to users in their Templates list)</span>
+        </label>
+        <button onClick={create} disabled={busy || !skill.trim()} className="w-full h-11 rounded-full bg-indigo-600 text-white font-semibold text-sm shadow-md hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-1.5">
+          {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+          {busy ? "Creating…" : "Create Template"}
+        </button>
+      </div>
+
+      <div className="rounded-2xl bg-white border border-gray-200 p-4 shadow-sm">
+        <h3 className="text-sm font-semibold text-gray-900 mb-3">All Templates ({templates.length})</h3>
+        {templates.length === 0 ? (
+          <p className="text-xs text-gray-400 text-center py-4">No templates yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {templates.map((t) => (
+              <div key={t.id} className="rounded-xl bg-gray-50 border border-gray-200 p-3 text-xs">
+                <div className="flex items-center justify-between">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-gray-900 truncate">{t.skill}</p>
+                    <p className="text-[10px] text-gray-500 truncate">
+                      {t.level} · {t._count?.modules ?? 0} modules
+                      {t.subject ? ` · ${t.subject}` : ""}
+                      {t.isPublished ? " · ✓ published" : " · unpublished"}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <button onClick={() => togglePublish(t)} className={`text-[10px] font-semibold px-2 py-1 rounded-full ${t.isPublished ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}>
+                      {t.isPublished ? "Unpublish" : "Publish"}
+                    </button>
+                    <button onClick={() => remove(t.id)} className="w-7 h-7 rounded-full hover:bg-rose-50 flex items-center justify-center text-rose-600">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════
+// Badges tab — manage gamification badges
+// ════════════════════════════════════════════════════════════════
+function BadgesTab() {
+  const [badges, setBadges] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  const [name, setName] = useState("");
+  const [slug, setSlug] = useState("");
+  const [description, setDescription] = useState("");
+  const [icon, setIcon] = useState("🏅");
+  const [criteriaType, setCriteriaType] = useState("xp");
+  const [criteriaAmount, setCriteriaAmount] = useState("100");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await fetch("/api/admin/badges");
+      const d = await r.json();
+      if (r.ok) setBadges(d.badges ?? []);
+    } catch {}
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const create = async () => {
+    if (!name.trim() || !slug.trim()) { setError("Name and slug required"); return; }
+    setBusy(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const criteria: any = { type: criteriaType };
+      if (criteriaType === "xp" || criteriaType === "ai_chat") criteria.amount = Number(criteriaAmount) || 0;
+      if (criteriaType === "streak") criteria.days = Number(criteriaAmount) || 0;
+
+      const r = await fetch("/api/admin/badges", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim(), slug: slug.trim(), description: description.trim() || null, icon: icon.trim(), criteria }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Create failed");
+      setSuccess(`Badge "${name}" created ✓`);
+      setName(""); setSlug(""); setDescription(""); setIcon("🏅"); setCriteriaAmount("100");
+      setTimeout(() => setSuccess(null), 3000);
+      await load();
+    } catch (e: any) {
+      setError(e?.message ?? "Create failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (id: string) => {
+    if (!confirm("Delete this badge? Users who earned it will lose it.")) return;
+    try {
+      await fetch(`/api/admin/badges/${id}`, { method: "DELETE" });
+      await load();
+    } catch {}
+  };
+
+  if (loading) return <Spinner label="Loading badges…" />;
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-2xl bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 p-4">
+        <div className="flex items-center gap-2">
+          <Trophy className="w-5 h-5 text-amber-600" />
+          <h2 className="text-sm font-bold text-gray-900">Badges</h2>
+        </div>
+        <p className="mt-1 text-xs text-gray-600">Badges auto-award when users hit criteria (XP, streak, first action). 15 default badges were seeded on Phase 12 install.</p>
+      </div>
+
+      {error && (
+        <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-start gap-2">
+          <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+          <span>{error}</span>
+        </div>
+      )}
+      {success && (
+        <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs flex items-center gap-2">
+          <Check className="w-4 h-4" /> {success}
+        </div>
+      )}
+
+      <div className="rounded-2xl bg-white border border-gray-200 p-4 shadow-sm space-y-3">
+        <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+          <Plus className="w-4 h-4 text-amber-500" /> New Badge
+        </h3>
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Name">
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Quiz Master" className="w-full p-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-amber-400" />
+          </Field>
+          <Field label="Slug (unique)">
+            <input value={slug} onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/\s+/g, "_"))} placeholder="quiz_master" className="w-full p-2.5 rounded-xl border border-gray-200 text-sm font-mono outline-none focus:border-amber-400" />
+          </Field>
+          <Field label="Icon (emoji)">
+            <input value={icon} onChange={(e) => setIcon(e.target.value)} maxLength={4} className="w-full p-2.5 rounded-xl border border-gray-200 text-2xl text-center outline-none focus:border-amber-400" />
+          </Field>
+          <Field label="Criteria type">
+            <select value={criteriaType} onChange={(e) => setCriteriaType(e.target.value)} className="w-full p-2.5 rounded-xl border border-gray-200 text-sm bg-white">
+              <option value="xp">XP threshold</option>
+              <option value="streak">Streak days</option>
+              <option value="first_item">First item completed</option>
+              <option value="first_quiz">First quiz</option>
+              <option value="first_flashcards">First flashcards</option>
+              <option value="first_concept_map">First concept map</option>
+              <option value="first_lesson">First lesson</option>
+              <option value="first_path">First full path</option>
+              <option value="perfect_quiz">Perfect quiz (100%)</option>
+              <option value="first_daily_review">First daily review</option>
+              <option value="ai_chat">AI chat count</option>
+            </select>
+          </Field>
+        </div>
+        {(criteriaType === "xp" || criteriaType === "streak" || criteriaType === "ai_chat") && (
+          <Field label={criteriaType === "streak" ? "Days required" : criteriaType === "ai_chat" ? "Chat count" : "XP amount"}>
+            <input type="number" value={criteriaAmount} onChange={(e) => setCriteriaAmount(e.target.value)} min={1} className="w-full p-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-amber-400" />
+          </Field>
+        )}
+        <Field label="Description (optional)">
+          <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Awarded when…" className="w-full p-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-amber-400" />
+        </Field>
+        <button onClick={create} disabled={busy || !name.trim() || !slug.trim()} className="w-full h-11 rounded-full bg-amber-600 text-white font-semibold text-sm shadow-md hover:bg-amber-700 disabled:opacity-50 flex items-center justify-center gap-1.5">
+          {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+          {busy ? "Creating…" : "Create Badge"}
+        </button>
+      </div>
+
+      <div className="rounded-2xl bg-white border border-gray-200 p-4 shadow-sm">
+        <h3 className="text-sm font-semibold text-gray-900 mb-3">All Badges ({badges.length})</h3>
+        {badges.length === 0 ? (
+          <p className="text-xs text-gray-400 text-center py-4">No badges yet. Run scripts/seed-badges.ts.</p>
+        ) : (
+          <div className="grid grid-cols-2 gap-2">
+            {badges.map((b) => (
+              <div key={b.id} className="rounded-xl bg-gray-50 border border-gray-200 p-2.5 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-2xl">{b.icon}</span>
+                  <button onClick={() => remove(b.id)} className="w-7 h-7 rounded-full hover:bg-rose-50 flex items-center justify-center text-rose-600">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <p className="mt-1 font-semibold text-gray-900">{b.name}</p>
+                <p className="text-[10px] text-gray-500 truncate">{b.description ?? "—"}</p>
+                <p className="text-[9px] text-gray-400 mt-1">Earned by {b._count?.userBadges ?? 0} users</p>
               </div>
             ))}
           </div>
