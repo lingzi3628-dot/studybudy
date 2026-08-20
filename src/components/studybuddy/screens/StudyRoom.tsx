@@ -32,6 +32,8 @@ import {
   Palette,
   FileDown,
   Gamepad2,
+  ShoppingBag,
+  Volume2,
 } from "lucide-react";
 import { useApp } from "../store";
 import { api, type Card } from "../api";
@@ -54,6 +56,10 @@ import {
   DailyReviewModal,
   MiniGamesModal,
 } from "../study-room/StudyRoomModals";
+import { ThemedBackground } from "../study-room/ThemedBackground";
+import { VirtualPet } from "../study-room/VirtualPet";
+import { RoomShopModal, SoundMixer } from "../study-room/RoomShop";
+import { useCelebration } from "../useCelebration";
 
 type Lesson = {
   introduction?: string;
@@ -123,6 +129,11 @@ export function StudyRoom() {
   const [showAITeacherChat, setShowAITeacherChat] = useState(false);
   const [showDailyReview, setShowDailyReview] = useState(false);
   const [showMiniGames, setShowMiniGames] = useState(false);
+  // Phase 15 — visual overhaul
+  const [showShop, setShowShop] = useState(false);
+  const [showSoundMixer, setShowSoundMixer] = useState(false);
+  const [coinBalance, setCoinBalance] = useState(0);
+  const celebration = useCelebration();
 
   // Fetch Phase 12b extended room data
   useEffect(() => {
@@ -130,6 +141,11 @@ export function StudyRoom() {
     fetch(`/api/study-room/${activeTopicId}`)
       .then((r) => r.ok ? r.json() : null)
       .then((d) => { if (d) setRoomData(d); })
+      .catch(() => {});
+    // Fetch Phase 15 balances for coin display in shop
+    fetch("/api/user/balances")
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (d && typeof d.coins === "number") setCoinBalance(d.coins); })
       .catch(() => {});
   }, [activeTopicId]);
 
@@ -487,7 +503,9 @@ export function StudyRoom() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 max-w-6xl mx-auto">
+    <div className="min-h-screen max-w-6xl mx-auto relative">
+      {/* Phase 15 — themed animated background */}
+      <ThemedBackground theme={roomData?.room?.roomTheme ?? "cozy_library"} />
       {/* Phase 12b — Immersive cover banner */}
       {roomData?.room && (
         <StudyRoomHeader
@@ -744,6 +762,42 @@ export function StudyRoom() {
               onUpdate={updateDailyGoals}
             />
           )}
+
+          {/* Phase 15 — Virtual Pet */}
+          {roomData?.room && (
+            <div className="flex justify-center py-2">
+              <VirtualPet
+                pet={roomData.room.petInfo ?? null}
+                onFeed={async () => {
+                  try {
+                    const r = await fetch("/api/pets/feed", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ userPetId: roomData.room.petInfo?.id }),
+                    });
+                    if (r.ok) celebration.sparkles();
+                  } catch {}
+                }}
+                isIdle={false}
+              />
+            </div>
+          )}
+
+          {/* Phase 15 — Customize + Sound Mixer buttons */}
+          <div className="flex gap-2">
+            <button
+              onClick={() => setShowShop(true)}
+              className="flex-1 h-9 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold hover:bg-amber-200 flex items-center justify-center gap-1"
+            >
+              <ShoppingBag className="w-3.5 h-3.5" /> Shop
+            </button>
+            <button
+              onClick={() => setShowSoundMixer(true)}
+              className="flex-1 h-9 rounded-full bg-purple-100 text-purple-700 text-xs font-semibold hover:bg-purple-200 flex items-center justify-center gap-1"
+            >
+              <Volume2 className="w-3.5 h-3.5" /> Sound
+            </button>
+          </div>
 
           {/* Phase 12b — Tools Workbench */}
           <ToolsWorkbench onTool={handleToolClick} />
@@ -1270,6 +1324,44 @@ export function StudyRoom() {
           onClose={() => setShowMiniGames(false)}
           topicId={activeTopicId}
           room={roomData?.room}
+        />
+      )}
+
+      {/* Phase 15 — Room Shop + Sound Mixer */}
+      {showShop && activeTopicId && (
+        <RoomShopModal
+          open={showShop}
+          onClose={() => setShowShop(false)}
+          topicId={activeTopicId}
+          coinBalance={coinBalance}
+          onPurchased={async () => {
+            setShowShop(false);
+            // Refresh room data + balances
+            if (activeTopicId) {
+              const r = await fetch(`/api/study-room/${activeTopicId}`);
+              const d = await r.json();
+              if (r.ok) setRoomData(d);
+            }
+            const br = await fetch("/api/user/balances");
+            const bd = await br.json();
+            if (br.ok && typeof bd.coins === "number") setCoinBalance(bd.coins);
+          }}
+        />
+      )}
+      {showSoundMixer && (
+        <SoundMixer
+          open={showSoundMixer}
+          onClose={() => setShowSoundMixer(false)}
+          soundSettings={roomData?.room?.soundSettings ?? { fireplace: 0, rain: 0, birds: 0, lofi: 0, pages: 0 }}
+          onUpdate={async (settings: any) => {
+            if (activeTopicId) {
+              await fetch(`/api/study-room/${activeTopicId}/sound-settings`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(settings),
+              });
+            }
+          }}
         />
       )}
     </div>
