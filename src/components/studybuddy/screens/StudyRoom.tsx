@@ -24,9 +24,36 @@ import {
   Check,
   Map as MapIcon,
   Coins,
+  Trophy,
+  Flame,
+  Timer,
+  Music,
+  FileText,
+  Palette,
+  FileDown,
+  Gamepad2,
 } from "lucide-react";
 import { useApp } from "../store";
 import { api, type Card } from "../api";
+import {
+  StudyRoomHeader,
+  AITeacherCard,
+  ToolsWorkbench,
+  BulletinBoard,
+  DailyGoalsChecklist,
+  Bookshelf,
+  GroupStudySection,
+} from "../study-room/StudyRoomSections";
+import {
+  FocusTimerModal,
+  NotesModal,
+  MusicPlayerModal,
+  CustomizationModal,
+  ReportCardModal,
+  AITeacherChatModal,
+  DailyReviewModal,
+  MiniGamesModal,
+} from "../study-room/StudyRoomModals";
 
 type Lesson = {
   introduction?: string;
@@ -85,6 +112,72 @@ export function StudyRoom() {
 
   // tutor chat state
   const [tutorOpen, setTutorOpen] = useState(false);
+
+  // Phase 12b — extended room state + modal management
+  const [roomData, setRoomData] = useState<any>(null);
+  const [showFocusTimer, setShowFocusTimer] = useState(false);
+  const [showNotes, setShowNotes] = useState(false);
+  const [showMusic, setShowMusic] = useState(false);
+  const [showCustomize, setShowCustomize] = useState(false);
+  const [showReport, setShowReport] = useState(false);
+  const [showAITeacherChat, setShowAITeacherChat] = useState(false);
+  const [showDailyReview, setShowDailyReview] = useState(false);
+  const [showMiniGames, setShowMiniGames] = useState(false);
+
+  // Fetch Phase 12b extended room data
+  useEffect(() => {
+    if (!activeTopicId) return;
+    fetch(`/api/study-room/${activeTopicId}`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (d) setRoomData(d); })
+      .catch(() => {});
+  }, [activeTopicId]);
+
+  const handleToolClick = (tool: string) => {
+    switch (tool) {
+      case "graph": setScreen("graph"); break;
+      case "flashcards": setScreen("flashcards"); break;
+      case "quiz": setScreen("quiz"); break;
+      case "conceptMap":
+        if (existingConceptMap) {
+          (useApp.getState() as any).setActiveConceptMapId(existingConceptMap.id);
+          setScreen("conceptMap");
+        } else {
+          (useApp.getState() as any).setActiveConceptMapId(null);
+          setScreen("conceptMap");
+        }
+        break;
+      case "whiteboard": setScreen("graph"); break; // solver lives in graph screen
+      case "focus": setShowFocusTimer(true); break;
+      case "notes": setShowNotes(true); break;
+      case "music": setShowMusic(true); break;
+      case "games": setShowMiniGames(true); break;
+    }
+  };
+
+  const updateDailyGoals = async (tasks: any[]) => {
+    try {
+      await fetch("/api/daily-goals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tasks }),
+      });
+      // Refresh room data
+      if (activeTopicId) {
+        const r = await fetch(`/api/study-room/${activeTopicId}`);
+        const d = await r.json();
+        if (r.ok) setRoomData(d);
+      }
+    } catch {}
+  };
+
+  const openResource = (resource: any) => {
+    // Open resource based on type — for now just navigate to flashcards
+    if (resource._count?.cards !== undefined) {
+      (useApp.getState() as any).setActiveStudySetId(resource.id);
+      setScreen("flashcards");
+    }
+  };
   const [chatMessages, setChatMessages] = useState<ChatMsg[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [chatBusy, setChatBusy] = useState(false);
@@ -394,6 +487,19 @@ export function StudyRoom() {
 
   return (
     <div className="min-h-screen bg-gray-50 max-w-6xl mx-auto">
+      {/* Phase 12b — Immersive cover banner */}
+      {roomData?.room && (
+        <StudyRoomHeader
+          room={roomData.room}
+          analytics={roomData.analytics}
+          gamification={roomData.gamification}
+          onStartReview={() => setShowDailyReview(true)}
+          onCustomize={() => setShowCustomize(true)}
+          onReport={() => setShowReport(true)}
+          onNotifications={() => setShowDailyReview(true)}
+        />
+      )}
+
       {/* Top bar */}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-20">
         <div className="px-4 h-14 flex items-center justify-between">
@@ -620,6 +726,69 @@ export function StudyRoom() {
 
         {/* RIGHT COLUMN — Practice + Tutor */}
         <div className="mt-6 md:mt-0 space-y-4">
+          {/* Phase 12b — AI Teacher quick card */}
+          {roomData?.room && (
+            <AITeacherCard
+              room={roomData.room}
+              onAsk={() => setShowAITeacherChat(true)}
+              onStartReview={() => setShowDailyReview(true)}
+              onOpenChat={() => setShowAITeacherChat(true)}
+            />
+          )}
+
+          {/* Phase 12b — Daily Goals checklist */}
+          {roomData?.dailyGoals?.tasks?.length > 0 && (
+            <DailyGoalsChecklist
+              goals={roomData.dailyGoals}
+              onUpdate={updateDailyGoals}
+            />
+          )}
+
+          {/* Phase 12b — Tools Workbench */}
+          <ToolsWorkbench onTool={handleToolClick} />
+
+          {/* Phase 12b — Bulletin Board */}
+          {roomData?.analytics && roomData?.gamification && (
+            <BulletinBoard
+              analytics={roomData.analytics}
+              gamification={roomData.gamification}
+              onReport={() => setShowReport(true)}
+            />
+          )}
+
+          {/* Phase 12b — Bookshelf of study sets */}
+          {roomData?.resources?.studySets?.length > 0 && (
+            <Bookshelf
+              title="Your Study Sets"
+              resources={roomData.resources.studySets}
+              onOpen={openResource}
+              emptyText="No study sets yet"
+              icon={Layers}
+            />
+          )}
+
+          {/* Phase 12b — Bookshelf of concept maps */}
+          {roomData?.resources?.conceptMaps?.length > 0 && (
+            <Bookshelf
+              title="Concept Maps"
+              resources={roomData.resources.conceptMaps}
+              onOpen={(r) => {
+                (useApp.getState() as any).setActiveConceptMapId(r.id);
+                setScreen("conceptMap");
+              }}
+              emptyText="No concept maps yet"
+              icon={MapIcon}
+            />
+          )}
+
+          {/* Phase 12b — Study Groups */}
+          {roomData?.studyGroups?.length > 0 && (
+            <GroupStudySection
+              groups={roomData.studyGroups}
+              onOpenGroup={() => {}} // groups managed via API for now
+            />
+          )}
+
           {/* Concept Map section */}
           {conceptMapSettings?.enabled && (
             <section className="rounded-2xl bg-gradient-to-br from-fuchsia-50 to-violet-50 border border-fuchsia-200 p-4 shadow-sm">
@@ -969,6 +1138,139 @@ export function StudyRoom() {
       >
         <X className="w-5 h-5" />
       </button>
+
+      {/* Phase 12b — Floating action buttons (bottom-left on desktop) */}
+      <div className="hidden md:flex fixed bottom-4 left-4 z-20 flex-col gap-2">
+        <button
+          onClick={() => setShowFocusTimer(true)}
+          className="w-11 h-11 rounded-full bg-indigo-600 text-white shadow-lg hover:bg-indigo-700 flex items-center justify-center"
+          title="Focus Timer"
+        >
+          <Timer className="w-5 h-5" />
+        </button>
+        <button
+          onClick={() => setShowMusic(true)}
+          className="w-11 h-11 rounded-full bg-purple-600 text-white shadow-lg hover:bg-purple-700 flex items-center justify-center"
+          title="Study Music"
+        >
+          <Music className="w-5 h-5" />
+        </button>
+        <button
+          onClick={() => setShowNotes(true)}
+          className="w-11 h-11 rounded-full bg-violet-600 text-white shadow-lg hover:bg-violet-700 flex items-center justify-center"
+          title="Notes"
+        >
+          <FileText className="w-5 h-5" />
+        </button>
+        <button
+          onClick={() => setShowAITeacherChat(true)}
+          className="w-11 h-11 rounded-full bg-amber-500 text-white shadow-lg hover:bg-amber-600 flex items-center justify-center"
+          title="Ask AI Teacher"
+        >
+          <Bot className="w-5 h-5" />
+        </button>
+      </div>
+
+      {/* Phase 12b — Mobile floating buttons (bottom-right, stacked) */}
+      <div className="md:hidden fixed bottom-20 right-4 z-20 flex flex-col gap-2">
+        <button
+          onClick={() => setShowFocusTimer(true)}
+          className="w-10 h-10 rounded-full bg-indigo-600 text-white shadow-lg flex items-center justify-center"
+        >
+          <Timer className="w-4 h-4" />
+        </button>
+        <button
+          onClick={() => setShowMusic(true)}
+          className="w-10 h-10 rounded-full bg-purple-600 text-white shadow-lg flex items-center justify-center"
+        >
+          <Music className="w-4 h-4" />
+        </button>
+        <button
+          onClick={() => setShowNotes(true)}
+          className="w-10 h-10 rounded-full bg-violet-600 text-white shadow-lg flex items-center justify-center"
+        >
+          <FileText className="w-4 h-4" />
+        </button>
+        <button
+          onClick={() => setShowAITeacherChat(true)}
+          className="w-10 h-10 rounded-full bg-amber-500 text-white shadow-lg flex items-center justify-center"
+        >
+          <Bot className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* Phase 12b — All modals */}
+      {showFocusTimer && activeTopicId && (
+        <FocusTimerModal
+          open={showFocusTimer}
+          onClose={() => setShowFocusTimer(false)}
+          topicId={activeTopicId}
+          room={roomData?.room}
+        />
+      )}
+      {showNotes && activeTopicId && (
+        <NotesModal
+          open={showNotes}
+          onClose={() => setShowNotes(false)}
+          topicId={activeTopicId}
+          room={roomData?.room}
+        />
+      )}
+      {showMusic && (
+        <MusicPlayerModal
+          open={showMusic}
+          onClose={() => setShowMusic(false)}
+        />
+      )}
+      {showCustomize && activeTopicId && (
+        <CustomizationModal
+          open={showCustomize}
+          onClose={() => setShowCustomize(false)}
+          topicId={activeTopicId}
+          room={roomData?.room}
+        />
+      )}
+      {showReport && activeTopicId && (
+        <ReportCardModal
+          open={showReport}
+          onClose={() => setShowReport(false)}
+          topicId={activeTopicId}
+          room={roomData?.room}
+        />
+      )}
+      {showAITeacherChat && activeTopicId && (
+        <AITeacherChatModal
+          open={showAITeacherChat}
+          onClose={() => setShowAITeacherChat(false)}
+          topicId={activeTopicId}
+          room={roomData?.room}
+        />
+      )}
+      {showDailyReview && activeTopicId && (
+        <DailyReviewModal
+          open={showDailyReview}
+          onClose={() => setShowDailyReview(false)}
+          topicId={activeTopicId}
+          room={roomData?.room}
+          onComplete={() => {
+            // Refresh room data after review completion
+            if (activeTopicId) {
+              fetch(`/api/study-room/${activeTopicId}`)
+                .then((r) => r.ok ? r.json() : null)
+                .then((d) => { if (d) setRoomData(d); })
+                .catch(() => {});
+            }
+          }}
+        />
+      )}
+      {showMiniGames && activeTopicId && (
+        <MiniGamesModal
+          open={showMiniGames}
+          onClose={() => setShowMiniGames(false)}
+          topicId={activeTopicId}
+          room={roomData?.room}
+        />
+      )}
     </div>
   );
 }
