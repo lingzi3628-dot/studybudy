@@ -23,6 +23,7 @@ type Phase = "loading" | "lesson" | "mini_test" | "oral_exam" | "written_exam" |
 
 export function ClassroomScreen() {
   const { setScreen, activeTopicId } = useApp() as any;
+  const classroomSessionId = (useApp() as any).activeClassroomSessionId;
   const [phase, setPhase] = useState<Phase>("loading");
   const [session, setSession] = useState<any>(null);
   const [blocks, setBlocks] = useState<Block[]>([]);
@@ -46,6 +47,11 @@ export function ClassroomScreen() {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const intervalRef = useRef<any>(null);
+  // Phase 16 — guided flow
+  const [flowState, setFlowState] = useState<string>("ASSESSMENT");
+  const [flowStep, setFlowStep] = useState(0);
+  const [flowProgress, setFlowProgress] = useState(0);
+  const [professorMsg, setProfessorMsg] = useState<string>("");
 
   // Start class
   const startClass = useCallback(async () => {
@@ -73,9 +79,37 @@ export function ClassroomScreen() {
         throw new Error(d.error ?? `HTTP ${r.status}`);
       }
       setSession(d.session);
-      setBlocks(d.lessonBlocks ?? []);
-      setDurationMin(d.durationMinutes ?? 30);
-      setTestIntervalMin(d.testIntervalMin ?? 10);
+
+      // Phase 16: handle guided flow response (has flowState, no lessonBlocks)
+      if (d.flowState || d.session?.flowState) {
+        setFlowState(d.flowState ?? d.session?.flowState ?? "ASSESSMENT");
+        setFlowStep(d.currentStep ?? d.session?.currentStep ?? 0);
+        setFlowProgress(d.progress ?? d.session?.progress ?? 0);
+        // Fetch lesson blocks separately from the Phase 14 lesson endpoint
+        try {
+          const lr = await fetch(`/api/classroom/${d.session.id}/lesson`);
+          const ld = await lr.json();
+          if (lr.ok) {
+            setBlocks(ld.blocks ?? []);
+          }
+        } catch {}
+        // Fetch classroom state for professor message + available tools
+        try {
+          const sr = await fetch(`/api/classroom/${d.session.id}/state`);
+          const sd = await sr.json();
+          if (sr.ok && sd.professorMessage) {
+            setProfessorMsg(sd.professorMessage);
+          }
+        } catch {}
+        setDurationMin(30);
+        setTestIntervalMin(10);
+      } else {
+        // Phase 14 fallback: response has lessonBlocks directly
+        setBlocks(d.lessonBlocks ?? []);
+        setDurationMin(d.durationMinutes ?? 30);
+        setTestIntervalMin(d.testIntervalMin ?? 10);
+      }
+
       setPhase("lesson");
       setTimer(0);
       setRunning(true);
@@ -302,6 +336,30 @@ export function ClassroomScreen() {
     setBusy(false);
   };
 
+  // Phase 16: advance guided flow
+  const advanceFlow = async () => {
+    if (!session) return;
+    setBusy(true);
+    try {
+      const r = await fetch(`/api/classroom/${session.id}/next`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Failed to advance");
+      setFlowState(d.newState ?? d.flowState ?? flowState);
+      setFlowStep(d.currentStep ?? flowStep + 1);
+      setFlowProgress(d.progress ?? flowProgress);
+      if (d.professorMessage) setProfessorMsg(d.professorMessage);
+      setToast(`Advanced to ${d.newState ?? "next step"} ✓`);
+      setTimeout(() => setToast(null), 2000);
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to advance");
+    }
+    setBusy(false);
+  };
+
   const mins = Math.floor(timer / 60);
   const secs = timer % 60;
   const progressPct = Math.min(100, (timer / (durationMin * 60)) * 100);
@@ -390,7 +448,7 @@ export function ClassroomScreen() {
   // ===== MAIN CLASSROOM =====
   return (
     <div className="min-h-screen bg-gray-900 flex flex-col">
-      {/* Header: Professor + Timer + Progress */}
+      {/* Header: Professor + Timer + Progress + Flow State */}
       <header className="bg-gray-800 border-b border-gray-700 px-4 py-2 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <span className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-xl flex-shrink-0">
@@ -398,10 +456,14 @@ export function ClassroomScreen() {
           </span>
           <div className="min-w-0">
             <p className="text-xs font-bold text-white truncate">Professor Bloom</p>
-            <p className="text-[9px] text-gray-400">Virtual Classroom</p>
+            <p className="text-[9px] text-gray-400">Phase 16: {flowState} · Step {flowStep + 1}/6</p>
           </div>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
+          {/* Phase 16: Flow progress bar */}
+          <div className="w-20 h-2 bg-gray-700 rounded-full overflow-hidden">
+            <div className="h-full bg-violet-400 transition-all" style={{ width: `${Math.min(100, flowProgress * 100)}%` }} />
+          </div>
           <div className="flex items-center gap-1 text-amber-400 text-xs font-mono">
             <Clock className="w-3 h-3" />
             <span>{mins}:{secs.toString().padStart(2, "0")}</span>
@@ -409,14 +471,28 @@ export function ClassroomScreen() {
           <div className="w-16 h-2 bg-gray-700 rounded-full overflow-hidden">
             <div className="h-full bg-amber-400 transition-all" style={{ width: `${progressPct}%` }} />
           </div>
-          <div className="w-16 h-2 bg-gray-700 rounded-full overflow-hidden">
-            <div className="h-full bg-emerald-400 transition-all" style={{ width: `${testProgressPct}%` }} />
-          </div>
         </div>
         <button onClick={() => { if (confirm("Exit classroom? Your progress will be saved.")) { setScreen("study"); } }} className="w-8 h-8 rounded-full hover:bg-gray-700 flex items-center justify-center text-gray-400">
           <X className="w-4 h-4" />
         </button>
       </header>
+
+      {/* Phase 16: Professor Bloomer's narration + Next Step button */}
+      {professorMsg && (
+        <div className="bg-violet-900/40 border-b border-violet-700 px-4 py-1.5 flex items-center justify-between gap-2">
+          <p className="text-[11px] text-violet-200 truncate flex-1">
+            <span className="text-base mr-1">🧙‍♂️</span>{professorMsg}
+          </p>
+          <button
+            onClick={advanceFlow}
+            disabled={busy || flowState === "MASTERED"}
+            className="flex-shrink-0 px-3 h-7 rounded-full bg-violet-600 text-white text-[10px] font-bold hover:bg-violet-700 disabled:opacity-50 flex items-center gap-1"
+          >
+            {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <ChevronRight className="w-3 h-3" />}
+            {flowState === "MASTERED" ? "Done" : "Next Step"}
+          </button>
+        </div>
+      )}
 
       {/* Whiteboard */}
       {(phase === "lesson" || phase === "mini_test") && (

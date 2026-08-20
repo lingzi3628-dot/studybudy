@@ -84,6 +84,10 @@ model User {
   // Phase 15 — room customization
   userRoomObjects       UserRoomObject[]
   userPets              UserPet[]
+  // Phase 16 — guided flow
+  topicFlows            UserTopicFlow[]
+  guidedSessions        ClassroomSession[]
+  diagnosticResults     UserDiagnosticResult[]
 
   // Relations for search settings are handled in SearchSettings model
 }
@@ -366,6 +370,12 @@ model StudyRoomState {
   soundSettings     Json     @default("{\"fireplace\":0,\"rain\":0,\"birds\":0,\"lofi\":0,\"pages\":0}")
   petId             String?  // references UserPet (not FK, just stored id)
   lastDailyChestOpened DateTime?
+  // Phase 16 — guided learning flow
+  intakeCompleted   Boolean  @default(false)
+  teacherCustomName String?
+  userName          String?
+  diagnosticScore   Float?
+  currentClassroomSessionId String?
   lastVisited       DateTime?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
@@ -438,6 +448,11 @@ model Topic {
   // Phase 14 — virtual classroom
   classSessions   ClassSession[]
   lessonContents  LessonContent[]
+  // Phase 16 — guided flow
+  topicFlows       UserTopicFlow[]
+  guidedSessions   ClassroomSession[]
+  diagnosticQuestions DiagnosticQuizQuestion[]
+  diagnosticResults UserDiagnosticResult[]
   chapter     Chapter?  @relation(fields: [chapterId], references: [id], onDelete: Cascade)
   createdBy   User?     @relation(fields: [createdById], references: [id], onDelete: SetNull)
 
@@ -1093,4 +1108,74 @@ model UserPet {
 
   @@unique([userId, petId])
   @@index([userId])
+}
+
+// ════════════════════════════════════════════════════════════════
+// Phase 16 — Guided Learning Flow & Classroom Redesign
+// ════════════════════════════════════════════════════════════════
+
+model UserTopicFlow {
+  id            String   @id @default(uuid())
+  userId        String
+  topicId       String
+  currentState  String   @default("ASSESSMENT") // ASSESSMENT→LEARNING→PRACTICE→QUIZ→REVIEW→MASTERED
+  progress      Float    @default(0)
+  lastActivity  DateTime @default(now())
+  nextActionId  String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topic         Topic    @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, topicId])
+  @@index([userId])
+}
+
+model ClassroomSession {
+  id            String   @id @default(uuid())
+  userId        String
+  topicId       String
+  flowState     String   @default("ASSESSMENT") // ASSESSMENT→LEARNING→PRACTICE→QUIZ→REVIEW→MASTERED
+  progress      Float    @default(0)
+  currentStep   Int      @default(0)
+  totalSteps    Int      @default(6)
+  startedAt     DateTime @default(now())
+  lastActivity  DateTime @default(now())
+  completedAt   DateTime?
+  status        String   @default("active") // 'active' | 'completed' | 'abandoned'
+
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topic         Topic    @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([topicId])
+}
+
+model DiagnosticQuizQuestion {
+  id            String   @id @default(uuid())
+  topicId       String?
+  questionText  String
+  options       Json     // string[]
+  correctIndex  Int
+  createdAt     DateTime @default(now())
+
+  topic         Topic?   @relation(fields: [topicId], references: [id], onDelete: SetNull)
+
+  @@index([topicId])
+}
+
+model UserDiagnosticResult {
+  id            String   @id @default(uuid())
+  userId        String
+  topicId       String?
+  score         Float
+  answers       Json     // [{questionId, selectedIndex, correct}]
+  createdAt     DateTime @default(now())
+
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topic         Topic?   @relation(fields: [topicId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([topicId])
 }

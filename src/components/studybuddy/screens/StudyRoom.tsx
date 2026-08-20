@@ -60,6 +60,7 @@ import { ThemedBackground } from "../study-room/ThemedBackground";
 import { VirtualPet } from "../study-room/VirtualPet";
 import { RoomShopModal, SoundMixer } from "../study-room/RoomShop";
 import { useCelebration } from "../useCelebration";
+import { IntakeFlow } from "./IntakeFlow";
 
 type Lesson = {
   introduction?: string;
@@ -134,13 +135,25 @@ export function StudyRoom() {
   const [showSoundMixer, setShowSoundMixer] = useState(false);
   const [coinBalance, setCoinBalance] = useState(0);
   const celebration = useCelebration();
+  // Phase 16 — intake flow
+  const [showIntake, setShowIntake] = useState(false);
 
   // Fetch Phase 12b extended room data
   useEffect(() => {
     if (!activeTopicId) return;
     fetch(`/api/study-room/${activeTopicId}`)
       .then((r) => r.ok ? r.json() : null)
-      .then((d) => { if (d) setRoomData(d); })
+      .then((d) => {
+        if (d) {
+          setRoomData(d);
+          // Phase 16: check intake status
+          if (d.room && d.room.intakeCompleted === false) {
+            setShowIntake(true);
+          } else {
+            setShowIntake(false);
+          }
+        }
+      })
       .catch(() => {});
     // Fetch Phase 15 balances for coin display in shop
     fetch("/api/user/balances")
@@ -313,6 +326,20 @@ export function StudyRoom() {
   }, [chatMessages, chatBusy]);
 
   if (!activeTopicId) return null;
+
+  // Phase 16: show IntakeFlow if intake not completed
+  if (showIntake && activeTopicId) {
+    return (
+      <IntakeFlow
+        topicId={activeTopicId}
+        topicName={topicData?.topic?.name ?? roomData?.topic?.name ?? "this topic"}
+        onRedirectToClassroom={(sessionId) => {
+          (useApp.getState() as any).setActiveClassroomSessionId(sessionId);
+          setScreen("classroom");
+        }}
+      />
+    );
+  }
 
   const topic = topicData?.topic;
   const masteryPct = topicData ? Math.round(topicData.mastery.level * 100) : 0;

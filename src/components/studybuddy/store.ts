@@ -53,6 +53,10 @@ interface AppState {
   activeConceptMapId: string | null;
   setActiveConceptMapId: (id: string | null) => void;
 
+  // Phase 16 — active classroom session for guided flow
+  activeClassroomSessionId: string | null;
+  setActiveClassroomSessionId: (id: string | null) => void;
+
   // create modal
   createOpen: boolean;
   openCreate: (option?: CreateOption) => void;
@@ -92,6 +96,9 @@ export const useApp = create<AppState>((set) => ({
 
   activeConceptMapId: null,
   setActiveConceptMapId: (id) => set({ activeConceptMapId: id }),
+
+  activeClassroomSessionId: null,
+  setActiveClassroomSessionId: (id) => set({ activeClassroomSessionId: id }),
 
   createOpen: false,
   createOption: null,
