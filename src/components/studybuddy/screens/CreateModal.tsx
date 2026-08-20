@@ -38,8 +38,9 @@ const options: {
   { key: "quiz", label: "Generate Quiz", desc: "MCQ-only set with explanations", icon: ListChecks, color: "bg-emerald-50 text-emerald-600" },
   { key: "graph", label: "Draw Graph", desc: "Visualise equations with Recharts", icon: LineChart, color: "bg-sky-50 text-sky-600" },
   { key: "tutor", label: "Ask AI Tutor", desc: "Conversational help on any concept", icon: Bot, color: "bg-rose-50 text-rose-600" },
-  { key: "path", label: "Create Learning Path", desc: "Build a 4-week roadmap", icon: Route, color: "bg-teal-50 text-teal-600" },
   { key: "conceptMap", label: "Generate Concept Map", desc: "Visual node graph of any topic", icon: MapIcon, color: "bg-fuchsia-50 text-fuchsia-600" },
+  // Note: "Create Learning Path" removed in Phase 17 — paths are created
+  // during onboarding or from the Dashboard/Profile.
 ];
 
 type GenFlashcard = { front: string; back: string };
@@ -141,11 +142,6 @@ export function CreateModal() {
                       if (o.key === "tutor") {
                         closeCreate();
                         setScreen("tutor");
-                        return;
-                      }
-                      if (o.key === "path") {
-                        closeCreate();
-                        setScreen("path");
                         return;
                       }
                       if (o.key === "conceptMap") {

@@ -23,7 +23,8 @@ export type Screen =
   | "billing"
   | "conceptMap"
   | "earnCenter"
-  | "classroom";
+  | "classroom"
+  | "dashboard";
 
 export type CreateOption =
   | "upload"
@@ -32,7 +33,6 @@ export type CreateOption =
   | "quiz"
   | "graph"
   | "tutor"
-  | "path"
   | "conceptMap"
   | null;
 

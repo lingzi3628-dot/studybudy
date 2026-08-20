@@ -30,6 +30,8 @@ model User {
   notificationsEnabled Boolean @default(true)
   darkMode          Boolean  @default(false)
   lastLogin         DateTime?
+  // Phase 17 — onboarding path
+  onboardingPathCreated Boolean @default(false)
   // Monetization fields
   planId            String?
   tokenBalance      Int      @default(50)    // daily free tokens (reset daily)
@@ -88,6 +90,8 @@ model User {
   topicFlows            UserTopicFlow[]
   guidedSessions        ClassroomSession[]
   diagnosticResults     UserDiagnosticResult[]
+  // Phase 17 — path dashboard
+  activePaths           UserActivePath[]
 
   // Relations for search settings are handled in SearchSettings model
 }
@@ -219,6 +223,9 @@ model LearningPath {
   isTemplate      Boolean  @default(false)
   isPublished     Boolean  @default(false)     // for templates: visible to users
   sourceTemplateId String? // if cloned from a template, store its id
+  // Phase 17 — path dashboard
+  isActive        Boolean  @default(true)
+  currentNodeId   String?  // references PathModule.id (no FK to avoid cascade issues)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -228,6 +235,7 @@ model LearningPath {
   modules         PathModule[]
   studyRoomStates StudyRoomState[]
   dailyReviews   DailyReview[]
+  activePaths    UserActivePath[]
 
   @@index([userId])
   @@index([isTemplate])
@@ -1178,4 +1186,22 @@ model UserDiagnosticResult {
 
   @@index([userId])
   @@index([topicId])
+}
+
+// ════════════════════════════════════════════════════════════════
+// Phase 17 — Learning Path as Central Journey
+// ════════════════════════════════════════════════════════════════
+
+model UserActivePath {
+  id          String   @id @default(uuid())
+  userId      String
+  pathId      String
+  isCurrent   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  path        LearningPath   @relation(fields: [pathId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, pathId])
+  @@index([userId, isCurrent])
 }

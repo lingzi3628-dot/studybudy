@@ -26,6 +26,7 @@ import { BillingScreen } from "@/components/studybuddy/screens/BillingScreen";
 import { ConceptMapScreen } from "@/components/studybuddy/screens/ConceptMapScreen";
 import { EarnCenterScreen } from "@/components/studybuddy/screens/EarnCenterScreen";
 import { ClassroomScreen } from "@/components/studybuddy/screens/ClassroomScreen";
+import { PathDashboard } from "@/components/studybuddy/screens/PathDashboard";
 
 // Secret admin access code — type this word on the keyboard anywhere
 // in the app to unlock the admin login screen.
@@ -57,7 +58,7 @@ export default function Page() {
       .then((d) => {
         if (!mounted || !d?.authed) return;
         if (d.user?.onboardingCompleted) {
-          setScreen("home");
+          setScreen("dashboard");
         } else {
           setScreen("onboarding");
         }
@@ -90,7 +91,7 @@ export default function Page() {
   }, [setScreen]);
 
   // Immersive study modes have their own full-screen layout (no top bar / bottom nav).
-  const immersive = ["flashcards", "quiz", "graph", "language", "tutor", "path", "study", "admin", "adminLogin", "landing", "onboarding", "auth", "premium", "conceptMap", "earnCenter", "classroom"];
+  const immersive = ["flashcards", "quiz", "graph", "language", "tutor", "path", "study", "admin", "adminLogin", "landing", "onboarding", "auth", "premium", "conceptMap", "earnCenter", "classroom", "dashboard"];
 
   if (screen === "onboarding") {
     return (
@@ -128,6 +129,7 @@ export default function Page() {
         {screen === "conceptMap" && <ConceptMapScreen />}
         {screen === "earnCenter" && <EarnCenterScreen />}
         {screen === "classroom" && <ClassroomScreen />}
+        {screen === "dashboard" && <PathDashboard />}
         <CreateModal />
       </div>
     );

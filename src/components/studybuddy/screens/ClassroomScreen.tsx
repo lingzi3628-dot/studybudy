@@ -459,7 +459,7 @@ export function ClassroomScreen() {
             <div className="h-full bg-amber-400 transition-all" style={{ width: `${progressPct}%` }} />
           </div>
         </div>
-        <button onClick={() => { if (confirm("Exit classroom? Your progress will be saved.")) { setScreen("study"); } }} className="w-8 h-8 rounded-full hover:bg-gray-700 flex items-center justify-center text-gray-400">
+        <button onClick={() => { if (confirm("Exit classroom? Your progress will be saved.")) { if (session) fetch(`/api/classroom/${session.id}/save`, { method: "POST" }).catch(() => {}); setScreen("dashboard"); } }} className="w-8 h-8 rounded-full hover:bg-gray-700 flex items-center justify-center text-gray-400">
           <X className="w-4 h-4" />
         </button>
       </header>
