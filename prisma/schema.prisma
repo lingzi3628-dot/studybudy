@@ -81,6 +81,9 @@ model User {
   tokenTransactions     TokenTransaction[]
   // Phase 14 — virtual classroom
   classSessions         ClassSession[]
+  // Phase 15 — room customization
+  userRoomObjects       UserRoomObject[]
+  userPets              UserPet[]
 
   // Relations for search settings are handled in SearchSettings model
 }
@@ -353,11 +356,16 @@ model StudyRoomState {
   aiTeacherAvatar   String   @default("🧙‍♂️")
   aiTeacherStyle    String   @default("encouraging")  // 'encouraging' | 'strict' | 'fun' | 'academic'
   // Phase 12b — room customization
-  roomTheme         String   @default("warm")        // 'warm' | 'dark' | 'pastel' | 'ocean'
+  roomTheme         String   @default("cozy_library")
   bookshelfColor    String   @default("#8B5CF6")
-  preferredAudio    String?  // 'lofi' | 'rain' | 'whitenoise' | 'classical'
+  preferredAudio    String?
   voiceEnabled      Boolean  @default(false)
-  voiceVoice        String?  // TTS voice name
+  voiceVoice        String?
+  // Phase 15 — visual overhaul
+  placedObjects     Json     @default("[]")
+  soundSettings     Json     @default("{\"fireplace\":0,\"rain\":0,\"birds\":0,\"lofi\":0,\"pages\":0}")
+  petId             String?  // references UserPet (not FK, just stored id)
+  lastDailyChestOpened DateTime?
   lastVisited       DateTime?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
@@ -1012,4 +1020,77 @@ model ClassroomSettings {
   xpReward        Int      @default(20)    // XP for completing class
   dailyLimit      Int      @default(1)     // free users: 1 class/day
   updatedAt       DateTime @updatedAt
+}
+
+// ════════════════════════════════════════════════════════════════
+// Phase 15 — Study Room Engagement & Visual Overhaul
+// ════════════════════════════════════════════════════════════════
+
+model RoomTheme {
+  id              String   @id @default(uuid())
+  name            String   @unique  // 'cozy_library' | 'futuristic_lab' | 'space_station' | 'beach_study' | 'dark_academia'
+  description     String?
+  backgroundGradient String  // CSS gradient string
+  accentColor     String   @default("#8B5CF6")
+  secondaryColor  String   @default("#6366F1")
+  iconStyle       String   @default("lucide")
+  isPremium       Boolean  @default(false)
+  coinCost        Int      @default(0)
+  createdAt       DateTime @default(now())
+}
+
+model RoomObject {
+  id              String   @id @default(uuid())
+  name            String   @unique
+  type            String   // 'furniture' | 'decoration' | 'special'
+  icon            String   // emoji or icon name
+  description     String?
+  coinCost        Int      @default(0)
+  isPremium       Boolean  @default(false)
+  levelRequired   Int      @default(1)
+  createdAt       DateTime @default(now())
+
+  userRoomObjects UserRoomObject[]
+}
+
+model UserRoomObject {
+  id           String   @id @default(uuid())
+  userId       String
+  objectId     String
+  acquiredAt   DateTime @default(now())
+
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  object       RoomObject @relation(fields: [objectId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, objectId])
+  @@index([userId])
+}
+
+model Pet {
+  id            String   @id @default(uuid())
+  name          String   @unique
+  emoji         String
+  description   String?
+  coinCost      Int      @default(100)
+  isPremium     Boolean  @default(false)
+  levelRequired Int      @default(1)
+  createdAt     DateTime @default(now())
+
+  userPets      UserPet[]
+}
+
+model UserPet {
+  id         String   @id @default(uuid())
+  userId     String
+  petId      String
+  petLevel   Int      @default(1)
+  petXp      Int      @default(0)
+  lastFed    DateTime?
+  createdAt  DateTime @default(now())
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pet        Pet      @relation(fields: [petId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, petId])
+  @@index([userId])
 }
