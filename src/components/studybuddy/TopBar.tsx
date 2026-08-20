@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Bell, Flame, Coins, Trophy, Zap } from "lucide-react";
+import { Bell, Flame, Coins, Trophy, Zap, CircleDot } from "lucide-react";
 import { useApp } from "./store";
 
 function TopBarInner({ mobile }: { mobile: boolean }) {
@@ -9,35 +9,34 @@ function TopBarInner({ mobile }: { mobile: boolean }) {
   const [initial, setInitial] = useState("?");
   const [streak, setStreak] = useState(0);
   const [tokens, setTokens] = useState<number | null>(null);
+  const [coins, setCoins] = useState<number | null>(null);
   const [xp, setXp] = useState<number | null>(null);
   const [level, setLevel] = useState<number | null>(null);
+  const [isResting, setIsResting] = useState(false);
 
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
-        const [meRes, progRes, xpRes] = await Promise.all([
+        const [meRes, progRes, xpRes, balRes] = await Promise.all([
           fetch("/api/auth/me"),
           fetch("/api/progress"),
           fetch("/api/user/xp"),
+          fetch("/api/user/balances"),
         ]);
         if (meRes.ok) {
           const d = await meRes.json();
           if (mounted && d.authed) {
             const name = d.user?.name || d.user?.email || "?";
             setInitial(name.charAt(0).toUpperCase());
-            if (typeof d.user?.tokenBalance === "number") {
-              setTokens(d.user.tokenBalance);
-            }
+            if (typeof d.user?.tokenBalance === "number") setTokens(d.user.tokenBalance);
           }
         }
         if (progRes.ok) {
           const d = await progRes.json();
           if (mounted) {
             setStreak(d.streak ?? 0);
-            if (typeof d.user?.tokenBalance === "number") {
-              setTokens(d.user.tokenBalance);
-            }
+            if (typeof d.user?.tokenBalance === "number") setTokens(d.user.tokenBalance);
           }
         }
         if (xpRes.ok) {
@@ -46,6 +45,14 @@ function TopBarInner({ mobile }: { mobile: boolean }) {
             if (typeof d.xp === "number") setXp(d.xp);
             if (typeof d.level === "number") setLevel(d.level);
             if (typeof d.streak === "number") setStreak(d.streak);
+          }
+        }
+        if (balRes.ok) {
+          const d = await balRes.json();
+          if (mounted) {
+            if (typeof d.coins === "number") setCoins(d.coins);
+            if (typeof d.tokens === "number") setTokens(d.tokens);
+            if (typeof d.isResting === "boolean") setIsResting(d.isResting);
           }
         }
       } catch {}
@@ -72,6 +79,25 @@ function TopBarInner({ mobile }: { mobile: boolean }) {
 
         {mobile && (
           <div className="flex items-center gap-1.5">
+            {isResting && (
+              <button
+                onClick={() => setScreen("earnCenter")}
+                className="flex items-center gap-1 bg-rose-50 text-rose-700 px-2 py-0.5 rounded-full text-xs font-semibold hover:bg-rose-100 animate-pulse"
+                title="Free model is resting"
+              >
+                <CircleDot className="w-3 h-3" /> Resting
+              </button>
+            )}
+            {coins !== null && (
+              <button
+                onClick={() => setScreen("earnCenter")}
+                aria-label="Coin balance"
+                className="flex items-center gap-1 bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full text-xs font-semibold hover:bg-amber-100 transition"
+              >
+                <Coins className="w-3 h-3" />
+                <span>{coins}</span>
+              </button>
+            )}
             {level !== null && (
               <button
                 onClick={() => setScreen("progress")}
@@ -80,7 +106,6 @@ function TopBarInner({ mobile }: { mobile: boolean }) {
               >
                 <Trophy className="w-3 h-3" />
                 <span>L{level}</span>
-                {xp !== null && <span className="opacity-70 text-[10px]">·{xp}</span>}
               </button>
             )}
             {tokens !== null && (
@@ -89,14 +114,13 @@ function TopBarInner({ mobile }: { mobile: boolean }) {
                 aria-label="Token balance"
                 className="flex items-center gap-1 bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full text-xs font-semibold hover:bg-indigo-100 transition"
               >
-                <Coins className="w-3 h-3" />
-                <span>{tokens.toLocaleString()}</span>
+                <Zap className="w-3 h-3" />
+                <span>{tokens}</span>
               </button>
             )}
             <div className="flex items-center gap-1.5 bg-amber-50 text-amber-700 px-2.5 py-1 rounded-full text-sm font-semibold">
               <Flame className="w-4 h-4 text-amber-500" />
               <span>{streak}</span>
-              <span className="text-amber-600/80 font-medium hidden xs:inline">streak</span>
             </div>
           </div>
         )}
@@ -111,25 +135,40 @@ function TopBarInner({ mobile }: { mobile: boolean }) {
       </div>
       {!mobile && (
         <div className="flex items-center gap-3">
+          {isResting && (
+            <button
+              onClick={() => setScreen("earnCenter")}
+              className="flex items-center gap-1 bg-rose-50 text-rose-700 px-3 py-1 rounded-full text-sm font-semibold hover:bg-rose-100 animate-pulse"
+            >
+              <CircleDot className="w-4 h-4" /> Model Resting
+            </button>
+          )}
+          {coins !== null && (
+            <button
+              onClick={() => setScreen("earnCenter")}
+              className="flex items-center gap-1.5 bg-amber-50 text-amber-700 px-3 py-1 rounded-full text-sm font-semibold hover:bg-amber-100 transition"
+            >
+              <Coins className="w-4 h-4" />
+              <span>{coins}</span>
+              <span className="text-amber-600/80 font-medium text-xs">coins</span>
+            </button>
+          )}
           {level !== null && (
             <button
               onClick={() => setScreen("progress")}
-              aria-label="XP and level"
               className="flex items-center gap-1.5 bg-violet-50 text-violet-700 px-3 py-1 rounded-full text-sm font-semibold hover:bg-violet-100 transition"
             >
               <Trophy className="w-4 h-4" />
               <span>L{level}</span>
-              {xp !== null && <span className="opacity-70 text-xs">·{xp.toLocaleString()} XP</span>}
             </button>
           )}
           {tokens !== null && (
             <button
               onClick={() => setScreen("billing")}
-              aria-label="Token balance"
               className="flex items-center gap-1.5 bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full text-sm font-semibold hover:bg-indigo-100 transition"
             >
-              <Coins className="w-4 h-4" />
-              <span>{tokens.toLocaleString()}</span>
+              <Zap className="w-4 h-4" />
+              <span>{tokens}</span>
               <span className="text-indigo-600/80 font-medium text-xs">tokens</span>
             </button>
           )}

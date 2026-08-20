@@ -21,7 +21,8 @@ export type Screen =
   | "auth"
   | "premium"
   | "billing"
-  | "conceptMap";
+  | "conceptMap"
+  | "earnCenter";
 
 export type CreateOption =
   | "upload"
