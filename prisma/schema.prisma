@@ -64,6 +64,14 @@ model User {
   leaderboard           Leaderboard?
   studyRoomStates       StudyRoomState[]
   dailyReviews          DailyReview[]
+  // Phase 12b
+  focusSessions         FocusSession[]
+  notes                 UserNote[]
+  bookmarks             Bookmark[]
+  dailyGoals            DailyGoal[]
+  studyGroupsCreated    StudyGroup[]
+  studyGroupMemberships StudyGroupMember[]
+  notifications         Notification[]
 
   // Relations for search settings are handled in SearchSettings model
 }
@@ -335,6 +343,12 @@ model StudyRoomState {
   aiTeacherName     String   @default("Professor Bloom")
   aiTeacherAvatar   String   @default("🧙‍♂️")
   aiTeacherStyle    String   @default("encouraging")  // 'encouraging' | 'strict' | 'fun' | 'academic'
+  // Phase 12b — room customization
+  roomTheme         String   @default("warm")        // 'warm' | 'dark' | 'pastel' | 'ocean'
+  bookshelfColor    String   @default("#8B5CF6")
+  preferredAudio    String?  // 'lofi' | 'rain' | 'whitenoise' | 'classical'
+  voiceEnabled      Boolean  @default(false)
+  voiceVoice        String?  // TTS voice name
   lastVisited       DateTime?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
@@ -401,6 +415,9 @@ model Topic {
   conceptMaps ConceptMap[]
   studyRoomStates StudyRoomState[]
   learningPaths   LearningPath[]
+  userNotes       UserNote[]
+  libraryResources LibraryResource[]
+  studyGroups     StudyGroup[]
   chapter     Chapter?  @relation(fields: [chapterId], references: [id], onDelete: Cascade)
   createdBy   User?     @relation(fields: [createdById], references: [id], onDelete: SetNull)
 
@@ -698,4 +715,130 @@ model ConceptMapSettings {
   tokenCost                 Int      @default(300)
   freeDailyLimit            Int      @default(1)
   updatedAt                 DateTime @updatedAt
+}
+
+// ═─────────────────────────────────────────────────────────────
+// Phase 12b — Upgraded Study Room (focus, notes, bookmarks, goals,
+//             library, groups, notifications)
+// ═─────────────────────────────────────────────────────────────
+
+model FocusSession {
+  id          String   @id @default(uuid())
+  userId      String
+  topicId     String?
+  durationSec Int      @default(0)
+  startedAt   DateTime @default(now())
+  endedAt     DateTime?
+  createdAt   DateTime @default(now())
+
+  user        User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([topicId])
+}
+
+model UserNote {
+  id          String   @id @default(uuid())
+  userId      String
+  topicId     String?
+  title       String
+  content     String   @default("")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topic       Topic?   @relation(fields: [topicId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([topicId])
+}
+
+model Bookmark {
+  id           String   @id @default(uuid())
+  userId       String
+  resourceType String   // 'lesson' | 'flashcard_set' | 'quiz' | 'concept_map' | 'video' | 'note'
+  resourceId   String
+  groupId      String?  // null = personal bookmark
+  createdAt    DateTime @default(now())
+
+  user         User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group        StudyGroup?   @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, resourceType, resourceId, groupId])
+  @@index([userId])
+  @@index([groupId])
+}
+
+model DailyGoal {
+  id        String   @id @default(uuid())
+  userId    String
+  date      DateTime
+  tasks     Json     // [{ id, text, completed, xp }]
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([userId, date])
+}
+
+model LibraryResource {
+  id           String   @id @default(uuid())
+  title        String
+  description  String?
+  resourceType String   // 'lesson' | 'flashcard_set' | 'quiz' | 'concept_map' | 'video' | 'note'
+  contentId    String?
+  subject      String?
+  topicId      String?
+  isPublic     Boolean  @default(true)
+  createdById  String?  // AdminUser.id (no FK since it's a different table)
+  createdAt    DateTime @default(now())
+
+  topic        Topic?   @relation(fields: [topicId], references: [id], onDelete: SetNull)
+
+  @@index([isPublic])
+  @@index([subject])
+}
+
+model StudyGroup {
+  id          String   @id @default(uuid())
+  name        String
+  topicId     String?
+  createdById String
+  inviteCode  String   @unique
+  createdAt   DateTime @default(now())
+
+  user        User     @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  topic       Topic?   @relation(fields: [topicId], references: [id], onDelete: SetNull)
+  members     StudyGroupMember[]
+  bookmarks   Bookmark[]
+
+  @@index([createdById])
+}
+
+model StudyGroupMember {
+  id        String   @id @default(uuid())
+  groupId   String
+  userId    String
+  joinedAt  DateTime @default(now())
+
+  group     StudyGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+  @@index([groupId])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  type      String   // 'due_review' | 'daily_goal' | 'badge' | 'group_invite' | 'system'
+  message   String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read])
+  @@index([createdAt])
 }

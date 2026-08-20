@@ -24,6 +24,11 @@ const FLAT_COSTS: Record<string, number> = {
   path_lesson: 200,
   path_flashcards: 150,
   path_quiz: 150,
+  // Phase 12b
+  whiteboard_solver: 100,
+  cover_image: 10,
+  voice_transcribe: 50,
+  tts: 50,
 };
 
 // Daily limits per feature for FREE plan (premium = unlimited)
@@ -42,6 +47,11 @@ const FREE_DAILY_LIMITS: Record<string, number> = {
   path_lesson: 3,
   path_flashcards: 3,
   path_quiz: 3,
+  // Phase 12b
+  whiteboard_solver: 5,
+  cover_image: 5,
+  voice_transcribe: 0,  // premium only
+  tts: 0,               // premium only
 };
 
 export type DeductResult =

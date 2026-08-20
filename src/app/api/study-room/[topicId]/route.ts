@@ -153,6 +153,47 @@ export async function GET(
       recentAttemptsCount: recentAttempts.length,
       readiness,
     },
+    // Phase 12b — extra room data
+    bookmarks: await db.bookmark.findMany({
+      where: { userId: user.id, groupId: null },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+      select: { id: true, resourceType: true, resourceId: true, createdAt: true },
+    }).catch(() => []),
+    notes: await db.userNote.findMany({
+      where: { userId: user.id, OR: [{ topicId }, { topicId: null }] },
+      orderBy: { updatedAt: "desc" },
+      take: 20,
+      select: { id: true, title: true, content: true, updatedAt: true },
+    }).catch(() => []),
+    dailyGoals: await db.dailyGoal.findUnique({
+      where: { userId_date: { userId: user.id, date: today } },
+    }).catch(() => null),
+    focusSessionsToday: await db.focusSession.count({
+      where: { userId: user.id, startedAt: { gte: today } },
+    }).catch(() => 0),
+    focusSecondsToday: (await db.focusSession.findMany({
+      where: { userId: user.id, startedAt: { gte: today } },
+      select: { durationSec: true },
+    }).catch(() => []) as any[]).reduce((sum, s) => sum + (s?.durationSec ?? 0), 0),
+    studyGroups: await db.studyGroupMember.findMany({
+      where: { userId: user.id },
+      include: {
+        group: {
+          select: {
+            id: true, name: true, inviteCode: true, topicId: true,
+            _count: { select: { members: true } },
+          },
+        },
+      },
+      orderBy: { joinedAt: "desc" },
+    }).catch(() => []),
+    notifications: await db.notification.findMany({
+      where: { userId: user.id, read: false },
+      orderBy: { createdAt: "desc" },
+      take: 10,
+      select: { id: true, type: true, message: true, createdAt: true },
+    }).catch(() => []),
     tokenBalance: user.tokenBalance,
   });
 }
