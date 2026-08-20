@@ -132,6 +132,10 @@ export function PathDashboard() {
   const hasPath = data?.hasPath ?? false;
   const path = data?.path;
   const nodes: PathNode[] = data?.nodes ?? [];
+  // Handle progress being a number OR an object {total, completed, percent}
+  const progressPct = typeof path?.progress === "number"
+    ? path.progress
+    : path?.progress?.percent ?? 0;
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-indigo-50 to-violet-50">
@@ -200,7 +204,7 @@ export function PathDashboard() {
               <div className="flex items-center justify-between">
                 <div>
                   <h1 className="text-lg font-bold text-gray-900">{path?.skill}</h1>
-                  <p className="text-xs text-gray-500">{path?.subject ?? "General"} · {path?.progress ?? 0}% complete</p>
+                  <p className="text-xs text-gray-500">{path?.subject ?? "General"} · {progressPct}% complete</p>
                 </div>
                 <button
                   onClick={() => setShowCreatePath(true)}
@@ -214,7 +218,7 @@ export function PathDashboard() {
               <div className="mt-2 h-3 bg-gray-200 rounded-full overflow-hidden">
                 <div
                   className="h-full bg-gradient-to-r from-indigo-500 to-violet-600 transition-all duration-500"
-                  style={{ width: `${path?.progress ?? 0}%` }}
+                  style={{ width: `${progressPct}%` }}
                 />
               </div>
             </div>
