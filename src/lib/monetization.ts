@@ -49,6 +49,8 @@ const FLAT_COSTS: Record<string, number> = {
   cover_image: 10,
   voice_transcribe: 50,
   tts: 50,
+  // Phase 14
+  classroom: 50,
 };
 
 // Daily limits per feature for FREE plan (premium = unlimited)
@@ -70,8 +72,10 @@ const FREE_DAILY_LIMITS: Record<string, number> = {
   // Phase 12b
   whiteboard_solver: 5,
   cover_image: 5,
-  voice_transcribe: 0,  // premium only
-  tts: 0,               // premium only
+  voice_transcribe: 0,
+  tts: 0,
+  // Phase 14
+  classroom: 1,
 };
 
 export type DeductResult =

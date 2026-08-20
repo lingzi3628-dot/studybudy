@@ -147,11 +147,12 @@ export function StudyRoom() {
           setScreen("conceptMap");
         }
         break;
-      case "whiteboard": setScreen("graph"); break; // solver lives in graph screen
+      case "whiteboard": setScreen("graph"); break;
       case "focus": setShowFocusTimer(true); break;
       case "notes": setShowNotes(true); break;
       case "music": setShowMusic(true); break;
       case "games": setShowMiniGames(true); break;
+      case "classroom": setScreen("classroom"); break;
     }
   };
 

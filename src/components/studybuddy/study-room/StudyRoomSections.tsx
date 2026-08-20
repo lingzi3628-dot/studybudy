@@ -6,7 +6,7 @@ import {
   Sparkles, Trophy, Flame, Coins, Map as MapIcon, Bot, Send as SendIcon,
   Settings, Music, Timer, FileText, Bookmark, BookOpen, ListChecks,
   Layers, ChevronRight, Volume2, VolumeX, Check, Trash2, Plus,
-  Target, Users, Award, Palette, FileDown, Gamepad2,
+  Target, Users, Award, Palette, FileDown, Gamepad2, GraduationCap,
 } from "lucide-react";
 import { useApp } from "../store";
 
@@ -161,6 +161,7 @@ export function AITeacherCard({ room, onAsk, onStartReview, onOpenChat }: {
  */
 export function ToolsWorkbench({ onTool }: { onTool: (tool: string) => void }) {
   const tools = [
+    { key: "classroom", label: "Classroom", icon: GraduationCap, color: "bg-amber-50 text-amber-600" },
     { key: "graph", label: "Graph", icon: MapIcon, color: "bg-emerald-50 text-emerald-600" },
     { key: "flashcards", label: "Flashcards", icon: Layers, color: "bg-amber-50 text-amber-600" },
     { key: "quiz", label: "Quiz", icon: ListChecks, color: "bg-rose-50 text-rose-600" },

@@ -79,6 +79,8 @@ model User {
   modelRentals          ModelRental[]
   coinTransactions      CoinTransaction[]
   tokenTransactions     TokenTransaction[]
+  // Phase 14 — virtual classroom
+  classSessions         ClassSession[]
 
   // Relations for search settings are handled in SearchSettings model
 }
@@ -425,6 +427,9 @@ model Topic {
   userNotes       UserNote[]
   libraryResources LibraryResource[]
   studyGroups     StudyGroup[]
+  // Phase 14 — virtual classroom
+  classSessions   ClassSession[]
+  lessonContents  LessonContent[]
   chapter     Chapter?  @relation(fields: [chapterId], references: [id], onDelete: Cascade)
   createdBy   User?     @relation(fields: [createdById], references: [id], onDelete: SetNull)
 
@@ -930,4 +935,81 @@ model ModelRentalPrice {
 
   @@unique([modelName, durationMinutes])
   @@index([modelName])
+}
+
+// ════════════════════════════════════════════════════════════════
+// Phase 14 — Virtual Classroom with Professor Bloom
+// ════════════════════════════════════════════════════════════════
+
+model ClassSession {
+  id              String   @id @default(uuid())
+  userId          String
+  topicId         String
+  pathItemId      String?
+  startTime       DateTime @default(now())
+  endTime         DateTime?
+  durationMinutes Int      @default(30)
+  status          String   @default("in_progress") // 'in_progress' | 'completed' | 'abandoned'
+  currentTestIndex Int     @default(0)
+  progress        Float    @default(0) // 0..1
+  tokensSpent     Int      @default(0)
+  createdAt       DateTime @default(now())
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topic           Topic    @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  tests           ClassTest[]
+
+  @@index([userId, status])
+  @@index([topicId])
+}
+
+model ClassTest {
+  id          String   @id @default(uuid())
+  sessionId   String
+  testType    String   // 'mini' | 'oral' | 'written'
+  questions   Json     // [{id, type, question, options?, correctIndex?, answer?, explanation?}]
+  score       Float?
+  createdAt   DateTime @default(now())
+
+  session     ClassSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  oralAnswers OralAnswer[]
+
+  @@index([sessionId])
+}
+
+model OralAnswer {
+  id              String   @id @default(uuid())
+  testId          String
+  questionId      String
+  userAnswerText  String?
+  aiFeedback      String?
+  score           Float?
+  createdAt       DateTime @default(now())
+
+  test            ClassTest @relation(fields: [testId], references: [id], onDelete: Cascade)
+
+  @@index([testId])
+}
+
+model LessonContent {
+  id          String   @id @default(uuid())
+  topicId     String
+  contentJson Json     // array of blocks: [{type:'text'|'equation'|'bullet'|'heading', content: '...'}]
+  createdAt   DateTime @default(now())
+
+  topic       Topic    @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@index([topicId])
+}
+
+model ClassroomSettings {
+  id              Int      @id @default(autoincrement())
+  durationMinutes Int      @default(30)
+  testIntervalMin Int      @default(10)    // mini-test every N minutes
+  tokenCost       Int      @default(50)    // tokens to start class
+  passThreshold   Float    @default(0.7)   // 70% to pass
+  coinReward      Int      @default(10)    // coins for completing class
+  xpReward        Int      @default(20)    // XP for completing class
+  dailyLimit      Int      @default(1)     // free users: 1 class/day
+  updatedAt       DateTime @updatedAt
 }

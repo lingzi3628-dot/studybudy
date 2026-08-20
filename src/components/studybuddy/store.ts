@@ -22,7 +22,8 @@ export type Screen =
   | "premium"
   | "billing"
   | "conceptMap"
-  | "earnCenter";
+  | "earnCenter"
+  | "classroom";
 
 export type CreateOption =
   | "upload"
