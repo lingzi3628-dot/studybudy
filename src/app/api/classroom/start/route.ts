@@ -42,13 +42,19 @@ export async function POST(req: NextRequest) {
   let settings: any = await db.classroomSettings.findFirst().catch(() => null);
   if (!settings) settings = { durationMinutes: 30, testIntervalMin: 10, tokenCost: 50, passThreshold: 0.7, coinReward: 10, xpReward: 20, dailyLimit: 1 };
 
+  // Mark ALL MASTERED sessions as completed (so they're never resumed)
+  await db.classroomSession.updateMany({
+    where: { userId: user.id, topicId: topic.id, flowState: "MASTERED", status: "active" },
+    data: { status: "completed", completedAt: new Date() },
+  }).catch(() => {});
+
   // Check for an existing NON-completed, NON-mastered session to resume
   let session = await db.classroomSession.findFirst({
     where: {
       userId: user.id,
       topicId: topic.id,
       status: "active",
-      flowState: { not: "MASTERED" },
+      flowState: { notIn: ["MASTERED"] },
     },
     orderBy: { lastActivity: "desc" },
   }).catch(() => null);

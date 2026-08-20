@@ -5,6 +5,7 @@ import {
   X, Loader2, AlertCircle, Play, Pause, Hand, Send, SkipForward,
   GraduationCap, Clock, BarChart3, Check, Trophy, Coins, Zap,
   Sparkles, ChevronRight, Bot, Calculator,
+  Layers, ListChecks, Map as MapIcon, Sigma, Bot as BotIcon,
 } from "lucide-react";
 import { useApp } from "../store";
 
@@ -637,28 +638,89 @@ export function ClassroomScreen() {
         </div>
       )}
 
-      {/* Bottom controls */}
+      {/* Bottom controls + study tools */}
       {phase === "lesson" && (
-        <div className="bg-gray-800 border-t border-gray-700 px-4 py-2 flex items-center justify-center gap-3">
-          <button
-            onClick={() => setRunning(!running)}
-            className="w-10 h-10 rounded-full bg-gray-700 hover:bg-gray-600 flex items-center justify-center text-white"
-          >
-            {running ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-          </button>
-          <button
-            onClick={() => triggerMiniTest((session?.currentTestIndex ?? 0) + 1)}
-            disabled={busy}
-            className="px-3 h-9 rounded-full bg-amber-600 text-white text-xs font-semibold hover:bg-amber-700 disabled:opacity-50 flex items-center gap-1"
-          >
-            <Sparkles className="w-3 h-3" /> Take Test Now
-          </button>
-          <button
-            onClick={() => setToast("Raise hand — Professor Bloom will check in shortly!")}
-            className="w-10 h-10 rounded-full bg-gray-700 hover:bg-gray-600 flex items-center justify-center text-white"
-          >
-            <Hand className="w-4 h-4" />
-          </button>
+        <div className="bg-gray-800 border-t border-gray-700 px-4 py-2 space-y-2">
+          {/* Phase 16: Study Tools — contextually shown per flow state */}
+          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1">
+            <span className="text-[9px] text-gray-500 font-semibold flex-shrink-0">TOOLS:</span>
+            {flowState === "LEARNING" && (
+              <>
+                <button onClick={() => setScreen("flashcards")} className="flex-shrink-0 px-2 h-7 rounded-full bg-amber-600/80 text-white text-[10px] font-semibold hover:bg-amber-600 flex items-center gap-1">
+                  <Layers className="w-3 h-3" /> Flashcards
+                </button>
+                <button onClick={() => triggerMiniTest(1)} className="flex-shrink-0 px-2 h-7 rounded-full bg-rose-600/80 text-white text-[10px] font-semibold hover:bg-rose-600 flex items-center gap-1">
+                  <ListChecks className="w-3 h-3" /> Quick Quiz
+                </button>
+                <button onClick={() => { (useApp.getState() as any).setActiveConceptMapId(null); setScreen("conceptMap"); }} className="flex-shrink-0 px-2 h-7 rounded-full bg-fuchsia-600/80 text-white text-[10px] font-semibold hover:bg-fuchsia-600 flex items-center gap-1">
+                  <MapIcon className="w-3 h-3" /> Concept Map
+                </button>
+                <button onClick={() => setScreen("graph")} className="flex-shrink-0 px-2 h-7 rounded-full bg-sky-600/80 text-white text-[10px] font-semibold hover:bg-sky-600 flex items-center gap-1">
+                  <Sigma className="w-3 h-3" /> Solver
+                </button>
+                <button onClick={() => setScreen("tutor")} className="flex-shrink-0 px-2 h-7 rounded-full bg-violet-600/80 text-white text-[10px] font-semibold hover:bg-violet-600 flex items-center gap-1">
+                  <Bot className="w-3 h-3" /> Ask AI
+                </button>
+              </>
+            )}
+            {flowState === "PRACTICE" && (
+              <>
+                <button onClick={() => setScreen("flashcards")} className="flex-shrink-0 px-2 h-7 rounded-full bg-amber-600/80 text-white text-[10px] font-semibold hover:bg-amber-600 flex items-center gap-1">
+                  <Layers className="w-3 h-3" /> Practice Cards
+                </button>
+                <button onClick={() => setScreen("quiz")} className="flex-shrink-0 px-2 h-7 rounded-full bg-rose-600/80 text-white text-[10px] font-semibold hover:bg-rose-600 flex items-center gap-1">
+                  <ListChecks className="w-3 h-3" /> Practice Quiz
+                </button>
+              </>
+            )}
+            {flowState === "QUIZ" && (
+              <button onClick={() => triggerMiniTest(1)} disabled={busy} className="flex-shrink-0 px-3 h-7 rounded-full bg-rose-600 text-white text-[10px] font-bold hover:bg-rose-700 flex items-center gap-1">
+                <ListChecks className="w-3 h-3" /> Take Quiz Now
+              </button>
+            )}
+            {flowState === "ASSESSMENT" && (
+              <button onClick={() => triggerMiniTest(1)} disabled={busy} className="flex-shrink-0 px-3 h-7 rounded-full bg-indigo-600 text-white text-[10px] font-bold hover:bg-indigo-700 flex items-center gap-1">
+                <Sparkles className="w-3 h-3" /> Start Assessment
+              </button>
+            )}
+            {flowState === "REVIEW" && (
+              <>
+                <button onClick={() => setScreen("flashcards")} className="flex-shrink-0 px-2 h-7 rounded-full bg-amber-600/80 text-white text-[10px] font-semibold hover:bg-amber-600 flex items-center gap-1">
+                  <Layers className="w-3 h-3" /> Review Cards
+                </button>
+                <button onClick={() => setScreen("quiz")} className="flex-shrink-0 px-2 h-7 rounded-full bg-rose-600/80 text-white text-[10px] font-semibold hover:bg-rose-600 flex items-center gap-1">
+                  <ListChecks className="w-3 h-3" /> Retry Quiz
+                </button>
+              </>
+            )}
+            {flowState === "MASTERED" && (
+              <button onClick={() => completeClass()} disabled={busy} className="flex-shrink-0 px-3 h-7 rounded-full bg-emerald-600 text-white text-[10px] font-bold hover:bg-emerald-700 flex items-center gap-1">
+                <Trophy className="w-3 h-3" /> Complete & Earn Rewards
+              </button>
+            )}
+          </div>
+          {/* Playback controls */}
+          <div className="flex items-center justify-center gap-3">
+            <button
+              onClick={() => setRunning(!running)}
+              className="w-9 h-9 rounded-full bg-gray-700 hover:bg-gray-600 flex items-center justify-center text-white"
+            >
+              {running ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+            </button>
+            <button
+              onClick={() => triggerMiniTest((session?.currentTestIndex ?? 0) + 1)}
+              disabled={busy}
+              className="px-3 h-8 rounded-full bg-amber-600 text-white text-xs font-semibold hover:bg-amber-700 disabled:opacity-50 flex items-center gap-1"
+            >
+              <Sparkles className="w-3 h-3" /> Take Test Now
+            </button>
+            <button
+              onClick={() => setToast("Professor Bloom will check in shortly! 🙋")}
+              className="w-9 h-9 rounded-full bg-gray-700 hover:bg-gray-600 flex items-center justify-center text-white"
+            >
+              <Hand className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       )}
 
