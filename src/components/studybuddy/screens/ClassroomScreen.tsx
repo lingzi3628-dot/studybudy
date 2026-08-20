@@ -80,35 +80,21 @@ export function ClassroomScreen() {
       }
       setSession(d.session);
 
-      // Phase 16: handle guided flow response (has flowState, no lessonBlocks)
-      if (d.flowState || d.session?.flowState) {
-        setFlowState(d.flowState ?? d.session?.flowState ?? "ASSESSMENT");
-        setFlowStep(d.currentStep ?? d.session?.currentStep ?? 0);
-        setFlowProgress(d.progress ?? d.session?.progress ?? 0);
-        // Fetch lesson blocks separately from the Phase 14 lesson endpoint
-        try {
-          const lr = await fetch(`/api/classroom/${d.session.id}/lesson`);
-          const ld = await lr.json();
-          if (lr.ok) {
-            setBlocks(ld.blocks ?? []);
-          }
-        } catch {}
-        // Fetch classroom state for professor message + available tools
-        try {
-          const sr = await fetch(`/api/classroom/${d.session.id}/state`);
-          const sd = await sr.json();
-          if (sr.ok && sd.professorMessage) {
-            setProfessorMsg(sd.professorMessage);
-          }
-        } catch {}
-        setDurationMin(30);
-        setTestIntervalMin(10);
-      } else {
-        // Phase 14 fallback: response has lessonBlocks directly
-        setBlocks(d.lessonBlocks ?? []);
-        setDurationMin(d.durationMinutes ?? 30);
-        setTestIntervalMin(d.testIntervalMin ?? 10);
-      }
+      // Phase 14+16 combined: response has both flowState AND lessonBlocks
+      setFlowState(d.flowState ?? d.session?.flowState ?? "ASSESSMENT");
+      setFlowStep(d.currentStep ?? d.session?.currentStep ?? 0);
+      setFlowProgress(d.progress ?? d.session?.progress ?? 0);
+      setBlocks(d.lessonBlocks ?? []);
+      setDurationMin(d.durationMinutes ?? 30);
+      setTestIntervalMin(d.testIntervalMin ?? 10);
+      // Fetch classroom state for professor message
+      try {
+        const sr = await fetch(`/api/classroom/${d.session.id}/state`);
+        const sd = await sr.json();
+        if (sr.ok && sd.professorMessage) {
+          setProfessorMsg(sd.professorMessage);
+        }
+      } catch {}
 
       setPhase("lesson");
       setTimer(0);
