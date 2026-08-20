@@ -32,11 +32,14 @@ model User {
   lastLogin         DateTime?
   // Monetization fields
   planId            String?
-  tokenBalance      Int      @default(1000)
+  tokenBalance      Int      @default(50)    // daily free tokens (reset daily)
   currentModel      String   @default("study_buddy_free")
   subscriptionExpiry DateTime?
   activationKey     String?
   tokenResetDate    DateTime?
+  // Phase 13 — coin economy
+  coinBalance       Int      @default(0)     // earned via engagement, spent on rentals
+  freeModelRestingUntil DateTime?             // null = not resting; future = resting until
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -72,6 +75,10 @@ model User {
   studyGroupsCreated    StudyGroup[]
   studyGroupMemberships StudyGroupMember[]
   notifications         Notification[]
+  // Phase 13 — coin economy
+  modelRentals          ModelRental[]
+  coinTransactions      CoinTransaction[]
+  tokenTransactions     TokenTransaction[]
 
   // Relations for search settings are handled in SearchSettings model
 }
@@ -841,4 +848,86 @@ model Notification {
 
   @@index([userId, read])
   @@index([createdAt])
+}
+
+// ════════════════════════════════════════════════════════════════
+// Phase 13 — Token & Coin Economy Rebuild
+// ════════════════════════════════════════════════════════════════
+
+model ModelRental {
+  id           String   @id @default(uuid())
+  userId       String
+  modelName    String   // 'study_buddy_pro' | 'study_buddy_king' | ...
+  startedAt    DateTime @default(now())
+  expiresAt    DateTime
+  coinsSpent   Int      @default(0)
+  status       String   @default("active")  // 'active' | 'expired' | 'cancelled'
+  createdAt    DateTime @default(now())
+
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([expiresAt])
+}
+
+model CoinTransaction {
+  id        String   @id @default(uuid())
+  userId    String
+  amount    Int      // positive = credit, negative = debit
+  reason    String   // 'login_bonus' | 'quiz_complete' | 'rent_model' | 'wake_free_model' | 'exchange' | 'admin_adjust'
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+model TokenTransaction {
+  id        String   @id @default(uuid())
+  userId    String
+  amount    Int      // positive = credit, negative = debit
+  reason    String   // 'daily_reset' | 'ai_tutor' | 'concept_map' | 'exchange' | 'earn' | 'admin_adjust'
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+model EarnRule {
+  id            String   @id @default(uuid())
+  action        String   @unique  // 'login' | 'complete_lesson' | 'complete_quiz' | 'streak_7' | 'focus_25min' | 'daily_review' | 'note_created' | 'concept_map'
+  coinReward    Int      @default(0)
+  xpReward      Int      @default(0)
+  tokenReward   Int      @default(0)
+  dailyLimit    Int      @default(0)  // max times per day (0 = unlimited)
+  createdAt     DateTime @default(now())
+
+  @@index([action])
+}
+
+model RestingSettings {
+  id                  Int      @id @default(autoincrement())
+  freeRequestsPerHour Int      @default(10)
+  cooldownMinutes     Int      @default(30)
+  wakeCostCoins       Int      @default(5)
+  updatedAt           DateTime @updatedAt
+}
+
+model FeatureTokenCost {
+  id           Int      @id @default(autoincrement())
+  featureName  String   @unique  // 'ai_tutor' | 'concept_map' | 'flashcards' | 'quiz' | 'solver' | 'voice_transcribe' | 'voice_tts' | 'cover_image'
+  tokenCost    Int      @default(0)
+  updatedAt    DateTime @updatedAt
+}
+
+model ModelRentalPrice {
+  id              String   @id @default(uuid())
+  modelName       String   // 'study_buddy_plus' | 'study_buddy_pro' | ...
+  durationMinutes Int      // 30, 60, 360, 1440
+  coinCost        Int
+  createdAt       DateTime @default(now())
+
+  @@unique([modelName, durationMinutes])
+  @@index([modelName])
 }

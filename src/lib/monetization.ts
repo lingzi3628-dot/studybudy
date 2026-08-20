@@ -1,10 +1,30 @@
 /**
- * Monetization engine — token deduction, model permission, daily limits, refunds.
+ * Monetization engine — Phase 13: Token + Coin + Resting economy.
+ *
+ * FREE MODEL (study_buddy_free):
+ *   - 10 requests per hour, then 30-min cooldown (resting)
+ *   - Can be woken early with 5 coins
+ *   - Daily limits on heavy features (search, tutor, etc.)
+ *
+ * TOKENS:
+ *   - 50 free tokens/day for free users (auto-reset daily)
+ *   - Used for AI-heavy features (tutor=50, concept_map=300, etc.)
+ *   - Premium subscribers get monthly allowance (existing)
+ *
+ * COINS:
+ *   - Earned via activities (login, complete quiz, streak, etc.)
+ *   - Spent on: model rentals (30min-1day), waking free model
+ *
+ * XP:
+ *   - Earned alongside coins; determines level
  *
  * Token costs (flat rate per feature, multiplied by model multiplier):
  *   search = 100, cards = 500, quiz = 300, tutor = 200,
- *   graph = 50, translate = 100, learning_path = 400,
- *   image_search = 10, video_search = 50, concept_map = 300
+ *   graph = 50, translate = 100, learning_path = 500,
+ *   image_search = 10, video_search = 50, concept_map = 300,
+ *   ai_teacher = 50, path_lesson = 200, path_flashcards = 150,
+ *   path_quiz = 150, whiteboard_solver = 100, cover_image = 10,
+ *   voice_transcribe = 50, tts = 50
  */
 import { db } from "./db";
 
@@ -155,14 +175,85 @@ export async function checkAndDeductTokens(userId: string, feature: string): Pro
         planId: true,
         subscriptionExpiry: true,
         tokenResetDate: true,
+        coinBalance: true,
+        freeModelRestingUntil: true,
       },
     });
 
     if (!user) return { ok: false, error: "User not found", code: "NOT_FOUND" };
 
-    // Check subscription expiry
+    // Phase 13: Check if free model is resting (only for free users using free model)
     const hasActivePlan = user.planId && (!user.subscriptionExpiry || new Date() < user.subscriptionExpiry);
     const isPremium = Boolean(hasActivePlan);
+    const isFreeModel = user.currentModel === "study_buddy_free";
+
+    // Check active rental — if user has rented a premium model, use that instead
+    let effectiveModel = user.currentModel;
+    if (!isPremium && isFreeModel) {
+      const activeRental = await db.modelRental.findFirst({
+        where: {
+          userId, status: "active",
+          expiresAt: { gt: new Date() },
+        },
+        orderBy: { expiresAt: "desc" },
+      }).catch(() => null);
+      if (activeRental) {
+        effectiveModel = activeRental.modelName;
+      }
+    }
+
+    const isUsingFreeModel = effectiveModel === "study_buddy_free";
+
+    // If using free model AND it's resting, block the request
+    if (isUsingFreeModel && user.freeModelRestingUntil && new Date() < user.freeModelRestingUntil) {
+      const remainingMs = user.freeModelRestingUntil.getTime() - Date.now();
+      const remainingMin = Math.ceil(remainingMs / 60000);
+      return {
+        ok: false,
+        error: `🥱 Study Buddy Free is resting. Try again in ${remainingMin} minute${remainingMin === 1 ? "" : "s"}, or spend 5 coins to wake it now, or rent a premium buddy.`,
+        code: "MODEL_RESTING",
+      };
+    }
+
+    // Phase 13: Daily token reset (every 24h, gives 50 free tokens to free users)
+    let workingBalance = user.tokenBalance ?? 0;
+    if (!isPremium && user.tokenResetDate && new Date() > user.tokenResetDate) {
+      // Free users get 50 tokens daily (not 1000 monthly)
+      const newBalance = 50;
+      const nextReset = new Date();
+      nextReset.setDate(nextReset.getDate() + 1); // +1 day
+      await db.user.update({
+        where: { id: userId },
+        data: { tokenBalance: newBalance, tokenResetDate: nextReset },
+      }).catch((e: any) => console.error("daily reset failed:", e?.message));
+      // Log token transaction
+      await db.tokenTransaction.create({
+        data: { userId, amount: newBalance - workingBalance, reason: "daily_reset" },
+      }).catch(() => {});
+      workingBalance = newBalance;
+    } else if (isPremium && user.tokenResetDate && new Date() > user.tokenResetDate) {
+      // Premium users: monthly reset with plan allowance
+      const plan = user.planId ? await db.plan.findUnique({ where: { id: user.planId } }).catch(() => null) : null;
+      const newBalance = plan?.tokenLimit ?? 1000;
+      const nextReset = new Date();
+      nextReset.setMonth(nextReset.getMonth() + 1);
+      await db.user.update({
+        where: { id: userId },
+        data: { tokenBalance: newBalance, tokenResetDate: nextReset },
+      }).catch((e: any) => console.error("monthly reset failed:", e?.message));
+      await db.tokenTransaction.create({
+        data: { userId, amount: newBalance - workingBalance, reason: "monthly_reset" },
+      }).catch(() => {});
+      workingBalance = newBalance;
+    } else if (!user.tokenResetDate) {
+      // Set initial reset date if missing
+      const nextReset = new Date();
+      nextReset.setDate(nextReset.getDate() + 1);
+      await db.user.update({
+        where: { id: userId },
+        data: { tokenResetDate: nextReset },
+      }).catch(() => {});
+    }
 
     // Check daily limits (only for free users)
     if (!isPremium) {
@@ -188,56 +279,86 @@ export async function checkAndDeductTokens(userId: string, feature: string): Pro
 
     // Get model multiplier
     const mapping = await db.modelMapping.findUnique({
-      where: { modelName: user.currentModel },
+      where: { modelName: effectiveModel },
     }).catch(() => null);
     const multiplier = mapping?.tokenCostMultiplier ?? 1;
 
-    // Check premium-model permission (e.g. GPT-4/Claude gated behind paid plan)
-    if (mapping?.requiresPremium && !isPremium) {
-      return {
-        ok: false,
-        error: `🥲 You need to upgrade to use ${mapping.displayName}. Get an activation key from the Premium page!`,
-        code: "MODEL_LOCKED",
-      };
+    // Check premium-model permission
+    if (mapping?.requiresPremium && !isPremium && !isUsingFreeModel) {
+      // User has effective model that requires premium — check if via rental
+      const activeRental = await db.modelRental.findFirst({
+        where: { userId, modelName: effectiveModel, status: "active", expiresAt: { gt: new Date() } },
+      }).catch(() => null);
+      if (!activeRental) {
+        return {
+          ok: false,
+          error: `🥲 You need to upgrade to use ${mapping.displayName}. Rent it with coins or get an activation key!`,
+          code: "MODEL_LOCKED",
+        };
+      }
     }
 
-    // Calculate cost
-    const flatCost = FLAT_COSTS[feature] ?? 100;
+    // Phase 13: Look up token cost from FeatureTokenCost table (admin-configurable)
+    // Falls back to FLAT_COSTS hardcoded values if not found
+    let flatCost = FLAT_COSTS[feature] ?? 100;
+    try {
+      const ftc = await db.featureTokenCost.findUnique({ where: { featureName: feature } });
+      if (ftc) flatCost = ftc.tokenCost;
+    } catch {}
+
     const costTokens = Math.ceil(flatCost * multiplier);
 
-    // Check token balance
-    if ((user.tokenBalance ?? 0) < costTokens) {
+    // Phase 13: Premium users may have reduced/waived costs (handled by plan features)
+    let effectiveCost = costTokens;
+    if (isPremium && user.planId) {
+      const plan = await db.plan.findUnique({ where: { id: user.planId }, select: { features: true } }).catch(() => null);
+      const planFeatures = (plan?.features as any) ?? {};
+      // Plans can specify 'tokenDiscount' (e.g., 0.5 = 50% off) or 'freeFeatures' array
+      if (typeof planFeatures.tokenDiscount === "number") {
+        effectiveCost = Math.ceil(costTokens * planFeatures.tokenDiscount);
+      }
+      if (Array.isArray(planFeatures.freeFeatures) && planFeatures.freeFeatures.includes(feature)) {
+        effectiveCost = 0;
+      }
+    }
+
+    // Check token balance (only if cost > 0)
+    if (effectiveCost > 0 && workingBalance < effectiveCost) {
       return {
         ok: false,
-        error: `Not enough tokens (need ${costTokens}, have ${user.tokenBalance ?? 0}). Upgrade your plan to get more!`,
+        error: `Not enough tokens (need ${effectiveCost}, have ${workingBalance}). Earn more by completing activities, or upgrade your plan!`,
         code: "INSUFFICIENT_TOKENS",
       };
     }
 
-    // Monthly token reset (must happen BEFORE deduction so user keeps full refresh)
-    let workingBalance = user.tokenBalance ?? 0;
-    if (user.tokenResetDate && new Date() > user.tokenResetDate) {
-      const plan = user.planId ? await db.plan.findUnique({ where: { id: user.planId } }).catch(() => null) : null;
-      const newBalance = plan?.tokenLimit ?? 1000;
-      const nextReset = new Date();
-      nextReset.setMonth(nextReset.getMonth() + 1);
-      await db.user.update({
-        where: { id: userId },
-        data: { tokenBalance: newBalance, tokenResetDate: nextReset },
-      }).catch((e: any) => console.error("monthly reset update failed:", e?.message));
-      workingBalance = newBalance;
-    } else if (!user.tokenResetDate) {
-      // Free users without reset date — set one now so they get monthly refresh
-      const nextReset = new Date();
-      nextReset.setMonth(nextReset.getMonth() + 1);
-      await db.user.update({
-        where: { id: userId },
-        data: { tokenResetDate: nextReset },
-      }).catch((e: any) => console.error("set reset date failed:", e?.message));
+    // Phase 13: Track hourly usage for free model — if exceeded, set resting
+    if (isUsingFreeModel) {
+      const hourStart = new Date();
+      hourStart.setHours(hourStart.getHours(), Math.floor(hourStart.getMinutes() / 60) * 60, 0, 0);
+      // Count requests in the last hour
+      let settings: any = await db.restingSettings.findFirst().catch(() => null);
+      if (!settings) settings = { freeRequestsPerHour: 10, cooldownMinutes: 30, wakeCostCoins: 5 };
+      const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      const hourCount = await db.tokenUsageLog.count({
+        where: { userId, createdAt: { gte: hourAgo } },
+      }).catch(() => 0);
+      if (hourCount >= settings.freeRequestsPerHour) {
+        // Trigger resting — set freeModelRestingUntil to now + cooldown
+        const restingUntil = new Date(Date.now() + settings.cooldownMinutes * 60 * 1000);
+        await db.user.update({
+          where: { id: userId },
+          data: { freeModelRestingUntil: restingUntil },
+        }).catch(() => {});
+        return {
+          ok: false,
+          error: `🥱 You've used Study Buddy Free ${hourCount} times this hour. It's now resting for ${settings.cooldownMinutes} minutes. Spend ${settings.wakeCostCoins} coins to wake it instantly, or rent a premium buddy.`,
+          code: "MODEL_RESTING",
+        };
+      }
     }
 
-    // Deduct tokens — use atomic conditional update so we never go negative
-    const newBalance = Math.max(0, workingBalance - costTokens);
+    // Deduct tokens
+    const newBalance = Math.max(0, workingBalance - effectiveCost);
     try {
       await db.user.update({
         where: { id: userId },
@@ -249,9 +370,16 @@ export async function checkAndDeductTokens(userId: string, feature: string): Pro
       // just because we couldn't persist the deduction.
     }
 
+    // Log token transaction
+    if (effectiveCost > 0) {
+      await db.tokenTransaction.create({
+        data: { userId, amount: -effectiveCost, reason: feature },
+      }).catch(() => {});
+    }
+
     // Log usage
     await db.tokenUsageLog.create({
-      data: { userId, model: user.currentModel, tokensUsed: flatCost, costTokens, feature },
+      data: { userId, model: effectiveModel, tokensUsed: flatCost, costTokens: effectiveCost, feature },
     }).catch(() => {});
 
     // Increment daily usage
@@ -273,7 +401,7 @@ export async function checkAndDeductTokens(userId: string, feature: string): Pro
       remaining = limit - (updated?.count ?? 0);
     }
 
-    return { ok: true, costTokens, newBalance, remaining };
+    return { ok: true, costTokens: effectiveCost, newBalance, remaining };
   } catch (e: any) {
     console.error("checkAndDeductTokens error:", e?.message);
     return { ok: false, error: "Failed to check token balance", code: "ERROR" };

@@ -32,6 +32,9 @@ export type AppUser = {
   subscriptionExpiry: Date | null;
   tokenResetDate: Date | null;
   hasApiKey: boolean;
+  // Phase 13 — coin economy
+  coinBalance: number;
+  freeModelRestingUntil: Date | null;
 };
 
 /**
@@ -79,12 +82,15 @@ function toAppUser(u: any): AppUser {
     darkMode: u.darkMode,
     lastLogin: u.lastLogin,
     // Monetization
-    tokenBalance: u.tokenBalance ?? 1000,
+    tokenBalance: u.tokenBalance ?? 50,
     currentModel: u.currentModel ?? "study_buddy_free",
     planId: u.planId,
     subscriptionExpiry: u.subscriptionExpiry,
     tokenResetDate: u.tokenResetDate,
     hasApiKey: Boolean(u.encryptedApiKey),
+    // Phase 13 — coin economy
+    coinBalance: u.coinBalance ?? 0,
+    freeModelRestingUntil: u.freeModelRestingUntil,
   };
 }
 
