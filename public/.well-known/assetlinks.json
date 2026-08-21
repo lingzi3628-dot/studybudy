@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "ai.studybuddy.app",
+      "sha256_cert_fingerprints": [
+        "79:E3:2B:DB:41:8B:CF:83:14:36:90:9E:CA:98:9A:EC:F8:D4:14:8C:6B:E6:A7:2F:03:3D:05:DD:47:DE:46:5A"
+      ]
+    }
+  }
+]

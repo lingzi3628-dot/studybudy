@@ -52,3 +52,8 @@ prompt
 server.log
 # Skills directory
 /skills/
+# Bubblewrap TWA build artifacts (kept locally for re-builds, not committed)
+/twa/
+/scripts/build-logs/
+# Build artifacts (kept locally for re-builds, not committed)
+# Allow public/app-release.apk to be committed by NOT listing it
