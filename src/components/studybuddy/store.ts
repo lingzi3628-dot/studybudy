@@ -24,7 +24,11 @@ export type Screen =
   | "conceptMap"
   | "earnCenter"
   | "classroom"
-  | "dashboard";
+  | "dashboard"
+  | "schoolRegister"
+  | "schoolDashboard"
+  | "schoolSubject"
+  | "schoolTimedTest";
 
 export type CreateOption =
   | "upload"
@@ -56,6 +60,12 @@ interface AppState {
   // Phase 16 — active classroom session for guided flow
   activeClassroomSessionId: string | null;
   setActiveClassroomSessionId: (id: string | null) => void;
+
+  // Phase 18 — school mode
+  activeSchoolSubjectId: string | null;
+  setActiveSchoolSubjectId: (id: string | null) => void;
+  activeSchoolTopicId: string | null;
+  setActiveSchoolTopicId: (id: string | null) => void;
 
   // create modal
   createOpen: boolean;
@@ -99,6 +109,11 @@ export const useApp = create<AppState>((set) => ({
 
   activeClassroomSessionId: null,
   setActiveClassroomSessionId: (id) => set({ activeClassroomSessionId: id }),
+
+  activeSchoolSubjectId: null,
+  setActiveSchoolSubjectId: (id) => set({ activeSchoolSubjectId: id }),
+  activeSchoolTopicId: null,
+  setActiveSchoolTopicId: (id) => set({ activeSchoolTopicId: id }),
 
   createOpen: false,
   createOption: null,

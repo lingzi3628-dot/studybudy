@@ -26,6 +26,10 @@ import { ConceptMapScreen } from "@/components/studybuddy/screens/ConceptMapScre
 import { EarnCenterScreen } from "@/components/studybuddy/screens/EarnCenterScreen";
 import { ClassroomScreen } from "@/components/studybuddy/screens/ClassroomScreen";
 import { PathDashboard } from "@/components/studybuddy/screens/PathDashboard";
+import { SchoolRegister } from "@/components/studybuddy/screens/SchoolRegister";
+import { SchoolDashboard } from "@/components/studybuddy/screens/SchoolDashboard";
+import { SchoolSubjectPath } from "@/components/studybuddy/screens/SchoolSubjectPath";
+import { SchoolTimedTest } from "@/components/studybuddy/screens/SchoolTimedTest";
 
 // Secret admin access code — type this word on the keyboard anywhere
 // in the app to unlock the admin login screen.
@@ -54,10 +58,21 @@ export default function Page() {
     // Normal auth check
     fetch("/api/auth/me")
       .then((r) => r.ok ? r.json() : null)
-      .then((d) => {
+      .then(async (d) => {
         if (!mounted || !d?.authed) return;
         if (d.user?.onboardingCompleted) {
-          setScreen("home");
+          // Check if school student → redirect to school dashboard
+          try {
+            const sr = await fetch("/api/school/dashboard");
+            const sd = await sr.json();
+            if (sr.ok && sd.isSchoolStudent) {
+              setScreen("schoolDashboard");
+            } else {
+              setScreen("home");
+            }
+          } catch {
+            setScreen("home");
+          }
         } else {
           setScreen("onboarding");
         }
@@ -90,7 +105,7 @@ export default function Page() {
   }, [setScreen]);
 
   // Immersive study modes have their own full-screen layout (no top bar / bottom nav).
-  const immersive = ["flashcards", "quiz", "graph", "language", "tutor", "path", "study", "admin", "adminLogin", "landing", "onboarding", "auth", "premium", "conceptMap", "earnCenter", "classroom"];
+  const immersive = ["flashcards", "quiz", "graph", "language", "tutor", "path", "study", "admin", "adminLogin", "landing", "onboarding", "auth", "premium", "conceptMap", "earnCenter", "classroom", "schoolRegister", "schoolDashboard", "schoolSubject", "schoolTimedTest"];
 
   if (screen === "onboarding") {
     return (
@@ -101,7 +116,7 @@ export default function Page() {
     );
   }
 
-  if (screen === "landing" || screen === "adminLogin" || screen === "auth" || screen === "premium" || screen === "billing") {
+  if (screen === "landing" || screen === "adminLogin" || screen === "auth" || screen === "premium" || screen === "billing" || screen === "schoolRegister") {
     return (
       <div className="min-h-screen bg-gray-50 text-gray-900">
         {screen === "landing" && <Landing />}
@@ -109,6 +124,7 @@ export default function Page() {
         {screen === "auth" && <AuthScreen />}
         {screen === "premium" && <PremiumScreen />}
         {screen === "billing" && <BillingScreen />}
+        {screen === "schoolRegister" && <SchoolRegister />}
         <CreateModal />
       </div>
     );
@@ -128,6 +144,9 @@ export default function Page() {
         {screen === "conceptMap" && <ConceptMapScreen />}
         {screen === "earnCenter" && <EarnCenterScreen />}
         {screen === "classroom" && <ClassroomScreen />}
+        {screen === "schoolDashboard" && <SchoolDashboard />}
+        {screen === "schoolSubject" && <SchoolSubjectPath />}
+        {screen === "schoolTimedTest" && <SchoolTimedTest />}
         <CreateModal />
       </div>
     );

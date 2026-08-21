@@ -92,6 +92,8 @@ model User {
   diagnosticResults     UserDiagnosticResult[]
   // Phase 17 — path dashboard
   activePaths           UserActivePath[]
+  // Phase 18 — school mode
+  schoolStudent         SchoolStudent?
 
   // Relations for search settings are handled in SearchSettings model
 }
@@ -1204,4 +1206,121 @@ model UserActivePath {
 
   @@unique([userId, pathId])
   @@index([userId, isCurrent])
+}
+
+// ════════════════════════════════════════════════════════════════
+// Phase 18 — School Mode & Registration
+// ════════════════════════════════════════════════════════════════
+
+model School {
+  id        String   @id @default(uuid())
+  name      String
+  level     String   // 'primary' | 'secondary'
+  county    String?
+  createdAt DateTime @default(now())
+
+  students  SchoolStudent[]
+}
+
+model SchoolStudent {
+  id              String   @id @default(uuid())
+  userId          String   @unique  // links to users.id
+  fullName        String
+  admissionNumber String?
+  schoolId        String?
+  gradeLevel      String?  // 'Grade 1'.. 'Form 4'
+  createdAt       DateTime @default(now())
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  school          School?  @relation(fields: [schoolId], references: [id], onDelete: SetNull)
+  enrollments     StudentSubjectEnrollment[]
+  topicProgress   StudentTopicProgress[]
+  badges          SchoolBadge[]
+}
+
+model SchoolSubject {
+  id        String   @id @default(uuid())
+  name      String
+  level     String   // 'primary' | 'secondary'
+  icon      String   @default("📚")
+  color     String   @default("#6366F1")
+  createdAt DateTime @default(now())
+
+  topics    SchoolTopic[]
+  enrollments StudentSubjectEnrollment[]
+}
+
+model SchoolTopic {
+  id               String   @id @default(uuid())
+  subjectId        String
+  name             String
+  orderIndex       Int      @default(0)
+  gradeLevel       String?
+  badgeIcon        String   @default("🏆")
+  passThreshold    Float    @default(0.7)
+  timeLimitMinutes Int      @default(5)
+  questionCount    Int      @default(5)
+  createdAt        DateTime @default(now())
+
+  subject          SchoolSubject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  questions        SchoolQuestion[]
+  studentProgress  StudentTopicProgress[]
+  badges           SchoolBadge[]
+
+  @@index([subjectId])
+}
+
+model SchoolQuestion {
+  id            String   @id @default(uuid())
+  topicId       String
+  questionText  String
+  options       Json     // string[]
+  correctIndex  Int
+  explanation   String?
+  createdAt     DateTime @default(now())
+
+  topic         SchoolTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@index([topicId])
+}
+
+model StudentSubjectEnrollment {
+  id         String   @id @default(uuid())
+  studentId  String
+  subjectId  String
+  createdAt  DateTime @default(now())
+
+  student    SchoolStudent  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  subject    SchoolSubject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, subjectId])
+}
+
+model StudentTopicProgress {
+  id          String    @id @default(uuid())
+  studentId   String
+  topicId     String
+  status      String    @default("locked")  // 'locked' | 'available' | 'completed'
+  score       Float?
+  attempts    Int       @default(0)
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @default(now()) @updatedAt
+
+  student     SchoolStudent @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  topic       SchoolTopic   @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, topicId])
+}
+
+model SchoolBadge {
+  id        String   @id @default(uuid())
+  studentId String
+  topicId   String
+  earnedAt  DateTime @default(now())
+
+  student   SchoolStudent @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  topic     SchoolTopic   @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, topicId])
 }

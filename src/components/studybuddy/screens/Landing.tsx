@@ -11,6 +11,8 @@ import {
   Check,
   Bot,
   BookOpen,
+  User,
+  GraduationCap,
 } from "lucide-react";
 import { useApp } from "../store";
 import { AuthControls } from "../AuthControls";
@@ -51,12 +53,18 @@ export function Landing() {
           explore math graphs, chat with an AI tutor, and track your progress
           with spaced-repetition — all in one beautiful mobile-first app.
         </p>
-        <div className="mt-7 flex items-center justify-center gap-3">
+        <div className="mt-7 flex flex-col sm:flex-row items-center justify-center gap-3">
           <button
             onClick={() => setScreen("auth")}
             className="h-12 px-6 rounded-full bg-indigo-600 text-white font-semibold shadow-lg hover:bg-indigo-700 transition flex items-center gap-1.5"
           >
-            Get Started Free <ArrowRight className="w-4 h-4" />
+            <User className="w-4 h-4" /> I'm a Student (Personal)
+          </button>
+          <button
+            onClick={() => setScreen("schoolRegister")}
+            className="h-12 px-6 rounded-full bg-emerald-600 text-white font-semibold shadow-lg hover:bg-emerald-700 transition flex items-center gap-1.5"
+          >
+            <GraduationCap className="w-4 h-4" /> I'm a School Student
           </button>
         </div>
         <p className="mt-3 text-xs text-gray-400">
