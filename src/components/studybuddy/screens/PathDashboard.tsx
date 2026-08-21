@@ -113,11 +113,13 @@ export function PathDashboard() {
       const topicId = data?.path?.topicId;
       const skill = data?.path?.skill;
       if (topicId) {
-        // Have topicId — set it and go to Study Room
+        // Have topicId — go to Study Room
         (useApp.getState() as any).setActiveTopicId(topicId);
         setScreen("study");
       } else if (skill) {
-        // No topicId but have skill — call classroom/start with skill to find/create topic
+        // No topicId — find or create a topic from the skill name
+        // Use the /api/classroom/start endpoint which now accepts { skill }
+        // and will find/create a topic, but we still go to Study Room (not classroom)
         const r = await fetch("/api/classroom/start", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -125,18 +127,19 @@ export function PathDashboard() {
         });
         const d = await r.json();
         if (r.ok && d.session) {
-          // The endpoint found/created a topic — use it for Study Room
-          // We need to find the topicId. The classroom/start creates a ClassroomSession
-          // with topicId. Let's get it from the session.
           const sessionTopicId = d.session?.topicId;
           if (sessionTopicId) {
+            // Set topicId and go to Study Room (NOT classroom)
+            // The user can start the classroom from the Study Room's Tools Workbench
             (useApp.getState() as any).setActiveTopicId(sessionTopicId);
-            (useApp.getState() as any).setActiveClassroomSessionId(d.session.id);
-            setScreen("classroom");
+            setScreen("study");
           } else {
             setToast("Could not find topic. Try refreshing.");
             setTimeout(() => setToast(null), 3000);
           }
+        } else if (r.status === 402 && d.needsUpgrade) {
+          setToast(d.error ?? "Need more tokens");
+          setTimeout(() => setToast(null), 4000);
         } else {
           setToast(d.error ?? "Failed to start. Please try again.");
           setTimeout(() => setToast(null), 3000);
