@@ -141,5 +141,14 @@ export async function GET() {
     },
     nodes,
     currentNodeId,
+    // Phase 17b — extra dashboard data
+    dueReviewsCount: await db.cardReview.count({
+      where: { userId: user.id, dueDate: { lte: new Date() } },
+    }).catch(() => 0),
+    todayChallenge: await db.dailyGoal.findUnique({
+      where: { userId_date: { userId: user.id, date: (() => { const d = new Date(); d.setHours(0,0,0,0); return d; })() } },
+      select: { tasks: true },
+    }).catch(() => null),
+    userName: user.name,
   });
 }

@@ -139,36 +139,20 @@ export function PathDashboard() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-indigo-50 to-violet-50">
-      {/* Top bar */}
-      <header className="sticky top-0 z-30 bg-white/80 backdrop-blur border-b border-gray-200 px-4 py-2">
-        <div className="max-w-md mx-auto flex items-center justify-between">
-          <button onClick={() => setScreen("profile")} className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 text-white flex items-center justify-center text-sm font-bold">
-            ?
-          </button>
-          <div className="flex items-center gap-1.5">
-            {coins !== null && (
-              <button onClick={() => setScreen("earnCenter")} className="flex items-center gap-1 bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full text-xs font-semibold">
-                <Coins className="w-3 h-3" /> {coins}
-              </button>
-            )}
-            {level !== null && (
-              <button onClick={() => setScreen("progress")} className="flex items-center gap-1 bg-violet-50 text-violet-700 px-2 py-0.5 rounded-full text-xs font-semibold">
-                <Trophy className="w-3 h-3" /> L{level}
-              </button>
-            )}
-            {tokens !== null && (
-              <button onClick={() => setScreen("billing")} className="flex items-center gap-1 bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full text-xs font-semibold">
-                <Zap className="w-3 h-3" /> {tokens}
-              </button>
-            )}
-            <div className="flex items-center gap-1 bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full text-xs font-semibold">
-              <Flame className="w-3 h-3" /> {streak}
-            </div>
-          </div>
-        </div>
-      </header>
+      {/* No custom top bar — layout provides TopBar with avatar/streak/tokens/coins/level */}
 
       <div className="max-w-md mx-auto px-4 py-4 pb-24">
+        {/* Small greeting */}
+        <p className="text-sm font-semibold text-gray-700 mb-3">
+          {(() => {
+            const h = new Date().getHours();
+            const name = data?.userName?.split(" ")[0] ?? "there";
+            if (h < 12) return `Good morning, ${name}! ☀️`;
+            if (h < 18) return `Good afternoon, ${name}! 🌤️`;
+            return `Good evening, ${name}! 🌙`;
+          })()}
+        </p>
+
         {error && (
           <div className="mb-3 p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-start gap-2">
             <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
@@ -199,6 +183,38 @@ export function PathDashboard() {
         ) : (
           // Has path — show Duolingo-style node map
           <>
+            {/* Due reviews node (if any) */}
+            {(data?.dueReviewsCount ?? 0) > 0 && (
+              <button
+                onClick={() => setScreen("flashcards")}
+                className="w-full mb-3 flex items-center gap-3 p-3 rounded-2xl bg-amber-50 border-2 border-amber-300 hover:border-amber-400 transition"
+              >
+                <span className="w-12 h-12 rounded-full bg-amber-500 text-white flex items-center justify-center text-xl flex-shrink-0 animate-pulse">
+                  🔄
+                </span>
+                <div className="flex-1 text-left">
+                  <p className="text-sm font-bold text-amber-900">Review Due Now</p>
+                  <p className="text-[10px] text-amber-700">{data.dueReviewsCount} cards ready for review</p>
+                </div>
+                <ChevronRight className="w-4 h-4 text-amber-600" />
+              </button>
+            )}
+
+            {/* Today's challenge banner */}
+            {data?.todayChallenge?.tasks && (
+              <div className="mb-3 rounded-2xl bg-gradient-to-r from-violet-500 to-indigo-600 p-3 text-white shadow-md">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wide opacity-80">Today's Challenge</p>
+                    <p className="text-sm font-bold">{(data.todayChallenge.tasks as any[]).filter(t => !t.completed).length} tasks remaining</p>
+                  </div>
+                  <button onClick={() => setScreen("study")} className="px-3 h-7 rounded-full bg-white/20 text-white text-[10px] font-bold hover:bg-white/30">
+                    Start →
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Path header */}
             <div className="mb-4">
               <div className="flex items-center justify-between">

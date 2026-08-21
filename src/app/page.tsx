@@ -58,7 +58,7 @@ export default function Page() {
       .then((d) => {
         if (!mounted || !d?.authed) return;
         if (d.user?.onboardingCompleted) {
-          setScreen("dashboard");
+          setScreen("home");
         } else {
           setScreen("onboarding");
         }
@@ -91,7 +91,7 @@ export default function Page() {
   }, [setScreen]);
 
   // Immersive study modes have their own full-screen layout (no top bar / bottom nav).
-  const immersive = ["flashcards", "quiz", "graph", "language", "tutor", "path", "study", "admin", "adminLogin", "landing", "onboarding", "auth", "premium", "conceptMap", "earnCenter", "classroom", "dashboard"];
+  const immersive = ["flashcards", "quiz", "graph", "language", "tutor", "path", "study", "admin", "adminLogin", "landing", "onboarding", "auth", "premium", "conceptMap", "earnCenter", "classroom"];
 
   if (screen === "onboarding") {
     return (
@@ -129,7 +129,6 @@ export default function Page() {
         {screen === "conceptMap" && <ConceptMapScreen />}
         {screen === "earnCenter" && <EarnCenterScreen />}
         {screen === "classroom" && <ClassroomScreen />}
-        {screen === "dashboard" && <PathDashboard />}
         <CreateModal />
       </div>
     );
@@ -143,7 +142,7 @@ export default function Page() {
         <TopBar />
         <DesktopTopBar />
         <main>
-          {screen === "home" && <Home />}
+          {screen === "home" && <PathDashboard />}
           {screen === "search" && <Search />}
           {screen === "progress" && <Progress />}
           {screen === "profile" && <Profile />}
