@@ -13,13 +13,51 @@ import {
   BookOpen,
   User,
   GraduationCap,
+  Download,
+  Smartphone,
 } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useApp } from "../store";
 import { AuthControls } from "../AuthControls";
 import { AnimatedDemo } from "./AnimatedDemo";
 
 export function Landing() {
   const { setScreen } = useApp();
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
+  const [showInstallBanner, setShowInstallBanner] = useState(true);
+  const [isStandalone, setIsStandalone] = useState(false);
+
+  useEffect(() => {
+    // Check if already installed (standalone mode)
+    if (typeof window !== "undefined") {
+      const standalone = window.matchMedia("(display-mode: standalone)").matches ||
+        (window.navigator as any).standalone === true;
+      setIsStandalone(standalone);
+      if (standalone) setShowInstallBanner(false);
+    }
+
+    // Capture beforeinstallprompt event
+    const handler = (e: any) => {
+      e.preventDefault();
+      setInstallPrompt(e);
+    };
+    window.addEventListener("beforeinstallprompt", handler);
+    return () => window.removeEventListener("beforeinstallprompt", handler);
+  }, []);
+
+  const handleInstall = async () => {
+    if (installPrompt) {
+      installPrompt.prompt();
+      const choice = await installPrompt.userChoice;
+      if (choice.outcome === "accepted") {
+        setShowInstallBanner(false);
+      }
+      setInstallPrompt(null);
+    } else {
+      // No PWA install prompt available — show "coming soon" message
+      alert("📱 StudyBuddy AI is coming soon to the Google Play Store!\n\nFor now, you can:\n• Add to Home Screen on mobile (Chrome menu → 'Add to Home screen')\n• Bookmark on desktop");
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-white via-indigo-50/30 to-violet-50/40">
@@ -70,6 +108,31 @@ export function Landing() {
         <p className="mt-3 text-xs text-gray-400">
           No credit card needed · Free forever for the basics
         </p>
+
+        {/* Install Banner */}
+        {showInstallBanner && !isStandalone && (
+          <div className="mt-6 max-w-md mx-auto rounded-2xl bg-gradient-to-br from-indigo-600 to-violet-600 p-4 text-white shadow-xl">
+            <div className="flex items-center gap-3">
+              <span className="w-12 h-12 rounded-xl bg-white/15 flex items-center justify-center flex-shrink-0">
+                <Smartphone className="w-6 h-6" />
+              </span>
+              <div className="flex-1 text-left">
+                <p className="text-sm font-bold">Get the StudyBuddy App</p>
+                <p className="text-[11px] opacity-80">
+                  {installPrompt ? "Install for a faster, full-screen experience" : "Coming soon to Play Store · Add to Home Screen now"}
+                </p>
+              </div>
+              <button onClick={handleInstall}
+                className="flex-shrink-0 px-3 h-9 rounded-full bg-white text-indigo-700 text-xs font-bold hover:bg-white/90 flex items-center gap-1">
+                <Download className="w-3.5 h-3.5" /> Install
+              </button>
+            </div>
+            <button onClick={() => setShowInstallBanner(false)}
+              className="absolute top-2 right-2 w-6 h-6 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center text-[10px]">
+              ✕
+            </button>
+          </div>
+        )}
 
         {/* Animated demo */}
         <div className="mt-10">

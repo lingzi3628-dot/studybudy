@@ -1,0 +1,62 @@
+{
+  "applicationName": "StudyBuddy AI",
+  "packageId": "ai.studybuddy.app",
+  "host": "studybudy-chi.vercel.app",
+  "startUrl": "/",
+  "themeColor": "#4F46E5",
+  "navigationColor": "#ffffff",
+  "navigationColorDark": "#1f2937",
+  "navigationDividerColor": "#e5e7eb",
+  "navigationDividerColorDark": "#374151",
+  "iconUrl": "/icon-512.png",
+  "maskableIconUrl": "/icon-512.png",
+  "splashScreenFadeOutDuration": 300,
+  "signingKey": {
+    "path": "./android.keystore",
+    "alias": "studybuddy"
+  },
+  "appVersionName": "1.0.0",
+  "appVersionCode": 1,
+  "shortcuts": [
+    {
+      "name": "Search",
+      "shortName": "Search",
+      "url": "/?screen=search",
+      "iconUrl": "/icon-192.png"
+    },
+    {
+      "name": "AI Tutor",
+      "shortName": "Tutor",
+      "url": "/?screen=tutor",
+      "iconUrl": "/icon-192.png"
+    },
+    {
+      "name": "Dashboard",
+      "shortName": "Home",
+      "url": "/",
+      "iconUrl": "/icon-192.png"
+    }
+  ],
+  "generatorApp": "bubblewrap-cli",
+  "webManifestUrl": "/manifest.json",
+  "fallbackType": "customtabs",
+  "features": {
+    "locationDelegation": {
+      "enabled": false
+    },
+    "playBilling": {
+      "enabled": false
+    },
+    "firstRunFlag": {
+      "enabled": true
+    }
+  },
+  "alphaDependencies": {
+    "enabled": false
+  },
+  "enableSiteSettingsShortcut": false,
+  "isChromeOSOnly": false,
+  "shareTarget": null,
+  "display": "standalone",
+  "orientation": "portrait"
+}

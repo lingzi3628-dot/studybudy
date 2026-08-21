@@ -3,7 +3,9 @@
   "short_name": "StudyBuddy",
   "description": "Your AI study buddy for every subject — flashcards, quizzes, graphs, language practice, AI tutor, and spaced-repetition memory.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
   "orientation": "portrait",
   "background_color": "#ffffff",
   "theme_color": "#4F46E5",
@@ -21,7 +23,10 @@
       "purpose": "any maskable"
     }
   ],
+  "screenshots": [],
   "categories": ["education", "productivity", "utilities"],
   "lang": "en",
-  "dir": "ltr"
+  "dir": "ltr",
+  "prefer_related_applications": false,
+  "related_applications": []
 }
