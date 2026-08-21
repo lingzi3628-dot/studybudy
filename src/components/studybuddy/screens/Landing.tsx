@@ -20,6 +20,7 @@ import { useEffect, useState } from "react";
 import { useApp } from "../store";
 import { AuthControls } from "../AuthControls";
 import { AnimatedDemo } from "./AnimatedDemo";
+import { ApkDownloadButton } from "../ApkDownloadButton";
 
 export function Landing() {
   const { setScreen } = useApp();
@@ -109,18 +110,16 @@ export function Landing() {
           No credit card needed · Free forever for the basics
         </p>
 
-        {/* Install Banner */}
-        {showInstallBanner && !isStandalone && (
+        {/* Install Banner — PWA install prompt */}
+        {showInstallBanner && !isStandalone && installPrompt && (
           <div className="mt-6 max-w-md mx-auto rounded-2xl bg-gradient-to-br from-indigo-600 to-violet-600 p-4 text-white shadow-xl">
             <div className="flex items-center gap-3">
               <span className="w-12 h-12 rounded-xl bg-white/15 flex items-center justify-center flex-shrink-0">
                 <Smartphone className="w-6 h-6" />
               </span>
               <div className="flex-1 text-left">
-                <p className="text-sm font-bold">Get the StudyBuddy App</p>
-                <p className="text-[11px] opacity-80">
-                  {installPrompt ? "Install for a faster, full-screen experience" : "Coming soon to Play Store · Add to Home Screen now"}
-                </p>
+                <p className="text-sm font-bold">Add to Home Screen</p>
+                <p className="text-[11px] opacity-80">Install for a faster, full-screen experience</p>
               </div>
               <button onClick={handleInstall}
                 className="flex-shrink-0 px-3 h-9 rounded-full bg-white text-indigo-700 text-xs font-bold hover:bg-white/90 flex items-center gap-1">
@@ -133,6 +132,33 @@ export function Landing() {
             </button>
           </div>
         )}
+
+        {/* APK Download Section */}
+        <div className="mt-6 max-w-md mx-auto rounded-2xl bg-white border-2 border-indigo-100 p-5 shadow-lg">
+          <div className="text-center">
+            <div className="inline-flex items-center gap-1 bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full text-[10px] font-semibold mb-2">
+              📱 Play Store coming soon
+            </div>
+            <h3 className="text-sm font-bold text-gray-900">Download the Android App</h3>
+            <p className="mt-1 text-xs text-gray-500">Get the full native experience with offline support.</p>
+          </div>
+          <div className="mt-3 flex justify-center">
+            <ApkDownloadButton />
+          </div>
+          <div className="mt-3 flex items-center gap-2 justify-center">
+            <button
+              onClick={() => {
+                fetch("/api/auth/me").then(r => r.ok ? r.json() : null).then(d => {
+                  if (d?.authed) setScreen("home");
+                  else setScreen("auth");
+                }).catch(() => setScreen("auth"));
+              }}
+              className="px-4 h-9 rounded-full bg-gray-100 text-gray-600 text-xs font-semibold hover:bg-gray-200"
+            >
+              Use on Web →
+            </button>
+          </div>
+        </div>
 
         {/* Animated demo */}
         <div className="mt-10">
