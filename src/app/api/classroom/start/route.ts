@@ -23,10 +23,27 @@ const FLOW_STATES = ["ASSESSMENT", "LEARNING", "PRACTICE", "QUIZ", "REVIEW", "MA
  */
 export async function POST(req: NextRequest) {
   const user = await getCurrentUser();
-  const body = await req.json().catch(() => ({})) as { topicId?: string };
-  const topicId = (body.topicId ?? "").toString().trim();
+  const body = await req.json().catch(() => ({})) as { topicId?: string; skill?: string };
+  let topicId = (body.topicId ?? "").toString().trim();
+
+  // If no topicId but skill is provided, find or create a topic
+  if (!topicId && body.skill) {
+    const existing = await db.topic.findFirst({
+      where: { name: { equals: body.skill, mode: "insensitive" } },
+      select: { id: true },
+    }).catch(() => null);
+    if (existing) {
+      topicId = existing.id;
+    } else {
+      const newTopic = await db.topic.create({
+        data: { name: body.skill, subject: "General", published: false },
+      }).catch(() => null);
+      if (newTopic) topicId = newTopic.id;
+    }
+  }
+
   if (!topicId) {
-    return NextResponse.json({ error: "topicId is required." }, { status: 400 });
+    return NextResponse.json({ error: "topicId or skill is required." }, { status: 400 });
   }
 
   // Verify topic

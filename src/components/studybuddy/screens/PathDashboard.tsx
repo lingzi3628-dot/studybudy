@@ -104,11 +104,52 @@ export function PathDashboard() {
     setBusy(false);
   };
 
-  const startNode = (node: PathNode) => {
-    if (node.status === "locked") return;
-    // Navigate to study room for this module's topic
-    // For now, go to the study room with the active topic
-    setScreen("study");
+  const [startingNode, setStartingNode] = useState<string | null>(null);
+
+  const startNode = async (node: PathNode) => {
+    if (node.status === "locked" || startingNode) return;
+    setStartingNode(node.id);
+    try {
+      const topicId = data?.path?.topicId;
+      const skill = data?.path?.skill;
+      if (topicId) {
+        // Have topicId — set it and go to Study Room
+        (useApp.getState() as any).setActiveTopicId(topicId);
+        setScreen("study");
+      } else if (skill) {
+        // No topicId but have skill — call classroom/start with skill to find/create topic
+        const r = await fetch("/api/classroom/start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ skill }),
+        });
+        const d = await r.json();
+        if (r.ok && d.session) {
+          // The endpoint found/created a topic — use it for Study Room
+          // We need to find the topicId. The classroom/start creates a ClassroomSession
+          // with topicId. Let's get it from the session.
+          const sessionTopicId = d.session?.topicId;
+          if (sessionTopicId) {
+            (useApp.getState() as any).setActiveTopicId(sessionTopicId);
+            (useApp.getState() as any).setActiveClassroomSessionId(d.session.id);
+            setScreen("classroom");
+          } else {
+            setToast("Could not find topic. Try refreshing.");
+            setTimeout(() => setToast(null), 3000);
+          }
+        } else {
+          setToast(d.error ?? "Failed to start. Please try again.");
+          setTimeout(() => setToast(null), 3000);
+        }
+      } else {
+        setToast("No topic found. Create a path first.");
+        setTimeout(() => setToast(null), 3000);
+      }
+    } catch (e: any) {
+      setToast("Failed to start. Please try again.");
+      setTimeout(() => setToast(null), 3000);
+    }
+    setStartingNode(null);
   };
 
   // Continue Learning card (for classroom sessions)
@@ -201,12 +242,12 @@ export function PathDashboard() {
             )}
 
             {/* Today's challenge banner */}
-            {data?.todayChallenge?.tasks && (
+            {data?.todayChallenge?.tasks && Array.isArray(data.todayChallenge.tasks) && (data.todayChallenge.tasks as any[]).length > 0 && (
               <div className="mb-3 rounded-2xl bg-gradient-to-r from-violet-500 to-indigo-600 p-3 text-white shadow-md">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-[10px] uppercase tracking-wide opacity-80">Today's Challenge</p>
-                    <p className="text-sm font-bold">{(data.todayChallenge.tasks as any[]).filter(t => !t.completed).length} tasks remaining</p>
+                    <p className="text-sm font-bold">{(data.todayChallenge.tasks as any[]).filter((t: any) => !t.completed).length} tasks remaining</p>
                   </div>
                   <button onClick={() => setScreen("study")} className="px-3 h-7 rounded-full bg-white/20 text-white text-[10px] font-bold hover:bg-white/30">
                     Start →
@@ -300,8 +341,9 @@ export function PathDashboard() {
                     </div>
                     {/* Status indicator */}
                     {node.status === "current" && (
-                      <span className="flex-shrink-0 px-2 py-0.5 rounded-full bg-indigo-600 text-white text-[9px] font-bold">
-                        START
+                      <span className="flex-shrink-0 px-2 py-0.5 rounded-full bg-indigo-600 text-white text-[9px] font-bold flex items-center gap-1">
+                        {startingNode === node.id ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : null}
+                        {startingNode === node.id ? "…" : "START"}
                       </span>
                     )}
                     {node.status === "completed" && (

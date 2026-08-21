@@ -6,7 +6,6 @@ import { TopBar, DesktopTopBar } from "@/components/studybuddy/TopBar";
 import { BottomNav, Sidebar } from "@/components/studybuddy/BottomNav";
 import { CreateModal } from "@/components/studybuddy/screens/CreateModal";
 import { Onboarding } from "@/components/studybuddy/screens/Onboarding";
-import { Home } from "@/components/studybuddy/screens/Home";
 import { Search } from "@/components/studybuddy/screens/Search";
 import { Progress } from "@/components/studybuddy/screens/Progress";
 import { Profile } from "@/components/studybuddy/screens/Profile";

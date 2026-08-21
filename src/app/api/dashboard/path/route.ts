@@ -137,6 +137,7 @@ export async function GET() {
       id: path.id,
       skill: path.skill,
       subject: path.subject,
+      topicId: path.topicId,  // needed for navigating to Study Room
       progress,
     },
     nodes,
