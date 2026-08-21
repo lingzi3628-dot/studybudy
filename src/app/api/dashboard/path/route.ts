@@ -26,11 +26,47 @@ export async function GET() {
   const user = await getCurrentUser();
 
   // 1) Find current UserActivePath row
-  const active = await db.userActivePath.findFirst({
+  let active = await db.userActivePath.findFirst({
     where: { userId: user.id, isCurrent: true },
     orderBy: { createdAt: "desc" },
     select: { id: true, pathId: true },
   }).catch(() => null);
+
+  // 1b) If no UserActivePath, check for existing LearningPath rows (Phase 12 paths)
+  //     and auto-link the most recent one
+  if (!active) {
+    const existingPath = await db.learningPath.findFirst({
+      where: { userId: user.id, isTemplate: false },
+      orderBy: { createdAt: "desc" },
+      select: { id: true },
+    }).catch(() => null);
+
+    if (existingPath) {
+      // Auto-create UserActivePath for the existing path
+      try {
+        await db.userActivePath.create({
+          data: { userId: user.id, pathId: existingPath.id, isCurrent: true },
+        });
+        // Also set isActive on the path
+        await db.learningPath.update({
+          where: { id: existingPath.id },
+          data: { isActive: true },
+        }).catch(() => {});
+      } catch {
+        // Might already exist (unique constraint) — try update instead
+        await db.userActivePath.update({
+          where: { userId_pathId: { userId: user.id, pathId: existingPath.id } },
+          data: { isCurrent: true },
+        }).catch(() => {});
+      }
+      // Re-fetch
+      active = await db.userActivePath.findFirst({
+        where: { userId: user.id, isCurrent: true },
+        orderBy: { createdAt: "desc" },
+        select: { id: true, pathId: true },
+      }).catch(() => null);
+    }
+  }
 
   if (!active) {
     return NextResponse.json({ hasPath: false });
