@@ -68,6 +68,13 @@ export function PathDashboard() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Refetch on window focus (when user returns from Study Room/Classroom)
+  useEffect(() => {
+    const onFocus = () => load();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [load]);
+
   const createPath = async () => {
     if (!pathForm.skill.trim()) {
       setError("Enter a skill/topic");
@@ -283,24 +290,32 @@ export function PathDashboard() {
               </div>
             </div>
 
-            {/* Continue Learning card */}
-            <button
-              onClick={() => setScreen("study")}
-              className="w-full mb-4 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 p-4 text-white shadow-md hover:shadow-lg transition text-left"
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
-                    <Play className="w-5 h-5" />
-                  </span>
-                  <div>
-                    <p className="text-sm font-bold">Continue Learning</p>
-                    <p className="text-[11px] opacity-80">Pick up where you left off</p>
+            {/* Smart Continue card — shows the current node */}
+            {(() => {
+              const currentNode = nodes.find(n => n.status === "current");
+              if (!currentNode) return null;
+              return (
+                <button
+                  onClick={() => startNode(currentNode)}
+                  disabled={!!startingNode}
+                  className="w-full mb-4 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 p-4 text-white shadow-md hover:shadow-lg transition text-left"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
+                        {startingNode ? <Loader2 className="w-5 h-5 animate-spin" /> : <Play className="w-5 h-5" />}
+                      </span>
+                      <div>
+                        <p className="text-[10px] uppercase tracking-wide opacity-80">Continue Learning</p>
+                        <p className="text-sm font-bold">{currentNode.title}</p>
+                        <p className="text-[11px] opacity-70">{currentNode.completedItems}/{currentNode.itemCount} items done</p>
+                      </div>
+                    </div>
+                    <ChevronRight className="w-5 h-5" />
                   </div>
-                </div>
-                <ChevronRight className="w-5 h-5" />
-              </div>
-            </button>
+                </button>
+              );
+            })()}
 
             {/* Node map — vertical Duolingo-style */}
             <div className="relative">
@@ -339,8 +354,21 @@ export function PathDashboard() {
                       </p>
                       <p className="text-[10px] text-gray-500">
                         {node.completedItems}/{node.itemCount} items
-                        {node.status === "current" && " · Start here!"}
+                        {node.status === "current" && node.completedItems === 0 ? " · Tap START to begin!" : ""}
+                        {node.status === "current" && node.completedItems > 0 ? " · Continue!" : ""}
                       </p>
+                      {/* Mini progress bar inside node */}
+                      {node.itemCount > 0 && (
+                        <div className="mt-1 h-1 bg-gray-200 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all ${
+                              node.status === "completed" ? "bg-emerald-500" :
+                              node.status === "current" ? "bg-indigo-500" : "bg-gray-300"
+                            }`}
+                            style={{ width: `${node.itemCount > 0 ? (node.completedItems / node.itemCount) * 100 : 0}%` }}
+                          />
+                        </div>
+                      )}
                     </div>
                     {/* Status indicator */}
                     {node.status === "current" && (

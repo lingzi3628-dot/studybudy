@@ -96,9 +96,7 @@ export function Onboarding() {
   const finish = async () => {
     setSaving(true);
     try {
-      // call /api/user/onboarding to set onboarding_completed=true
-      // plus all the profile fields. Falls back to /api/user POST if
-      // endpoint fails (best-effort — don't block onboarding on a network error).
+      // 1) Save onboarding profile
       try {
         const r = await fetch("/api/user/onboarding", {
           method: "POST",
@@ -112,7 +110,6 @@ export function Onboarding() {
             name: role ? `${role} user` : undefined,
           }),
         });
-        // Also save the selected buddy model
         if (selectedBuddy) {
           await fetch("/api/user/model", {
             method: "POST",
@@ -121,7 +118,6 @@ export function Onboarding() {
           }).catch(() => {});
         }
         if (!r.ok) {
-          // Fallback to /api/user POST
           await api.updateUser({
             grade: grade ?? undefined,
             subjects: pickedSubjects,
@@ -139,8 +135,29 @@ export function Onboarding() {
           name: role ? `${role} user` : undefined,
         });
       }
+
+      // 2) AUTO-CREATE LEARNING PATH from user's first picked subject
+      //    This ensures the dashboard has a path to show immediately
+      const firstSubject = pickedSubjects[0] ?? "General Knowledge";
+      try {
+        await fetch("/api/onboarding/create-path", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            skill: firstSubject,
+            level: grade?.includes("University") ? "advanced" : 
+                   grade?.includes("Form") || (Number(grade?.replace(/\D/g, "")) >= 9) ? "intermediate" : 
+                   "beginner",
+            goal: goal || `Master ${firstSubject}`,
+          }),
+        });
+        // Mark onboarding complete (redirects to dashboard)
+        await fetch("/api/onboarding/complete", { method: "POST" }).catch(() => {});
+      } catch (e) {
+        console.warn("Path creation failed — user can create later from dashboard");
+      }
     } catch (e) {
-      console.warn("Onboarding upsert failed", e);
+      console.warn("Onboarding save failed", e);
     } finally {
       setSaving(false);
       completeOnboarding();
