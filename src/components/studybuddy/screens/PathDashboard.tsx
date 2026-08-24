@@ -476,7 +476,7 @@ export function PathDashboard() {
 // (e.g. a Grade 5 user when only Grade 1 is ready).
 
 function CurriculumSubjectsBanner() {
-  const { setScreen } = useApp();
+  const { setScreen, setActiveCurriculumSubjectId } = useApp();
   const [subjects, setSubjects] = useState<Array<{
     id: string;
     name: string;
@@ -528,19 +528,23 @@ function CurriculumSubjectsBanner() {
     <div className="mb-4 rounded-2xl bg-white border border-indigo-100 shadow-sm overflow-hidden">
       <div className="px-4 py-2.5 bg-gradient-to-r from-indigo-50 to-violet-50 border-b border-indigo-100 flex items-center gap-2">
         <BookOpen className="w-4 h-4 text-indigo-600" />
-        <p className="text-xs font-bold text-indigo-700">
+        <p className="text-xs font-bold text-indigo-700 flex-1">
           {gradeName ? `${gradeName} subjects` : "Your subjects"}
         </p>
+        <button
+          onClick={() => setScreen("exam")}
+          className="text-[10px] font-bold text-indigo-700 hover:underline flex items-center gap-1"
+        >
+          📝 Exams →
+        </button>
       </div>
       <div className="p-3 grid grid-cols-2 gap-2">
         {subjects.map((s) => (
           <button
             key={s.id}
             onClick={() => {
-              // TODO: route to a subject detail screen showing the topics
-              // For now, just open the topic via the existing study room flow.
-              // The user can navigate to a topic manually for now.
-              setScreen("search");
+              setActiveCurriculumSubjectId(s.id);
+              setScreen("curriculumSubject");
             }}
             className="flex items-center gap-2 p-2 rounded-xl hover:bg-gray-50 transition text-left"
           >

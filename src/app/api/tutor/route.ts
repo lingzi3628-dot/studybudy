@@ -39,15 +39,79 @@ export async function POST(req: NextRequest) {
     typeof body.question === "string" ? body.question :
     typeof body.message === "string" ? body.message : undefined;
 
+  // -------------------------------------------------------------------
+  // Phase 22 — pull curriculum context for this user
+  // -------------------------------------------------------------------
+  // If the user has a grade that matches a 'ready' curriculum grade, fetch
+  // all topics for all their subjects and inject them into the system prompt.
+  // This makes the AI answer based on the curated curriculum instead of
+  // general knowledge — no more hallucination.
+  // -------------------------------------------------------------------
+  let curriculumContext = "";
+  try {
+    const userGrade = (user.grade ?? "").toString();
+    if (userGrade) {
+      const matchingGrade = await db.curriculumGrade.findFirst({
+        where: {
+          name: { equals: userGrade, mode: "insensitive" },
+          status: "ready",
+        },
+        include: {
+          subjects: {
+            select: {
+              id: true, name: true,
+              topics: {
+                orderBy: { orderIndex: "asc" },
+                select: {
+                  name: true,
+                  summary: true,
+                  contentMarkdown: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      if (matchingGrade && matchingGrade.subjects.length > 0) {
+        const topicLines: string[] = [];
+        for (const subj of matchingGrade.subjects) {
+          if (subj.topics.length === 0) continue;
+          topicLines.push(`\n## ${subj.name}`);
+          for (const t of subj.topics) {
+            // Truncate each topic's content to avoid blowing up the token budget
+            const content = (t.contentMarkdown ?? "").slice(0, 500);
+            topicLines.push(`### ${t.name}`);
+            if (t.summary) topicLines.push(`Summary: ${t.summary}`);
+            if (content) topicLines.push(content);
+          }
+        }
+        if (topicLines.length > 0) {
+          curriculumContext =
+            `\n\nIMPORTANT: The student is in ${matchingGrade.name}. Below is the curated ` +
+            `curriculum content for their grade. Base your answers on THIS content — do NOT ` +
+            `invent facts that aren't here. If the student asks about something not covered ` +
+            `in the curriculum, you may answer generally but make it clear it's outside ` +
+            `their curriculum.\n\nCURRICULUM CONTENT:\n` +
+            topicLines.join("\n").slice(0, 8000); // hard cap to avoid token overflow
+        }
+      }
+    }
+  } catch (e: any) {
+    // Best-effort — if the curriculum tables don't exist or query fails,
+    // just proceed without curriculum context.
+    console.error("curriculum context fetch failed:", e?.message);
+  }
+
+  const systemContent =
+    "You are StudyBuddy, an encouraging AI tutor. Break down complex topics into clear, simple, step-by-step explanations. " +
+    "Use short paragraphs, numbered steps where helpful, and one concrete example. " +
+    "If the user asks something off-topic from study/learning, gently steer back to learning. " +
+    "Reply in the same language the user used. Keep answers under 250 words unless asked to go deep." +
+    curriculumContext;
+
   const messagesForAI: ChatMessage[] = [
-    {
-      role: "system",
-      content:
-        "You are StudyBuddy, an encouraging AI tutor. Break down complex topics into clear, simple, step-by-step explanations. " +
-        "Use short paragraphs, numbered steps where helpful, and one concrete example. " +
-        "If the user asks something off-topic from study/learning, gently steer back to learning. " +
-        "Reply in the same language the user used. Keep answers under 250 words unless asked to go deep.",
-    },
+    { role: "system", content: systemContent },
     ...incomingMessages,
   ];
   if (question && !incomingMessages.some((m) => m.role === "user" && m.content === question)) {

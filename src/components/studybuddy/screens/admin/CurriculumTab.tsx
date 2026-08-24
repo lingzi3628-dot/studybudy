@@ -13,6 +13,9 @@ import {
   Layers,
   Brain,
   Lock,
+  Trophy,
+  Trash2,
+  Send,
 } from "lucide-react";
 
 type Grade = {
@@ -55,7 +58,7 @@ type SourceDoc = {
  * 3. Source docs — list of all uploaded docs with parse status + re-parse button
  */
 export function CurriculumTab() {
-  const [view, setView] = useState<"grades" | "upload" | "docs">("grades");
+  const [view, setView] = useState<"grades" | "upload" | "docs" | "exams">("grades");
 
   return (
     <div className="space-y-4">
@@ -85,7 +88,7 @@ export function CurriculumTab() {
             view === "upload" ? "bg-white text-indigo-700 shadow-sm" : "text-gray-600"
           }`}
         >
-          <Upload className="w-3.5 h-3.5 inline mr-1" /> Upload content
+          <Upload className="w-3.5 h-3.5 inline mr-1" /> Upload
         </button>
         <button
           onClick={() => setView("docs")}
@@ -93,13 +96,22 @@ export function CurriculumTab() {
             view === "docs" ? "bg-white text-indigo-700 shadow-sm" : "text-gray-600"
           }`}
         >
-          <FileText className="w-3.5 h-3.5 inline mr-1" /> Source docs
+          <FileText className="w-3.5 h-3.5 inline mr-1" /> Docs
+        </button>
+        <button
+          onClick={() => setView("exams")}
+          className={`flex-1 px-3 py-1.5 rounded-lg transition ${
+            view === "exams" ? "bg-white text-indigo-700 shadow-sm" : "text-gray-600"
+          }`}
+        >
+          <Trophy className="w-3.5 h-3.5 inline mr-1" /> Exams
         </button>
       </div>
 
       {view === "grades" && <GradesView />}
       {view === "upload" && <UploadView />}
       {view === "docs" && <DocsView />}
+      {view === "exams" && <ExamsView />}
     </div>
   );
 }
@@ -566,6 +578,380 @@ function DocsView() {
           ))
         )}
       </ul>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------
+// ExamsView — create + manage exams
+// ---------------------------------------------------------------------
+
+function ExamsView() {
+  const [grades, setGrades] = useState<Grade[]>([]);
+  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [exams, setExams] = useState<any[]>([]);
+  const [selectedGradeId, setSelectedGradeId] = useState("");
+  const [selectedSubjectId, setSelectedSubjectId] = useState("");
+  const [newExamTitle, setNewExamTitle] = useState("");
+  const [newExamDuration, setNewExamDuration] = useState("30");
+  const [newExamPassThreshold, setNewExamPassThreshold] = useState("0.5");
+  const [busy, setBusy] = useState(false);
+  const [expandedExamId, setExpandedExamId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // Load grades
+  useEffect(() => {
+    fetch("/api/admin/curriculum/grades")
+      .then((r) => r.json())
+      .then((d) => setGrades(d.grades ?? []))
+      .catch(() => {});
+  }, []);
+
+  // Load subjects when grade changes
+  useEffect(() => {
+    if (!selectedGradeId) {
+      setSubjects([]);
+      return;
+    }
+    fetch(`/api/admin/curriculum/subjects?gradeId=${selectedGradeId}`)
+      .then((r) => r.json())
+      .then((d) => setSubjects(d.subjects ?? []))
+      .catch(() => setSubjects([]));
+    setSelectedSubjectId("");
+  }, [selectedGradeId]);
+
+  // Load exams when subject changes
+  const loadExams = useCallback(async () => {
+    if (!selectedSubjectId) {
+      setExams([]);
+      return;
+    }
+    try {
+      const r = await fetch(
+        `/api/admin/curriculum/exams?gradeId=${selectedGradeId}&subjectId=${selectedSubjectId}`
+      );
+      const d = await r.json();
+      setExams(d.exams ?? []);
+    } catch {}
+  }, [selectedGradeId, selectedSubjectId]);
+
+  useEffect(() => {
+    loadExams();
+  }, [loadExams]);
+
+  const createExam = async () => {
+    if (!selectedGradeId || !selectedSubjectId || !newExamTitle.trim()) {
+      setError("Select grade, subject, and enter a title");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await fetch("/api/admin/curriculum/exams", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          gradeId: selectedGradeId,
+          subjectId: selectedSubjectId,
+          title: newExamTitle.trim(),
+          durationMinutes: Number(newExamDuration) || 30,
+          passThreshold: Number(newExamPassThreshold) || 0.5,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Failed");
+      setNewExamTitle("");
+      await loadExams();
+      setExpandedExamId(d.exam.id);
+    } catch (e: any) {
+      setError(e?.message ?? "Failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const togglePublish = async (examId: string, currentStatus: string) => {
+    const newStatus = currentStatus === "published" ? "draft" : "published";
+    await fetch(`/api/admin/curriculum/exams/${examId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: newStatus }),
+    });
+    await loadExams();
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-2xl bg-white border border-gray-200 p-4 space-y-3">
+        <h3 className="text-xs font-bold uppercase text-gray-500">Create an exam</h3>
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="text-[10px] font-bold uppercase text-gray-500">Grade</label>
+            <select
+              value={selectedGradeId}
+              onChange={(e) => setSelectedGradeId(e.target.value)}
+              className="w-full px-2 py-1.5 rounded-lg border border-gray-200 text-sm bg-white"
+            >
+              <option value="">Select…</option>
+              {grades.map((g) => (
+                <option key={g.id} value={g.id}>{g.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-[10px] font-bold uppercase text-gray-500">Subject</label>
+            <select
+              value={selectedSubjectId}
+              onChange={(e) => setSelectedSubjectId(e.target.value)}
+              disabled={!selectedGradeId}
+              className="w-full px-2 py-1.5 rounded-lg border border-gray-200 text-sm bg-white disabled:bg-gray-100"
+            >
+              <option value="">Select…</option>
+              {subjects.map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div>
+          <label className="text-[10px] font-bold uppercase text-gray-500">Exam title</label>
+          <input
+            value={newExamTitle}
+            onChange={(e) => setNewExamTitle(e.target.value)}
+            placeholder="e.g. Grade 1 Mathematics End Term 1 Exam"
+            className="w-full px-3 py-1.5 rounded-lg border border-gray-200 text-sm"
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="text-[10px] font-bold uppercase text-gray-500">Duration (min)</label>
+            <input
+              type="number"
+              value={newExamDuration}
+              onChange={(e) => setNewExamDuration(e.target.value)}
+              className="w-full px-2 py-1.5 rounded-lg border border-gray-200 text-sm"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] font-bold uppercase text-gray-500">Pass threshold (0-1)</label>
+            <input
+              type="number"
+              step="0.1"
+              min="0"
+              max="1"
+              value={newExamPassThreshold}
+              onChange={(e) => setNewExamPassThreshold(e.target.value)}
+              className="w-full px-2 py-1.5 rounded-lg border border-gray-200 text-sm"
+            />
+          </div>
+        </div>
+        <button
+          onClick={createExam}
+          disabled={busy}
+          className="w-full h-10 rounded-full bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-1"
+        >
+          {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+          Create exam (draft)
+        </button>
+        {error && (
+          <p className="text-xs text-rose-600 flex items-center gap-1">
+            <AlertCircle className="w-3 h-3" /> {error}
+          </p>
+        )}
+      </div>
+
+      {/* Exams list */}
+      <div className="rounded-2xl bg-white border border-gray-200 overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-100">
+          <h3 className="text-xs font-bold uppercase text-gray-500">
+            Exams ({exams.length})
+          </h3>
+        </div>
+        {exams.length === 0 ? (
+          <p className="px-4 py-8 text-center text-xs text-gray-400">
+            No exams yet. Create one above.
+          </p>
+        ) : (
+          <ul className="divide-y divide-gray-100">
+            {exams.map((exam) => (
+              <li key={exam.id} className="px-4 py-3">
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-900 truncate">{exam.title}</p>
+                    <p className="text-[11px] text-gray-500">
+                      {exam.durationMinutes} min · {exam._count?.questions ?? 0} questions ·
+                      Pass: {Math.round(exam.passThreshold * 100)}%
+                    </p>
+                  </div>
+                  <span
+                    className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
+                      exam.status === "published"
+                        ? "bg-emerald-50 text-emerald-700"
+                        : "bg-gray-100 text-gray-600"
+                    }`}
+                  >
+                    {exam.status}
+                  </span>
+                  <button
+                    onClick={() => setExpandedExamId(expandedExamId === exam.id ? null : exam.id)}
+                    className="text-xs font-semibold text-indigo-600 hover:underline"
+                  >
+                    {expandedExamId === exam.id ? "Hide" : "Manage"}
+                  </button>
+                  <button
+                    onClick={() => togglePublish(exam.id, exam.status)}
+                    className={`text-[11px] font-bold px-2 py-1 rounded-full ${
+                      exam.status === "published"
+                        ? "bg-amber-50 text-amber-700 hover:bg-amber-100"
+                        : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                    } flex items-center gap-1`}
+                  >
+                    <Send className="w-3 h-3" />
+                    {exam.status === "published" ? "Unpublish" : "Publish"}
+                  </button>
+                </div>
+                {expandedExamId === exam.id && (
+                  <ExamQuestionEditor examId={exam.id} />
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ExamQuestionEditor({ examId }: { examId: string }) {
+  const [questions, setQuestions] = useState<any[]>([]);
+  const [newQ, setNewQ] = useState({
+    questionText: "",
+    options: ["", "", "", ""],
+    correctIndex: 0,
+    explanation: "",
+  });
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const r = await fetch(`/api/admin/curriculum/exams/${examId}`);
+      const d = await r.json();
+      setQuestions(d.exam?.questions ?? []);
+    } catch {}
+  }, [examId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const addQuestion = async () => {
+    if (!newQ.questionText.trim()) return;
+    if (newQ.options.filter((o) => o.trim()).length < 2) return;
+    setBusy(true);
+    try {
+      await fetch(`/api/admin/curriculum/exams/${examId}/questions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          questionText: newQ.questionText.trim(),
+          options: newQ.options.map((o) => o.trim()).filter(Boolean),
+          correctIndex: newQ.correctIndex,
+          explanation: newQ.explanation.trim() || null,
+        }),
+      });
+      setNewQ({ questionText: "", options: ["", "", "", ""], correctIndex: 0, explanation: "" });
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deleteQuestion = async (questionId: string) => {
+    await fetch(`/api/admin/curriculum/exams/${examId}/questions`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ questionId }),
+    });
+    await load();
+  };
+
+  return (
+    <div className="mt-3 ml-4 p-3 rounded-xl bg-gray-50 border border-gray-200 space-y-3">
+      <p className="text-[10px] font-bold uppercase text-gray-500">
+        Questions ({questions.length})
+      </p>
+      {/* Existing questions */}
+      {questions.length > 0 && (
+        <ul className="space-y-1.5">
+          {questions.map((q, i) => (
+            <li key={q.id} className="rounded-lg bg-white border border-gray-200 p-2 flex items-start gap-2">
+              <span className="text-[10px] font-bold text-gray-400 mt-0.5">{i + 1}.</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold text-gray-900">{q.questionText}</p>
+                <p className="text-[10px] text-gray-500">
+                  Correct: {String.fromCharCode(65 + q.correctIndex)}. {q.options?.[q.correctIndex]}
+                </p>
+              </div>
+              <button
+                onClick={() => deleteQuestion(q.id)}
+                className="text-rose-500 hover:text-rose-700"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {/* Add new question */}
+      <div className="space-y-2 pt-2 border-t border-gray-200">
+        <input
+          value={newQ.questionText}
+          onChange={(e) => setNewQ({ ...newQ, questionText: e.target.value })}
+          placeholder="Question text"
+          className="w-full px-2 py-1.5 rounded-lg border border-gray-200 text-xs"
+        />
+        <div className="space-y-1">
+          {newQ.options.map((opt, oi) => (
+            <div key={oi} className="flex items-center gap-2">
+              <button
+                onClick={() => setNewQ({ ...newQ, correctIndex: oi })}
+                className={`w-5 h-5 rounded-full text-[10px] font-bold flex items-center justify-center ${
+                  newQ.correctIndex === oi
+                    ? "bg-emerald-500 text-white"
+                    : "bg-gray-200 text-gray-500"
+                }`}
+              >
+                {String.fromCharCode(65 + oi)}
+              </button>
+              <input
+                value={opt}
+                onChange={(e) => {
+                  const newOptions = [...newQ.options];
+                  newOptions[oi] = e.target.value;
+                  setNewQ({ ...newQ, options: newOptions });
+                }}
+                placeholder={`Option ${String.fromCharCode(65 + oi)}`}
+                className="flex-1 px-2 py-1 rounded border border-gray-200 text-xs"
+              />
+            </div>
+          ))}
+        </div>
+        <input
+          value={newQ.explanation}
+          onChange={(e) => setNewQ({ ...newQ, explanation: e.target.value })}
+          placeholder="Explanation (optional)"
+          className="w-full px-2 py-1.5 rounded-lg border border-gray-200 text-xs"
+        />
+        <button
+          onClick={addQuestion}
+          disabled={busy}
+          className="w-full h-8 rounded-full bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-1"
+        >
+          {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
+          Add question
+        </button>
+      </div>
     </div>
   );
 }

@@ -32,7 +32,10 @@ export type Screen =
   | "familyRegister"
   | "familyChildLogin"
   | "familyDashboard"
-  | "parent";
+  | "parent"
+  | "curriculumSubject"
+  | "curriculumTopic"
+  | "exam";
 
 export type CreateOption =
   | "upload"
@@ -70,6 +73,14 @@ interface AppState {
   setActiveSchoolSubjectId: (id: string | null) => void;
   activeSchoolTopicId: string | null;
   setActiveSchoolTopicId: (id: string | null) => void;
+
+  // Phase 22 — curriculum engine
+  activeCurriculumSubjectId: string | null;
+  setActiveCurriculumSubjectId: (id: string | null) => void;
+  activeCurriculumTopicId: string | null;
+  setActiveCurriculumTopicId: (id: string | null) => void;
+  activeExamId: string | null;
+  setActiveExamId: (id: string | null) => void;
 
   // create modal
   createOpen: boolean;
@@ -118,6 +129,14 @@ export const useApp = create<AppState>((set) => ({
   setActiveSchoolSubjectId: (id) => set({ activeSchoolSubjectId: id }),
   activeSchoolTopicId: null,
   setActiveSchoolTopicId: (id) => set({ activeSchoolTopicId: id }),
+
+  // Phase 22 — curriculum engine
+  activeCurriculumSubjectId: null,
+  setActiveCurriculumSubjectId: (id) => set({ activeCurriculumSubjectId: id }),
+  activeCurriculumTopicId: null,
+  setActiveCurriculumTopicId: (id) => set({ activeCurriculumTopicId: id }),
+  activeExamId: null,
+  setActiveExamId: (id) => set({ activeExamId: id }),
 
   createOpen: false,
   createOption: null,
