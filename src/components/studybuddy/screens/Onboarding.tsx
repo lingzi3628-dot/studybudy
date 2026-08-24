@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   GraduationCap,
   BookOpen,
@@ -33,7 +33,7 @@ const roles = [
   { key: "Inventor", label: "Inventor / Maker", icon: Lightbulb },
 ];
 
-const grades = [
+const FALLBACK_GRADES = [
   "Kindergarten",
   "Grade 1", "Grade 2", "Grade 3", "Grade 4", "Grade 5",
   "Grade 6", "Grade 7", "Grade 8", "Grade 9", "Grade 10",
@@ -41,6 +41,14 @@ const grades = [
   "Form 1", "Form 2", "Form 3", "Form 4",
   "University", "Self-Learner",
 ];
+
+type CurriculumGradeInfo = {
+  id: string;
+  name: string;
+  status: "ready" | "coming_soon";
+  description: string | null;
+  subjectCount: number;
+};
 
 const subjects = [
   { key: "Mathematics", label: "Mathematics", icon: Calculator },
@@ -75,6 +83,36 @@ export function Onboarding() {
   const [language, setLanguage] = useState<string>("English");
   const [selectedBuddy, setSelectedBuddy] = useState<string>("study_buddy_free");
   const [saving, setSaving] = useState(false);
+  // Phase 22 — curriculum grades fetched from the DB
+  const [curriculumGrades, setCurriculumGrades] = useState<CurriculumGradeInfo[] | null>(null);
+
+  useEffect(() => {
+    fetch("/api/curriculum/grades")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.grades && d.grades.length > 0) {
+          setCurriculumGrades(d.grades);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Compute the grade list to show:
+  //   - If curriculumGrades is null (still loading or fetch failed): show FALLBACK_GRADES
+  //   - If curriculumGrades is an array: show only those grades, with status badges
+  const gradeList: string[] = curriculumGrades
+    ? curriculumGrades.map((g) => g.name)
+    : FALLBACK_GRADES;
+
+  const gradeStatus = (g: string): "ready" | "coming_soon" | null => {
+    if (!curriculumGrades) return null;
+    return curriculumGrades.find((cg) => cg.name === g)?.status ?? null;
+  };
+
+  const gradeDescription = (g: string): string | null => {
+    if (!curriculumGrades) return null;
+    return curriculumGrades.find((cg) => cg.name === g)?.description ?? null;
+  };
 
   const next = () => setStep((s) => Math.min(s + 1, TOTAL_STEPS - 1));
   const back = () => setStep((s) => Math.max(s - 1, 0));
@@ -224,23 +262,48 @@ export function Onboarding() {
         {step === 1 && (
           <section>
             <h1 className="text-2xl font-bold text-gray-900 mt-4">Select your grade or level</h1>
-            <p className="text-sm text-gray-500 mt-1">Pick the level that best describes you.</p>
+            <p className="text-sm text-gray-500 mt-1">
+              {curriculumGrades
+                ? "Grades with content ready are highlighted. Others are coming soon — we'll email you when ready."
+                : "Pick the level that best describes you."}
+            </p>
             <div className="mt-6 grid grid-cols-2 gap-3">
-              {grades.map((g) => {
+              {gradeList.map((g) => {
                 const selected = grade === g;
+                const status = gradeStatus(g);
+                const isComingSoon = status === "coming_soon";
+                const desc = gradeDescription(g);
                 return (
                   <button
                     key={g}
-                    onClick={() => setGrade(g)}
-                    className={`p-3 rounded-2xl border-2 text-sm font-medium transition-all ${
-                      selected ? "border-indigo-600 bg-indigo-50 text-indigo-700" : "border-gray-200 bg-white text-gray-700 hover:border-indigo-300"
+                    onClick={() => !isComingSoon && setGrade(g)}
+                    disabled={isComingSoon}
+                    className={`relative p-3 rounded-2xl border-2 text-sm font-medium transition-all ${
+                      selected
+                        ? "border-indigo-600 bg-indigo-50 text-indigo-700"
+                        : isComingSoon
+                        ? "border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed"
+                        : "border-gray-200 bg-white text-gray-700 hover:border-indigo-300"
                     }`}
                   >
                     {g}
+                    {isComingSoon && (
+                      <span className="block text-[9px] font-bold uppercase tracking-wide text-amber-600 mt-0.5">
+                        Coming soon
+                      </span>
+                    )}
+                    {selected && (
+                      <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-indigo-600" />
+                    )}
                   </button>
                 );
               })}
             </div>
+            {grade && gradeStatus(grade) !== "coming_soon" && (
+              <div className="mt-4 rounded-xl bg-indigo-50 border border-indigo-200 p-3 text-xs text-indigo-700">
+                ✓ <strong>{grade}</strong> is ready — you'll see your subjects in the dashboard after onboarding.
+              </div>
+            )}
           </section>
         )}
 

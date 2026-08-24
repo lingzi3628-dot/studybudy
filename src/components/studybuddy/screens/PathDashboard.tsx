@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import {
   X, Loader2, AlertCircle, Flame, Coins, Zap, Trophy,
   ChevronRight, Lock, Check, Play, Plus, Route,
-  Sparkles, Bot,
+  Sparkles, Bot, BookOpen,
 } from "lucide-react";
 import { useApp } from "../store";
 
@@ -193,6 +193,9 @@ export function PathDashboard() {
       {/* No custom top bar — layout provides TopBar with avatar/streak/tokens/coins/level */}
 
       <div className="max-w-md mx-auto px-4 py-4 pb-24">
+        {/* Phase 22 — Curriculum subjects banner */}
+        <CurriculumSubjectsBanner />
+
         {/* Small greeting */}
         <p className="text-sm font-semibold text-gray-700 mb-3">
           {(() => {
@@ -458,6 +461,104 @@ export function PathDashboard() {
           {toast}
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------
+// Phase 22 — Curriculum subjects banner
+// ---------------------------------------------------------------------
+// Shows the user's curriculum subjects (from the admin-curated DB) at the
+// top of the dashboard. Each subject card shows the topic count and links
+// to a subject detail page (TODO: build the subject detail screen).
+//
+// Falls back to nothing if the user's grade isn't in the curriculum DB yet
+// (e.g. a Grade 5 user when only Grade 1 is ready).
+
+function CurriculumSubjectsBanner() {
+  const { setScreen } = useApp();
+  const [subjects, setSubjects] = useState<Array<{
+    id: string;
+    name: string;
+    icon: string;
+    color: string;
+    topicCount: number;
+  }>>([]);
+  const [gradeName, setGradeName] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        // 1. Get the current user's grade
+        const meRes = await fetch("/api/auth/me");
+        if (!meRes.ok) return;
+        const me = await meRes.json();
+        if (!mounted || !me.authed) return;
+        const userGrade = me.user?.grade;
+        if (!userGrade) return;
+        setGradeName(userGrade);
+
+        // 2. Find the curriculum grade row matching this user's grade
+        const gradesRes = await fetch("/api/curriculum/grades");
+        if (!gradesRes.ok) return;
+        const gradesData = await gradesRes.json();
+        const matchingGrade = (gradesData.grades ?? []).find(
+          (g: any) => g.name.toLowerCase() === String(userGrade).toLowerCase() && g.status === "ready"
+        );
+        if (!matchingGrade) return;
+
+        // 3. Fetch subjects for this grade
+        const subjectsRes = await fetch(`/api/curriculum/subjects?gradeId=${matchingGrade.id}`);
+        if (!subjectsRes.ok) return;
+        const subjectsData = await subjectsRes.json();
+        if (mounted) {
+          setSubjects(subjectsData.subjects ?? []);
+        }
+      } catch {
+        // best-effort — fail silently
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
+
+  if (subjects.length === 0) return null;
+
+  return (
+    <div className="mb-4 rounded-2xl bg-white border border-indigo-100 shadow-sm overflow-hidden">
+      <div className="px-4 py-2.5 bg-gradient-to-r from-indigo-50 to-violet-50 border-b border-indigo-100 flex items-center gap-2">
+        <BookOpen className="w-4 h-4 text-indigo-600" />
+        <p className="text-xs font-bold text-indigo-700">
+          {gradeName ? `${gradeName} subjects` : "Your subjects"}
+        </p>
+      </div>
+      <div className="p-3 grid grid-cols-2 gap-2">
+        {subjects.map((s) => (
+          <button
+            key={s.id}
+            onClick={() => {
+              // TODO: route to a subject detail screen showing the topics
+              // For now, just open the topic via the existing study room flow.
+              // The user can navigate to a topic manually for now.
+              setScreen("search");
+            }}
+            className="flex items-center gap-2 p-2 rounded-xl hover:bg-gray-50 transition text-left"
+          >
+            <span
+              className="w-9 h-9 rounded-lg flex items-center justify-center text-base"
+              style={{ backgroundColor: s.color + "20" }}
+            >
+              {s.icon}
+            </span>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-bold text-gray-900 truncate">{s.name}</p>
+              <p className="text-[10px] text-gray-500">
+                {s.topicCount} {s.topicCount === 1 ? "topic" : "topics"}
+              </p>
+            </div>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

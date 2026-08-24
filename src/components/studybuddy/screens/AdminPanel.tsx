@@ -36,8 +36,9 @@ import {
 } from "lucide-react";
 import { useApp } from "../store";
 import { api } from "../api";
+import { CurriculumTab } from "./admin/CurriculumTab";
 
-type Tab = "dashboard" | "users" | "providers" | "content" | "logs" | "account" | "monetization" | "search" | "conceptMap" | "pathTemplates" | "badges";
+type Tab = "dashboard" | "users" | "providers" | "content" | "logs" | "account" | "monetization" | "search" | "conceptMap" | "pathTemplates" | "badges" | "curriculum";
 
 type Stats = {
   totalUsers: number;
@@ -166,6 +167,7 @@ export function AdminPanel() {
             { key: "users" as const, label: "Users", icon: UsersIcon },
             { key: "providers" as const, label: "AI Providers", icon: Bot },
             { key: "content" as const, label: "Content", icon: BookOpen },
+            { key: "curriculum" as const, label: "📚 Curriculum", icon: BookOpen },
             { key: "logs" as const, label: "Logs", icon: FileText },
             { key: "monetization" as const, label: "💰 Plans", icon: Crown },
             { key: "search" as const, label: "🔍 Search", icon: Search },
@@ -196,6 +198,7 @@ export function AdminPanel() {
         {tab === "users" && <UsersTab />}
         {tab === "providers" && <ProvidersTab />}
         {tab === "content" && <ContentTab />}
+        {tab === "curriculum" && <CurriculumTab />}
         {tab === "logs" && <LogsTab />}
         {tab === "monetization" && <MonetizationTab />}
         {tab === "search" && <SearchSettingsTab />}

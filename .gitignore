@@ -57,3 +57,4 @@ server.log
 /scripts/build-logs/
 # Build artifacts (kept locally for re-builds, not committed)
 # Allow public/app-release.apk to be committed by NOT listing it
+/upload/

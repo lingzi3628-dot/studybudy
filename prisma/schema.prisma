@@ -1365,3 +1365,165 @@ model FamilyChild {
   @@index([familyId])
   @@index([parentUserId])
 }
+
+// =====================================================================
+// Phase 22 — Curriculum Engine
+// =====================================================================
+// Admin-curated study database. The admin uploads a PDF or pastes content
+// per grade + subject, and the AI engine parses it into:
+//   - Topics (chapters/lessons with markdown content)
+//   - Flashcards (front/back Q&A pairs)
+//   - Quiz questions (MCQs with explanations)
+//   - A learning path (ordered sequence of topics)
+//
+// When a user logs in (personal or family mode), their dashboard shows the
+// subjects for their grade. The AI Tutor, flashcard generator, and quiz
+// generator pull from this curated content FIRST — no more hallucination.
+//
+// Grades have a status: 'ready' (selectable in onboarding) or 'coming_soon'
+// (shown greyed-out with a "we'll email you when ready" message).
+// =====================================================================
+
+model CurriculumGrade {
+  id          String   @id @default(uuid())
+  name        String   @unique   // "Grade 1", "Grade 2", "Form 1", etc.
+  level       String             // "primary" | "secondary"
+  orderIndex  Int      @default(0)
+  status      String   @default("coming_soon")  // 'ready' | 'coming_soon'
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  subjects    CurriculumSubject[]
+  exams       CurriculumExam[]
+  sourceDocs  CurriculumSourceDoc[]
+}
+
+model CurriculumSubject {
+  id          String   @id @default(uuid())
+  gradeId     String
+  name        String             // "Mathematics", "English", etc.
+  icon        String   @default("📚")
+  color       String   @default("#6366F1")
+  description String?
+  orderIndex  Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  grade       CurriculumGrade @relation(fields: [gradeId], references: [id], onDelete: Cascade)
+  topics      CurriculumTopic[]
+  sourceDocs  CurriculumSourceDoc[]
+  exams       CurriculumExam[]
+
+  @@unique([gradeId, name])
+  @@index([gradeId])
+}
+
+model CurriculumTopic {
+  id              String   @id @default(uuid())
+  subjectId       String
+  name            String                   // "Lines and Shapes", "Addition", etc.
+  slug            String                   // url-friendly
+  summary         String?                  // 1-2 sentence AI-generated summary
+  contentMarkdown String?                   // full lesson content (markdown)
+  orderIndex      Int      @default(0)     // learning path order
+  estimatedMin    Int      @default(10)     // estimated study time
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  subject         CurriculumSubject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  flashcards      CurriculumFlashcard[]
+  quizQuestions   CurriculumQuizQuestion[]
+
+  @@index([subjectId])
+}
+
+model CurriculumFlashcard {
+  id          String   @id @default(uuid())
+  topicId     String
+  front       String                    // question / prompt
+  back        String                    // answer / explanation
+  orderIndex  Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  topic       CurriculumTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@index([topicId])
+}
+
+model CurriculumQuizQuestion {
+  id            String   @id @default(uuid())
+  topicId       String
+  questionText  String
+  options       Json                     // string[] — e.g. ["A", "B", "C", "D"]
+  correctIndex  Int                      // 0-based index into options
+  explanation   String?
+  difficulty    String   @default("easy") // 'easy' | 'medium' | 'hard'
+  orderIndex    Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  topic         CurriculumTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@index([topicId])
+}
+
+model CurriculumSourceDoc {
+  id            String   @id @default(uuid())
+  gradeId       String
+  subjectId     String?
+  fileName      String                   // original filename
+  rawText       String                   // extracted plain text
+  sourceType    String   @default("pdf") // 'pdf' | 'doc' | 'paste'
+  uploadedBy    String?                  // admin userId
+  parsingStatus String   @default("pending") // 'pending' | 'processing' | 'completed' | 'failed'
+  parseError    String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  grade         CurriculumGrade   @relation(fields: [gradeId], references: [id], onDelete: Cascade)
+  subject       CurriculumSubject? @relation(fields: [subjectId], references: [id], onDelete: SetNull)
+
+  @@index([gradeId])
+  @@index([subjectId])
+}
+
+model CurriculumExam {
+  id              String   @id @default(uuid())
+  gradeId         String
+  subjectId       String
+  schoolId        String?                  // optional — links to School model for school-specific exams
+  title           String                   // "Grade 1 Mathematics End Term 1 Exam"
+  description     String?
+  durationMinutes Int      @default(30)
+  passThreshold   Float    @default(0.5)   // 0..1
+  status          String   @default("draft") // 'draft' | 'published'
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  grade           CurriculumGrade   @relation(fields: [gradeId], references: [id], onDelete: Cascade)
+  subject         CurriculumSubject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  questions       CurriculumExamQuestion[]
+
+  @@index([gradeId])
+  @@index([subjectId])
+  @@index([schoolId])
+}
+
+model CurriculumExamQuestion {
+  id            String   @id @default(uuid())
+  examId        String
+  questionText  String
+  options       Json                     // string[]
+  correctIndex  Int
+  explanation   String?
+  marks         Int      @default(1)
+  orderIndex    Int      @default(0)
+  createdAt     DateTime @default(now())
+
+  exam          CurriculumExam @relation(fields: [examId], references: [id], onDelete: Cascade)
+
+  @@index([examId])
+}
+
