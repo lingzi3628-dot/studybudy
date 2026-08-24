@@ -141,6 +141,17 @@ export async function POST(req: NextRequest) {
   } catch (e: any) {
     console.error("family child login error:", e?.message, e?.code);
 
+    // P2021 — Table does not exist (DB schema not pushed yet)
+    if (e?.code === "P2021" || /relation .* does not exist/i.test(e?.message ?? "")) {
+      return NextResponse.json(
+        {
+          error: "Family Mode tables are not yet created on the database. The deployment is still syncing — please wait 1-2 minutes and try again.",
+          code: "TABLES_NOT_READY",
+        },
+        { status: 503 }
+      );
+    }
+
     if (
       e?.code === "P1001" ||
       /connection|timed out|ECONNREFUSED/i.test(e?.message ?? "")
@@ -152,7 +163,7 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json(
-      { error: "We couldn't sign you in right now. Please try again.", detail: e?.message ?? String(e) },
+      { error: "We couldn't sign you in right now. Please try again.", detail: e?.message ?? String(e), code: e?.code },
       { status: 500 }
     );
   }

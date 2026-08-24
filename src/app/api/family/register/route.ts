@@ -312,6 +312,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // P2021 — Table does not exist (DB schema not pushed yet)
+    if (e?.code === "P2021" || /relation .* does not exist/i.test(e?.message ?? "")) {
+      return NextResponse.json(
+        {
+          error: "Family Mode tables are not yet created on the database. The deployment is still syncing — please wait 1-2 minutes and try again.",
+          code: "TABLES_NOT_READY",
+          detail: e?.message,
+        },
+        { status: 503 }
+      );
+    }
+
     if (
       e?.code === "P1001" ||
       /connection|timed out|ECONNREFUSED/i.test(e?.message ?? "")
@@ -330,6 +342,7 @@ export async function POST(req: NextRequest) {
         error:
           "We couldn't create your family account right now. Please try again.",
         detail: e?.message ?? String(e),
+        code: e?.code,
       },
       { status: 500 }
     );
