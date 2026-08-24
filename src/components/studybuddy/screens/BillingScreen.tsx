@@ -46,6 +46,17 @@ const FEATURE_LABELS: Record<string, string> = {
   learning_path: "🛤️ Learning Path",
   image_search: "🖼️ Image Search",
   video_search: "📺 Video Search",
+  // Phase 21 — added the missing features
+  concept_map: "🗺️ Concept Map",
+  ai_teacher: "🤖 AI Teacher",
+  path_lesson: "📚 Path Lesson",
+  path_flashcards: "🎴 Path Flashcards",
+  path_quiz: "❓ Path Quiz",
+  whiteboard_solver: "✏️ Whiteboard Solver",
+  cover_image: "🎨 Cover Image",
+  voice_transcribe: "🎙️ Voice Transcribe",
+  tts: "🔊 Text to Speech",
+  classroom: "🏫 Classroom",
 };
 
 export function BillingScreen() {

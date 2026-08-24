@@ -1,11 +1,17 @@
 /**
  * Simple in-memory rate limiter for AI calls.
  *
- * - Free plan: 20 calls/day per user
- * - Pro plan:  100 calls/day per user
+ * Phase 21 — raised limits so this never blocks legitimate daily use.
+ * The DB-backed DailyUsage counter (in monetization.ts FREE_DAILY_LIMITS)
+ * is now the primary gate; this in-memory limiter is just a safety net
+ * against runaway loops within a single server instance.
  *
- * Resets at midnight UTC. This is intentionally simple and per-instance;
- * for production you'd want Redis or Upstash.
+ * - Free plan: 200 calls/day per user  (was 20 — too restrictive)
+ * - Pro plan:  2000 calls/day per user (was 100)
+ *
+ * Resets at midnight UTC. Per-instance (NOT Redis) — on serverless cold
+ * starts the in-memory count is reset, which is fine because the DB-backed
+ * DailyUsage counter persists across instances.
  */
 
 type Bucket = { count: number; resetAt: number };
@@ -13,8 +19,8 @@ type Bucket = { count: number; resetAt: number };
 const buckets = new Map<string, Bucket>();
 
 const LIMITS = {
-  free: 20,
-  pro: 100,
+  free: 200,
+  pro: 2000,
 } as const;
 
 function today(): number {
