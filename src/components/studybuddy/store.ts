@@ -28,7 +28,10 @@ export type Screen =
   | "schoolRegister"
   | "schoolDashboard"
   | "schoolSubject"
-  | "schoolTimedTest";
+  | "schoolTimedTest"
+  | "familyRegister"
+  | "familyChildLogin"
+  | "familyDashboard";
 
 export type CreateOption =
   | "upload"

@@ -12,6 +12,7 @@ import {
   Bot,
   BookOpen,
   User,
+  Users,
   GraduationCap,
   Download,
   Smartphone,
@@ -104,6 +105,12 @@ export function Landing() {
             className="h-12 px-6 rounded-full bg-emerald-600 text-white font-semibold shadow-lg hover:bg-emerald-700 transition flex items-center gap-1.5"
           >
             <GraduationCap className="w-4 h-4" /> I'm a School Student
+          </button>
+          <button
+            onClick={() => setScreen("familyRegister")}
+            className="h-12 px-6 rounded-full bg-violet-600 text-white font-semibold shadow-lg hover:bg-violet-700 transition flex items-center gap-1.5"
+          >
+            <Users className="w-4 h-4" /> I'm a Parent (Family Mode)
           </button>
         </div>
         <p className="mt-3 text-xs text-gray-400">

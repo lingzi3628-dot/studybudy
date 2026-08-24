@@ -1324,3 +1324,44 @@ model SchoolBadge {
 
   @@unique([studentId, topicId])
 }
+
+// =====================================================================
+// Phase 20 — Family Mode
+// =====================================================================
+// A "Family" is created by a parent who registers one email + password
+// and then creates 2+ child profiles. Each child has their own username
+// + passcode (created by the parent) and their own User row so progress,
+// tokens, and coins are tracked independently.
+//
+// Children log in via /api/family/login using { username, passcode }
+// — they never see or use the parent's email.
+// =====================================================================
+
+model Family {
+  id            String   @id @default(uuid())
+  parentUserId  String   @unique  // links to users.id (parent's account)
+  parentEmail   String            // denormalized for display
+  displayName   String?           // "The Smith Family" (optional)
+  createdAt     DateTime @default(now())
+
+  children      FamilyChild[]
+}
+
+model FamilyChild {
+  id            String   @id @default(uuid())
+  familyId      String
+  userId        String   @unique  // the child's own User row
+  parentUserId  String             // denormalized for quick lookup
+  username      String   @unique   // GLOBALLY unique — child logs in with this
+  displayName   String             // "Alex", "Sam"
+  passcodeHash  String             // bcrypt hash of passcode
+  gradeLevel    String?            // optional: "Grade 3", "Form 1"
+  avatarEmoji   String?            // optional: "🦊", "🐼"
+  createdAt     DateTime @default(now())
+  lastLogin     DateTime?
+
+  family        Family   @relation(fields: [familyId], references: [id], onDelete: Cascade)
+
+  @@index([familyId])
+  @@index([parentUserId])
+}

@@ -11,6 +11,7 @@ import {
   EyeOff,
   Sparkles,
   User,
+  Users,
 } from "lucide-react";
 import { useApp } from "../store";
 
@@ -202,6 +203,21 @@ function AuthForm({ mode, setMode, setScreen }: { mode: Mode; setMode: (m: Mode)
           {mode === "signup" ? "Sign in" : "Sign up"}
         </button>
       </p>
+
+      {/* Family Mode toggle — Phase 20 */}
+      <div className="pt-3 mt-3 border-t border-gray-100">
+        <p className="text-center text-[11px] text-gray-500 mb-2">
+          Multiple kids at home?
+        </p>
+        <button
+          type="button"
+          onClick={() => setScreen(mode === "signup" ? "familyRegister" : "familyChildLogin")}
+          className="w-full h-10 rounded-full bg-violet-50 text-violet-700 border border-violet-200 font-semibold text-xs hover:bg-violet-100 transition flex items-center justify-center gap-1.5"
+        >
+          <Users className="w-4 h-4" />
+          {mode === "signup" ? "Try Family Mode (1 email · 2+ kids)" : "Child? Log in with username"}
+        </button>
+      </div>
     </form>
   );
 }

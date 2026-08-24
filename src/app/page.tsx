@@ -30,6 +30,9 @@ import { SchoolRegister } from "@/components/studybuddy/screens/SchoolRegister";
 import { SchoolDashboard } from "@/components/studybuddy/screens/SchoolDashboard";
 import { SchoolSubjectPath } from "@/components/studybuddy/screens/SchoolSubjectPath";
 import { SchoolTimedTest } from "@/components/studybuddy/screens/SchoolTimedTest";
+import { FamilyRegister } from "@/components/studybuddy/screens/FamilyRegister";
+import { FamilyChildLogin } from "@/components/studybuddy/screens/FamilyChildLogin";
+import { FamilyDashboard } from "@/components/studybuddy/screens/FamilyDashboard";
 
 // Secret admin access code — type this word on the keyboard anywhere
 // in the app to unlock the admin login screen.
@@ -67,12 +70,19 @@ export default function Page() {
             const sd = await sr.json();
             if (sr.ok && sd.isSchoolStudent) {
               setScreen("schoolDashboard");
-            } else {
-              setScreen("home");
+              return;
             }
-          } catch {
-            setScreen("home");
-          }
+          } catch {}
+          // Check if family member → redirect to family dashboard
+          try {
+            const fr = await fetch("/api/family/dashboard");
+            const fd = await fr.json();
+            if (fr.ok && fd.isFamilyMember) {
+              setScreen("familyDashboard");
+              return;
+            }
+          } catch {}
+          setScreen("home");
         } else {
           setScreen("onboarding");
         }
@@ -105,7 +115,7 @@ export default function Page() {
   }, [setScreen]);
 
   // Immersive study modes have their own full-screen layout (no top bar / bottom nav).
-  const immersive = ["flashcards", "quiz", "graph", "language", "tutor", "path", "study", "admin", "adminLogin", "landing", "onboarding", "auth", "premium", "conceptMap", "earnCenter", "classroom", "schoolRegister", "schoolDashboard", "schoolSubject", "schoolTimedTest"];
+  const immersive = ["flashcards", "quiz", "graph", "language", "tutor", "path", "study", "admin", "adminLogin", "landing", "onboarding", "auth", "premium", "conceptMap", "earnCenter", "classroom", "schoolRegister", "schoolDashboard", "schoolSubject", "schoolTimedTest", "familyRegister", "familyChildLogin", "familyDashboard"];
 
   if (screen === "onboarding") {
     return (
@@ -116,7 +126,7 @@ export default function Page() {
     );
   }
 
-  if (screen === "landing" || screen === "adminLogin" || screen === "auth" || screen === "premium" || screen === "billing" || screen === "schoolRegister") {
+  if (screen === "landing" || screen === "adminLogin" || screen === "auth" || screen === "premium" || screen === "billing" || screen === "schoolRegister" || screen === "familyRegister" || screen === "familyChildLogin") {
     return (
       <div className="min-h-screen bg-gray-50 text-gray-900">
         {screen === "landing" && <Landing />}
@@ -125,6 +135,8 @@ export default function Page() {
         {screen === "premium" && <PremiumScreen />}
         {screen === "billing" && <BillingScreen />}
         {screen === "schoolRegister" && <SchoolRegister />}
+        {screen === "familyRegister" && <FamilyRegister />}
+        {screen === "familyChildLogin" && <FamilyChildLogin />}
         <CreateModal />
       </div>
     );
@@ -147,6 +159,7 @@ export default function Page() {
         {screen === "schoolDashboard" && <SchoolDashboard />}
         {screen === "schoolSubject" && <SchoolSubjectPath />}
         {screen === "schoolTimedTest" && <SchoolTimedTest />}
+        {screen === "familyDashboard" && <FamilyDashboard />}
         <CreateModal />
       </div>
     );
