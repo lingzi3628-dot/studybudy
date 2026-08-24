@@ -64,21 +64,24 @@ export default function Page() {
       .then(async (d) => {
         if (!mounted || !d?.authed) return;
         if (d.user?.onboardingCompleted) {
+          // Phase 20 — Family Mode has priority over School Mode for routing.
+          // A family CHILD goes straight to their learning dashboard (home)
+          // — the "Lock My Room" button in the TopBar lets them switch back.
+          // A family PARENT goes to the family dashboard (children portals).
+          if (d.isFamilyChild) {
+            setScreen("home");
+            return;
+          }
+          if (d.isFamilyParent) {
+            setScreen("familyDashboard");
+            return;
+          }
           // Check if school student → redirect to school dashboard
           try {
             const sr = await fetch("/api/school/dashboard");
             const sd = await sr.json();
             if (sr.ok && sd.isSchoolStudent) {
               setScreen("schoolDashboard");
-              return;
-            }
-          } catch {}
-          // Check if family member → redirect to family dashboard
-          try {
-            const fr = await fetch("/api/family/dashboard");
-            const fd = await fr.json();
-            if (fr.ok && fd.isFamilyMember) {
-              setScreen("familyDashboard");
               return;
             }
           } catch {}

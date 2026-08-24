@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Bell, Flame, Coins, Trophy, Zap, CircleDot } from "lucide-react";
+import { Bell, Flame, Coins, Trophy, Zap, CircleDot, Lock } from "lucide-react";
 import { useApp } from "./store";
 
 function TopBarInner({ mobile }: { mobile: boolean }) {
@@ -13,6 +13,9 @@ function TopBarInner({ mobile }: { mobile: boolean }) {
   const [xp, setXp] = useState<number | null>(null);
   const [level, setLevel] = useState<number | null>(null);
   const [isResting, setIsResting] = useState(false);
+  const [isFamilyChild, setIsFamilyChild] = useState(false);
+  const [childName, setChildName] = useState<string | null>(null);
+  const [locking, setLocking] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -30,6 +33,14 @@ function TopBarInner({ mobile }: { mobile: boolean }) {
             const name = d.user?.name || d.user?.email || "?";
             setInitial(name.charAt(0).toUpperCase());
             if (typeof d.user?.tokenBalance === "number") setTokens(d.user.tokenBalance);
+            // Phase 20 — detect family child to show "Lock My Room" button
+            if (d.isFamilyChild) {
+              setIsFamilyChild(true);
+              setChildName(d.child?.displayName ?? name);
+            } else {
+              setIsFamilyChild(false);
+              setChildName(null);
+            }
           }
         }
         if (progRes.ok) {
@@ -60,6 +71,21 @@ function TopBarInner({ mobile }: { mobile: boolean }) {
     return () => { mounted = false; };
   }, []);
 
+  const lockRoom = async () => {
+    if (locking) return;
+    setLocking(true);
+    try {
+      const r = await fetch("/api/family/lock-room", { method: "POST" });
+      if (r.ok) {
+        setScreen("familyDashboard");
+      }
+    } catch {
+      // ignore — user can retry
+    } finally {
+      setLocking(false);
+    }
+  };
+
   if (screen === "onboarding" || screen === "landing" || screen === "auth" || screen === "adminLogin") return null;
 
   const header = mobile
@@ -69,13 +95,27 @@ function TopBarInner({ mobile }: { mobile: boolean }) {
   return (
     <header className={header}>
       <div className={mobile ? "max-w-md mx-auto px-4 h-14 flex items-center justify-between" : "w-full flex items-center justify-between"}>
-        <button
-          aria-label="Profile"
-          className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center text-white text-sm font-semibold ring-2 ring-white shadow-sm"
-          onClick={() => setScreen("profile")}
-        >
-          {initial}
-        </button>
+        {/* Family child: show child name + lock button instead of profile avatar */}
+        {isFamilyChild ? (
+          <button
+            onClick={lockRoom}
+            disabled={locking}
+            className="flex items-center gap-2 px-3 h-9 rounded-full bg-violet-50 border border-violet-200 text-violet-700 hover:bg-violet-100 transition disabled:opacity-50"
+            title="End your turn and go back to the family portal"
+          >
+            <Lock className="w-3.5 h-3.5" />
+            <span className="text-xs font-bold">Lock My Room</span>
+            {locking && <span className="text-[10px] opacity-70">…</span>}
+          </button>
+        ) : (
+          <button
+            aria-label="Profile"
+            className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center text-white text-sm font-semibold ring-2 ring-white shadow-sm"
+            onClick={() => setScreen("profile")}
+          >
+            {initial}
+          </button>
+        )}
 
         {mobile && (
           <div className="flex items-center gap-1.5">

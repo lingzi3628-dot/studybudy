@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { db } from "@/lib/db";
 import { verifyUserToken, getUserCookieName } from "@/lib/user-jwt";
+import { getFamilyChild, getFamilyByParent } from "@/lib/family-auth";
 
 export const runtime = "nodejs";
 
@@ -10,6 +11,11 @@ export const runtime = "nodejs";
  * or 401 if not authed.
  *
  * Includes monetization fields so the UI can show token balance etc.
+ *
+ * Also includes family context (best-effort, never throws):
+ *   - isFamilyParent: bool  → user owns a Family row
+ *   - isFamilyChild: bool   → user is a FamilyChild row
+ *   - childProfile / parentFamily summary when applicable
  */
 export async function GET() {
   const cookieStore = await cookies();
@@ -49,6 +55,47 @@ export async function GET() {
     return NextResponse.json({ authed: false }, { status: 401 });
   }
 
+  // Best-effort family context — never break the auth check if family tables
+  // don't exist yet (e.g. right after a deploy before db push ran).
+  let familyContext: any = {
+    isFamilyParent: false,
+    isFamilyChild: false,
+  };
+  try {
+    const child = await getFamilyChild(user.id);
+    if (child) {
+      familyContext = {
+        isFamilyParent: false,
+        isFamilyChild: true,
+        child: {
+          id: child.id,
+          username: child.username,
+          displayName: child.displayName,
+          gradeLevel: child.gradeLevel,
+          avatarEmoji: child.avatarEmoji,
+          familyId: child.familyId,
+        },
+      };
+    } else {
+      const family = await getFamilyByParent(user.id);
+      if (family) {
+        familyContext = {
+          isFamilyParent: true,
+          isFamilyChild: false,
+          family: {
+            id: family.id,
+            displayName: family.displayName,
+            parentEmail: family.parentEmail,
+          },
+        };
+      }
+    }
+  } catch (e: any) {
+    // Likely P2021 — family tables not yet created. Just skip — the client
+    // will treat the user as a normal personal-mode user.
+    console.error("family context lookup failed:", e?.message);
+  }
+
   return NextResponse.json({
     authed: true,
     user: {
@@ -71,5 +118,7 @@ export async function GET() {
       tokenResetDate: user.tokenResetDate,
       hasApiKey: Boolean(user.encryptedApiKey),
     },
+    // Phase 20 — Family Mode context
+    ...familyContext,
   });
 }

@@ -211,11 +211,11 @@ function AuthForm({ mode, setMode, setScreen }: { mode: Mode; setMode: (m: Mode)
         </p>
         <button
           type="button"
-          onClick={() => setScreen(mode === "signup" ? "familyRegister" : "familyChildLogin")}
+          onClick={() => setScreen("familyRegister")}
           className="w-full h-10 rounded-full bg-violet-50 text-violet-700 border border-violet-200 font-semibold text-xs hover:bg-violet-100 transition flex items-center justify-center gap-1.5"
         >
           <Users className="w-4 h-4" />
-          {mode === "signup" ? "Try Family Mode (1 email · 2+ kids)" : "Child? Log in with username"}
+          Try Family Mode (1 email · 2+ kids)
         </button>
       </div>
     </form>

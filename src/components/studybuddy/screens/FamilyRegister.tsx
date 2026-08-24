@@ -157,8 +157,9 @@ export function FamilyRegister() {
   };
 
   const finish = () => {
-    // Send the parent to the home screen — they're now logged in.
-    setScreen("home");
+    // Parent is now logged in — send them to the family dashboard so they
+    // (and their children) can use the portal-based flow.
+    setScreen("familyDashboard");
   };
 
   // --- Step 3: Success screen with children credentials ---
@@ -180,11 +181,13 @@ export function FamilyRegister() {
             <div className="p-5 space-y-4">
               <div className="rounded-2xl bg-emerald-50 border border-emerald-200 p-3">
                 <p className="text-xs font-semibold text-emerald-700 mb-1">
-                  📱 How children log in
+                  📱 How your children will use StudyBuddy
                 </p>
                 <p className="text-[11px] text-emerald-700/80">
-                  Each child opens StudyBuddy AI, taps &quot;Family Mode&quot; → &quot;Child Login&quot;,
-                  then types their username and passcode.
+                  When you (the parent) open StudyBuddy on any device, you&apos;ll see
+                  each child as a portal. A child taps their portal, types their passcode,
+                  and enters their own private learning room. When they&apos;re done, they
+                  tap &quot;Lock My Room&quot; and the next child can take a turn.
                 </p>
               </div>
 
@@ -227,7 +230,7 @@ export function FamilyRegister() {
                 onClick={finish}
                 className="w-full h-12 rounded-full bg-emerald-600 text-white font-semibold text-sm shadow-md hover:bg-emerald-700 transition flex items-center justify-center gap-1.5"
               >
-                Continue to dashboard <Sparkles className="w-4 h-4" />
+                See my children&apos;s portals <Sparkles className="w-4 h-4" />
               </button>
             </div>
           </div>
