@@ -46,6 +46,7 @@ export function Profile() {
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isFamilyParent, setIsFamilyParent] = useState(false);
+  const [isFamilyChild, setIsFamilyChild] = useState(false);
   const [childCount, setChildCount] = useState(0);
 
   useEffect(() => {
@@ -57,7 +58,7 @@ export function Profile() {
         setName(user.name ?? "");
         setEmail(user.email ?? "");
         setPlan(user.plan);
-        if (user.languageOfInstruction) setLanguageOfInstruction(user.languageOfInstruction);
+        if (user.languageOfInstruction) setLanguageOfInstruction(user.learningLanguage);
         const keyStatus = await api.hasApiKey();
         if (!mounted) return;
         setHasStoredApiKey(keyStatus.hasKey);
@@ -68,6 +69,14 @@ export function Profile() {
           if (mounted && fd.isFamilyParent) {
             setIsFamilyParent(true);
             setChildCount(fd.children?.length ?? 0);
+          }
+        }
+        // Phase 21b — detect family child (to hide monetization sections)
+        const meRes = await fetch("/api/auth/me");
+        if (meRes.ok) {
+          const me = await meRes.json();
+          if (mounted && me.isFamilyChild) {
+            setIsFamilyChild(true);
           }
         }
       } catch (e) {
@@ -136,79 +145,83 @@ export function Profile() {
 
         {/* Admin access is hidden — use keyboard code or URL param */}
 
-        {/* Premium entry */}
-        <button
-          onClick={() => setScreen("premium")}
-          className="mt-4 w-full p-4 flex items-center justify-between rounded-2xl bg-gradient-to-br from-amber-500 to-orange-500 text-white shadow-md hover:from-amber-600 hover:to-orange-600 transition"
-        >
-          <div className="flex items-center gap-3">
-            <span className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center">
-              <Crown className="w-4 h-4 text-white" />
-            </span>
-            <div className="text-left">
-              <p className="text-sm font-semibold">Premium Plans</p>
-              <p className="text-[11px] opacity-80">Upgrade · Activate key · Payment</p>
-            </div>
-          </div>
-          <ChevronRight className="w-4 h-4 opacity-60" />
-        </button>
-
-        {/* API key (BYOK) */}
-        <section className="mt-6">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">AI Provider Key</h2>
-          <div className="rounded-2xl bg-white border border-gray-200 p-4 shadow-sm">
-            <div className="flex items-center gap-2 mb-1">
-              <KeyRound className="w-4 h-4 text-indigo-600" />
-              <p className="text-sm font-medium text-gray-900">Bring your own key</p>
-              {hasStoredApiKey && (
-                <span className="ml-auto inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full">
-                  <Check className="w-3 h-3" /> Active
-                </span>
-              )}
-            </div>
-            <p className="text-xs text-gray-500 mb-3">
-              Paste your own AI key to unlock pro features for less. Key is encrypted with AES-256-CBC and stored.
-              We make a test call to validate before saving.
-            </p>
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="sk-..."
-              className="w-full p-3 rounded-xl border border-gray-200 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
-            />
-            {error && (
-              <div className="mt-2 flex items-start gap-2 p-2 rounded-lg bg-rose-50 text-rose-700 text-xs">
-                <AlertCircle className="w-3 h-3 flex-shrink-0 mt-0.5" />
-                <span>{error}</span>
+        {/* Premium entry — hidden for family children (parent manages billing) */}
+        {!isFamilyChild && (
+          <button
+            onClick={() => setScreen("premium")}
+            className="mt-4 w-full p-4 flex items-center justify-between rounded-2xl bg-gradient-to-br from-amber-500 to-orange-500 text-white shadow-md hover:from-amber-600 hover:to-orange-600 transition"
+          >
+            <div className="flex items-center gap-3">
+              <span className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center">
+                <Crown className="w-4 h-4 text-white" />
+              </span>
+              <div className="text-left">
+                <p className="text-sm font-semibold">Premium Plans</p>
+                <p className="text-[11px] opacity-80">Upgrade · Activate key · Payment</p>
               </div>
-            )}
-            {savedAt && !error && (
-              <p className="mt-2 text-xs text-emerald-600 flex items-center gap-1">
-                <Check className="w-3 h-3" /> Saved successfully.
+            </div>
+            <ChevronRight className="w-4 h-4 opacity-60" />
+          </button>
+        )}
+
+        {/* API key (BYOK) — hidden for family children */}
+        {!isFamilyChild && (
+          <section className="mt-6">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">AI Provider Key</h2>
+            <div className="rounded-2xl bg-white border border-gray-200 p-4 shadow-sm">
+              <div className="flex items-center gap-2 mb-1">
+                <KeyRound className="w-4 h-4 text-indigo-600" />
+                <p className="text-sm font-medium text-gray-900">Bring your own key</p>
+                {hasStoredApiKey && (
+                  <span className="ml-auto inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full">
+                    <Check className="w-3 h-3" /> Active
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-gray-500 mb-3">
+                Paste your own AI key to unlock pro features for less. Key is encrypted with AES-256-CBC and stored.
+                We make a test call to validate before saving.
               </p>
-            )}
-            <div className="mt-3 flex gap-2">
-              <button
-                onClick={handleSaveKey}
-                disabled={!apiKey.trim() || saving}
-                className="flex-1 h-10 rounded-full bg-indigo-600 text-white font-semibold text-sm hover:bg-indigo-700 transition disabled:opacity-40 flex items-center justify-center gap-1.5"
-              >
-                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                {saving ? "Validating…" : "Save & validate"}
-              </button>
-              {hasStoredApiKey && (
+              <input
+                type="password"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="sk-..."
+                className="w-full p-3 rounded-xl border border-gray-200 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+              />
+              {error && (
+                <div className="mt-2 flex items-start gap-2 p-2 rounded-lg bg-rose-50 text-rose-700 text-xs">
+                  <AlertCircle className="w-3 h-3 flex-shrink-0 mt-0.5" />
+                  <span>{error}</span>
+                </div>
+              )}
+              {savedAt && !error && (
+                <p className="mt-2 text-xs text-emerald-600 flex items-center gap-1">
+                  <Check className="w-3 h-3" /> Saved successfully.
+                </p>
+              )}
+              <div className="mt-3 flex gap-2">
                 <button
-                  onClick={handleClearKey}
-                  disabled={saving}
-                  className="px-4 h-10 rounded-full bg-rose-50 text-rose-700 font-semibold text-sm hover:bg-rose-100 transition disabled:opacity-40"
+                  onClick={handleSaveKey}
+                  disabled={!apiKey.trim() || saving}
+                  className="flex-1 h-10 rounded-full bg-indigo-600 text-white font-semibold text-sm hover:bg-indigo-700 transition disabled:opacity-40 flex items-center justify-center gap-1.5"
                 >
-                  Clear
+                  {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                  {saving ? "Validating…" : "Save & validate"}
+                </button>
+                {hasStoredApiKey && (
+                  <button
+                    onClick={handleClearKey}
+                    disabled={saving}
+                    className="px-4 h-10 rounded-full bg-rose-50 text-rose-700 font-semibold text-sm hover:bg-rose-100 transition disabled:opacity-40"
+                  >
+                    Clear
                 </button>
               )}
             </div>
           </div>
         </section>
+        )}
 
         {/* preferences */}
         <section className="mt-6">
@@ -334,9 +347,10 @@ export function Profile() {
           </button>
         </section>
 
-        {/* account security section */}
-        <section className="mt-6">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Account & Security</h2>
+        {/* account security section — hidden for family children (parent manages account) */}
+        {!isFamilyChild && (
+          <section className="mt-6">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Account & Security</h2>
           <div className="rounded-2xl bg-white border border-gray-200 shadow-sm divide-y divide-gray-100">
             {/* Sessions */}
             <button
@@ -370,6 +384,7 @@ export function Profile() {
             <DeleteAccountButton />
           </div>
         </section>
+        )}
 
         <p className="mt-6 text-center text-[11px] text-gray-400">
           StudyBuddy AI · v1.0.0

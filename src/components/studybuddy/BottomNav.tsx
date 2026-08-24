@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Home, Search, Plus, BarChart3, User, Users } from "lucide-react";
+import { Home, Search, Plus, BarChart3, User, Users, Lock } from "lucide-react";
 import { useApp, type Screen } from "./store";
 
 type Tab = {
@@ -13,21 +13,31 @@ type Tab = {
 /**
  * BottomNav / Sidebar — main navigation.
  *
- * Family parents get an extra "Children" tab that routes to the parent
- * dashboard (children portals + parental insights + AI teacher).
- * The tab is fetched on mount via /api/auth/me (isFamilyParent flag).
+ * Phase 21b — three roles:
+ *   - Family parent: extra "My Children" tab (routes to Parent Dashboard)
+ *   - Family child: NO "My Children" tab, NO "Profile" tab — instead a
+ *     "Lock Room" tab that ends their session and returns to the portals
+ *   - Regular user: standard 5-tab layout
+ *
+ * Children never see the "Children" tab because they're already inside
+ * their own learning room — that tab is for parents to manage all kids.
  */
 export function BottomNav() {
   const { screen, setScreen, openCreate, createOpen } = useApp();
   const [isFamilyParent, setIsFamilyParent] = useState(false);
+  const [isFamilyChild, setIsFamilyChild] = useState(false);
+  const [childName, setChildName] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
     fetch("/api/auth/me")
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
-        if (mounted && d?.authed && d.isFamilyParent) {
-          setIsFamilyParent(true);
+        if (!mounted || !d?.authed) return;
+        if (d.isFamilyParent) setIsFamilyParent(true);
+        if (d.isFamilyChild) {
+          setIsFamilyChild(true);
+          setChildName(d.child?.displayName ?? null);
         }
       })
       .catch(() => {});
@@ -36,14 +46,32 @@ export function BottomNav() {
     };
   }, []);
 
+  const lockRoom = async () => {
+    try {
+      const r = await fetch("/api/family/lock-room", { method: "POST" });
+      if (r.ok) setScreen("familyDashboard");
+    } catch {}
+  };
+
   const hidden: Screen[] = ["onboarding", "flashcards", "quiz", "graph", "language", "tutor", "path", "study", "admin", "adminLogin", "landing", "auth", "premium", "familyRegister", "familyChildLogin", "familyDashboard", "schoolRegister"];
   if (hidden.includes(screen)) return null;
   if (createOpen) return null;
 
-  // Parents get an extra "Children" tab. We drop Profile off the mobile nav
-  // for parents (they can still access it via Home → Profile avatar) to keep
-  // the 5-tab layout.
-  const tabs: Tab[] = isFamilyParent
+  // Three layouts:
+  //  - Family child: Home, Search, Create, Progress, Lock Room  (no Profile, no Children)
+  //  - Family parent: Home, Search, Create, Children, Progress  (no Profile — accessible via avatar)
+  //  - Regular:       Home, Search, Create, Progress, Profile
+  const tabs: Tab[] = isFamilyChild
+    ? [
+        { key: "home", label: "Home", icon: Home },
+        { key: "search", label: "Search", icon: Search },
+        { key: "home", label: "Create", icon: Plus },
+        { key: "progress", label: "Progress", icon: BarChart3 },
+        // The 5th tab for children is a "Lock Room" action button (not a screen)
+        // We use key "home" so the active-state logic doesn't highlight it.
+        { key: "home", label: childName ?? "Lock", icon: Lock },
+      ]
+    : isFamilyParent
     ? [
         { key: "home", label: "Home", icon: Home },
         { key: "search", label: "Search", icon: Search },
@@ -65,6 +93,8 @@ export function BottomNav() {
         {tabs.map((tab, idx) => {
           const isCenter = idx === 2;
           const active = screen === tab.key && !isCenter;
+          // For family children, the 5th tab (idx 4) is the Lock button
+          const isLockButton = isFamilyChild && idx === 4;
 
           if (isCenter) {
             return (
@@ -83,6 +113,19 @@ export function BottomNav() {
           }
 
           const Icon = tab.icon;
+          if (isLockButton) {
+            return (
+              <button
+                key="lock"
+                aria-label="Lock my room"
+                onClick={lockRoom}
+                className="flex flex-col items-center justify-center gap-0.5"
+              >
+                <Icon className="w-5 h-5 text-violet-600" />
+                <span className="text-[10px] text-violet-600 font-semibold">Lock Room</span>
+              </button>
+            );
+          }
           return (
             <button
               key={tab.label}
@@ -103,19 +146,28 @@ export function BottomNav() {
 }
 
 /**
- * Desktop sidebar (md+). Parents get an extra "My Children" item.
+ * Desktop sidebar (md+).
+ * - Family parent: extra "My Children" item
+ * - Family child: no "My Children" item, no "Profile" item — instead a
+ *   "Lock My Room" button at the bottom
+ * - Regular user: standard layout
  */
 export function Sidebar() {
   const { screen, setScreen, openCreate, createOpen } = useApp();
   const [isFamilyParent, setIsFamilyParent] = useState(false);
+  const [isFamilyChild, setIsFamilyChild] = useState(false);
+  const [childName, setChildName] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
     fetch("/api/auth/me")
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
-        if (mounted && d?.authed && d.isFamilyParent) {
-          setIsFamilyParent(true);
+        if (!mounted || !d?.authed) return;
+        if (d.isFamilyParent) setIsFamilyParent(true);
+        if (d.isFamilyChild) {
+          setIsFamilyChild(true);
+          setChildName(d.child?.displayName ?? null);
         }
       })
       .catch(() => {});
@@ -124,18 +176,32 @@ export function Sidebar() {
     };
   }, []);
 
+  const lockRoom = async () => {
+    try {
+      const r = await fetch("/api/family/lock-room", { method: "POST" });
+      if (r.ok) setScreen("familyDashboard");
+    } catch {}
+  };
+
   const hidden: Screen[] = ["onboarding", "flashcards", "quiz", "graph", "language", "tutor", "path", "study", "admin", "adminLogin", "landing", "auth", "premium", "familyRegister", "familyChildLogin", "familyDashboard", "schoolRegister"];
   if (hidden.includes(screen)) return null;
   if (createOpen) return null;
 
+  // Children: no "My Children" item, no "Profile" item
+  // Parents: extra "My Children" item
+  // Regular: standard layout
   const items: { key: Screen; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
     { key: "home", label: "Home", icon: Home },
     { key: "search", label: "Search", icon: Search },
     { key: "progress", label: "Progress", icon: BarChart3 },
-    ...(isFamilyParent
+    // Parents get "My Children" — children and regular users skip this
+    ...(isFamilyParent && !isFamilyChild
       ? [{ key: "parent" as Screen, label: "My Children", icon: Users }]
       : []),
-    { key: "profile", label: "Profile", icon: User },
+    // Children don't get a "Profile" link (parent manages their account)
+    ...(!isFamilyChild
+      ? [{ key: "profile" as Screen, label: "Profile", icon: User }]
+      : []),
   ];
 
   return (
@@ -147,6 +213,13 @@ export function Sidebar() {
         </span>
         <span className="text-base font-bold text-gray-900">StudyBuddy AI</span>
       </div>
+
+      {/* Child badge — show child's name at the top so they know whose room they're in */}
+      {isFamilyChild && childName && (
+        <div className="mb-4 px-3 py-2 rounded-xl bg-violet-50 border border-violet-200 text-center">
+          <p className="text-xs font-bold text-violet-700">{childName}&apos;s room</p>
+        </div>
+      )}
 
       {/* nav items */}
       <nav className="flex-1 space-y-1">
@@ -170,13 +243,24 @@ export function Sidebar() {
         })}
       </nav>
 
-      {/* raised Create button */}
-      <button
-        onClick={() => openCreate()}
-        className="w-full h-11 rounded-full bg-indigo-600 text-white font-semibold text-sm shadow-md hover:bg-indigo-700 transition flex items-center justify-center gap-1.5"
-      >
-        <Plus className="w-4 h-4" /> Create New
-      </button>
+      {/* Bottom button — different per role:
+          - Family child: "Lock My Room" (violet — ends their session)
+          - Everyone else: "Create New" (indigo) */}
+      {isFamilyChild ? (
+        <button
+          onClick={lockRoom}
+          className="w-full h-11 rounded-full bg-violet-600 text-white font-semibold text-sm shadow-md hover:bg-violet-700 transition flex items-center justify-center gap-1.5"
+        >
+          <Lock className="w-4 h-4" /> Lock My Room
+        </button>
+      ) : (
+        <button
+          onClick={() => openCreate()}
+          className="w-full h-11 rounded-full bg-indigo-600 text-white font-semibold text-sm shadow-md hover:bg-indigo-700 transition flex items-center justify-center gap-1.5"
+        >
+          <Plus className="w-4 h-4" /> Create New
+        </button>
+      )}
     </aside>
   );
 }

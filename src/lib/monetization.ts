@@ -44,6 +44,49 @@
 import { db } from "./db";
 
 // ---------------------------------------------------------------------
+// Phase 21b — Family Mode: child token billing redirection
+// ---------------------------------------------------------------------
+
+/**
+ * Cache of childUserId → parentUserId lookups (per request lifecycle).
+ * This avoids a DB round-trip on every monetization call for a child.
+ *
+ * Map is per-process; on serverless cold starts it's empty, which is fine
+ * because the first call will populate it.
+ */
+const childParentCache = new Map<string, string>();
+
+/**
+ * If the given userId belongs to a FamilyChild, returns the parent's userId
+ * (so tokens are billed to the parent). Otherwise returns the same userId.
+ *
+ * This is the core of "parent pays for everything" — children never see
+ * their own token balance because they don't have one to speak of; all
+ * AI usage is billed to the parent.
+ */
+async function resolveBillingUserId(userId: string): Promise<string> {
+  // Check cache first
+  const cached = childParentCache.get(userId);
+  if (cached) return cached;
+
+  try {
+    const child = await db.familyChild.findUnique({
+      where: { userId },
+      select: { parentUserId: true },
+    });
+    if (child) {
+      childParentCache.set(userId, child.parentUserId);
+      return child.parentUserId;
+    }
+  } catch {
+    // Family tables might not exist yet — treat as a normal user.
+  }
+  // Not a child — return as-is
+  childParentCache.set(userId, userId);
+  return userId;
+}
+
+// ---------------------------------------------------------------------
 // Phase 21 — new daily-friendly cost table
 // ---------------------------------------------------------------------
 
@@ -148,8 +191,13 @@ function nextResetDate(isPremium: boolean): Date {
 /**
  * Apply daily token reset (and coin floor) if it's time.
  * Mutates the user row in the DB. Returns the new working balance.
+ *
+ * Exported so /api/auth/me can call this on every page load — that way
+ * old accounts (created before Phase 21) get the new generous 500-token
+ * allowance immediately on their next visit, without having to wait for
+ * their first AI call to trigger the lazy reset.
  */
-async function applyDailyResetIfNeeded(
+export async function applyDailyResetIfNeeded(
   userId: string,
   user: {
     tokenBalance: number;
@@ -246,8 +294,11 @@ export async function checkFreeRateLimit(
   | { ok: false; error: string; code: string }
 > {
   try {
+    // Phase 21b — if this is a family child, bill + check against the PARENT
+    const billingUserId = await resolveBillingUserId(userId);
+
     const user = await db.user.findUnique({
-      where: { id: userId },
+      where: { id: billingUserId },
       select: { id: true, planId: true, subscriptionExpiry: true },
     });
     if (!user) return { ok: false, error: "User not found", code: "NOT_FOUND" };
@@ -263,8 +314,9 @@ export async function checkFreeRateLimit(
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
 
+    // Use the billing user's daily-usage counter (parent's, if child)
     const existing = await db.dailyUsage.findUnique({
-      where: { userId_feature_usageDate: { userId, feature, usageDate: todayStart } },
+      where: { userId_feature_usageDate: { userId: billingUserId, feature, usageDate: todayStart } },
     }).catch(() => null);
 
     const usedToday = existing?.count ?? 0;
@@ -277,8 +329,8 @@ export async function checkFreeRateLimit(
     }
 
     await db.dailyUsage.upsert({
-      where: { userId_feature_usageDate: { userId, feature, usageDate: todayStart } },
-      create: { userId, feature, usageDate: todayStart, count: 1 },
+      where: { userId_feature_usageDate: { userId: billingUserId, feature, usageDate: todayStart } },
+      create: { userId: billingUserId, feature, usageDate: todayStart, count: 1 },
       update: { count: { increment: 1 } },
     }).catch(() => {});
 
@@ -294,10 +346,11 @@ export async function checkFreeRateLimit(
  */
 export async function refundDailySlot(userId: string, feature: string): Promise<void> {
   try {
+    const billingUserId = await resolveBillingUserId(userId);
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
     await db.dailyUsage.update({
-      where: { userId_feature_usageDate: { userId, feature, usageDate: todayStart } },
+      where: { userId_feature_usageDate: { userId: billingUserId, feature, usageDate: todayStart } },
       data: { count: { decrement: 1 } },
     }).catch(() => {});
   } catch (e: any) {
@@ -328,8 +381,13 @@ export async function refundDailySlot(userId: string, feature: string): Promise<
  */
 export async function checkAndDeductTokens(userId: string, feature: string): Promise<DeductResult> {
   try {
+    // Phase 21b — if this is a family child, bill the PARENT (not the child).
+    // Children never see their own token balance; all usage is billed to the
+    // parent who registered the family.
+    const billingUserId = await resolveBillingUserId(userId);
+
     const user = await db.user.findUnique({
-      where: { id: userId },
+      where: { id: billingUserId },
       select: {
         id: true,
         tokenBalance: true,
@@ -345,7 +403,7 @@ export async function checkAndDeductTokens(userId: string, feature: string): Pro
     if (!user) return { ok: false, error: "User not found", code: "NOT_FOUND" };
 
     // Apply daily reset if it's time (mutates user row + writes ledgers)
-    const reset = await applyDailyResetIfNeeded(userId, user);
+    const reset = await applyDailyResetIfNeeded(billingUserId, user);
     let workingBalance = reset.tokenBalance;
     const isPremium = reset.isPremium;
 
@@ -354,7 +412,7 @@ export async function checkAndDeductTokens(userId: string, feature: string): Pro
     // every call so users aren't blocked by legacy state)
     if (user.freeModelRestingUntil && new Date() < user.freeModelRestingUntil) {
       await db.user.update({
-        where: { id: userId },
+        where: { id: billingUserId },
         data: { freeModelRestingUntil: null },
       }).catch(() => {});
     }
@@ -363,7 +421,7 @@ export async function checkAndDeductTokens(userId: string, feature: string): Pro
     let effectiveModel = user.currentModel;
     if (!isPremium && effectiveModel === "study_buddy_free") {
       const activeRental = await db.modelRental.findFirst({
-        where: { userId, status: "active", expiresAt: { gt: new Date() } },
+        where: { userId: billingUserId, status: "active", expiresAt: { gt: new Date() } },
         orderBy: { expiresAt: "desc" },
       }).catch(() => null);
       if (activeRental) {
@@ -377,7 +435,7 @@ export async function checkAndDeductTokens(userId: string, feature: string): Pro
       const todayStart = new Date();
       todayStart.setHours(0, 0, 0, 0);
       const existing = await db.dailyUsage.findUnique({
-        where: { userId_feature_usageDate: { userId, feature, usageDate: todayStart } },
+        where: { userId_feature_usageDate: { userId: billingUserId, feature, usageDate: todayStart } },
       }).catch(() => null);
       const usedToday = existing?.count ?? 0;
       if (usedToday >= limit) {
@@ -398,7 +456,7 @@ export async function checkAndDeductTokens(userId: string, feature: string): Pro
     // Premium-model permission check
     if (mapping?.requiresPremium && !isPremium && effectiveModel !== "study_buddy_free") {
       const activeRental = await db.modelRental.findFirst({
-        where: { userId, modelName: effectiveModel, status: "active", expiresAt: { gt: new Date() } },
+        where: { userId: billingUserId, modelName: effectiveModel, status: "active", expiresAt: { gt: new Date() } },
       }).catch(() => null);
       if (!activeRental) {
         return {
@@ -444,7 +502,7 @@ export async function checkAndDeductTokens(userId: string, feature: string): Pro
     const newBalance = Math.max(0, workingBalance - effectiveCost);
     try {
       await db.user.update({
-        where: { id: userId },
+        where: { id: billingUserId },
         data: { tokenBalance: newBalance },
       });
     } catch (e: any) {
@@ -452,21 +510,21 @@ export async function checkAndDeductTokens(userId: string, feature: string): Pro
       // Don't fail the whole call — let the user keep their AI response.
     }
 
-    // Ledger entries (best-effort)
+    // Ledger entries (best-effort) — log against the billing user (parent)
     if (effectiveCost > 0) {
       await db.tokenTransaction.create({
-        data: { userId, amount: -effectiveCost, reason: feature },
+        data: { userId: billingUserId, amount: -effectiveCost, reason: feature },
       }).catch(() => {});
     }
     await db.tokenUsageLog.create({
-      data: { userId, model: effectiveModel, tokensUsed: flatCost, costTokens: effectiveCost, feature },
+      data: { userId: billingUserId, model: effectiveModel, tokensUsed: flatCost, costTokens: effectiveCost, feature },
     }).catch(() => {});
 
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
     await db.dailyUsage.upsert({
-      where: { userId_feature_usageDate: { userId, feature, usageDate: todayStart } },
-      create: { userId, feature, usageDate: todayStart, count: 1 },
+      where: { userId_feature_usageDate: { userId: billingUserId, feature, usageDate: todayStart } },
+      create: { userId: billingUserId, feature, usageDate: todayStart, count: 1 },
       update: { count: { increment: 1 } },
     }).catch(() => {});
 
@@ -475,7 +533,7 @@ export async function checkAndDeductTokens(userId: string, feature: string): Pro
     if (!isPremium) {
       const limit = FREE_DAILY_LIMITS[feature] ?? 999;
       const updated = await db.dailyUsage.findUnique({
-        where: { userId_feature_usageDate: { userId, feature, usageDate: todayStart } },
+        where: { userId_feature_usageDate: { userId: billingUserId, feature, usageDate: todayStart } },
       }).catch(() => null);
       remaining = limit - (updated?.count ?? 0);
     }
@@ -494,24 +552,29 @@ export async function checkAndDeductTokens(userId: string, feature: string): Pro
 /**
  * Refund tokens for a feature after a failed AI call.
  * Use the costTokens returned by checkAndDeductTokens.
+ *
+ * Phase 21b — if the original call was for a child, this refunds the PARENT
+ * (since that's where the tokens were deducted from).
  */
 export async function refundTokens(userId: string, feature: string, costTokens: number): Promise<void> {
   try {
+    const billingUserId = await resolveBillingUserId(userId);
+
     const user = await db.user.findUnique({
-      where: { id: userId },
+      where: { id: billingUserId },
       select: { tokenBalance: true, currentModel: true },
     });
     if (!user) return;
 
     const newBalance = (user.tokenBalance ?? 0) + costTokens;
     await db.user.update({
-      where: { id: userId },
+      where: { id: billingUserId },
       data: { tokenBalance: newBalance },
     });
 
     await db.tokenUsageLog.create({
       data: {
-        userId,
+        userId: billingUserId,
         model: user.currentModel,
         tokensUsed: -costTokens,
         costTokens: -costTokens,
@@ -522,7 +585,7 @@ export async function refundTokens(userId: string, feature: string, costTokens: 
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
     await db.dailyUsage.update({
-      where: { userId_feature_usageDate: { userId, feature, usageDate: todayStart } },
+      where: { userId_feature_usageDate: { userId: billingUserId, feature, usageDate: todayStart } },
       data: { count: { decrement: 1 } },
     }).catch(() => {});
   } catch (e: any) {
@@ -566,6 +629,9 @@ export async function checkModelPermission(userId: string) {
 
 /** Deduct tokens after an AI call (only used for system / unattended routes) */
 export async function deductTokens(userId: string, tokensUsed: number, model: string, feature: string) {
+  // Phase 21b — bill parent if this is a child
+  const billingUserId = await resolveBillingUserId(userId);
+
   const mapping = await db.modelMapping.findUnique({
     where: { modelName: model },
   }).catch(() => null);
@@ -573,19 +639,19 @@ export async function deductTokens(userId: string, tokensUsed: number, model: st
   const costTokens = Math.ceil(tokensUsed * multiplier);
 
   const user = await db.user.findUnique({
-    where: { id: userId },
+    where: { id: billingUserId },
     select: { tokenBalance: true },
   });
   if (!user) throw new Error("User not found");
 
   const newBalance = Math.max(0, (user.tokenBalance ?? 0) - costTokens);
   await db.user.update({
-    where: { id: userId },
+    where: { id: billingUserId },
     data: { tokenBalance: newBalance },
   });
 
   await db.tokenUsageLog.create({
-    data: { userId, model, tokensUsed, costTokens, feature },
+    data: { userId: billingUserId, model, tokensUsed, costTokens, feature },
   }).catch(() => {});
 
   return { newBalance, costTokens };

@@ -117,51 +117,65 @@ function TopBarInner({ mobile }: { mobile: boolean }) {
           </button>
         )}
 
+        {/* Mobile right-side widgets */}
         {mobile && (
           <div className="flex items-center gap-1.5">
-            {isResting && (
-              <button
-                onClick={() => setScreen("earnCenter")}
-                className="flex items-center gap-1 bg-rose-50 text-rose-700 px-2 py-0.5 rounded-full text-xs font-semibold hover:bg-rose-100 animate-pulse"
-                title="Free model is resting"
-              >
-                <CircleDot className="w-3 h-3" /> Resting
-              </button>
+            {/* Phase 21b — hide all monetization widgets from family children.
+                They don't have their own tokens (parent pays), so showing
+                token/coin/balance widgets would be confusing. */}
+            {!isFamilyChild && (
+              <>
+                {isResting && (
+                  <button
+                    onClick={() => setScreen("earnCenter")}
+                    className="flex items-center gap-1 bg-rose-50 text-rose-700 px-2 py-0.5 rounded-full text-xs font-semibold hover:bg-rose-100 animate-pulse"
+                    title="Free model is resting"
+                  >
+                    <CircleDot className="w-3 h-3" /> Resting
+                  </button>
+                )}
+                {coins !== null && (
+                  <button
+                    onClick={() => setScreen("earnCenter")}
+                    aria-label="Coin balance"
+                    className="flex items-center gap-1 bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full text-xs font-semibold hover:bg-amber-100 transition"
+                  >
+                    <Coins className="w-3 h-3" />
+                    <span>{coins}</span>
+                  </button>
+                )}
+                {level !== null && (
+                  <button
+                    onClick={() => setScreen("progress")}
+                    aria-label="XP and level"
+                    className="flex items-center gap-1 bg-violet-50 text-violet-700 px-2 py-0.5 rounded-full text-xs font-semibold hover:bg-violet-100 transition"
+                  >
+                    <Trophy className="w-3 h-3" />
+                    <span>L{level}</span>
+                  </button>
+                )}
+                {tokens !== null && (
+                  <button
+                    onClick={() => setScreen("billing")}
+                    aria-label="Token balance"
+                    className="flex items-center gap-1 bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full text-xs font-semibold hover:bg-indigo-100 transition"
+                  >
+                    <Zap className="w-3 h-3" />
+                    <span>{tokens}</span>
+                  </button>
+                )}
+                <div className="flex items-center gap-1.5 bg-amber-50 text-amber-700 px-2.5 py-1 rounded-full text-sm font-semibold">
+                  <Flame className="w-4 h-4 text-amber-500" />
+                  <span>{streak}</span>
+                </div>
+              </>
             )}
-            {coins !== null && (
-              <button
-                onClick={() => setScreen("earnCenter")}
-                aria-label="Coin balance"
-                className="flex items-center gap-1 bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full text-xs font-semibold hover:bg-amber-100 transition"
-              >
-                <Coins className="w-3 h-3" />
-                <span>{coins}</span>
-              </button>
+            {/* Children: just show their name as a friendly badge */}
+            {isFamilyChild && childName && (
+              <span className="text-xs font-bold text-violet-700 bg-violet-50 px-3 py-1 rounded-full">
+                {childName}
+              </span>
             )}
-            {level !== null && (
-              <button
-                onClick={() => setScreen("progress")}
-                aria-label="XP and level"
-                className="flex items-center gap-1 bg-violet-50 text-violet-700 px-2 py-0.5 rounded-full text-xs font-semibold hover:bg-violet-100 transition"
-              >
-                <Trophy className="w-3 h-3" />
-                <span>L{level}</span>
-              </button>
-            )}
-            {tokens !== null && (
-              <button
-                onClick={() => setScreen("billing")}
-                aria-label="Token balance"
-                className="flex items-center gap-1 bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full text-xs font-semibold hover:bg-indigo-100 transition"
-              >
-                <Zap className="w-3 h-3" />
-                <span>{tokens}</span>
-              </button>
-            )}
-            <div className="flex items-center gap-1.5 bg-amber-50 text-amber-700 px-2.5 py-1 rounded-full text-sm font-semibold">
-              <Flame className="w-4 h-4 text-amber-500" />
-              <span>{streak}</span>
-            </div>
           </div>
         )}
 
@@ -175,48 +189,60 @@ function TopBarInner({ mobile }: { mobile: boolean }) {
       </div>
       {!mobile && (
         <div className="flex items-center gap-3">
-          {isResting && (
-            <button
-              onClick={() => setScreen("earnCenter")}
-              className="flex items-center gap-1 bg-rose-50 text-rose-700 px-3 py-1 rounded-full text-sm font-semibold hover:bg-rose-100 animate-pulse"
-            >
-              <CircleDot className="w-4 h-4" /> Model Resting
-            </button>
+          {/* Phase 21b — hide all monetization widgets from family children */}
+          {!isFamilyChild ? (
+            <>
+              {isResting && (
+                <button
+                  onClick={() => setScreen("earnCenter")}
+                  className="flex items-center gap-1 bg-rose-50 text-rose-700 px-3 py-1 rounded-full text-sm font-semibold hover:bg-rose-100 animate-pulse"
+                >
+                  <CircleDot className="w-4 h-4" /> Model Resting
+                </button>
+              )}
+              {coins !== null && (
+                <button
+                  onClick={() => setScreen("earnCenter")}
+                  className="flex items-center gap-1.5 bg-amber-50 text-amber-700 px-3 py-1 rounded-full text-sm font-semibold hover:bg-amber-100 transition"
+                >
+                  <Coins className="w-4 h-4" />
+                  <span>{coins}</span>
+                  <span className="text-amber-600/80 font-medium text-xs">coins</span>
+                </button>
+              )}
+              {level !== null && (
+                <button
+                  onClick={() => setScreen("progress")}
+                  className="flex items-center gap-1.5 bg-violet-50 text-violet-700 px-3 py-1 rounded-full text-sm font-semibold hover:bg-violet-100 transition"
+                >
+                  <Trophy className="w-4 h-4" />
+                  <span>L{level}</span>
+                </button>
+              )}
+              {tokens !== null && (
+                <button
+                  onClick={() => setScreen("billing")}
+                  className="flex items-center gap-1.5 bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full text-sm font-semibold hover:bg-indigo-100 transition"
+                >
+                  <Zap className="w-4 h-4" />
+                  <span>{tokens}</span>
+                  <span className="text-indigo-600/80 font-medium text-xs">tokens</span>
+                </button>
+              )}
+              <div className="flex items-center gap-1.5 bg-amber-50 text-amber-700 px-3 py-1 rounded-full text-sm font-semibold">
+                <Flame className="w-4 h-4 text-amber-500" />
+                <span>{streak}</span>
+                <span className="text-amber-600/80 font-medium">streak</span>
+              </div>
+            </>
+          ) : (
+            /* Children: just a friendly name badge on desktop */
+            childName && (
+              <span className="text-sm font-bold text-violet-700 bg-violet-50 px-4 py-1.5 rounded-full">
+                {childName}
+              </span>
+            )
           )}
-          {coins !== null && (
-            <button
-              onClick={() => setScreen("earnCenter")}
-              className="flex items-center gap-1.5 bg-amber-50 text-amber-700 px-3 py-1 rounded-full text-sm font-semibold hover:bg-amber-100 transition"
-            >
-              <Coins className="w-4 h-4" />
-              <span>{coins}</span>
-              <span className="text-amber-600/80 font-medium text-xs">coins</span>
-            </button>
-          )}
-          {level !== null && (
-            <button
-              onClick={() => setScreen("progress")}
-              className="flex items-center gap-1.5 bg-violet-50 text-violet-700 px-3 py-1 rounded-full text-sm font-semibold hover:bg-violet-100 transition"
-            >
-              <Trophy className="w-4 h-4" />
-              <span>L{level}</span>
-            </button>
-          )}
-          {tokens !== null && (
-            <button
-              onClick={() => setScreen("billing")}
-              className="flex items-center gap-1.5 bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full text-sm font-semibold hover:bg-indigo-100 transition"
-            >
-              <Zap className="w-4 h-4" />
-              <span>{tokens}</span>
-              <span className="text-indigo-600/80 font-medium text-xs">tokens</span>
-            </button>
-          )}
-          <div className="flex items-center gap-1.5 bg-amber-50 text-amber-700 px-3 py-1 rounded-full text-sm font-semibold">
-            <Flame className="w-4 h-4 text-amber-500" />
-            <span>{streak}</span>
-            <span className="text-amber-600/80 font-medium">streak</span>
-          </div>
         </div>
       )}
     </header>

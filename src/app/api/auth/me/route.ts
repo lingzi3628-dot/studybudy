@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { db } from "@/lib/db";
 import { verifyUserToken, getUserCookieName } from "@/lib/user-jwt";
 import { getFamilyChild, getFamilyByParent } from "@/lib/family-auth";
+import { applyDailyResetIfNeeded } from "@/lib/monetization";
 
 export const runtime = "nodejs";
 
@@ -16,6 +17,12 @@ export const runtime = "nodejs";
  *   - isFamilyParent: bool  → user owns a Family row
  *   - isFamilyChild: bool   → user is a FamilyChild row
  *   - childProfile / parentFamily summary when applicable
+ *
+ * Phase 21b — triggers the daily token reset check on every page load
+ * so old accounts (created before Phase 21) immediately get the new
+ * 500-token daily allowance without having to wait for their first AI
+ * call. For family children, the reset is applied to the PARENT's
+ * account (since children don't have their own token balance).
  */
 export async function GET() {
   const cookieStore = await cookies();
@@ -48,6 +55,8 @@ export async function GET() {
       subscriptionExpiry: true,
       tokenResetDate: true,
       encryptedApiKey: true,
+      coinBalance: true,
+      freeModelRestingUntil: true,
     },
   });
 
@@ -61,6 +70,7 @@ export async function GET() {
     isFamilyParent: false,
     isFamilyChild: false,
   };
+  let billingUserId = user.id; // for token reset — defaults to self
   try {
     const child = await getFamilyChild(user.id);
     if (child) {
@@ -76,6 +86,9 @@ export async function GET() {
           familyId: child.familyId,
         },
       };
+      // Children's tokens are billed to the parent — apply the daily reset
+      // to the PARENT's account, not the child's.
+      billingUserId = child.parentUserId;
     } else {
       const family = await getFamilyByParent(user.id);
       if (family) {
@@ -96,6 +109,55 @@ export async function GET() {
     console.error("family context lookup failed:", e?.message);
   }
 
+  // Phase 21b — apply daily reset check on every page load.
+  // For family children, this runs against the PARENT's account (so the
+  // parent's tokens get refilled, not the child's).
+  // Best-effort: never break the auth check if this fails.
+  try {
+    if (billingUserId === user.id) {
+      // Self — apply reset directly to the user we just fetched
+      const reset = await applyDailyResetIfNeeded(user.id, {
+        tokenBalance: user.tokenBalance ?? 0,
+        coinBalance: user.coinBalance ?? 0,
+        tokenResetDate: user.tokenResetDate,
+        planId: user.planId,
+        subscriptionExpiry: user.subscriptionExpiry,
+      });
+      // Update the values we return to the client
+      (user as any).tokenBalance = reset.tokenBalance;
+      (user as any).coinBalance = reset.coinBalance;
+      (user as any).tokenResetDate = reset.tokenResetDate;
+    } else {
+      // Family child — apply reset to the parent (best-effort, don't fetch
+      // the parent's new balance into the response — the child shouldn't
+      // see the parent's token count).
+      const parentUser = await db.user.findUnique({
+        where: { id: billingUserId },
+        select: {
+          tokenBalance: true,
+          coinBalance: true,
+          tokenResetDate: true,
+          planId: true,
+          subscriptionExpiry: true,
+        },
+      });
+      if (parentUser) {
+        await applyDailyResetIfNeeded(billingUserId, parentUser);
+      }
+    }
+  } catch (e: any) {
+    console.error("daily reset check failed:", e?.message);
+  }
+
+  // Clear any stale resting state (Phase 21 removed the resting feature entirely)
+  if (user.freeModelRestingUntil && new Date() < user.freeModelRestingUntil) {
+    await db.user.update({
+      where: { id: user.id },
+      data: { freeModelRestingUntil: null },
+    }).catch(() => {});
+    (user as any).freeModelRestingUntil = null;
+  }
+
   return NextResponse.json({
     authed: true,
     user: {
@@ -110,12 +172,14 @@ export async function GET() {
       learningLanguage: user.learningLanguage,
       avatarUrl: user.avatarUrl,
       onboardingCompleted: user.onboardingCompleted,
-      // Monetization
-      tokenBalance: user.tokenBalance ?? 1000,
+      // Monetization — for family children, these are the CHILD's own (empty)
+      // balances; the parent's balance is what actually gets billed and is
+      // not exposed to the child via this endpoint.
+      tokenBalance: familyContext.isFamilyChild ? 0 : user.tokenBalance ?? 0,
       currentModel: user.currentModel ?? "study_buddy_free",
       planId: user.planId,
       subscriptionExpiry: user.subscriptionExpiry,
-      tokenResetDate: user.tokenResetDate,
+      tokenResetDate: familyContext.isFamilyChild ? null : user.tokenResetDate,
       hasApiKey: Boolean(user.encryptedApiKey),
     },
     // Phase 20 — Family Mode context

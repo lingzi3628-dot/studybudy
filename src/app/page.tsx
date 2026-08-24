@@ -34,6 +34,7 @@ import { FamilyRegister } from "@/components/studybuddy/screens/FamilyRegister";
 import { FamilyChildLogin } from "@/components/studybuddy/screens/FamilyChildLogin";
 import { FamilyDashboard } from "@/components/studybuddy/screens/FamilyDashboard";
 import { ParentDashboard } from "@/components/studybuddy/screens/ParentDashboard";
+import { FamilyChildGuard } from "@/components/studybuddy/FamilyChildGuard";
 
 // Secret admin access code — type this word on the keyboard anywhere
 // in the app to unlock the admin login screen.
@@ -136,8 +137,16 @@ export default function Page() {
         {screen === "landing" && <Landing />}
         {screen === "adminLogin" && <AdminLogin />}
         {screen === "auth" && <AuthScreen />}
-        {screen === "premium" && <PremiumScreen />}
-        {screen === "billing" && <BillingScreen />}
+        {screen === "premium" && (
+          <FamilyChildGuard>
+            <PremiumScreen />
+          </FamilyChildGuard>
+        )}
+        {screen === "billing" && (
+          <FamilyChildGuard>
+            <BillingScreen />
+          </FamilyChildGuard>
+        )}
         {screen === "schoolRegister" && <SchoolRegister />}
         {screen === "familyRegister" && <FamilyRegister />}
         {screen === "familyChildLogin" && <FamilyChildLogin />}
@@ -158,7 +167,11 @@ export default function Page() {
         {screen === "study" && <StudyRoom />}
         {screen === "admin" && <AdminPanel />}
         {screen === "conceptMap" && <ConceptMapScreen />}
-        {screen === "earnCenter" && <EarnCenterScreen />}
+        {screen === "earnCenter" && (
+          <FamilyChildGuard>
+            <EarnCenterScreen />
+          </FamilyChildGuard>
+        )}
         {screen === "classroom" && <ClassroomScreen />}
         {screen === "schoolDashboard" && <SchoolDashboard />}
         {screen === "schoolSubject" && <SchoolSubjectPath />}
