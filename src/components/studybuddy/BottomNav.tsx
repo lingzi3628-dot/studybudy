@@ -1,6 +1,7 @@
 "use client";
 
-import { Home, Search, Plus, BarChart3, User } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Home, Search, Plus, BarChart3, User, Users } from "lucide-react";
 import { useApp, type Screen } from "./store";
 
 type Tab = {
@@ -9,24 +10,54 @@ type Tab = {
   icon: React.ComponentType<{ className?: string }>;
 };
 
-const tabs: Tab[] = [
-  { key: "home", label: "Home", icon: Home },
-  { key: "search", label: "Search", icon: Search },
-  { key: "home", label: "Create", icon: Plus },
-  { key: "progress", label: "Progress", icon: BarChart3 },
-  { key: "profile", label: "Profile", icon: User },
-];
-
 /**
- * Mobile-only bottom nav (visible below md).
- * The center Create tab is a raised circular indigo button.
+ * BottomNav / Sidebar — main navigation.
+ *
+ * Family parents get an extra "Children" tab that routes to the parent
+ * dashboard (children portals + parental insights + AI teacher).
+ * The tab is fetched on mount via /api/auth/me (isFamilyParent flag).
  */
 export function BottomNav() {
   const { screen, setScreen, openCreate, createOpen } = useApp();
+  const [isFamilyParent, setIsFamilyParent] = useState(false);
 
-  const hidden: Screen[] = ["onboarding", "flashcards", "quiz", "graph", "language", "tutor", "path", "study", "admin", "adminLogin", "landing", "auth", "premium"];
+  useEffect(() => {
+    let mounted = true;
+    fetch("/api/auth/me")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (mounted && d?.authed && d.isFamilyParent) {
+          setIsFamilyParent(true);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const hidden: Screen[] = ["onboarding", "flashcards", "quiz", "graph", "language", "tutor", "path", "study", "admin", "adminLogin", "landing", "auth", "premium", "familyRegister", "familyChildLogin", "familyDashboard", "schoolRegister"];
   if (hidden.includes(screen)) return null;
   if (createOpen) return null;
+
+  // Parents get an extra "Children" tab. We drop Profile off the mobile nav
+  // for parents (they can still access it via Home → Profile avatar) to keep
+  // the 5-tab layout.
+  const tabs: Tab[] = isFamilyParent
+    ? [
+        { key: "home", label: "Home", icon: Home },
+        { key: "search", label: "Search", icon: Search },
+        { key: "home", label: "Create", icon: Plus },
+        { key: "parent", label: "Children", icon: Users },
+        { key: "progress", label: "Progress", icon: BarChart3 },
+      ]
+    : [
+        { key: "home", label: "Home", icon: Home },
+        { key: "search", label: "Search", icon: Search },
+        { key: "home", label: "Create", icon: Plus },
+        { key: "progress", label: "Progress", icon: BarChart3 },
+        { key: "profile", label: "Profile", icon: User },
+      ];
 
   return (
     <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-gray-200 pb-safe">
@@ -72,12 +103,28 @@ export function BottomNav() {
 }
 
 /**
- * Desktop sidebar (md+). Same 5 tabs in a vertical layout with brand at top.
+ * Desktop sidebar (md+). Parents get an extra "My Children" item.
  */
 export function Sidebar() {
   const { screen, setScreen, openCreate, createOpen } = useApp();
+  const [isFamilyParent, setIsFamilyParent] = useState(false);
 
-  const hidden: Screen[] = ["onboarding", "flashcards", "quiz", "graph", "language", "tutor", "path", "study", "admin", "adminLogin", "landing", "auth", "premium"];
+  useEffect(() => {
+    let mounted = true;
+    fetch("/api/auth/me")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (mounted && d?.authed && d.isFamilyParent) {
+          setIsFamilyParent(true);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const hidden: Screen[] = ["onboarding", "flashcards", "quiz", "graph", "language", "tutor", "path", "study", "admin", "adminLogin", "landing", "auth", "premium", "familyRegister", "familyChildLogin", "familyDashboard", "schoolRegister"];
   if (hidden.includes(screen)) return null;
   if (createOpen) return null;
 
@@ -85,6 +132,9 @@ export function Sidebar() {
     { key: "home", label: "Home", icon: Home },
     { key: "search", label: "Search", icon: Search },
     { key: "progress", label: "Progress", icon: BarChart3 },
+    ...(isFamilyParent
+      ? [{ key: "parent" as Screen, label: "My Children", icon: Users }]
+      : []),
     { key: "profile", label: "Profile", icon: User },
   ];
 

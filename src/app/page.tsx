@@ -33,6 +33,7 @@ import { SchoolTimedTest } from "@/components/studybuddy/screens/SchoolTimedTest
 import { FamilyRegister } from "@/components/studybuddy/screens/FamilyRegister";
 import { FamilyChildLogin } from "@/components/studybuddy/screens/FamilyChildLogin";
 import { FamilyDashboard } from "@/components/studybuddy/screens/FamilyDashboard";
+import { ParentDashboard } from "@/components/studybuddy/screens/ParentDashboard";
 
 // Secret admin access code — type this word on the keyboard anywhere
 // in the app to unlock the admin login screen.
@@ -180,6 +181,7 @@ export default function Page() {
           {screen === "search" && <Search />}
           {screen === "progress" && <Progress />}
           {screen === "profile" && <Profile />}
+          {screen === "parent" && <ParentDashboard />}
         </main>
       </div>
       <BottomNav />

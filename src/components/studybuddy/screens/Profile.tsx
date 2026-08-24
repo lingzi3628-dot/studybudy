@@ -16,6 +16,8 @@ import {
   Trash2,
   Clock,
   Crown,
+  Users,
+  Bot,
 } from "lucide-react";
 import { useApp } from "../store";
 import { api } from "../api";
@@ -43,6 +45,8 @@ export function Profile() {
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isFamilyParent, setIsFamilyParent] = useState(false);
+  const [childCount, setChildCount] = useState(0);
 
   useEffect(() => {
     let mounted = true;
@@ -57,6 +61,15 @@ export function Profile() {
         const keyStatus = await api.hasApiKey();
         if (!mounted) return;
         setHasStoredApiKey(keyStatus.hasKey);
+        // Phase 20c — detect family parent (for parent-dashboard shortcut)
+        const fr = await fetch("/api/family/dashboard");
+        if (fr.ok) {
+          const fd = await fr.json();
+          if (mounted && fd.isFamilyParent) {
+            setIsFamilyParent(true);
+            setChildCount(fd.children?.length ?? 0);
+          }
+        }
       } catch (e) {
         // best-effort
       }
@@ -261,6 +274,47 @@ export function Profile() {
 
         {/* logout */}
         <section className="mt-6 space-y-2">
+          {/* Family / Parent section — only for family parents */}
+          {isFamilyParent && (
+            <div className="rounded-2xl bg-gradient-to-br from-indigo-50 to-violet-50 border border-indigo-200 p-4 space-y-2 mb-2">
+              <div className="flex items-center gap-2 mb-1">
+                <Users className="w-4 h-4 text-indigo-600" />
+                <h3 className="text-xs font-bold uppercase tracking-wide text-indigo-700">
+                  Family / Parent
+                </h3>
+              </div>
+              <p className="text-[11px] text-indigo-700/80">
+                You have {childCount} {childCount === 1 ? "child" : "children"} enrolled in Family Mode.
+              </p>
+              <button
+                onClick={() => setScreen("parent")}
+                className="w-full p-3 flex items-center gap-3 rounded-xl bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-50 shadow-sm"
+              >
+                <span className="w-9 h-9 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                  <Bot className="w-4 h-4" />
+                </span>
+                <div className="flex-1 text-left">
+                  <p className="text-sm font-medium">Parent Dashboard</p>
+                  <p className="text-xs text-gray-500">Insights, progress & AI Teacher</p>
+                </div>
+                <ChevronRight className="w-4 h-4 text-gray-400" />
+              </button>
+              <button
+                onClick={() => setScreen("familyDashboard")}
+                className="w-full p-3 flex items-center gap-3 rounded-xl bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-50 shadow-sm"
+              >
+                <span className="w-9 h-9 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                  <Users className="w-4 h-4" />
+                </span>
+                <div className="flex-1 text-left">
+                  <p className="text-sm font-medium">Children Portals</p>
+                  <p className="text-xs text-gray-500">Unlock a child&apos;s learning room</p>
+                </div>
+                <ChevronRight className="w-4 h-4 text-gray-400" />
+              </button>
+            </div>
+          )}
+
           <button
             onClick={async () => {
               try {

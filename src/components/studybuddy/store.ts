@@ -31,7 +31,8 @@ export type Screen =
   | "schoolTimedTest"
   | "familyRegister"
   | "familyChildLogin"
-  | "familyDashboard";
+  | "familyDashboard"
+  | "parent";
 
 export type CreateOption =
   | "upload"
