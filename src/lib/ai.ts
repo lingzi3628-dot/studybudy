@@ -43,9 +43,14 @@ async function callPlatformAI(
   let errorMessage: string | null = null;
   try {
     const client = await ZAI.create();
-    const completion = await client.chat.completions.create({
-      messages,
-    } as any);
+    // Phase 25 — add timeout to prevent 504 on Vercel (10s max for serverless)
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("AI request timed out (10s)")), 10000)
+    );
+    const completion = await Promise.race([
+      client.chat.completions.create({ messages } as any),
+      timeoutPromise,
+    ]);
     content =
       completion?.choices?.[0]?.message?.content ??
       completion?.choices?.[0]?.delta?.content ??

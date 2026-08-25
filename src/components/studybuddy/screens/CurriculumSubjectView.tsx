@@ -254,6 +254,34 @@ export function CurriculumSubjectView() {
           />
         )}
 
+        {/* Bookshelf + Printable Exams quick links */}
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={() => setScreen("bookshelf")}
+            className="rounded-xl bg-white border border-gray-200 p-3 hover:border-indigo-300 transition flex items-center gap-2 text-left"
+          >
+            <span className="w-9 h-9 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600">
+              📚
+            </span>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-bold text-gray-900">Bookshelf</p>
+              <p className="text-[10px] text-gray-500">Read books & notes</p>
+            </div>
+          </button>
+          <button
+            onClick={() => setScreen("printableExam")}
+            className="rounded-xl bg-white border border-gray-200 p-3 hover:border-indigo-300 transition flex items-center gap-2 text-left"
+          >
+            <span className="w-9 h-9 rounded-lg bg-amber-50 flex items-center justify-center text-amber-600">
+              🖨️
+            </span>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-bold text-gray-900">Print Exams</p>
+              <p className="text-[10px] text-gray-500">AI-generated tests</p>
+            </div>
+          </button>
+        </div>
+
         {/* Topics list */}
         {topics.length === 0 ? (
           <div className="rounded-2xl bg-white border border-gray-200 p-8 text-center">

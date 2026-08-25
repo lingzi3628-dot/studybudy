@@ -1700,3 +1700,44 @@ model EmailOtp {
   @@index([email, purpose])
   @@index([otp])
 }
+
+// =====================================================================
+// Phase 25 — Digital Library + Printable Exams
+// =====================================================================
+
+model LibraryBook {
+  id          String   @id @default(uuid())
+  subjectId   String?              // links to a CurriculumSubject (optional)
+  gradeId     String?              // or just by grade
+  title       String
+  author      String?
+  description String?
+  fileUrl     String               // URL to the PDF (stored in public/library/ or external)
+  fileType    String   @default("pdf") // 'pdf' | 'epub' | 'doc'
+  coverImage  String?              // optional cover image URL
+  pages       Int?
+  uploadedBy  String?              // admin userId
+  isPublished Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([subjectId])
+  @@index([gradeId])
+}
+
+model GeneratedExam {
+  id              String   @id @default(uuid())
+  gradeId         String
+  subjectId       String
+  title           String
+  studentName     String?           // optional — for a specific student
+  questions       Json               // array of {questionText, options[], correctIndex, marks}
+  totalMarks      Int      @default(0)
+  durationMinutes Int      @default(60)
+  pdfUrl          String?            // generated PDF URL (stored in public/exams/)
+  status          String   @default("generated") // 'generated' | 'printed'
+  createdAt       DateTime @default(now())
+
+  @@index([gradeId])
+  @@index([subjectId])
+}

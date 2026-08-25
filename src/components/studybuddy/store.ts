@@ -38,7 +38,9 @@ export type Screen =
   | "exam"
   | "calendar"
   | "timetable"
-  | "studyBuddy";
+  | "studyBuddy"
+  | "bookshelf"
+  | "printableExam";
 
 export type CreateOption =
   | "upload"
