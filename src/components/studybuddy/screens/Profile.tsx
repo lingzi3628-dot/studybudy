@@ -23,6 +23,7 @@ import {
 import { useApp } from "../store";
 import { api } from "../api";
 import { getUILang, setUILang, type Lang } from "@/lib/i18n";
+import { useI18n } from "@/lib/useI18n";
 
 const languages = ["English", "Kiswahili", "Chinese", "French", "Spanish", "Arabic"];
 
@@ -40,6 +41,7 @@ export function Profile() {
     setLanguageOfInstruction,
     setScreen,
   } = useApp();
+  const { t, lang: uiLang, setLang: setUiLangHook } = useI18n();
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -50,10 +52,8 @@ export function Profile() {
   const [isFamilyParent, setIsFamilyParent] = useState(false);
   const [isFamilyChild, setIsFamilyChild] = useState(false);
   const [childCount, setChildCount] = useState(0);
-  const [uiLang, setUiLang] = useState<Lang>("en");
 
   useEffect(() => {
-    setUiLang(getUILang());
     let mounted = true;
     (async () => {
       try {
@@ -262,9 +262,7 @@ export function Profile() {
               <select
                 value={uiLang}
                 onChange={(e) => {
-                  const lang = e.target.value as any;
-                  setUiLang(lang);
-                  setUILang(lang);
+                  setUiLangHook(e.target.value as Lang);
                 }}
                 className="text-sm font-medium text-gray-900 bg-transparent border border-gray-200 rounded-lg px-2 py-1 outline-none focus:border-indigo-400"
               >

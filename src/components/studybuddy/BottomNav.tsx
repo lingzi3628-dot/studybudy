@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Home, Search, Plus, BarChart3, User, Users, Lock, Calendar } from "lucide-react";
 import { useApp, type Screen } from "./store";
+import { useI18n } from "@/lib/useI18n";
 
 type Tab = {
   key: Screen;
@@ -24,6 +25,7 @@ type Tab = {
  */
 export function BottomNav() {
   const { screen, setScreen, openCreate, createOpen } = useApp();
+  const { t } = useI18n();
   const [isFamilyParent, setIsFamilyParent] = useState(false);
   const [isFamilyChild, setIsFamilyChild] = useState(false);
   const [childName, setChildName] = useState<string | null>(null);
@@ -63,28 +65,26 @@ export function BottomNav() {
   //  - Regular:       Home, Search, Create, Progress, Profile
   const tabs: Tab[] = isFamilyChild
     ? [
-        { key: "home", label: "Home", icon: Home },
-        { key: "search", label: "Search", icon: Search },
-        { key: "home", label: "Create", icon: Plus },
-        { key: "progress", label: "Progress", icon: BarChart3 },
-        // The 5th tab for children is a "Lock Room" action button (not a screen)
-        // We use key "home" so the active-state logic doesn't highlight it.
-        { key: "home", label: childName ?? "Lock", icon: Lock },
+        { key: "home", label: t("nav.home"), icon: Home },
+        { key: "search", label: t("nav.search"), icon: Search },
+        { key: "home", label: t("nav.create"), icon: Plus },
+        { key: "progress", label: t("nav.progress"), icon: BarChart3 },
+        { key: "home", label: childName ?? t("nav.children"), icon: Lock },
       ]
     : isFamilyParent
     ? [
-        { key: "home", label: "Home", icon: Home },
-        { key: "search", label: "Search", icon: Search },
-        { key: "home", label: "Create", icon: Plus },
-        { key: "parent", label: "Children", icon: Users },
-        { key: "progress", label: "Progress", icon: BarChart3 },
+        { key: "home", label: t("nav.home"), icon: Home },
+        { key: "search", label: t("nav.search"), icon: Search },
+        { key: "home", label: t("nav.create"), icon: Plus },
+        { key: "parent", label: t("nav.children"), icon: Users },
+        { key: "progress", label: t("nav.progress"), icon: BarChart3 },
       ]
     : [
-        { key: "home", label: "Home", icon: Home },
-        { key: "search", label: "Search", icon: Search },
-        { key: "home", label: "Create", icon: Plus },
-        { key: "progress", label: "Progress", icon: BarChart3 },
-        { key: "profile", label: "Profile", icon: User },
+        { key: "home", label: t("nav.home"), icon: Home },
+        { key: "search", label: t("nav.search"), icon: Search },
+        { key: "home", label: t("nav.create"), icon: Plus },
+        { key: "progress", label: t("nav.progress"), icon: BarChart3 },
+        { key: "profile", label: t("nav.profile"), icon: User },
       ];
 
   return (
@@ -154,6 +154,7 @@ export function BottomNav() {
  */
 export function Sidebar() {
   const { screen, setScreen, openCreate, createOpen } = useApp();
+  const { t } = useI18n();
   const [isFamilyParent, setIsFamilyParent] = useState(false);
   const [isFamilyChild, setIsFamilyChild] = useState(false);
   const [childName, setChildName] = useState<string | null>(null);
@@ -191,17 +192,15 @@ export function Sidebar() {
   // Parents: extra "My Children" item
   // Regular: standard layout
   const items: { key: Screen; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
-    { key: "home", label: "Home", icon: Home },
-    { key: "search", label: "Search", icon: Search },
-    { key: "progress", label: "Progress", icon: BarChart3 },
-    { key: "calendar", label: "Calendar", icon: Calendar },
-    // Parents get "My Children" — children and regular users skip this
+    { key: "home", label: t("nav.home"), icon: Home },
+    { key: "search", label: t("nav.search"), icon: Search },
+    { key: "progress", label: t("nav.progress"), icon: BarChart3 },
+    { key: "calendar", label: t("nav.calendar"), icon: Calendar },
     ...(isFamilyParent && !isFamilyChild
-      ? [{ key: "parent" as Screen, label: "My Children", icon: Users }]
+      ? [{ key: "parent" as Screen, label: t("nav.children"), icon: Users }]
       : []),
-    // Children don't get a "Profile" link (parent manages their account)
     ...(!isFamilyChild
-      ? [{ key: "profile" as Screen, label: "Profile", icon: User }]
+      ? [{ key: "profile" as Screen, label: t("nav.profile"), icon: User }]
       : []),
   ];
 

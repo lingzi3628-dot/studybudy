@@ -33,6 +33,7 @@ import {
   Route,
   Trophy,
   Award,
+  CheckCircle2,
 } from "lucide-react";
 import { useApp } from "../store";
 import { api } from "../api";
@@ -402,15 +403,38 @@ function UsersTab() {
     }
   };
 
-  const deleteUser = async (id: string) => {
-    if (!confirm("Delete this user and all their data? This cannot be undone.")) return;
+  const manageUser = async (id: string, action: "ban" | "unban" | "delete" | "verifyEmail") => {
+    const reason = prompt(
+      action === "delete"
+        ? `DELETE this user permanently?\n\nEnter a reason (will be emailed to admin):`
+        : action === "ban"
+        ? `BAN this user?\n\nEnter a reason (will be emailed to admin):`
+        : action === "verifyEmail"
+        ? `Manually verify this user's email?\n\nEnter a reason:`
+        : `UNBAN this user?\n\nEnter a reason:`
+    );
+    if (reason === null) return; // cancelled
+
+    if (action === "delete") {
+      if (!confirm("⚠️ This will PERMANENTLY DELETE the user and ALL their data. Continue?")) return;
+    }
+
     try {
-      const r = await fetch(`/api/admin/users/${id}`, { method: "DELETE" });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const r = await fetch(`/api/admin/users/${id}/manage`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, reason }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? `HTTP ${r.status}`);
       await load();
     } catch (e: any) {
-      setError(e?.message ?? "Delete failed");
+      setError(e?.message ?? "Action failed");
     }
+  };
+
+  const deleteUser = async (id: string) => {
+    manageUser(id, "delete");
   };
 
   if (loading) return <Spinner label="Loading users…" />;
@@ -498,11 +522,19 @@ function UsersTab() {
                       <Pencil className="w-3.5 h-3.5" />
                     </button>
                     <button
-                      onClick={() => updateUser(u.id, { banned: !u.banned })}
+                      onClick={() => manageUser(u.id, u.banned ? "unban" : "ban")}
                       aria-label={u.banned ? "Unban" : "Ban"}
                       className={`w-7 h-7 rounded-full hover:bg-amber-50 flex items-center justify-center ${u.banned ? "text-emerald-600" : "text-amber-600"}`}
                     >
                       <Shield className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => manageUser(u.id, "verifyEmail")}
+                      aria-label="Verify email"
+                      className="w-7 h-7 rounded-full hover:bg-emerald-50 text-emerald-600 flex items-center justify-center"
+                      title="Manually verify email"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
                     </button>
                     <button onClick={() => deleteUser(u.id)} aria-label="Delete" className="w-7 h-7 rounded-full hover:bg-rose-50 text-rose-600 flex items-center justify-center">
                       <Trash2 className="w-3.5 h-3.5" />
