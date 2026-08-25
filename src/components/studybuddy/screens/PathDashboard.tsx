@@ -189,29 +189,60 @@ export function PathDashboard() {
     : path?.progress?.percent ?? 0;
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-indigo-50 to-violet-50">
-      {/* No custom top bar — layout provides TopBar with avatar/streak/tokens/coins/level */}
-
+    <div className="min-h-screen bg-gradient-to-b from-indigo-50 via-white to-violet-50">
       <div className="max-w-md mx-auto px-4 py-4 pb-24">
+        {/* Greeting */}
+        <div className="mb-4">
+          <p className="text-xs font-semibold text-gray-500">
+            {(() => {
+              const h = new Date().getHours();
+              if (h < 12) return "Good morning";
+              if (h < 18) return "Good afternoon";
+              return "Good evening";
+            })()}
+          </p>
+          <h1 className="text-2xl font-bold text-gray-900 mt-0.5">
+            {data?.userName?.split(" ")[0] ?? "there"} 👋
+          </h1>
+        </div>
+
         {/* Phase 22e — Continue where you left off banner */}
         <ResumeSessionBanner />
 
-        {/* Phase 22 — Curriculum subjects banner */}
+        {/* Phase 22 — Netflix-style subject cards (main focus) */}
         <CurriculumSubjectsBanner />
 
-        {/* Small greeting */}
-        <p className="text-sm font-semibold text-gray-700 mb-3">
-          {(() => {
-            const h = new Date().getHours();
-            const name = data?.userName?.split(" ")[0] ?? "there";
-            if (h < 12) return `Good morning, ${name}! ☀️`;
-            if (h < 18) return `Good afternoon, ${name}! 🌤️`;
-            return `Good evening, ${name}! 🌙`;
-          })()}
-        </p>
+        {/* Quick links row */}
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <button
+            onClick={() => setScreen("calendar")}
+            className="rounded-2xl bg-white border border-gray-200 p-3 hover:border-indigo-300 transition flex items-center gap-2 text-left"
+          >
+            <span className="w-9 h-9 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600">
+              <Flame className="w-4 h-4" />
+            </span>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-bold text-gray-900">Calendar</p>
+              <p className="text-[10px] text-gray-500">Streak + progress</p>
+            </div>
+          </button>
+          <button
+            onClick={() => setScreen("exam")}
+            className="rounded-2xl bg-white border border-gray-200 p-3 hover:border-indigo-300 transition flex items-center gap-2 text-left"
+          >
+            <span className="w-9 h-9 rounded-lg bg-amber-50 flex items-center justify-center text-amber-600">
+              <Trophy className="w-4 h-4" />
+            </span>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-bold text-gray-900">Exams</p>
+              <p className="text-[10px] text-gray-500">Test yourself</p>
+            </div>
+          </button>
+        </div>
 
+        {/* Error display */}
         {error && (
-          <div className="mb-3 p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-start gap-2">
+          <div className="mt-3 p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-start gap-2">
             <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
             <div>
               <span>{error}</span>
@@ -222,248 +253,27 @@ export function PathDashboard() {
           </div>
         )}
 
-        {!hasPath ? (
-          // No path — show "Create Your Learning Path"
-          <div className="mt-8 text-center">
-            <div className="w-20 h-20 mx-auto rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center">
-              <Route className="w-10 h-10 text-white" />
-            </div>
-            <h1 className="mt-4 text-xl font-bold text-gray-900">Create Your Learning Path</h1>
-            <p className="mt-1 text-sm text-gray-500">Your personalized study journey starts here. Pick a topic and we'll build a 4-week path for you.</p>
-            <button
-              onClick={() => setShowCreatePath(true)}
-              className="mt-6 px-6 h-12 rounded-full bg-indigo-600 text-white font-semibold text-sm shadow-md hover:bg-indigo-700"
-            >
-              Get Started →
-            </button>
+        {/* Stats row */}
+        {(streak > 0 || tokens !== null || coins !== null) && (
+          <div className="mt-4 flex items-center justify-center gap-2 text-xs">
+            {streak > 0 && (
+              <span className="flex items-center gap-1 bg-amber-50 text-amber-700 px-3 py-1.5 rounded-full font-semibold">
+                <Flame className="w-3.5 h-3.5" /> {streak} day streak
+              </span>
+            )}
+            {tokens !== null && (
+              <span className="flex items-center gap-1 bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-full font-semibold">
+                <Zap className="w-3.5 h-3.5" /> {tokens}
+              </span>
+            )}
+            {coins !== null && (
+              <span className="flex items-center gap-1 bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-full font-semibold">
+                <Coins className="w-3.5 h-3.5" /> {coins}
+              </span>
+            )}
           </div>
-        ) : (
-          // Has path — show Duolingo-style node map
-          <>
-            {/* Due reviews node (if any) */}
-            {(data?.dueReviewsCount ?? 0) > 0 && (
-              <button
-                onClick={() => setScreen("flashcards")}
-                className="w-full mb-3 flex items-center gap-3 p-3 rounded-2xl bg-amber-50 border-2 border-amber-300 hover:border-amber-400 transition"
-              >
-                <span className="w-12 h-12 rounded-full bg-amber-500 text-white flex items-center justify-center text-xl flex-shrink-0 animate-pulse">
-                  🔄
-                </span>
-                <div className="flex-1 text-left">
-                  <p className="text-sm font-bold text-amber-900">Review Due Now</p>
-                  <p className="text-[10px] text-amber-700">{data.dueReviewsCount} cards ready for review</p>
-                </div>
-                <ChevronRight className="w-4 h-4 text-amber-600" />
-              </button>
-            )}
-
-            {/* Today's challenge banner */}
-            {data?.todayChallenge?.tasks && Array.isArray(data.todayChallenge.tasks) && (data.todayChallenge.tasks as any[]).length > 0 && (
-              <div className="mb-3 rounded-2xl bg-gradient-to-r from-violet-500 to-indigo-600 p-3 text-white shadow-md">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-[10px] uppercase tracking-wide opacity-80">Today's Challenge</p>
-                    <p className="text-sm font-bold">{(data.todayChallenge.tasks as any[]).filter((t: any) => !t.completed).length} tasks remaining</p>
-                  </div>
-                  <button onClick={() => setScreen("study")} className="px-3 h-7 rounded-full bg-white/20 text-white text-[10px] font-bold hover:bg-white/30">
-                    Start →
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Path header */}
-            <div className="mb-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h1 className="text-lg font-bold text-gray-900">{path?.skill}</h1>
-                  <p className="text-xs text-gray-500">{path?.subject ?? "General"} · {progressPct}% complete</p>
-                </div>
-                <button
-                  onClick={() => setShowCreatePath(true)}
-                  className="w-8 h-8 rounded-full bg-white border border-gray-200 flex items-center justify-center text-gray-500 hover:border-indigo-300"
-                  title="Create new path"
-                >
-                  <Plus className="w-4 h-4" />
-                </button>
-              </div>
-              {/* Progress bar */}
-              <div className="mt-2 h-3 bg-gray-200 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-gradient-to-r from-indigo-500 to-violet-600 transition-all duration-500"
-                  style={{ width: `${progressPct}%` }}
-                />
-              </div>
-            </div>
-
-            {/* Smart Continue card — shows the current node */}
-            {(() => {
-              const currentNode = nodes.find(n => n.status === "current");
-              if (!currentNode) return null;
-              return (
-                <button
-                  onClick={() => startNode(currentNode)}
-                  disabled={!!startingNode}
-                  className="w-full mb-4 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 p-4 text-white shadow-md hover:shadow-lg transition text-left"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
-                        {startingNode ? <Loader2 className="w-5 h-5 animate-spin" /> : <Play className="w-5 h-5" />}
-                      </span>
-                      <div>
-                        <p className="text-[10px] uppercase tracking-wide opacity-80">Continue Learning</p>
-                        <p className="text-sm font-bold">{currentNode.title}</p>
-                        <p className="text-[11px] opacity-70">{currentNode.completedItems}/{currentNode.itemCount} items done</p>
-                      </div>
-                    </div>
-                    <ChevronRight className="w-5 h-5" />
-                  </div>
-                </button>
-              );
-            })()}
-
-            {/* Node map — vertical Duolingo-style */}
-            <div className="relative">
-              {nodes.map((node, i) => (
-                <div key={node.id}>
-                  {/* Connector line */}
-                  {i > 0 && (
-                    <div className={`w-1 h-8 mx-auto ${nodes[i - 1].status === "completed" ? "bg-emerald-400" : "bg-gray-200"} rounded-full`} />
-                  )}
-                  {/* Node */}
-                  <button
-                    onClick={() => startNode(node)}
-                    disabled={node.status === "locked"}
-                    className={`w-full flex items-center gap-3 p-3 rounded-2xl border-2 transition ${
-                      node.status === "completed" ? "bg-emerald-50 border-emerald-300" :
-                      node.status === "current" ? "bg-indigo-50 border-indigo-400 shadow-md ring-2 ring-indigo-200" :
-                      node.status === "unlocked" ? "bg-white border-gray-200" :
-                      "bg-gray-50 border-gray-200 opacity-60 cursor-not-allowed"
-                    }`}
-                  >
-                    {/* Node icon */}
-                    <span className={`w-12 h-12 rounded-full flex items-center justify-center text-xl flex-shrink-0 ${
-                      node.status === "completed" ? "bg-emerald-500 text-white" :
-                      node.status === "current" ? "bg-indigo-600 text-white animate-pulse" :
-                      node.status === "unlocked" ? "bg-gray-200 text-gray-500" :
-                      "bg-gray-200 text-gray-400"
-                    }`}>
-                      {node.status === "completed" ? <Check className="w-6 h-6" /> :
-                       node.status === "locked" ? <Lock className="w-5 h-5" /> :
-                       <span className="text-base font-bold">{i + 1}</span>}
-                    </span>
-                    {/* Node info */}
-                    <div className="flex-1 text-left min-w-0">
-                      <p className={`text-sm font-semibold truncate ${node.status === "locked" ? "text-gray-400" : "text-gray-900"}`}>
-                        {node.title}
-                      </p>
-                      <p className="text-[10px] text-gray-500">
-                        {node.completedItems}/{node.itemCount} items
-                        {node.status === "current" && node.completedItems === 0 ? " · Tap START to begin!" : ""}
-                        {node.status === "current" && node.completedItems > 0 ? " · Continue!" : ""}
-                      </p>
-                      {/* Mini progress bar inside node */}
-                      {node.itemCount > 0 && (
-                        <div className="mt-1 h-1 bg-gray-200 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full rounded-full transition-all ${
-                              node.status === "completed" ? "bg-emerald-500" :
-                              node.status === "current" ? "bg-indigo-500" : "bg-gray-300"
-                            }`}
-                            style={{ width: `${node.itemCount > 0 ? (node.completedItems / node.itemCount) * 100 : 0}%` }}
-                          />
-                        </div>
-                      )}
-                    </div>
-                    {/* Status indicator */}
-                    {node.status === "current" && (
-                      <span className="flex-shrink-0 px-2 py-0.5 rounded-full bg-indigo-600 text-white text-[9px] font-bold flex items-center gap-1">
-                        {startingNode === node.id ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : null}
-                        {startingNode === node.id ? "…" : "START"}
-                      </span>
-                    )}
-                    {node.status === "completed" && (
-                      <Check className="w-4 h-4 text-emerald-500 flex-shrink-0" />
-                    )}
-                  </button>
-                </div>
-              ))}
-            </div>
-
-            {/* Create new path button at bottom */}
-            <button
-              onClick={() => setShowCreatePath(true)}
-              className="mt-6 w-full p-3 rounded-2xl border-2 border-dashed border-gray-300 text-xs font-medium text-gray-500 hover:border-indigo-300 hover:text-indigo-600 flex items-center justify-center gap-1.5"
-            >
-              <Plus className="w-4 h-4" /> Create New Path
-            </button>
-          </>
         )}
       </div>
-
-      {/* Create Path Modal */}
-      {showCreatePath && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={() => setShowCreatePath(false)}>
-          <div className="relative w-full max-w-md bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl p-5" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
-                <Route className="w-4 h-4 text-indigo-600" /> Create Learning Path
-              </h3>
-              <button onClick={() => setShowCreatePath(false)} className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="space-y-3">
-              <div>
-                <label className="text-xs font-semibold text-gray-500">What do you want to learn?</label>
-                <input
-                  value={pathForm.skill}
-                  onChange={(e) => setPathForm({ ...pathForm, skill: e.target.value })}
-                  placeholder="e.g. Biology, Spanish, Algebra"
-                  className="mt-1 w-full p-3 rounded-xl border border-gray-200 text-sm outline-none focus:border-indigo-400"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-gray-500">Current level</label>
-                <div className="mt-1 grid grid-cols-3 gap-2">
-                  {["beginner", "intermediate", "advanced"].map((l) => (
-                    <button
-                      key={l}
-                      onClick={() => setPathForm({ ...pathForm, level: l })}
-                      className={`p-2 rounded-xl text-xs font-semibold capitalize ${pathForm.level === l ? "bg-indigo-600 text-white" : "bg-gray-100 text-gray-600"}`}
-                    >
-                      {l}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-gray-500">Goal (optional)</label>
-                <input
-                  value={pathForm.goal}
-                  onChange={(e) => setPathForm({ ...pathForm, goal: e.target.value })}
-                  placeholder="e.g. Pass my exam"
-                  className="mt-1 w-full p-3 rounded-xl border border-gray-200 text-sm outline-none focus:border-indigo-400"
-                />
-              </div>
-              <button
-                onClick={createPath}
-                disabled={busy || !pathForm.skill.trim()}
-                className="w-full h-12 rounded-full bg-indigo-600 text-white font-semibold text-sm shadow-md hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2"
-              >
-                {busy ? <><Loader2 className="w-4 h-4 animate-spin" /> Creating…</> : <><Sparkles className="w-4 h-4" /> Create My Path</>}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {toast && (
-        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-emerald-500 text-white px-4 py-2 rounded-full text-xs font-semibold shadow-lg">
-          {toast}
-        </div>
-      )}
     </div>
   );
 }
@@ -496,7 +306,6 @@ function CurriculumSubjectsBanner() {
     let mounted = true;
     (async () => {
       try {
-        // 1. Get the current user's grade
         const meRes = await fetch("/api/auth/me");
         if (!meRes.ok) return;
         const me = await meRes.json();
@@ -505,7 +314,6 @@ function CurriculumSubjectsBanner() {
         if (!userGrade) return;
         setGradeName(userGrade);
 
-        // 2. Find the curriculum grade row matching this user's grade
         const gradesRes = await fetch("/api/curriculum/grades");
         if (!gradesRes.ok) return;
         const gradesData = await gradesRes.json();
@@ -514,7 +322,6 @@ function CurriculumSubjectsBanner() {
         );
         if (!matchingGrade) return;
 
-        // 3. Fetch subjects for this grade
         const subjectsRes = await fetch(`/api/curriculum/subjects?gradeId=${matchingGrade.id}`);
         if (!subjectsRes.ok) return;
         const subjectsData = await subjectsRes.json();
@@ -531,66 +338,83 @@ function CurriculumSubjectsBanner() {
   if (subjects.length === 0) return null;
 
   return (
-    <div className="mb-4 rounded-2xl bg-white border border-indigo-100 shadow-sm overflow-hidden">
-      <div className="px-4 py-2.5 bg-gradient-to-r from-indigo-50 to-violet-50 border-b border-indigo-100 flex items-center gap-2">
-        <BookOpen className="w-4 h-4 text-indigo-600" />
-        <p className="text-xs font-bold text-indigo-700 flex-1">
-          {gradeName ? `${gradeName} subjects` : "Your subjects"}
-        </p>
+    <div className="mb-4">
+      {/* Section header */}
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <h2 className="text-base font-bold text-gray-900">
+            {gradeName ? `${gradeName} subjects` : "Your subjects"}
+          </h2>
+          <p className="text-[11px] text-gray-500">Tap a subject to start learning</p>
+        </div>
         <button
           onClick={() => setScreen("exam")}
-          className="text-[10px] font-bold text-indigo-700 hover:underline flex items-center gap-1"
+          className="px-3 py-1.5 rounded-full bg-amber-50 text-amber-700 text-[11px] font-bold hover:bg-amber-100 transition flex items-center gap-1"
         >
-          📝 Exams →
+          📝 Exams
         </button>
       </div>
-      <div className="p-3 grid grid-cols-2 gap-2">
+
+      {/* Netflix-style cards grid */}
+      <div className="grid grid-cols-2 gap-3">
         {subjects.map((s) => {
           const isLocked = s.status === "locked";
           return (
             <button
               key={s.id}
               onClick={() => {
-                if (isLocked) return; // locked cards are not clickable
+                if (isLocked) return;
                 setActiveCurriculumSubjectId(s.id);
                 setScreen("curriculumSubject");
               }}
               disabled={isLocked}
-              className={`relative flex items-center gap-2 p-2 rounded-xl transition text-left ${
+              className={`relative rounded-2xl overflow-hidden shadow-sm transition-all text-left ${
                 isLocked
-                  ? "opacity-50 cursor-not-allowed"
-                  : "hover:bg-gray-50"
+                  ? "opacity-60 cursor-not-allowed"
+                  : "hover:shadow-lg hover:-translate-y-0.5 active:scale-[0.98]"
               }`}
+              style={{ backgroundColor: s.color }}
             >
-              {/* Subject image / icon */}
-              {s.imageUrl ? (
-                <img
-                  src={s.imageUrl}
-                  alt={s.name}
-                  className="w-9 h-9 rounded-lg object-cover flex-shrink-0"
-                />
-              ) : (
-                <span
-                  className="w-9 h-9 rounded-lg flex items-center justify-center text-base flex-shrink-0"
-                  style={{ backgroundColor: s.color + "20" }}
-                >
-                  {s.icon}
-                </span>
-              )}
-              <div className="flex-1 min-w-0">
-                <p className={`text-xs font-bold truncate ${isLocked ? "text-gray-500" : "text-gray-900"}`}>
-                  {s.name}
-                </p>
-                <p className="text-[10px] text-gray-500">
-                  {isLocked ? "🔒 Coming soon" : `${s.topicCount} ${s.topicCount === 1 ? "topic" : "topics"}`}
-                </p>
+              {/* Card content — image or gradient background */}
+              <div className="aspect-[4/3] relative">
+                {s.imageUrl ? (
+                  <img
+                    src={s.imageUrl}
+                    alt={s.name}
+                    className="absolute inset-0 w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <span className="text-5xl opacity-90">{s.icon}</span>
+                  </div>
+                )}
+                {/* Dark gradient overlay for text readability */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+
+                {/* Lock badge */}
+                {isLocked && (
+                  <div className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/50 backdrop-blur flex items-center justify-center">
+                    <Lock className="w-3.5 h-3.5 text-white" />
+                  </div>
+                )}
+
+                {/* Topic count badge */}
+                {!isLocked && s.topicCount > 0 && (
+                  <div className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-white/20 backdrop-blur text-white text-[10px] font-bold">
+                    {s.topicCount} topics
+                  </div>
+                )}
+
+                {/* Subject name + status at bottom */}
+                <div className="absolute bottom-0 left-0 right-0 p-3">
+                  <p className="text-white font-bold text-sm leading-tight drop-shadow-lg">
+                    {s.name}
+                  </p>
+                  <p className="text-white/80 text-[10px] mt-0.5">
+                    {isLocked ? "🔒 Coming soon" : s.description ?? "Tap to start"}
+                  </p>
+                </div>
               </div>
-              {/* Lock badge for locked subjects */}
-              {isLocked && (
-                <span className="absolute top-1 right-1 w-5 h-5 rounded-full bg-gray-200 flex items-center justify-center">
-                  <Lock className="w-3 h-3 text-gray-500" />
-                </span>
-              )}
             </button>
           );
         })}
