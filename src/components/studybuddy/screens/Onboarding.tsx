@@ -260,13 +260,12 @@ export function Onboarding() {
                 return (
                   <button
                     key={g}
-                    onClick={() => !isComingSoon && setGrade(g)}
-                    disabled={isComingSoon}
+                    onClick={() => setGrade(g)}
                     className={`relative p-3 rounded-2xl border-2 text-sm font-medium transition-all ${
                       selected
                         ? "border-indigo-600 bg-indigo-50 text-indigo-700"
                         : isComingSoon
-                        ? "border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed"
+                        ? "border-amber-200 bg-amber-50/50 text-gray-600 hover:border-amber-300"
                         : "border-gray-200 bg-white text-gray-700 hover:border-indigo-300"
                     }`}
                   >
@@ -283,7 +282,12 @@ export function Onboarding() {
                 );
               })}
             </div>
-            {grade && gradeStatus(grade) !== "coming_soon" && (
+            {grade && gradeStatus(grade) === "coming_soon" && (
+              <div className="mt-4 rounded-xl bg-amber-50 border border-amber-200 p-3 text-xs text-amber-700">
+                📧 <strong>{grade}</strong> content is being prepared. You can still create your account — we'll email you when {grade} subjects are ready!
+              </div>
+            )}
+            {grade && gradeStatus(grade) === "ready" && (
               <div className="mt-4 rounded-xl bg-indigo-50 border border-indigo-200 p-3 text-xs text-indigo-700">
                 ✓ <strong>{grade}</strong> is ready — you'll see your subjects in the dashboard after onboarding.
               </div>

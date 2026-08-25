@@ -27,18 +27,24 @@ function getTransporter(): nodemailer.Transporter | null {
   const host = process.env.SMTP_HOST || "smtp.gmail.com";
   const port = Number(process.env.SMTP_PORT) || 587;
   const user = process.env.SMTP_USER || "lingzi3628@gmail.com";
-  const pass = process.env.SMTP_PASS || "ytyz ueex sxrc awyd";
+  // Strip spaces from the Google App Password (they're display-only)
+  const pass = (process.env.SMTP_PASS || "ytyzueexsxrcawyd").replace(/\s/g, "");
 
   if (!user || !pass) {
     console.warn("[email] SMTP credentials not set — emails will not be sent");
     return null;
   }
 
+  console.log("[email] Creating transporter:", { host, port, user, passLength: pass.length });
+
   transporter = nodemailer.createTransport({
     host,
     port,
     secure: port === 465, // true for 465, false for 587
     auth: { user, pass },
+    connectionTimeout: 10000,  // 10 seconds
+    greetingTimeout: 10000,
+    socketTimeout: 15000,
   });
 
   return transporter;
@@ -65,6 +71,7 @@ export async function sendEmail(opts: {
   const fromEmail = process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER || "lingzi3628@gmail.com";
 
   try {
+    console.log("[email] Attempting to send to:", opts.to, "subject:", opts.subject);
     const info = await t.sendMail({
       from: `"${fromName}" <${fromEmail}>`,
       to: opts.to,
@@ -72,10 +79,10 @@ export async function sendEmail(opts: {
       html: opts.html,
       text: opts.text ?? opts.html.replace(/<[^>]*>/g, ""),
     });
-    console.log("[email] Sent:", info.messageId, "to", opts.to);
+    console.log("[email] ✅ Sent:", info.messageId, "to", opts.to);
     return { ok: true, messageId: info.messageId };
   } catch (e: any) {
-    console.error("[email] Send failed:", e?.message);
+    console.error("[email] ❌ Send failed:", e?.message, "code:", e?.code, "to:", opts.to);
     return { ok: false, error: e?.message ?? String(e) };
   }
 }
