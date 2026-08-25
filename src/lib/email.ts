@@ -99,6 +99,7 @@ function emailShell(opts: {
   buttonUrl?: string;
   footer?: string;
 }): string {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://studybudy-chi.vercel.app";
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -119,6 +120,12 @@ function emailShell(opts: {
               </div>
               <h1 style="margin:0;color:#ffffff;font-size:20px;font-weight:bold;">StudyBuddy AI</h1>
               <p style="margin:4px 0 0;color:rgba(255,255,255,0.8);font-size:13px;">Your AI study companion</p>
+            </td>
+          </tr>
+          <!-- App screenshot banner -->
+          <tr>
+            <td style="padding:0;">
+              <img src="${appUrl}/icon-512.png" alt="StudyBuddy AI" style="width:100%;display:block;max-height:120px;object-fit:cover;" />
             </td>
           </tr>
           <!-- Body -->

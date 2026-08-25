@@ -47,6 +47,7 @@ export async function GET() {
       learningLanguage: true,
       avatarUrl: true,
       onboardingCompleted: true,
+      emailVerified: true,
       banned: true,
       // Monetization fields
       tokenBalance: true,
@@ -181,6 +182,7 @@ export async function GET() {
       subscriptionExpiry: user.subscriptionExpiry,
       tokenResetDate: familyContext.isFamilyChild ? null : user.tokenResetDate,
       hasApiKey: Boolean(user.encryptedApiKey),
+      emailVerified: user.emailVerified,
     },
     // Phase 20 — Family Mode context
     ...familyContext,

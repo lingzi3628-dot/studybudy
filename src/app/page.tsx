@@ -69,6 +69,11 @@ export default function Page() {
       .then((r) => r.ok ? r.json() : null)
       .then(async (d) => {
         if (!mounted || !d?.authed) return;
+        // Phase 23b — If email not verified, go to auth screen
+        if (!d.user?.emailVerified) {
+          setScreen("auth");
+          return;
+        }
         if (d.user?.onboardingCompleted) {
           // Phase 20 — Family Mode has priority over School Mode for routing.
           // A family CHILD goes straight to their learning dashboard (home)

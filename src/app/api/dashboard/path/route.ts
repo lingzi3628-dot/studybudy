@@ -187,5 +187,6 @@ export async function GET() {
       select: { tasks: true },
     }).catch(() => null),
     userName: user.name,
+    userEmail: user.email,
   });
 }

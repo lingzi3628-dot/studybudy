@@ -27,17 +27,19 @@ export function AuthScreen() {
   const [verificationEmail, setVerificationEmail] = useState("");
 
   // Check if already authed → redirect to home
+  // BUT only redirect if email is verified — otherwise show the auth screen
   useEffect(() => {
     fetch("/api/auth/me").then((r) => {
       if (r.ok) {
         r.json().then((d) => {
-          if (d.authed) {
+          if (d.authed && d.user?.emailVerified) {
             if (d.user?.onboardingCompleted) {
               setScreen("home");
             } else {
               setScreen("onboarding");
             }
           }
+          // If not emailVerified, stay on the auth screen
         });
       }
     }).catch(() => {});
@@ -133,14 +135,16 @@ function AuthForm({ mode, setMode, setScreen, onNeedVerification }: { mode: Mode
       });
       const d = await r.json();
 
-      if (!r.ok) {
-        throw new Error(d.error ?? `HTTP ${r.status}`);
-      }
-
-      // Phase 23b — If signup or login requires email verification, show the code entry screen
+      // Phase 23b — Check needsEmailVerification BEFORE checking r.ok
+      // (the login route returns ok:false for unverified users, but still
+      // includes needsEmailVerification: true in the response body)
       if (d.needsEmailVerification) {
         onNeedVerification(email.trim().toLowerCase());
         return;
+      }
+
+      if (!r.ok) {
+        throw new Error(d.error ?? `HTTP ${r.status}`);
       }
 
       if (d.user?.onboardingCompleted) {
@@ -329,8 +333,24 @@ function EmailVerificationScreen({
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error ?? "Verification failed");
-      // Success — go to onboarding or home
-      setScreen("onboarding");
+      // Success — check if user has completed onboarding
+      // For signup (new user): go to onboarding
+      // For login (existing user): fetch /api/auth/me to determine
+      try {
+        const meRes = await fetch("/api/auth/me");
+        if (meRes.ok) {
+          const me = await meRes.json();
+          if (me.authed && me.user?.onboardingCompleted) {
+            setScreen("home");
+          } else {
+            setScreen("onboarding");
+          }
+        } else {
+          setScreen("onboarding");
+        }
+      } catch {
+        setScreen("onboarding");
+      }
     } catch (e: any) {
       setError(e?.message ?? "Verification failed");
     } finally {

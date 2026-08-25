@@ -202,7 +202,7 @@ export function PathDashboard() {
             })()}
           </p>
           <h1 className="text-2xl font-bold text-gray-900 mt-0.5">
-            {data?.userName?.split(" ")[0] ?? "there"} 👋
+            {data?.userName?.split(" ")[0] ?? data?.userEmail?.split("@")[0] ?? "there"} 👋
           </h1>
         </div>
 
