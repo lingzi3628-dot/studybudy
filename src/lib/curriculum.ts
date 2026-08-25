@@ -48,100 +48,290 @@ export type ParsedCurriculum = {
  *   4. Generate 3-5 quiz questions per topic (4 options each, with explanations)
  *
  * STRICT RULE: only use content from the provided text. No hallucination.
+ *
+ * Phase 22b: For large documents, the text is split into chunks and each
+ * chunk is parsed separately. This avoids the AI hitting its output token
+ * limit and producing truncated JSON.
  */
 export async function parseCurriculumWithAI(
   rawText: string,
   context: { gradeName: string; subjectName: string }
 ): Promise<ParsedCurriculum> {
+  // If the text is small enough, parse it in one shot
+  if (rawText.length <= 6000) {
+    return parseChunkWithAI(rawText, context);
+  }
+
+  // For large texts, split into chunks and parse each separately.
+  // We split on double-newlines (paragraph breaks) and group into ~5000 char chunks.
+  const chunks = splitIntoChunks(rawText, 5000);
+  console.log(`[curriculum] Split ${rawText.length} chars into ${chunks.length} chunks`);
+
+  const allTopics: ParsedTopic[] = [];
+  for (let i = 0; i < chunks.length; i++) {
+    console.log(`[curriculum] Parsing chunk ${i + 1}/${chunks.length} (${chunks[i].length} chars)`);
+    try {
+      const result = await parseChunkWithAI(chunks[i], context);
+      allTopics.push(...result.topics);
+    } catch (e: any) {
+      console.error(`[curriculum] Chunk ${i + 1} failed:`, e?.message);
+      // Continue with other chunks — partial results are better than none
+    }
+  }
+
+  if (allTopics.length === 0) {
+    throw new Error("AI could not parse any topics from the document. Try with a smaller document or check the content quality.");
+  }
+
+  // Deduplicate by topic name (case-insensitive) — keep the first occurrence
+  const seen = new Set<string>();
+  const deduped = allTopics.filter((t) => {
+    const key = t.name.toLowerCase().trim();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  return { topics: deduped };
+}
+
+/**
+ * Splits text into chunks of approximately `maxChars` characters,
+ * preferring to break at paragraph boundaries (double newlines).
+ */
+function splitIntoChunks(text: string, maxChars: number): string[] {
+  const paragraphs = text.split(/\n\s*\n/); // split on blank lines
+  const chunks: string[] = [];
+  let current = "";
+
+  for (const para of paragraphs) {
+    if ((current + "\n\n" + para).length > maxChars && current) {
+      chunks.push(current);
+      current = para;
+    } else {
+      current = current ? current + "\n\n" + para : para;
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
+
+/**
+ * Parses a single chunk of text with the AI. Used by parseCurriculumWithAI
+ * for both small (single-chunk) and large (multi-chunk) documents.
+ */
+async function parseChunkWithAI(
+  rawText: string,
+  context: { gradeName: string; subjectName: string }
+): Promise<ParsedCurriculum> {
   const systemPrompt = `You are a curriculum architect for Kenyan CBC (Competency-Based Curriculum) schools.
 You receive raw text extracted from a textbook or notes document, and your job
-is to structure it into a teachable curriculum.
+is to structure it into teachable curriculum topics.
 
 CRITICAL RULES:
 1. ONLY use content that appears in the raw text. Do NOT invent topics, facts,
-   or questions that aren't grounded in the provided text. If the text doesn't
-   cover something, leave it out — better fewer topics than fabricated ones.
+   or questions that aren't grounded in the provided text.
 2. The text may have OCR artifacts or weird formatting. Do your best to extract
    the meaningful educational content and ignore noise.
-3. Each topic should be a distinct lesson/chapter. Order them logically
-   (simplest first, building up).
+3. Each topic should be a distinct lesson/chapter.
 4. For each topic:
    - Write a 1-2 sentence summary suitable for a student.
-   - Write full lesson content in Markdown (use ## headings, **bold** key terms,
-     numbered steps for activities, etc.).
-   - Generate 3-5 flashcards (front: short question/prompt, back: concise answer).
+   - Write full lesson content in Markdown (## headings, **bold** key terms,
+     numbered steps for activities).
+   - Generate 3-5 flashcards (front: short question, back: concise answer).
    - Generate 3-5 multiple-choice quiz questions with 4 options each.
-     The correctIndex is 0-based. Include a brief explanation for each.
+     The correctIndex is 0-based. Include a brief explanation.
 5. Keep language simple and appropriate for the grade level.
-6. If the text is very short or doesn't contain enough for a topic, skip it.
+6. If the text doesn't contain enough for a topic, skip it.
 
-Return ONLY valid JSON in this exact shape (no markdown fences, no commentary):
-{
-  "topics": [
-    {
-      "name": "Topic Name",
-      "summary": "1-2 sentence summary",
-      "contentMarkdown": "## Heading\\n\\nLesson content in markdown...",
-      "estimatedMin": 10,
-      "flashcards": [
-        {"front": "What is...?", "back": "It is..."}
-      ],
-      "quizQuestions": [
-        {
-          "questionText": "Which of the following...?",
-          "options": ["A", "B", "C", "D"],
-          "correctIndex": 0,
-          "explanation": "Because...",
-          "difficulty": "easy"
-        }
-      ]
-    }
-  ]
-}`;
+IMPORTANT — JSON FORMATTING:
+- Return ONLY valid JSON. No markdown fences, no commentary before or after.
+- All string values MUST be valid JSON strings — escape newlines as \\n,
+  escape double quotes as \\", escape backslashes as \\\\.
+- Do NOT include trailing commas.
+- Do NOT include comments inside the JSON.
+
+Return JSON in this exact shape:
+{"topics":[{"name":"Topic Name","summary":"1-2 sentence summary","contentMarkdown":"## Heading\\n\\nLesson content","estimatedMin":10,"flashcards":[{"front":"What is...?","back":"It is..."}],"quizQuestions":[{"questionText":"Which...?","options":["A","B","C","D"],"correctIndex":0,"explanation":"Because...","difficulty":"easy"}]}]}`;
 
   const userPrompt = `GRADE: ${context.gradeName}
 SUBJECT: ${context.subjectName}
 
-RAW DOCUMENT TEXT (extracted from uploaded file):
+RAW DOCUMENT TEXT:
 """
-${rawText.slice(0, 12000)}
+${rawText.slice(0, 6000)}
 """
 
-Parse this into a structured curriculum. Return ONLY JSON.`;
+Parse this into structured curriculum topics. Return ONLY valid JSON.`;
 
   const messages: ChatMessage[] = [
     { role: "system", content: systemPrompt },
     { role: "user", content: userPrompt },
   ];
 
-  // Use the admin's AI key if available — but for curriculum parsing we
-  // don't have a user context, so we fall back to the platform AI.
   const reply = await callAI(messages, null, {
     userId: "system",
     route: "/lib/curriculum/parse",
   });
 
-  // Strip markdown code fences if present
-  let cleaned = reply.trim();
-  if (cleaned.startsWith("```")) {
-    cleaned = cleaned.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "");
-  }
-
-  // Find the first { and last } to extract JSON
-  const firstBrace = cleaned.indexOf("{");
-  const lastBrace = cleaned.lastIndexOf("}");
-  if (firstBrace === -1 || lastBrace === -1) {
-    throw new Error("AI did not return valid JSON");
-  }
-  const jsonStr = cleaned.slice(firstBrace, lastBrace + 1);
-
-  const parsed = JSON.parse(jsonStr) as ParsedCurriculum;
+  const parsed = parseAIJsonResponse(reply);
 
   if (!parsed.topics || !Array.isArray(parsed.topics)) {
     throw new Error("AI response missing topics array");
   }
 
-  return parsed;
+  return parsed as ParsedCurriculum;
+}
+
+/**
+ * Robustly parses the AI's JSON response. Handles common issues:
+ *   - Markdown code fences (```json ... ```)
+ *   - Leading/trailing commentary
+ *   - Truncated JSON (tries to salvage what's valid)
+ *   - Unescaped newlines in string values
+ *   - Trailing commas
+ */
+function parseAIJsonResponse(reply: string): any {
+  let cleaned = reply.trim();
+
+  // Strip markdown code fences
+  if (cleaned.startsWith("```")) {
+    cleaned = cleaned.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "");
+  }
+
+  // Find the first { and last }
+  const firstBrace = cleaned.indexOf("{");
+  const lastBrace = cleaned.lastIndexOf("}");
+  if (firstBrace === -1 || lastBrace === -1) {
+    throw new Error("AI did not return any JSON object");
+  }
+  let jsonStr = cleaned.slice(firstBrace, lastBrace + 1);
+
+  // Attempt 1: direct parse
+  try {
+    return JSON.parse(jsonStr);
+  } catch (e1: any) {
+    console.warn("[curriculum] Direct JSON.parse failed:", e1?.message);
+  }
+
+  // Attempt 2: fix trailing commas (common AI mistake)
+  try {
+    const fixed = jsonStr.replace(/,\s*([}\]])/g, "$1");
+    return JSON.parse(fixed);
+  } catch (e2: any) {
+    console.warn("[curriculum] Trailing-comma fix failed:", e2?.message);
+  }
+
+  // Attempt 3: fix unescaped newlines inside string values
+  // This is tricky — we need to find string values and escape literal newlines
+  try {
+    const fixed = fixUnescapedNewlines(jsonStr);
+    return JSON.parse(fixed);
+  } catch (e3: any) {
+    console.warn("[curriculum] Newline fix failed:", e3?.message);
+  }
+
+  // Attempt 4: salvage — try to parse up to the last complete topic object
+  // by finding the last valid closing bracket of a topic
+  try {
+    const salvaged = salvageJson(jsonStr);
+    if (salvaged) return salvaged;
+  } catch (e4: any) {
+    console.warn("[curriculum] Salvage failed:", e4?.message);
+  }
+
+  throw new Error(
+    `Could not parse AI JSON response. First 200 chars: ${jsonStr.slice(0, 200)}...`
+  );
+}
+
+/**
+ * Tries to fix unescaped newlines inside JSON string values.
+ * Walks the string character by character, tracking whether we're inside a
+ * string, and escapes literal newlines/tabs as \n / \t.
+ */
+function fixUnescapedNewlines(jsonStr: string): string {
+  let result = "";
+  let inString = false;
+  let escaped = false;
+
+  for (let i = 0; i < jsonStr.length; i++) {
+    const ch = jsonStr[i];
+
+    if (escaped) {
+      result += ch;
+      escaped = false;
+      continue;
+    }
+
+    if (ch === "\\") {
+      result += ch;
+      escaped = true;
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = !inString;
+      result += ch;
+      continue;
+    }
+
+    if (inString) {
+      if (ch === "\n") {
+        result += "\\n";
+        continue;
+      }
+      if (ch === "\r") {
+        result += "\\r";
+        continue;
+      }
+      if (ch === "\t") {
+        result += "\\t";
+        continue;
+      }
+    }
+
+    result += ch;
+  }
+
+  return result;
+}
+
+/**
+ * Salvages a truncated JSON by finding the last complete topic object
+ * and closing the array + object.
+ */
+function salvageJson(jsonStr: string): any | null {
+  // Find all occurrences of `}` that close a topic object.
+  // We look for `}` followed by optional whitespace and either `,` or `]`.
+  // The last such occurrence before the truncation point gives us a valid
+  // prefix to close.
+  const topicEndRegex = /\}\s*(?=[,\]])/g;
+  let lastValidEnd = -1;
+  let match;
+  while ((match = topicEndRegex.exec(jsonStr)) !== null) {
+    lastValidEnd = match.index + 1; // position after the `}`
+  }
+
+  if (lastValidEnd === -1) return null;
+
+  // Find the position of the `}` that closes the topics array.
+  // We need to find where `"topics":[` starts, then close it.
+  const topicsStart = jsonStr.indexOf('"topics"');
+  if (topicsStart === -1) return null;
+
+  const arrayStart = jsonStr.indexOf("[", topicsStart);
+  if (arrayStart === -1) return null;
+
+  // Take everything up to the last valid topic end, then close the array + object
+  const prefix = jsonStr.slice(0, lastValidEnd);
+  const salvaged = prefix + "]}";
+
+  try {
+    return JSON.parse(salvaged);
+  } catch {
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------
