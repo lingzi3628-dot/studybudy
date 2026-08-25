@@ -190,7 +190,7 @@ export function PathDashboard() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-indigo-50 via-white to-violet-50">
-      <div className="max-w-md mx-auto px-4 py-4 pb-24">
+      <div className="max-w-md mx-auto px-4 py-4 pb-24 animate-slide-up">
         {/* Greeting */}
         <div className="mb-4">
           <p className="text-xs font-semibold text-gray-500">

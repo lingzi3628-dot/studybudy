@@ -18,9 +18,11 @@ import {
   Crown,
   Users,
   Bot,
+  Globe,
 } from "lucide-react";
 import { useApp } from "../store";
 import { api } from "../api";
+import { getUILang, setUILang, type Lang } from "@/lib/i18n";
 
 const languages = ["English", "Kiswahili", "Chinese", "French", "Spanish", "Arabic"];
 
@@ -48,8 +50,10 @@ export function Profile() {
   const [isFamilyParent, setIsFamilyParent] = useState(false);
   const [isFamilyChild, setIsFamilyChild] = useState(false);
   const [childCount, setChildCount] = useState(0);
+  const [uiLang, setUiLang] = useState<Lang>("en");
 
   useEffect(() => {
+    setUiLang(getUILang());
     let mounted = true;
     (async () => {
       try {
@@ -243,6 +247,30 @@ export function Profile() {
                 {languages.map((l) => (
                   <option key={l} value={l}>{l}</option>
                 ))}
+              </select>
+            </div>
+
+            {/* UI Language selector (Phase 24) */}
+            <div className="p-4 flex items-center gap-3">
+              <span className="w-9 h-9 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                <Globe className="w-4 h-4" />
+              </span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-900">App language</p>
+                <p className="text-xs text-gray-500">Interface language</p>
+              </div>
+              <select
+                value={uiLang}
+                onChange={(e) => {
+                  const lang = e.target.value as any;
+                  setUiLang(lang);
+                  setUILang(lang);
+                }}
+                className="text-sm font-medium text-gray-900 bg-transparent border border-gray-200 rounded-lg px-2 py-1 outline-none focus:border-indigo-400"
+              >
+                <option value="en">🇬🇧 English</option>
+                <option value="sw">🇰🇪 Kiswahili</option>
+                <option value="fr">🇫🇷 Français</option>
               </select>
             </div>
 

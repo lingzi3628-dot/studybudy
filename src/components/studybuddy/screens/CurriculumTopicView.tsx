@@ -16,6 +16,7 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { useApp } from "../store";
+import { Confetti } from "../Confetti";
 
 type TopicData = {
   topic: {
@@ -464,10 +465,11 @@ function QuizView({
 
   return (
     <div className="space-y-4">
+      <Confetti trigger={submitted && scorePct >= 70} />
       {/* Score banner after submit */}
       {submitted && (
         <div
-          className={`rounded-2xl p-4 border ${
+          className={`rounded-2xl p-4 border animate-pop-in ${
             scorePct >= 70
               ? "bg-emerald-50 border-emerald-200"
               : scorePct >= 40

@@ -1,14 +1,20 @@
 /**
- * StudyBuddy AI Service Worker
+ * StudyBuddy AI Service Worker v22 — Offline Mode
  *
- * Phase 19: Proper PWA caching for TWA + offline support.
- * - App shell: cache-first (instant load from cache)
- * - API calls: network-first (always get fresh data, fallback to cache)
+ * Caching strategy:
+ * - App shell: cache-first (instant load)
+ * - Curriculum topics + lessons: cache-first (works offline after first visit)
+ * - API calls (auth, quiz submit): network-only (no caching)
  * - Images/icons: cache-first
  * - Navigation: network-first, fallback to cached index.html
+ * - Static assets (JS/CSS): stale-while-revalidate
  */
 
-const CACHE_VERSION = "studybuddy-v19";
+const CACHE_VERSION = "studybuddy-v22-offline";
+const SHELL_CACHE = `${CACHE_VERSION}-shell`;
+const CONTENT_CACHE = `${CACHE_VERSION}-content`;
+const IMAGE_CACHE = `${CACHE_VERSION}-images`;
+
 const APP_SHELL = [
   "/",
   "/manifest.json",
@@ -16,84 +22,115 @@ const APP_SHELL = [
   "/icon-512.png",
   "/icon-32.png",
   "/icon-16.png",
+  "/apple-touch-icon.png",
+  "/favicon.ico",
 ];
 
-// Install — cache app shell
+// Curriculum API routes that should be cached for offline reading
+const OFFLINE_API_PATTERNS = [
+  /\/api\/curriculum\/grades/,
+  /\/api\/curriculum\/subjects/,
+  /\/api\/curriculum\/topics/,
+  /\/api\/curriculum\/topic\//,
+];
+
 self.addEventListener("install", (event) => {
   self.skipWaiting();
   event.waitUntil(
-    caches.open(CACHE_VERSION).then((cache) => cache.addAll(APP_SHELL))
+    caches.open(SHELL_CACHE).then((cache) => cache.addAll(APP_SHELL))
   );
 });
 
-// Activate — clear old caches
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(
-        keys.filter((k) => k !== CACHE_VERSION).map((k) => caches.delete(k))
+        keys
+          .filter((k) => !k.startsWith(CACHE_VERSION))
+          .map((k) => caches.delete(k))
       )
     )
   );
   self.clients.claim();
 });
 
-// Fetch — routing strategy
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   const url = new URL(req.url);
 
-  // Skip non-GET requests
+  // Skip non-GET
   if (req.method !== "GET") return;
-
-  // Skip cross-origin requests (analytics, external APIs)
+  // Skip cross-origin
   if (url.origin !== self.location.origin) return;
 
-  // API calls → network-first
-  if (url.pathname.startsWith("/api/")) {
+  // --- Curriculum content (offline-readable) ---
+  if (OFFLINE_API_PATTERNS.some((p) => p.test(url.pathname))) {
     event.respondWith(
-      fetch(req)
-        .then((res) => {
-          // Cache successful API responses for offline fallback
-          if (res.ok) {
-            const clone = res.clone();
-            caches.open(CACHE_VERSION).then((cache) => cache.put(req, clone));
-          }
+      caches.open(CONTENT_CACHE).then(async (cache) => {
+        const cached = await cache.match(req);
+        // Try network first, fall back to cache
+        try {
+          const res = await fetch(req);
+          if (res.ok) cache.put(req, res.clone());
           return res;
-        })
-        .catch(() => caches.match(req))
+        } catch {
+          return cached || new Response(
+            JSON.stringify({ error: "You're offline. Cached content not available." }),
+            { status: 503, headers: { "Content-Type": "application/json" } }
+          );
+        }
+      })
     );
     return;
   }
 
-  // Static assets (icons, images) → cache-first
-  if (req.destination === "image" || url.pathname.match(/\.(png|jpg|jpeg|svg|ico|webp)$/)) {
+  // --- Auth/quiz/POST APIs: network-only ---
+  if (url.pathname.startsWith("/api/")) {
+    return; // let the browser handle it normally
+  }
+
+  // --- Images ---
+  if (req.destination === "image" || /\.(png|jpg|jpeg|svg|ico|webp)$/.test(url.pathname)) {
     event.respondWith(
-      caches.match(req).then((cached) => cached || fetch(req).then((res) => {
-        const clone = res.clone();
-        caches.open(CACHE_VERSION).then((cache) => cache.put(req, clone));
-        return res;
-      }))
+      caches.open(IMAGE_CACHE).then(async (cache) => {
+        const cached = await cache.match(req);
+        if (cached) return cached;
+        try {
+          const res = await fetch(req);
+          if (res.ok) cache.put(req, res.clone());
+          return res;
+        } catch {
+          return cached || new Response("", { status: 404 });
+        }
+      })
     );
     return;
   }
 
-  // Navigation (HTML pages) → network-first, fallback to cached
+  // --- Navigation (HTML pages) ---
   if (req.mode === "navigate") {
     event.respondWith(
       fetch(req)
         .then((res) => {
-          const clone = res.clone();
-          caches.open(CACHE_VERSION).then((cache) => cache.put(req, clone));
+          caches.open(SHELL_CACHE).then((cache) => cache.put(req, res.clone()));
           return res;
         })
-        .catch(() => caches.match(req).then((cached) => cached || caches.match("/")))
+        .catch(() => caches.match(req).then((c) => c || caches.match("/")))
     );
     return;
   }
 
-  // Everything else → cache-first
+  // --- Static assets (JS/CSS): stale-while-revalidate ---
   event.respondWith(
-    caches.match(req).then((cached) => cached || fetch(req))
+    caches.open(SHELL_CACHE).then(async (cache) => {
+      const cached = await cache.match(req);
+      const networkFetch = fetch(req)
+        .then((res) => {
+          if (res.ok) cache.put(req, res.clone());
+          return res;
+        })
+        .catch(() => cached);
+      return cached || networkFetch;
+    })
   );
 });

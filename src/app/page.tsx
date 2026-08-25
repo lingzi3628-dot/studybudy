@@ -47,8 +47,27 @@ import { StudyBuddySelector } from "@/components/studybuddy/screens/StudyBuddySe
 const ADMIN_SECRET = "adminorg";
 
 export default function Page() {
-  const { screen, setScreen } = useApp();
+  const { screen, setScreen, darkMode } = useApp();
   const keyBuffer = useRef("");
+
+  // Phase 24 — Initialize dark mode from localStorage on mount
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("studybuddy_dark");
+      if (stored === "1") {
+        document.documentElement.classList.add("dark");
+        // Sync store state
+        if (!darkMode) useApp.setState({ darkMode: true });
+      }
+    }
+  }, []); // eslint-disable-line
+
+  // Apply dark mode class when toggled
+  useEffect(() => {
+    if (typeof document !== "undefined") {
+      document.documentElement.classList.toggle("dark", darkMode);
+    }
+  }, [darkMode]);
 
   // Auth check on mount + URL param check for hidden admin access
   useEffect(() => {

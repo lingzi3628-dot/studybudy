@@ -154,7 +154,16 @@ export const useApp = create<AppState>((set) => ({
 
   darkMode: false,
   notifications: true,
-  toggleDarkMode: () => set((s) => ({ darkMode: !s.darkMode })),
+  toggleDarkMode: () => {
+    set((s) => {
+      const newMode = !s.darkMode;
+      if (typeof document !== "undefined") {
+        document.documentElement.classList.toggle("dark", newMode);
+        localStorage.setItem("studybuddy_dark", newMode ? "1" : "0");
+      }
+      return { darkMode: newMode };
+    });
+  },
   toggleNotifications: () => set((s) => ({ notifications: !s.notifications })),
   apiKey: "",
   hasStoredApiKey: false,
