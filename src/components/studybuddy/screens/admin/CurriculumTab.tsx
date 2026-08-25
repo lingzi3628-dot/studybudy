@@ -65,7 +65,7 @@ type SourceDoc = {
  * 3. Source docs — list of all uploaded docs with parse status + re-parse button
  */
 export function CurriculumTab() {
-  const [view, setView] = useState<"grades" | "subjects" | "upload" | "docs" | "exams" | "test" | "notifications">("grades");
+  const [view, setView] = useState<"grades" | "subjects" | "upload" | "docs" | "exams" | "test" | "notifications" | "library" | "examGen">("grades");
 
   return (
     <div className="space-y-4">
@@ -137,6 +137,22 @@ export function CurriculumTab() {
         >
           <Bell className="w-3.5 h-3.5 inline mr-1" /> Notify
         </button>
+        <button
+          onClick={() => setView("library")}
+          className={`flex-1 px-3 py-1.5 rounded-lg transition whitespace-nowrap ${
+            view === "library" ? "bg-white text-indigo-700 shadow-sm" : "text-gray-600"
+          }`}
+        >
+          📚 Library
+        </button>
+        <button
+          onClick={() => setView("examGen")}
+          className={`flex-1 px-3 py-1.5 rounded-lg transition whitespace-nowrap ${
+            view === "examGen" ? "bg-white text-indigo-700 shadow-sm" : "text-gray-600"
+          }`}
+        >
+          🖨️ Exam Gen
+        </button>
       </div>
 
       {view === "grades" && <GradesView />}
@@ -146,6 +162,8 @@ export function CurriculumTab() {
       {view === "exams" && <ExamsView />}
       {view === "test" && <TestView />}
       {view === "notifications" && <NotificationsView />}
+      {view === "library" && <LibraryAdminView />}
+      {view === "examGen" && <ExamGeneratorView />}
     </div>
   );
 }
@@ -2040,6 +2058,265 @@ function NotificationsView() {
         once we connect a messaging gateway. For now, you can see who would be notified
         and their phone number / email.
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------
+// LibraryAdminView — upload + manage books
+// ---------------------------------------------------------------------
+
+function LibraryAdminView() {
+  const [grades, setGrades] = useState<Grade[]>([]);
+  const [subjects, setSubjects] = useState<any[]>([]);
+  const [books, setBooks] = useState<any[]>([]);
+  const [selectedGradeId, setSelectedGradeId] = useState("");
+  const [selectedSubjectId, setSelectedSubjectId] = useState("");
+  const [form, setForm] = useState({ title: "", author: "", description: "", fileUrl: "", coverImage: "", pages: "" });
+  const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/admin/curriculum/grades").then((r) => r.json()).then((d) => setGrades(d.grades ?? [])).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!selectedGradeId) return;
+    fetch(`/api/admin/curriculum/subjects?gradeId=${selectedGradeId}`).then((r) => r.json()).then((d) => setSubjects(d.subjects ?? [])).catch(() => {});
+    setSelectedSubjectId("");
+  }, [selectedGradeId]);
+
+  const loadBooks = useCallback(async () => {
+    if (!selectedSubjectId) return;
+    const r = await fetch(`/api/admin/library?subjectId=${selectedSubjectId}`);
+    const d = await r.json();
+    setBooks(d.books ?? []);
+  }, [selectedSubjectId]);
+
+  useEffect(() => { loadBooks(); }, [loadBooks]);
+
+  const addBook = async () => {
+    if (!form.title.trim() || !form.fileUrl.trim() || !selectedSubjectId) {
+      setToast("⚠️ Title, file URL, and subject are required");
+      setTimeout(() => setToast(null), 3000);
+      return;
+    }
+    setBusy(true);
+    try {
+      const r = await fetch("/api/admin/library", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: form.title.trim(),
+          author: form.author.trim() || null,
+          description: form.description.trim() || null,
+          fileUrl: form.fileUrl.trim(),
+          coverImage: form.coverImage.trim() || null,
+          pages: form.pages ? Number(form.pages) : null,
+          subjectId: selectedSubjectId,
+          gradeId: selectedGradeId,
+        }),
+      });
+      if (!r.ok) throw new Error("Failed");
+      setForm({ title: "", author: "", description: "", fileUrl: "", coverImage: "", pages: "" });
+      setToast("✓ Book added!");
+      setTimeout(() => setToast(null), 2500);
+      await loadBooks();
+    } catch {
+      setToast("✗ Failed to add book");
+      setTimeout(() => setToast(null), 3000);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deleteBook = async (id: string) => {
+    if (!confirm("Delete this book?")) return;
+    await fetch("/api/admin/library", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    await loadBooks();
+  };
+
+  return (
+    <div className="space-y-3">
+      {toast && <div className="rounded-xl bg-indigo-50 border border-indigo-200 p-2 text-xs text-indigo-700">{toast}</div>}
+
+      {/* Grade + subject selectors */}
+      <div className="grid grid-cols-2 gap-2">
+        <select value={selectedGradeId} onChange={(e) => setSelectedGradeId(e.target.value)} className="px-2 py-1.5 rounded-lg border border-gray-200 text-sm bg-white">
+          <option value="">Select grade…</option>
+          {grades.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+        </select>
+        <select value={selectedSubjectId} onChange={(e) => setSelectedSubjectId(e.target.value)} disabled={!selectedGradeId} className="px-2 py-1.5 rounded-lg border border-gray-200 text-sm bg-white disabled:bg-gray-100">
+          <option value="">Select subject…</option>
+          {subjects.map((s) => <option key={s.id} value={s.id}>{s.icon} {s.name}</option>)}
+        </select>
+      </div>
+
+      {/* Add book form */}
+      {selectedSubjectId && (
+        <div className="rounded-2xl bg-white border border-gray-200 p-4 space-y-2">
+          <h3 className="text-xs font-bold uppercase text-gray-500">Add a book</h3>
+          <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Book title *" className="w-full px-3 py-1.5 rounded-lg border border-gray-200 text-sm" />
+          <input value={form.author} onChange={(e) => setForm({ ...form, author: e.target.value })} placeholder="Author (optional)" className="w-full px-3 py-1.5 rounded-lg border border-gray-200 text-sm" />
+          <input value={form.fileUrl} onChange={(e) => setForm({ ...form, fileUrl: e.target.value })} placeholder="PDF URL * (e.g. /library/math-book.pdf)" className="w-full px-3 py-1.5 rounded-lg border border-gray-200 text-sm font-mono" />
+          <input value={form.coverImage} onChange={(e) => setForm({ ...form, coverImage: e.target.value })} placeholder="Cover image URL (optional)" className="w-full px-3 py-1.5 rounded-lg border border-gray-200 text-sm" />
+          <input value={form.pages} onChange={(e) => setForm({ ...form, pages: e.target.value })} placeholder="Pages (optional)" type="number" className="w-full px-3 py-1.5 rounded-lg border border-gray-200 text-sm" />
+          <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Description (optional)" rows={2} className="w-full px-3 py-1.5 rounded-lg border border-gray-200 text-sm" />
+          <button onClick={addBook} disabled={busy} className="w-full h-9 rounded-full bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 disabled:opacity-50">
+            {busy ? "Adding…" : "Add book"}
+          </button>
+        </div>
+      )}
+
+      {/* Book list */}
+      {selectedSubjectId && (
+        <div className="rounded-2xl bg-white border border-gray-200 overflow-hidden">
+          <div className="px-4 py-2 border-b border-gray-100"><h3 className="text-xs font-bold uppercase text-gray-500">Books ({books.length})</h3></div>
+          {books.length === 0 ? (
+            <p className="px-4 py-6 text-center text-xs text-gray-400">No books yet. Add one above.</p>
+          ) : (
+            <ul className="divide-y divide-gray-100">
+              {books.map((b) => (
+                <li key={b.id} className="px-4 py-3 flex items-center gap-2">
+                  {b.coverImage ? <img src={b.coverImage} alt="" className="w-10 h-12 rounded object-cover" /> : <div className="w-10 h-12 rounded bg-indigo-50 flex items-center justify-center text-indigo-400">📄</div>}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-900 truncate">{b.title}</p>
+                    <p className="text-[10px] text-gray-500">{b.author ?? "—"} · {b.fileType.toUpperCase()} · {b.pages ? `${b.pages}p` : "—"}</p>
+                  </div>
+                  <a href={b.fileUrl} target="_blank" rel="noopener noreferrer" className="text-[11px] font-semibold text-indigo-600 hover:underline">View</a>
+                  <button onClick={() => deleteBook(b.id)} className="text-rose-500 hover:text-rose-700"><Trash2 className="w-3.5 h-3.5" /></button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------
+// ExamGeneratorView — AI-generated printable exams
+// ---------------------------------------------------------------------
+
+function ExamGeneratorView() {
+  const [grades, setGrades] = useState<Grade[]>([]);
+  const [subjects, setSubjects] = useState<any[]>([]);
+  const [exams, setExams] = useState<any[]>([]);
+  const [selectedGradeId, setSelectedGradeId] = useState("");
+  const [selectedSubjectId, setSelectedSubjectId] = useState("");
+  const [form, setForm] = useState({ title: "", studentName: "", numQuestions: "10", durationMinutes: "60" });
+  const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/admin/curriculum/grades").then((r) => r.json()).then((d) => setGrades(d.grades ?? [])).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!selectedGradeId) return;
+    fetch(`/api/admin/curriculum/subjects?gradeId=${selectedGradeId}`).then((r) => r.json()).then((d) => setSubjects(d.subjects ?? [])).catch(() => {});
+    setSelectedSubjectId("");
+  }, [selectedGradeId]);
+
+  const loadExams = useCallback(async () => {
+    if (!selectedSubjectId) return;
+    const r = await fetch(`/api/curriculum/printable-exams?subjectId=${selectedSubjectId}`);
+    const d = await r.json();
+    setExams(d.exams ?? []);
+  }, [selectedSubjectId]);
+
+  useEffect(() => { loadExams(); }, [loadExams]);
+
+  const generate = async () => {
+    if (!selectedGradeId || !selectedSubjectId) return;
+    setBusy(true);
+    setToast(null);
+    try {
+      const r = await fetch("/api/admin/exams/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          gradeId: selectedGradeId,
+          subjectId: selectedSubjectId,
+          title: form.title.trim() || "StudyBuddy Exam",
+          studentName: form.studentName.trim() || null,
+          numQuestions: Number(form.numQuestions) || 10,
+          durationMinutes: Number(form.durationMinutes) || 60,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Failed");
+      setToast(`✓ Exam generated! ${d.exam?.questions?.length ?? 0} questions, ${d.exam?.totalMarks ?? 0} marks`);
+      setTimeout(() => setToast(null), 4000);
+      await loadExams();
+    } catch (e: any) {
+      setToast(`✗ ${e?.message ?? "Failed"}`);
+      setTimeout(() => setToast(null), 4000);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      {toast && <div className="rounded-xl bg-indigo-50 border border-indigo-200 p-2 text-xs text-indigo-700">{toast}</div>}
+
+      <div className="grid grid-cols-2 gap-2">
+        <select value={selectedGradeId} onChange={(e) => setSelectedGradeId(e.target.value)} className="px-2 py-1.5 rounded-lg border border-gray-200 text-sm bg-white">
+          <option value="">Select grade…</option>
+          {grades.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+        </select>
+        <select value={selectedSubjectId} onChange={(e) => setSelectedSubjectId(e.target.value)} disabled={!selectedGradeId} className="px-2 py-1.5 rounded-lg border border-gray-200 text-sm bg-white disabled:bg-gray-100">
+          <option value="">Select subject…</option>
+          {subjects.map((s) => <option key={s.id} value={s.id}>{s.icon} {s.name}</option>)}
+        </select>
+      </div>
+
+      {/* Generate form */}
+      {selectedSubjectId && (
+        <div className="rounded-2xl bg-white border border-gray-200 p-4 space-y-2">
+          <h3 className="text-xs font-bold uppercase text-gray-500">Generate AI Exam</h3>
+          <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Exam title (e.g. Grade 1 Math End Term)" className="w-full px-3 py-1.5 rounded-lg border border-gray-200 text-sm" />
+          <div className="grid grid-cols-2 gap-2">
+            <input value={form.numQuestions} onChange={(e) => setForm({ ...form, numQuestions: e.target.value })} placeholder="Questions (5-30)" type="number" min="5" max="30" className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm" />
+            <input value={form.durationMinutes} onChange={(e) => setForm({ ...form, durationMinutes: e.target.value })} placeholder="Duration (min)" type="number" className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm" />
+          </div>
+          <input value={form.studentName} onChange={(e) => setForm({ ...form, studentName: e.target.value })} placeholder="Student name (optional — leave blank for general)" className="w-full px-3 py-1.5 rounded-lg border border-gray-200 text-sm" />
+          <button onClick={generate} disabled={busy} className="w-full h-9 rounded-full bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-1">
+            {busy ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Generating exam…</> : "🖨️ Generate exam"}
+          </button>
+          <p className="text-[10px] text-gray-400">AI generates questions from the curriculum. Students/parents can then print the exam from the subject view.</p>
+        </div>
+      )}
+
+      {/* Generated exams list */}
+      {selectedSubjectId && (
+        <div className="rounded-2xl bg-white border border-gray-200 overflow-hidden">
+          <div className="px-4 py-2 border-b border-gray-100"><h3 className="text-xs font-bold uppercase text-gray-500">Generated exams ({exams.length})</h3></div>
+          {exams.length === 0 ? (
+            <p className="px-4 py-6 text-center text-xs text-gray-400">No exams generated yet.</p>
+          ) : (
+            <ul className="divide-y divide-gray-100">
+              {exams.map((exam) => (
+                <li key={exam.id} className="px-4 py-3">
+                  <p className="text-sm font-semibold text-gray-900">{exam.title}</p>
+                  <p className="text-[10px] text-gray-500">
+                    {exam.totalMarks} marks · {exam.durationMinutes} min · {new Date(exam.createdAt).toLocaleString()}
+                  </p>
+                  <a href={`/api/curriculum/printable-exams?subjectId=${selectedSubjectId}`} className="text-[11px] font-semibold text-indigo-600 hover:underline mt-1 inline-block">
+                    View in student panel →
+                  </a>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </div>
   );
 }
