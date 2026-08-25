@@ -39,6 +39,7 @@ import { CurriculumSubjectView } from "@/components/studybuddy/screens/Curriculu
 import { CurriculumTopicView } from "@/components/studybuddy/screens/CurriculumTopicView";
 import { CurriculumExamScreen } from "@/components/studybuddy/screens/CurriculumExamScreen";
 import { CalendarScreen, TimetableScreen } from "@/components/studybuddy/screens/CalendarTimetable";
+import { StudyBuddySelector } from "@/components/studybuddy/screens/StudyBuddySelector";
 
 // Secret admin access code — type this word on the keyboard anywhere
 // in the app to unlock the admin login screen.
@@ -124,7 +125,7 @@ export default function Page() {
   }, [setScreen]);
 
   // Immersive study modes have their own full-screen layout (no top bar / bottom nav).
-  const immersive = ["flashcards", "quiz", "graph", "language", "tutor", "path", "study", "admin", "adminLogin", "landing", "onboarding", "auth", "premium", "conceptMap", "earnCenter", "classroom", "schoolRegister", "schoolDashboard", "schoolSubject", "schoolTimedTest", "familyRegister", "familyChildLogin", "familyDashboard", "curriculumSubject", "curriculumTopic", "exam", "calendar", "timetable"];
+  const immersive = ["flashcards", "quiz", "graph", "language", "tutor", "path", "study", "admin", "adminLogin", "landing", "onboarding", "auth", "premium", "conceptMap", "earnCenter", "classroom", "schoolRegister", "schoolDashboard", "schoolSubject", "schoolTimedTest", "familyRegister", "familyChildLogin", "familyDashboard", "curriculumSubject", "curriculumTopic", "exam", "calendar", "timetable", "studyBuddy"];
 
   if (screen === "onboarding") {
     return (
@@ -186,6 +187,7 @@ export default function Page() {
         {screen === "exam" && <CurriculumExamScreen />}
         {screen === "calendar" && <CalendarScreen />}
         {screen === "timetable" && <TimetableScreen />}
+        {screen === "studyBuddy" && <StudyBuddySelector />}
         <CreateModal />
       </div>
     );

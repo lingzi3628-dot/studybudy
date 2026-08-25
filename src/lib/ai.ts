@@ -161,11 +161,58 @@ export async function callAI(
       });
       return content;
     } catch (e: any) {
-      console.warn("BYOK call failed, falling back to admin providers:", e?.message ?? e);
+      console.warn("BYOK call failed, falling back to model-specific provider:", e?.message ?? e);
     }
   }
 
-  // 2) Admin-configured providers
+  // 1.5) Phase 22g — Model-specific provider
+  // If the user has a currentModel set (e.g. "study_buddy_pro"), look up
+  // the ModelMapping to find the linked providerId + modelIdentifier.
+  // This makes switching StudyBuddies actually change which AI model is used.
+  if (userId && userId !== "system") {
+    try {
+      const user = await db.user.findUnique({
+        where: { id: userId },
+        select: { currentModel: true },
+      });
+      if (user?.currentModel && user.currentModel !== "study_buddy_free") {
+        const mapping = await db.modelMapping.findUnique({
+          where: { modelName: user.currentModel },
+        });
+        if (mapping?.providerId) {
+          // Load the specific provider
+          const provider = await db.aiProvider.findUnique({
+            where: { id: mapping.providerId },
+          });
+          if (provider && provider.enabled) {
+            const apiKey = provider.apiKeyEncrypted
+              ? decryptApiKey(provider.apiKeyEncrypted)
+              : "";
+            // Allow keyless providers (e.g. Pollinations)
+            if (apiKey || provider.providerType === "pollinations") {
+              try {
+                const { callProvider } = await import("./ai-providers");
+                const result = await callProvider(provider as any, messages, {
+                  userId,
+                  route,
+                });
+                if (result.content) {
+                  return result.content;
+                }
+                console.warn("Model-specific provider returned empty, falling through");
+              } catch (e: any) {
+                console.warn("Model-specific provider failed, falling through:", e?.message);
+              }
+            }
+          }
+        }
+      }
+    } catch (e: any) {
+      console.warn("Model lookup failed, using default resolution:", e?.message);
+    }
+  }
+
+  // 2) Admin-configured providers (default: try all enabled providers in priority order)
   try {
     const r = await callWithProviders(messages, { userId, route });
     if (r.content) {

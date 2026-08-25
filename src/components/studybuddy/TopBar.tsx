@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Bell, Flame, Coins, Trophy, Zap, CircleDot, Lock } from "lucide-react";
+import { Bell, Flame, Coins, Trophy, Zap, CircleDot, Lock, Bot } from "lucide-react";
 import { useApp } from "./store";
 
 function TopBarInner({ mobile }: { mobile: boolean }) {
@@ -16,6 +16,9 @@ function TopBarInner({ mobile }: { mobile: boolean }) {
   const [isFamilyChild, setIsFamilyChild] = useState(false);
   const [childName, setChildName] = useState<string | null>(null);
   const [locking, setLocking] = useState(false);
+  // Phase 22g — StudyBuddy avatar
+  const [buddyEmoji, setBuddyEmoji] = useState<string>("🌱");
+  const [buddyName, setBuddyName] = useState<string>("Study Buddy Free");
 
   useEffect(() => {
     let mounted = true;
@@ -41,6 +44,20 @@ function TopBarInner({ mobile }: { mobile: boolean }) {
               setIsFamilyChild(false);
               setChildName(null);
             }
+            // Phase 22g — fetch current StudyBuddy emoji + name
+            try {
+              const modelsRes = await fetch("/api/user/models");
+              if (modelsRes.ok) {
+                const modelsData = await modelsRes.json();
+                const current = (modelsData.models ?? []).find(
+                  (m: any) => m.modelName === d.user?.currentModel
+                );
+                if (current) {
+                  setBuddyEmoji(current.emoji ?? "🌱");
+                  setBuddyName(current.displayName ?? "Study Buddy");
+                }
+              }
+            } catch {}
           }
         }
         if (progRes.ok) {
@@ -95,7 +112,21 @@ function TopBarInner({ mobile }: { mobile: boolean }) {
   return (
     <header className={header}>
       <div className={mobile ? "max-w-md mx-auto px-4 h-14 flex items-center justify-between" : "w-full flex items-center justify-between"}>
-        {/* Family child: show child name + lock button instead of profile avatar */}
+        {/* Phase 22g — StudyBuddy avatar (left side) — click to switch buddy */}
+        {!isFamilyChild && (
+          <button
+            onClick={() => setScreen("studyBuddy")}
+            className="flex items-center gap-2 px-2 h-9 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100 transition"
+            title={`Using ${buddyName} — tap to switch`}
+          >
+            <span className="text-lg">{buddyEmoji}</span>
+            {!mobile && (
+              <span className="text-[11px] font-bold">{buddyName}</span>
+            )}
+          </button>
+        )}
+
+        {/* Family child: show child name + lock button */}
         {isFamilyChild ? (
           <button
             onClick={lockRoom}

@@ -245,7 +245,12 @@ export function CurriculumSubjectView() {
           <ChatbotPathModal
             subjectId={subject.id}
             subjectName={subject.name}
+            topics={topics}
             onClose={() => setShowChatbot(false)}
+            onStartTopic={(topicId: string) => {
+              setActiveCurriculumTopicId(topicId);
+              setScreen("curriculumTopic");
+            }}
           />
         )}
 
@@ -330,11 +335,15 @@ export function CurriculumSubjectView() {
 function ChatbotPathModal({
   subjectId,
   subjectName,
+  topics,
   onClose,
+  onStartTopic,
 }: {
   subjectId: string;
   subjectName: string;
+  topics: Array<{ id: string; name: string }>;
   onClose: () => void;
+  onStartTopic: (topicId: string) => void;
 }) {
   const [questions, setQuestions] = useState<any[]>([]);
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -537,28 +546,25 @@ function ChatbotPathModal({
               )}
 
               <button
+                onClick={() => {
+                  // Find the first topic in the topics list
+                  if (topics.length > 0) {
+                    onStartTopic(topics[0].id);
+                  } else {
+                    onClose();
+                  }
+                }}
+                className="w-full h-10 rounded-full bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 flex items-center justify-center gap-1"
+              >
+                <Play className="w-4 h-4" /> Start Topic 1 now
+              </button>
+
+              <button
                 onClick={onClose}
                 className="w-full h-10 rounded-full bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700"
               >
-                Start studying →
+                Back to subjects
               </button>
-
-              {/* Auto-start topic 1 button */}
-              {plan?.months?.[0]?.topics?.[0] && (
-                <button
-                  onClick={() => {
-                    // Find the topic matching the first recommended topic
-                    const firstTopicName = plan.months[0].topics[0];
-                    // Try to find it in the topics list
-                    // (We need access to the topics — pass via prop or fetch)
-                    // For now, just close the modal — the student can click the topic
-                    onClose();
-                  }}
-                  className="w-full h-10 rounded-full bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 flex items-center justify-center gap-1"
-                >
-                  <Play className="w-4 h-4" /> Start Topic 1 now
-                </button>
-              )}
             </div>
           )}
         </div>

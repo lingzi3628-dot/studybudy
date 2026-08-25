@@ -1,0 +1,1672 @@
+     1→// Prisma schema for StudyBuddy AI on Neon Postgres
+     2→// Learn more: https://pris.ly/d/prisma-schema
+     3→
+     4→generator client {
+     5→  provider = "prisma-client-js"
+     6→}
+     7→
+     8→datasource db {
+     9→  provider = "postgresql"
+    10→  url      = env("DATABASE_URL")
+    11→}
+    12→
+    13→model User {
+    14→  id                String   @id @default(uuid())
+    15→  clerkUserId       String   @unique
+    16→  email             String?  @unique
+    17→  name              String?
+    18→  phoneNumber       String?              // Phase 22c — for WhatsApp/SMS notifications
+    19→  plan              String   @default("free")
+    20→  encryptedApiKey   String?
+    21→  passwordHash      String?
+    22→  grade             String?
+    23→  subjects          String[]
+    24→  ambitions         String[]
+    25→  learningLanguage  String   @default("English")
+    26→  role              String   @default("user")
+    27→  banned            Boolean  @default(false)
+    28→  lastActive        DateTime?
+    29→  onboardingCompleted Boolean @default(false)
+    30→  avatarUrl         String?
+    31→  notificationsEnabled Boolean @default(true)
+    32→  darkMode          Boolean  @default(false)
+    33→  lastLogin         DateTime?
+    34→  // Phase 17 — onboarding path
+    35→  onboardingPathCreated Boolean @default(false)
+    36→  // Monetization fields
+    37→  planId            String?
+    38→  tokenBalance      Int      @default(50)    // daily free tokens (reset daily)
+    39→  currentModel      String   @default("study_buddy_free")
+    40→  subscriptionExpiry DateTime?
+    41→  activationKey     String?
+    42→  tokenResetDate    DateTime?
+    43→  // Phase 13 — coin economy
+    44→  coinBalance       Int      @default(0)     // earned via engagement, spent on rentals
+    45→  freeModelRestingUntil DateTime?             // null = not resting; future = resting until
+    46→  createdAt         DateTime @default(now())
+    47→  updatedAt         DateTime @updatedAt
+    48→
+    49→  userPlan              Plan?                @relation(fields: [planId], references: [id], onDelete: SetNull)
+    50→  studySets             StudySet[]
+    51→  attempts              Attempt[]
+    52→  cardReviews           CardReview[]
+    53→  topicMastery          TopicMastery[]
+    54→  learningPaths         LearningPath[]
+    55→  booksCreated          Book[]
+    56→  topicsCreated         Topic[]
+    57→  aiCallLogs            AiCallLog[]
+    58→  adminLogs             AdminLog[]
+    59→  sessions              UserSession[]
+    60→  paymentTransactions   PaymentTransaction[]
+    61→  activationKeys        ActivationKey[]
+    62→  tokenUsageLogs        TokenUsageLog[]
+    63→  dailyUsages           DailyUsage[]
+    64→  conceptMaps           ConceptMap[]
+    65→  // Phase 12 — paths, modules, gamification, study room state
+    66→  // (learningPaths is already declared above)
+    67→  pathProgress          UserPathProgress[]
+    68→  userXp                UserXp?
+    69→  badges                UserBadge[]
+    70→  leaderboard           Leaderboard?
+    71→  studyRoomStates       StudyRoomState[]
+    72→  dailyReviews          DailyReview[]
+    73→  // Phase 12b
+    74→  focusSessions         FocusSession[]
+    75→  notes                 UserNote[]
+    76→  bookmarks             Bookmark[]
+    77→  dailyGoals            DailyGoal[]
+    78→  studyGroupsCreated    StudyGroup[]
+    79→  studyGroupMemberships StudyGroupMember[]
+    80→  notifications         Notification[]
+    81→  // Phase 13 — coin economy
+    82→  modelRentals          ModelRental[]
+    83→  coinTransactions      CoinTransaction[]
+    84→  tokenTransactions     TokenTransaction[]
+    85→  // Phase 14 — virtual classroom
+    86→  classSessions         ClassSession[]
+    87→  // Phase 15 — room customization
+    88→  userRoomObjects       UserRoomObject[]
+    89→  userPets              UserPet[]
+    90→  // Phase 16 — guided flow
+    91→  topicFlows            UserTopicFlow[]
+    92→  guidedSessions        ClassroomSession[]
+    93→  diagnosticResults     UserDiagnosticResult[]
+    94→  // Phase 17 — path dashboard
+    95→  activePaths           UserActivePath[]
+    96→  // Phase 18 — school mode
+    97→  schoolStudent         SchoolStudent?
+    98→
+    99→  // Relations for search settings are handled in SearchSettings model
+   100→}
+   101→
+   102→// login/logout audit trail
+   103→model UserSession {
+   104→  id           String   @id @default(uuid())
+   105→  userId       String
+   106→  sessionType  String   // 'login' | 'logout'
+   107→  ipAddress    String?
+   108→  userAgent    String?
+   109→  createdAt    DateTime @default(now())
+   110→
+   111→  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+   112→
+   113→  @@index([userId])
+   114→  @@index([createdAt])
+   115→}
+   116→
+   117→model StudySet {
+   118→  id          String   @id @default(uuid())
+   119→  userId      String
+   120→  title       String
+   121→  sourceType  String   @default("text") // 'text' | 'pdf' | 'image' | 'graph'
+   122→  sourceText  String?
+   123→  subject     String?
+   124→  topic       String?
+   125→  topicId     String?  // optional link to Topic
+   126→  createdAt   DateTime @default(now())
+   127→  updatedAt   DateTime @updatedAt
+   128→
+   129→  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+   130→  cards     Card[]
+   131→  topicRef  Topic? @relation(fields: [topicId], references: [id], onDelete: SetNull)
+   132→
+   133→  @@index([userId])
+   134→  @@index([topicId])
+   135→}
+   136→
+   137→model Card {
+   138→  id            String   @id @default(uuid())
+   139→  setId         String
+   140→  topicId       String?  // optional direct link to Topic
+   141→  cardType      String   // 'flashcard' | 'mcq'
+   142→  front         String?
+   143→  back          String?
+   144→  question      String?
+   145→  options       Json?
+   146→  correctIndex  Int?
+   147→  explanation   String?
+   148→  subject       String?
+   149→  topic         String?
+   150→  createdAt     DateTime @default(now())
+   151→
+   152→  set          StudySet    @relation(fields: [setId], references: [id], onDelete: Cascade)
+   153→  topicRef     Topic?      @relation(fields: [topicId], references: [id], onDelete: SetNull)
+   154→  attempts     Attempt[]
+   155→  cardReviews  CardReview[]
+   156→
+   157→  @@index([setId])
+   158→  @@index([subject, topic])
+   159→  @@index([topicId])
+   160→}
+   161→
+   162→model Attempt {
+   163→  id              String   @id @default(uuid())
+   164→  userId          String
+   165→  cardId          String
+   166→  selectedIndex   Int?
+   167→  isCorrect       Boolean?
+   168→  responseTimeMs  Int?
+   169→  createdAt       DateTime @default(now())
+   170→
+   171→  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+   172→  card  Card  @relation(fields: [cardId], references: [id], onDelete: Cascade)
+   173→
+   174→  @@index([userId])
+   175→  @@index([cardId])
+   176→  @@index([userId, cardId])
+   177→}
+   178→
+   179→model CardReview {
+   180→  id              String   @id @default(uuid())
+   181→  userId          String
+   182→  cardId          String
+   183→  easeFactor      Float    @default(2.5)
+   184→  intervalDays    Float    @default(0)
+   185→  repetitions     Int      @default(0)
+   186→  dueDate         DateTime @default(now())
+   187→  lapses          Int      @default(0)
+   188→  lastReviewDate  DateTime?
+   189→  createdAt       DateTime @default(now())
+   190→
+   191→  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+   192→  card  Card  @relation(fields: [cardId], references: [id], onDelete: Cascade)
+   193→
+   194→  @@unique([userId, cardId])
+   195→  @@index([userId, dueDate])
+   196→}
+   197→
+   198→model TopicMastery {
+   199→  id               String   @id @default(uuid())
+   200→  userId           String
+   201→  subject          String
+   202→  topic            String
+   203→  masteryLevel     Float    @default(0) // 0..1
+   204→  totalAttempts    Int      @default(0)
+   205→  correctAttempts  Int      @default(0)
+   206→  lastUpdated      DateTime @default(now())
+   207→
+   208→  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+   209→
+   210→  @@unique([userId, subject, topic])
+   211→  @@index([userId])
+   212→}
+   213→
+   214→model LearningPath {
+   215→  id              String   @id @default(uuid())
+   216→  userId          String?  // null for admin templates
+   217→  skill           String
+   218→  level           String
+   219→  goal            String?
+   220→  subject         String?
+   221→  topicId         String?
+   222→  coverImageUrl   String?
+   223→  roadmap         Json
+   224→  // Phase 12: path lifecycle + template metadata
+   225→  status          String   @default("active")  // 'active' | 'completed' | 'archived'
+   226→  isTemplate      Boolean  @default(false)
+   227→  isPublished     Boolean  @default(false)     // for templates: visible to users
+   228→  sourceTemplateId String? // if cloned from a template, store its id
+   229→  // Phase 17 — path dashboard
+   230→  isActive        Boolean  @default(true)
+   231→  currentNodeId   String?  // references PathModule.id (no FK to avoid cascade issues)
+   232→  createdAt       DateTime @default(now())
+   233→  updatedAt       DateTime @updatedAt
+   234→
+   235→  user            User?           @relation(fields: [userId], references: [id], onDelete: Cascade)
+   236→  topic           Topic?          @relation(fields: [topicId], references: [id], onDelete: SetNull)
+   237→  lessons         Lesson[]
+   238→  modules         PathModule[]
+   239→  studyRoomStates StudyRoomState[]
+   240→  dailyReviews   DailyReview[]
+   241→  activePaths    UserActivePath[]
+   242→
+   243→  @@index([userId])
+   244→  @@index([isTemplate])
+   245→  @@index([topicId])
+   246→}
+   247→
+   248→// ─────────────────────────────────────────────────────────────
+   249→// Phase 12 — Path Modules & Items (the new path timeline)
+   250→// ─────────────────────────────────────────────────────────────
+   251→
+   252→model PathModule {
+   253→  id          String   @id @default(uuid())
+   254→  pathId      String
+   255→  title       String
+   256→  description String?
+   257→  orderIndex  Int      @default(0)
+   258→  status      String   @default("locked")  // 'locked' | 'unlocked' | 'completed'
+   259→  createdAt   DateTime @default(now())
+   260→
+   261→  path        LearningPath @relation(fields: [pathId], references: [id], onDelete: Cascade)
+   262→  items       PathItem[]
+   263→
+   264→  @@index([pathId])
+   265→}
+   266→
+   267→model PathItem {
+   268→  id                 String   @id @default(uuid())
+   269→  moduleId           String
+   270→  type               String   // 'lesson' | 'flashcards' | 'quiz' | 'concept_map' | 'video' | 'project' | 'study_room_start'
+   271→  title              String
+   272→  contentId          String?  // id of generated resource (study set / concept map / etc.)
+   273→  orderIndex         Int      @default(0)
+   274→  difficulty         String   @default("medium")  // 'easy' | 'medium' | 'hard'
+   275→  isRequired        Boolean  @default(true)
+   276→  completionCriteria Json?    // e.g. {"minAccuracy":0.7,"minTimeSec":60}
+   277→  createdAt          DateTime @default(now())
+   278→
+   279→  module             PathModule         @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+   280→  userProgress       UserPathProgress[]
+   281→
+   282→  @@index([moduleId])
+   283→}
+   284→
+   285→model UserPathProgress {
+   286→  id            String    @id @default(uuid())
+   287→  userId        String
+   288→  pathItemId    String
+   289→  status        String    @default("not_started")  // 'not_started' | 'in_progress' | 'completed' | 'failed'
+   290→  score         Float?
+   291→  attempts      Int       @default(0)
+   292→  timeSpentSec  Int       @default(0)
+   293→  completedAt   DateTime?
+   294→  updatedAt     DateTime  @default(now()) @updatedAt
+   295→  createdAt     DateTime  @default(now())
+   296→
+   297→  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+   298→  pathItem      PathItem  @relation(fields: [pathItemId], references: [id], onDelete: Cascade)
+   299→
+   300→  @@unique([userId, pathItemId])
+   301→  @@index([userId])
+   302→}
+   303→
+   304→// ─────────────────────────────────────────────────────────────
+   305→// Phase 12 — Gamification (XP, badges, streaks, leaderboard)
+   306→// ─────────────────────────────────────────────────────────────
+   307→
+   308→model UserXp {
+   309→  id                String   @id @default(uuid())
+   310→  userId            String   @unique
+   311→  xpAmount         Int      @default(0)
+   312→  level            Int      @default(1)
+   313→  streakDays       Int      @default(0)
+   314→  lastActivityDate DateTime?
+   315→  createdAt         DateTime @default(now())
+   316→  updatedAt         DateTime @updatedAt
+   317→
+   318→  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+   319→
+   320→  @@index([xpAmount])
+   321→}
+   322→
+   323→model Badge {
+   324→  id          String   @id @default(uuid())
+   325→  name        String   @unique
+   326→  slug        String   @unique
+   327→  description String?
+   328→  icon        String   @default("🏅")
+   329→  criteria    Json?    // e.g. {"xp":100,"streakDays":3,"type":"quiz_master"}
+   330→  createdAt   DateTime @default(now())
+   331→
+   332→  userBadges  UserBadge[]
+   333→}
+   334→
+   335→model UserBadge {
+   336→  id        String   @id @default(uuid())
+   337→  userId    String
+   338→  badgeId   String
+   339→  earnedAt  DateTime @default(now())
+   340→
+   341→  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+   342→  badge     Badge    @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+   343→
+   344→  @@unique([userId, badgeId])
+   345→  @@index([userId])
+   346→}
+   347→
+   348→model Leaderboard {
+   349→  id         String   @id @default(uuid())
+   350→  userId     String   @unique
+   351→  xpTotal    Int      @default(0)
+   352→  weeklyXp   Int      @default(0)
+   353→  monthXp    Int      @default(0)
+   354→  updatedAt  DateTime @updatedAt
+   355→
+   356→  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+   357→}
+   358→
+   359→// ─────────────────────────────────────────────────────────────
+   360→// Phase 12 — Study Room Persistent State + Daily Review
+   361→// ─────────────────────────────────────────────────────────────
+   362→
+   363→model StudyRoomState {
+   364→  id                String   @id @default(uuid())
+   365→  userId            String
+   366→  topicId           String
+   367→  pathId            String?
+   368→  currentItem        String?  // path item id
+   369→  coverImageUrl     String?
+   370→  aiTeacherName     String   @default("Professor Bloom")
+   371→  aiTeacherAvatar   String   @default("🧙‍♂️")
+   372→  aiTeacherStyle    String   @default("encouraging")  // 'encouraging' | 'strict' | 'fun' | 'academic'
+   373→  // Phase 12b — room customization
+   374→  roomTheme         String   @default("cozy_library")
+   375→  bookshelfColor    String   @default("#8B5CF6")
+   376→  preferredAudio    String?
+   377→  voiceEnabled      Boolean  @default(false)
+   378→  voiceVoice        String?
+   379→  // Phase 15 — visual overhaul
+   380→  placedObjects     Json     @default("[]")
+   381→  soundSettings     Json     @default("{\"fireplace\":0,\"rain\":0,\"birds\":0,\"lofi\":0,\"pages\":0}")
+   382→  petId             String?  // references UserPet (not FK, just stored id)
+   383→  lastDailyChestOpened DateTime?
+   384→  // Phase 16 — guided learning flow
+   385→  intakeCompleted   Boolean  @default(false)
+   386→  teacherCustomName String?
+   387→  userName          String?
+   388→  diagnosticScore   Float?
+   389→  currentClassroomSessionId String?
+   390→  lastVisited       DateTime?
+   391→  createdAt         DateTime @default(now())
+   392→  updatedAt         DateTime @updatedAt
+   393→
+   394→  user              User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+   395→  topic             Topic          @relation(fields: [topicId], references: [id], onDelete: Cascade)
+   396→  path              LearningPath?  @relation(fields: [pathId], references: [id], onDelete: SetNull)
+   397→
+   398→  @@unique([userId, topicId])
+   399→  @@index([userId])
+   400→}
+   401→
+   402→model DailyReview {
+   403→  id        String   @id @default(uuid())
+   404→  userId    String
+   405→  pathId    String?
+   406→  date      DateTime
+   407→  items     Json     // [{itemId, type, question, options, answer, explanation}]
+   408→  status    String   @default("pending")  // 'pending' | 'completed'
+   409→  score     Float?
+   410→  createdAt DateTime @default(now())
+   411→  completedAt DateTime?
+   412→
+   413→  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+   414→  path      LearningPath?  @relation(fields: [pathId], references: [id], onDelete: SetNull)
+   415→
+   416→  @@unique([userId, date])
+   417→  @@index([userId, date])
+   418→}
+   419→
+   420→model Lesson {
+   421→  id          String   @id @default(uuid())
+   422→  pathId      String
+   423→  title       String
+   424→  content     String?
+   425→  orderIndex  Int      @default(0)
+   426→  completed   Boolean  @default(false)
+   427→
+   428→  path  LearningPath  @relation(fields: [pathId], references: [id], onDelete: Cascade)
+   429→
+   430→  @@index([pathId])
+   431→}
+   432→
+   433→// ─────────────────────────────────────────────────────────────
+   434→// Study Room / Topic Deep Dive
+   435→// ─────────────────────────────────────────────────────────────
+   436→
+   437→model Topic {
+   438→  id          String   @id @default(uuid())
+   439→  subject     String
+   440→  name        String
+   441→  description String?
+   442→  createdAt   DateTime @default(now())
+   443→  updatedAt   DateTime @updatedAt
+   444→  // content management
+   445→  chapterId       String?  // link to a Chapter (if part of a Book)
+   446→  published       Boolean  @default(false)
+   447→  createdById     String?  // admin who created it
+   448→  lessonContent   Json?    // cached AI lesson content
+   449→
+   450→  studySets   StudySet[]
+   451→  cards       Card[]
+   452→  lessons     TopicLesson[]
+   453→  conceptMaps ConceptMap[]
+   454→  studyRoomStates StudyRoomState[]
+   455→  learningPaths   LearningPath[]
+   456→  userNotes       UserNote[]
+   457→  libraryResources LibraryResource[]
+   458→  studyGroups     StudyGroup[]
+   459→  // Phase 14 — virtual classroom
+   460→  classSessions   ClassSession[]
+   461→  lessonContents  LessonContent[]
+   462→  // Phase 16 — guided flow
+   463→  topicFlows       UserTopicFlow[]
+   464→  guidedSessions   ClassroomSession[]
+   465→  diagnosticQuestions DiagnosticQuizQuestion[]
+   466→  diagnosticResults UserDiagnosticResult[]
+   467→  chapter     Chapter?  @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+   468→  createdBy   User?     @relation(fields: [createdById], references: [id], onDelete: SetNull)
+   469→
+   470→  @@unique([subject, name])
+   471→  @@index([subject])
+   472→  @@index([chapterId])
+   473→  @@index([published])
+   474→}
+   475→
+   476→model TopicLesson {
+   477→  id         String   @id @default(uuid())
+   478→  topicId    String
+   479→  level      String   @default("beginner") // beginner | intermediate | advanced
+   480→  content    Json     // { introduction, keyConcepts[], examples[], formulas[], summary }
+   481→  createdAt  DateTime @default(now())
+   482→  updatedAt  DateTime @updatedAt
+   483→
+   484→  topic  Topic  @relation(fields: [topicId], references: [id], onDelete: Cascade)
+   485→
+   486→  @@unique([topicId, level])
+   487→  @@index([topicId])
+   488→}
+   489→
+   490→// ─────────────────────────────────────────────────────────────
+   491→// Admin Panel & AI Provider Management
+   492→// ─────────────────────────────────────────────────────────────
+   493→
+   494→model AiProvider {
+   495→  id                  String   @id @default(uuid())
+   496→  name                String
+   497→  providerType        String   // 'openai' | 'glm' | 'gemini' | 'openrouter' | 'huggingface' | 'pollinations'
+   498→  enabled             Boolean  @default(true)
+   499→  apiKeyEncrypted     String?
+   500→  baseUrl             String?
+   501→  model               String?
+   502→  maxTokens           Int      @default(2048)
+   503→  costPer1kTokens     Float    @default(0)
+   504→  isDefault           Boolean  @default(false)
+   505→  priority            Int      @default(100) // lower = higher priority
+   506→  createdAt           DateTime @default(now())
+   507→  updatedAt           DateTime @updatedAt
+   508→
+   509→  aiCallLogs  AiCallLog[]
+   510→
+   511→  @@index([enabled, priority])
+   512→}
+   513→
+   514→model Book {
+   515→  id            String   @id @default(uuid())
+   516→  title         String
+   517→  description   String?
+   518→  coverImageUrl String?
+   519→  createdById   String?
+   520→  published     Boolean  @default(false)
+   521→  createdAt     DateTime @default(now())
+   522→  updatedAt     DateTime @updatedAt
+   523→
+   524→  createdBy  User?      @relation(fields: [createdById], references: [id], onDelete: SetNull)
+   525→  chapters   Chapter[]
+   526→
+   527→  @@index([published])
+   528→  @@index([createdById])
+   529→}
+   530→
+   531→model Chapter {
+   532→  id          String   @id @default(uuid())
+   533→  bookId      String
+   534→  title       String?
+   535→  orderIndex  Int      @default(0)
+   536→  createdAt   DateTime @default(now())
+   537→  updatedAt   DateTime @updatedAt
+   538→
+   539→  book    Book    @relation(fields: [bookId], references: [id], onDelete: Cascade)
+   540→  topics  Topic[]
+   541→
+   542→  @@index([bookId])
+   543→}
+   544→
+   545→model AiCallLog {
+   546→  id                String   @id @default(uuid())
+   547→  userId            String?
+   548→  providerId        String?
+   549→  providerType      String?
+   550→  model             String?
+   551→  promptTokens      Int?
+   552→  completionTokens  Int?
+   553→  totalTokens       Int?
+   554→  cost              Float    @default(0)
+   555→  status            String   // 'success' | 'error'
+   556→  errorMessage      String?
+   557→  route             String? // which API route made the call
+   558→  createdAt         DateTime @default(now())
+   559→
+   560→  user      User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+   561→  provider  AiProvider?   @relation(fields: [providerId], references: [id], onDelete: SetNull)
+   562→
+   563→  @@index([userId])
+   564→  @@index([providerId])
+   565→  @@index([createdAt])
+   566→}
+   567→
+   568→model AdminLog {
+   569→  id            String   @id @default(uuid())
+   570→  adminUserId   String?
+   571→  action        String
+   572→  details       Json?
+   573→  createdAt     DateTime @default(now())
+   574→
+   575→  adminUser  User?  @relation(fields: [adminUserId], references: [id], onDelete: SetNull)
+   576→
+   577→  @@index([adminUserId])
+   578→  @@index([createdAt])
+   579→}
+   580→
+   581→// ─────────────────────────────────────────────────────────────
+   582→// Custom admin auth (separate from Clerk)
+   583→// ─────────────────────────────────────────────────────────────
+   584→
+   585→model AdminUser {
+   586→  id            String   @id @default(uuid())
+   587→  email         String   @unique
+   588→  passwordHash  String   // bcrypt hash
+   589→  name          String?
+   590→  createdAt     DateTime @default(now())
+   591→  updatedAt     DateTime @updatedAt
+   592→
+   593→  @@index([email])
+   594→}
+   595→
+   596→// ─────────────────────────────────────────────────────────────
+   597→// Monetization — Plans, Tokens, Payments, Activation Keys
+   598→// ─────────────────────────────────────────────────────────────
+   599→
+   600→model Plan {
+   601→  id                        String   @id @default(uuid())
+   602→  name                      String
+   603→  slug                      String   @unique
+   604→  price                     Float
+   605→  currency                  String   @default("USD")
+   606→  tokenLimit                Int
+   607→  dailyQuizLimit            Int      @default(5)
+   608→  dailyFlashcardGenLimit    Int      @default(3)
+   609→  // Phase 11: Concept Map features
+   610→  dailyConceptMapLimit      Int      @default(1)
+   611→  conceptMapEditing         Boolean  @default(false)
+   612→  conceptMapExport         Boolean  @default(false)
+   613→  features                  Json?
+   614→  createdAt                 DateTime @default(now())
+   615→  updatedAt                 DateTime @updatedAt
+   616→
+   617→  users                  User[]
+   618→  paymentTransactions    PaymentTransaction[]
+   619→  activationKeys         ActivationKey[]
+   620→  modelMappings          ModelMapping[]
+   621→
+   622→  @@index([slug])
+   623→}
+   624→
+   625→model PaymentTransaction {
+   626→  id              String   @id @default(uuid())
+   627→  userId          String
+   628→  planId          String?
+   629→  amount          Float?
+   630→  currency        String?
+   631→  paymentMethod   String   // 'mpesa','binance','minipay','paypal','bank'
+   632→  transactionRef  String?
+   633→  status          String   @default("pending") // 'pending','confirmed','rejected'
+   634→  activationKeyId String?  @unique
+   635→  createdAt       DateTime @default(now())
+   636→
+   637→  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+   638→  plan            Plan?   @relation(fields: [planId], references: [id], onDelete: SetNull)
+   639→  activationKey   ActivationKey? @relation(fields: [activationKeyId], references: [id], onDelete: SetNull)
+   640→
+   641→  @@index([userId])
+   642→  @@index([status])
+   643→}
+   644→
+   645→model ActivationKey {
+   646→  id          String    @id @default(uuid())
+   647→  key         String    @unique
+   648→  planId      String
+   649→  userId      String?
+   650→  createdBy   String?   // admin user id
+   651→  createdAt   DateTime  @default(now())
+   652→  expiresAt   DateTime?
+   653→  usedAt      DateTime?
+   654→  status      String    @default("active") // 'active','used','revoked'
+   655→
+   656→  plan                  Plan    @relation(fields: [planId], references: [id])
+   657→  user                 User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+   658→  paymentTransaction   PaymentTransaction?
+   659→
+   660→  @@index([planId])
+   661→  @@index([status])
+   662→  @@index([userId])
+   663→}
+   664→
+   665→model TokenUsageLog {
+   666→  id          String   @id @default(uuid())
+   667→  userId      String
+   668→  model       String
+   669→  tokensUsed  Int
+   670→  costTokens  Int
+   671→  feature     String   // 'flashcards','quiz','search','tutor','graph','translate'
+   672→  createdAt   DateTime @default(now())
+   673→
+   674→  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+   675→
+   676→  @@index([userId])
+   677→  @@index([createdAt])
+   678→}
+   679→
+   680→model ModelMapping {
+   681→  id                  String   @id @default(uuid())
+   682→  modelName           String   @unique // 'study_buddy_free', 'study_buddy_king', etc.
+   683→  providerId          String?
+   684→  modelIdentifier     String?  // 'gpt-4','gemini-pro','glm-4', etc.
+   685→  tokenCostMultiplier Float    @default(1.0)
+   686→  requiresPremium     Boolean  @default(false)
+   687→  planSlug            String?  // required plan slug
+   688→  emoji               String   @default("🤖")
+   689→  displayName         String   @default("Study Buddy")
+   690→
+   691→  plan                Plan?    @relation(fields: [planSlug], references: [slug], onDelete: SetNull)
+   692→
+   693→  @@index([modelName])
+   694→}
+   695→
+   696→model PaymentSetting {
+   697→  id              String   @id @default(uuid())
+   698→  method          String   @unique // 'mpesa','binance','minipay','paypal','bank'
+   699→  label           String
+   700→  instructions    String
+   701→  details         Json?    // { paybill, account, address, email, etc. }
+   702→  enabled         Boolean  @default(true)
+   703→  createdAt       DateTime @default(now())
+   704→  updatedAt       DateTime @updatedAt
+   705→}
+   706→
+   707→model DailyUsage {
+   708→  id          String   @id @default(uuid())
+   709→  userId      String
+   710→  feature     String   // 'search','cards','quiz','tutor','graph','translate','learning_path'
+   711→  usageDate   DateTime @default(now())
+   712→  count       Int      @default(0)
+   713→
+   714→  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+   715→
+   716→  @@unique([userId, feature, usageDate])
+   717→  @@index([userId, usageDate])
+   718→}
+   719→
+   720→model SearchSettings {
+   721→  id                        Int      @id @default(1)
+   722→  youtubeApiKeyEncrypted    String?
+   723→  pollinationsBaseUrl       String   @default("https://image.pollinations.ai/prompt/")
+   724→  imageSearchEnabled        Boolean  @default(true)
+   725→  videoSearchEnabled        Boolean  @default(true)
+   726→  imageTokenCost            Int      @default(10)
+   727→  videoTokenCost            Int      @default(50)
+   728→  freeDailyImageLimit       Int      @default(5)
+   729→  freeDailyVideoLimit       Int      @default(3)
+   730→  updatedAt                 DateTime @updatedAt
+   731→}
+   732→
+   733→// ─────────────────────────────────────────────────────────────
+   734→// Phase 11 — Concept Maps
+   735→// ─────────────────────────────────────────────────────────────
+   736→
+   737→model ConceptMap {
+   738→  id          String   @id @default(uuid())
+   739→  userId      String?                          // null = admin-generated global map
+   740→  topicId     String?
+   741→  title       String
+   742→  nodes       Json                              // [{ id, label, description, type? }]
+   743→  edges       Json                              // [{ source, target, label }]
+   744→  isPublic    Boolean  @default(false)
+   745→  sourceType  String   @default("topic")       // 'topic' | 'text' | 'study_set'
+   746→  sourceText  String?
+   747→  createdAt   DateTime @default(now())
+   748→  updatedAt   DateTime @updatedAt
+   749→
+   750→  user        User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+   751→  topic       Topic?   @relation(fields: [topicId], references: [id], onDelete: SetNull)
+   752→
+   753→  @@index([userId])
+   754→  @@index([topicId])
+   755→  @@index([isPublic])
+   756→}
+   757→
+   758→model ConceptMapSettings {
+   759→  id                        Int      @id @default(1)
+   760→  enabled                   Boolean  @default(true)
+   761→  tokenCost                 Int      @default(300)
+   762→  freeDailyLimit            Int      @default(1)
+   763→  updatedAt                 DateTime @updatedAt
+   764→}
+   765→
+   766→// ═─────────────────────────────────────────────────────────────
+   767→// Phase 12b — Upgraded Study Room (focus, notes, bookmarks, goals,
+   768→//             library, groups, notifications)
+   769→// ═─────────────────────────────────────────────────────────────
+   770→
+   771→model FocusSession {
+   772→  id          String   @id @default(uuid())
+   773→  userId      String
+   774→  topicId     String?
+   775→  durationSec Int      @default(0)
+   776→  startedAt   DateTime @default(now())
+   777→  endedAt     DateTime?
+   778→  createdAt   DateTime @default(now())
+   779→
+   780→  user        User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+   781→
+   782→  @@index([userId])
+   783→  @@index([topicId])
+   784→}
+   785→
+   786→model UserNote {
+   787→  id          String   @id @default(uuid())
+   788→  userId      String
+   789→  topicId     String?
+   790→  title       String
+   791→  content     String   @default("")
+   792→  createdAt   DateTime @default(now())
+   793→  updatedAt   DateTime @updatedAt
+   794→
+   795→  user        User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+   796→  topic       Topic?   @relation(fields: [topicId], references: [id], onDelete: SetNull)
+   797→
+   798→  @@index([userId])
+   799→  @@index([topicId])
+   800→}
+   801→
+   802→model Bookmark {
+   803→  id           String   @id @default(uuid())
+   804→  userId       String
+   805→  resourceType String   // 'lesson' | 'flashcard_set' | 'quiz' | 'concept_map' | 'video' | 'note'
+   806→  resourceId   String
+   807→  groupId      String?  // null = personal bookmark
+   808→  createdAt    DateTime @default(now())
+   809→
+   810→  user         User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+   811→  group        StudyGroup?   @relation(fields: [groupId], references: [id], onDelete: Cascade)
+   812→
+   813→  @@unique([userId, resourceType, resourceId, groupId])
+   814→  @@index([userId])
+   815→  @@index([groupId])
+   816→}
+   817→
+   818→model DailyGoal {
+   819→  id        String   @id @default(uuid())
+   820→  userId    String
+   821→  date      DateTime
+   822→  tasks     Json     // [{ id, text, completed, xp }]
+   823→  createdAt DateTime @default(now())
+   824→
+   825→  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+   826→
+   827→  @@unique([userId, date])
+   828→  @@index([userId, date])
+   829→}
+   830→
+   831→model LibraryResource {
+   832→  id           String   @id @default(uuid())
+   833→  title        String
+   834→  description  String?
+   835→  resourceType String   // 'lesson' | 'flashcard_set' | 'quiz' | 'concept_map' | 'video' | 'note'
+   836→  contentId    String?
+   837→  subject      String?
+   838→  topicId      String?
+   839→  isPublic     Boolean  @default(true)
+   840→  createdById  String?  // AdminUser.id (no FK since it's a different table)
+   841→  createdAt    DateTime @default(now())
+   842→
+   843→  topic        Topic?   @relation(fields: [topicId], references: [id], onDelete: SetNull)
+   844→
+   845→  @@index([isPublic])
+   846→  @@index([subject])
+   847→}
+   848→
+   849→model StudyGroup {
+   850→  id          String   @id @default(uuid())
+   851→  name        String
+   852→  topicId     String?
+   853→  createdById String
+   854→  inviteCode  String   @unique
+   855→  createdAt   DateTime @default(now())
+   856→
+   857→  user        User     @relation(fields: [createdById], references: [id], onDelete: Cascade)
+   858→  topic       Topic?   @relation(fields: [topicId], references: [id], onDelete: SetNull)
+   859→  members     StudyGroupMember[]
+   860→  bookmarks   Bookmark[]
+   861→
+   862→  @@index([createdById])
+   863→}
+   864→
+   865→model StudyGroupMember {
+   866→  id        String   @id @default(uuid())
+   867→  groupId   String
+   868→  userId    String
+   869→  joinedAt  DateTime @default(now())
+   870→
+   871→  group     StudyGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+   872→  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+   873→
+   874→  @@unique([groupId, userId])
+   875→  @@index([groupId])
+   876→}
+   877→
+   878→model Notification {
+   879→  id        String   @id @default(uuid())
+   880→  userId    String
+   881→  type      String   // 'due_review' | 'daily_goal' | 'badge' | 'group_invite' | 'system'
+   882→  message   String
+   883→  read      Boolean  @default(false)
+   884→  createdAt DateTime @default(now())
+   885→
+   886→  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+   887→
+   888→  @@index([userId, read])
+   889→  @@index([createdAt])
+   890→}
+   891→
+   892→// ════════════════════════════════════════════════════════════════
+   893→// Phase 13 — Token & Coin Economy Rebuild
+   894→// ════════════════════════════════════════════════════════════════
+   895→
+   896→model ModelRental {
+   897→  id           String   @id @default(uuid())
+   898→  userId       String
+   899→  modelName    String   // 'study_buddy_pro' | 'study_buddy_king' | ...
+   900→  startedAt    DateTime @default(now())
+   901→  expiresAt    DateTime
+   902→  coinsSpent   Int      @default(0)
+   903→  status       String   @default("active")  // 'active' | 'expired' | 'cancelled'
+   904→  createdAt    DateTime @default(now())
+   905→
+   906→  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+   907→
+   908→  @@index([userId, status])
+   909→  @@index([expiresAt])
+   910→}
+   911→
+   912→model CoinTransaction {
+   913→  id        String   @id @default(uuid())
+   914→  userId    String
+   915→  amount    Int      // positive = credit, negative = debit
+   916→  reason    String   // 'login_bonus' | 'quiz_complete' | 'rent_model' | 'wake_free_model' | 'exchange' | 'admin_adjust'
+   917→  createdAt DateTime @default(now())
+   918→
+   919→  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+   920→
+   921→  @@index([userId, createdAt])
+   922→}
+   923→
+   924→model TokenTransaction {
+   925→  id        String   @id @default(uuid())
+   926→  userId    String
+   927→  amount    Int      // positive = credit, negative = debit
+   928→  reason    String   // 'daily_reset' | 'ai_tutor' | 'concept_map' | 'exchange' | 'earn' | 'admin_adjust'
+   929→  createdAt DateTime @default(now())
+   930→
+   931→  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+   932→
+   933→  @@index([userId, createdAt])
+   934→}
+   935→
+   936→model EarnRule {
+   937→  id            String   @id @default(uuid())
+   938→  action        String   @unique  // 'login' | 'complete_lesson' | 'complete_quiz' | 'streak_7' | 'focus_25min' | 'daily_review' | 'note_created' | 'concept_map'
+   939→  coinReward    Int      @default(0)
+   940→  xpReward      Int      @default(0)
+   941→  tokenReward   Int      @default(0)
+   942→  dailyLimit    Int      @default(0)  // max times per day (0 = unlimited)
+   943→  createdAt     DateTime @default(now())
+   944→
+   945→  @@index([action])
+   946→}
+   947→
+   948→model RestingSettings {
+   949→  id                  Int      @id @default(autoincrement())
+   950→  freeRequestsPerHour Int      @default(10)
+   951→  cooldownMinutes     Int      @default(30)
+   952→  wakeCostCoins       Int      @default(5)
+   953→  updatedAt           DateTime @updatedAt
+   954→}
+   955→
+   956→model FeatureTokenCost {
+   957→  id           Int      @id @default(autoincrement())
+   958→  featureName  String   @unique  // 'ai_tutor' | 'concept_map' | 'flashcards' | 'quiz' | 'solver' | 'voice_transcribe' | 'voice_tts' | 'cover_image'
+   959→  tokenCost    Int      @default(0)
+   960→  updatedAt    DateTime @updatedAt
+   961→}
+   962→
+   963→model ModelRentalPrice {
+   964→  id              String   @id @default(uuid())
+   965→  modelName       String   // 'study_buddy_plus' | 'study_buddy_pro' | ...
+   966→  durationMinutes Int      // 30, 60, 360, 1440
+   967→  coinCost        Int
+   968→  createdAt       DateTime @default(now())
+   969→
+   970→  @@unique([modelName, durationMinutes])
+   971→  @@index([modelName])
+   972→}
+   973→
+   974→// ════════════════════════════════════════════════════════════════
+   975→// Phase 14 — Virtual Classroom with Professor Bloom
+   976→// ════════════════════════════════════════════════════════════════
+   977→
+   978→model ClassSession {
+   979→  id              String   @id @default(uuid())
+   980→  userId          String
+   981→  topicId         String
+   982→  pathItemId      String?
+   983→  startTime       DateTime @default(now())
+   984→  endTime         DateTime?
+   985→  durationMinutes Int      @default(30)
+   986→  status          String   @default("in_progress") // 'in_progress' | 'completed' | 'abandoned'
+   987→  currentTestIndex Int     @default(0)
+   988→  progress        Float    @default(0) // 0..1
+   989→  tokensSpent     Int      @default(0)
+   990→  createdAt       DateTime @default(now())
+   991→
+   992→  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+   993→  topic           Topic    @relation(fields: [topicId], references: [id], onDelete: Cascade)
+   994→  tests           ClassTest[]
+   995→
+   996→  @@index([userId, status])
+   997→  @@index([topicId])
+   998→}
+   999→
+  1000→model ClassTest {
+  1001→  id          String   @id @default(uuid())
+  1002→  sessionId   String
+  1003→  testType    String   // 'mini' | 'oral' | 'written'
+  1004→  questions   Json     // [{id, type, question, options?, correctIndex?, answer?, explanation?}]
+  1005→  score       Float?
+  1006→  createdAt   DateTime @default(now())
+  1007→
+  1008→  session     ClassSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  1009→  oralAnswers OralAnswer[]
+  1010→
+  1011→  @@index([sessionId])
+  1012→}
+  1013→
+  1014→model OralAnswer {
+  1015→  id              String   @id @default(uuid())
+  1016→  testId          String
+  1017→  questionId      String
+  1018→  userAnswerText  String?
+  1019→  aiFeedback      String?
+  1020→  score           Float?
+  1021→  createdAt       DateTime @default(now())
+  1022→
+  1023→  test            ClassTest @relation(fields: [testId], references: [id], onDelete: Cascade)
+  1024→
+  1025→  @@index([testId])
+  1026→}
+  1027→
+  1028→model LessonContent {
+  1029→  id          String   @id @default(uuid())
+  1030→  topicId     String
+  1031→  contentJson Json     // array of blocks: [{type:'text'|'equation'|'bullet'|'heading', content: '...'}]
+  1032→  createdAt   DateTime @default(now())
+  1033→
+  1034→  topic       Topic    @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  1035→
+  1036→  @@index([topicId])
+  1037→}
+  1038→
+  1039→model ClassroomSettings {
+  1040→  id              Int      @id @default(autoincrement())
+  1041→  durationMinutes Int      @default(30)
+  1042→  testIntervalMin Int      @default(10)    // mini-test every N minutes
+  1043→  tokenCost       Int      @default(50)    // tokens to start class
+  1044→  passThreshold   Float    @default(0.7)   // 70% to pass
+  1045→  coinReward      Int      @default(10)    // coins for completing class
+  1046→  xpReward        Int      @default(20)    // XP for completing class
+  1047→  dailyLimit      Int      @default(1)     // free users: 1 class/day
+  1048→  updatedAt       DateTime @updatedAt
+  1049→}
+  1050→
+  1051→// ════════════════════════════════════════════════════════════════
+  1052→// Phase 15 — Study Room Engagement & Visual Overhaul
+  1053→// ════════════════════════════════════════════════════════════════
+  1054→
+  1055→model RoomTheme {
+  1056→  id              String   @id @default(uuid())
+  1057→  name            String   @unique  // 'cozy_library' | 'futuristic_lab' | 'space_station' | 'beach_study' | 'dark_academia'
+  1058→  description     String?
+  1059→  backgroundGradient String  // CSS gradient string
+  1060→  accentColor     String   @default("#8B5CF6")
+  1061→  secondaryColor  String   @default("#6366F1")
+  1062→  iconStyle       String   @default("lucide")
+  1063→  isPremium       Boolean  @default(false)
+  1064→  coinCost        Int      @default(0)
+  1065→  createdAt       DateTime @default(now())
+  1066→}
+  1067→
+  1068→model RoomObject {
+  1069→  id              String   @id @default(uuid())
+  1070→  name            String   @unique
+  1071→  type            String   // 'furniture' | 'decoration' | 'special'
+  1072→  icon            String   // emoji or icon name
+  1073→  description     String?
+  1074→  coinCost        Int      @default(0)
+  1075→  isPremium       Boolean  @default(false)
+  1076→  levelRequired   Int      @default(1)
+  1077→  createdAt       DateTime @default(now())
+  1078→
+  1079→  userRoomObjects UserRoomObject[]
+  1080→}
+  1081→
+  1082→model UserRoomObject {
+  1083→  id           String   @id @default(uuid())
+  1084→  userId       String
+  1085→  objectId     String
+  1086→  acquiredAt   DateTime @default(now())
+  1087→
+  1088→  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  1089→  object       RoomObject @relation(fields: [objectId], references: [id], onDelete: Cascade)
+  1090→
+  1091→  @@unique([userId, objectId])
+  1092→  @@index([userId])
+  1093→}
+  1094→
+  1095→model Pet {
+  1096→  id            String   @id @default(uuid())
+  1097→  name          String   @unique
+  1098→  emoji         String
+  1099→  description   String?
+  1100→  coinCost      Int      @default(100)
+  1101→  isPremium     Boolean  @default(false)
+  1102→  levelRequired Int      @default(1)
+  1103→  createdAt     DateTime @default(now())
+  1104→
+  1105→  userPets      UserPet[]
+  1106→}
+  1107→
+  1108→model UserPet {
+  1109→  id         String   @id @default(uuid())
+  1110→  userId     String
+  1111→  petId      String
+  1112→  petLevel   Int      @default(1)
+  1113→  petXp      Int      @default(0)
+  1114→  lastFed    DateTime?
+  1115→  createdAt  DateTime @default(now())
+  1116→
+  1117→  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  1118→  pet        Pet      @relation(fields: [petId], references: [id], onDelete: Cascade)
+  1119→
+  1120→  @@unique([userId, petId])
+  1121→  @@index([userId])
+  1122→}
+  1123→
+  1124→// ════════════════════════════════════════════════════════════════
+  1125→// Phase 16 — Guided Learning Flow & Classroom Redesign
+  1126→// ════════════════════════════════════════════════════════════════
+  1127→
+  1128→model UserTopicFlow {
+  1129→  id            String   @id @default(uuid())
+  1130→  userId        String
+  1131→  topicId       String
+  1132→  currentState  String   @default("ASSESSMENT") // ASSESSMENT→LEARNING→PRACTICE→QUIZ→REVIEW→MASTERED
+  1133→  progress      Float    @default(0)
+  1134→  lastActivity  DateTime @default(now())
+  1135→  nextActionId  String?
+  1136→  createdAt     DateTime @default(now())
+  1137→  updatedAt     DateTime @updatedAt
+  1138→
+  1139→  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  1140→  topic         Topic    @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  1141→
+  1142→  @@unique([userId, topicId])
+  1143→  @@index([userId])
+  1144→}
+  1145→
+  1146→model ClassroomSession {
+  1147→  id            String   @id @default(uuid())
+  1148→  userId        String
+  1149→  topicId       String
+  1150→  flowState     String   @default("ASSESSMENT") // ASSESSMENT→LEARNING→PRACTICE→QUIZ→REVIEW→MASTERED
+  1151→  progress      Float    @default(0)
+  1152→  currentStep   Int      @default(0)
+  1153→  totalSteps    Int      @default(6)
+  1154→  startedAt     DateTime @default(now())
+  1155→  lastActivity  DateTime @default(now())
+  1156→  completedAt   DateTime?
+  1157→  status        String   @default("active") // 'active' | 'completed' | 'abandoned'
+  1158→
+  1159→  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  1160→  topic         Topic    @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  1161→
+  1162→  @@index([userId, status])
+  1163→  @@index([topicId])
+  1164→}
+  1165→
+  1166→model DiagnosticQuizQuestion {
+  1167→  id            String   @id @default(uuid())
+  1168→  topicId       String?
+  1169→  questionText  String
+  1170→  options       Json     // string[]
+  1171→  correctIndex  Int
+  1172→  createdAt     DateTime @default(now())
+  1173→
+  1174→  topic         Topic?   @relation(fields: [topicId], references: [id], onDelete: SetNull)
+  1175→
+  1176→  @@index([topicId])
+  1177→}
+  1178→
+  1179→model UserDiagnosticResult {
+  1180→  id            String   @id @default(uuid())
+  1181→  userId        String
+  1182→  topicId       String?
+  1183→  score         Float
+  1184→  answers       Json     // [{questionId, selectedIndex, correct}]
+  1185→  createdAt     DateTime @default(now())
+  1186→
+  1187→  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  1188→  topic         Topic?   @relation(fields: [topicId], references: [id], onDelete: SetNull)
+  1189→
+  1190→  @@index([userId])
+  1191→  @@index([topicId])
+  1192→}
+  1193→
+  1194→// ════════════════════════════════════════════════════════════════
+  1195→// Phase 17 — Learning Path as Central Journey
+  1196→// ════════════════════════════════════════════════════════════════
+  1197→
+  1198→model UserActivePath {
+  1199→  id          String   @id @default(uuid())
+  1200→  userId      String
+  1201→  pathId      String
+  1202→  isCurrent   Boolean  @default(false)
+  1203→  createdAt   DateTime @default(now())
+  1204→
+  1205→  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  1206→  path        LearningPath   @relation(fields: [pathId], references: [id], onDelete: Cascade)
+  1207→
+  1208→  @@unique([userId, pathId])
+  1209→  @@index([userId, isCurrent])
+  1210→}
+  1211→
+  1212→// ════════════════════════════════════════════════════════════════
+  1213→// Phase 18 — School Mode & Registration
+  1214→// ════════════════════════════════════════════════════════════════
+  1215→
+  1216→model School {
+  1217→  id        String   @id @default(uuid())
+  1218→  name      String
+  1219→  level     String   // 'primary' | 'secondary'
+  1220→  county    String?
+  1221→  createdAt DateTime @default(now())
+  1222→
+  1223→  students  SchoolStudent[]
+  1224→}
+  1225→
+  1226→model SchoolStudent {
+  1227→  id              String   @id @default(uuid())
+  1228→  userId          String   @unique  // links to users.id
+  1229→  fullName        String
+  1230→  admissionNumber String?
+  1231→  schoolId        String?
+  1232→  gradeLevel      String?  // 'Grade 1'.. 'Form 4'
+  1233→  createdAt       DateTime @default(now())
+  1234→
+  1235→  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  1236→  school          School?  @relation(fields: [schoolId], references: [id], onDelete: SetNull)
+  1237→  enrollments     StudentSubjectEnrollment[]
+  1238→  topicProgress   StudentTopicProgress[]
+  1239→  badges          SchoolBadge[]
+  1240→}
+  1241→
+  1242→model SchoolSubject {
+  1243→  id        String   @id @default(uuid())
+  1244→  name      String
+  1245→  level     String   // 'primary' | 'secondary'
+  1246→  icon      String   @default("📚")
+  1247→  color     String   @default("#6366F1")
+  1248→  createdAt DateTime @default(now())
+  1249→
+  1250→  topics    SchoolTopic[]
+  1251→  enrollments StudentSubjectEnrollment[]
+  1252→}
+  1253→
+  1254→model SchoolTopic {
+  1255→  id               String   @id @default(uuid())
+  1256→  subjectId        String
+  1257→  name             String
+  1258→  orderIndex       Int      @default(0)
+  1259→  gradeLevel       String?
+  1260→  badgeIcon        String   @default("🏆")
+  1261→  passThreshold    Float    @default(0.7)
+  1262→  timeLimitMinutes Int      @default(5)
+  1263→  questionCount    Int      @default(5)
+  1264→  createdAt        DateTime @default(now())
+  1265→
+  1266→  subject          SchoolSubject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  1267→  questions        SchoolQuestion[]
+  1268→  studentProgress  StudentTopicProgress[]
+  1269→  badges           SchoolBadge[]
+  1270→
+  1271→  @@index([subjectId])
+  1272→}
+  1273→
+  1274→model SchoolQuestion {
+  1275→  id            String   @id @default(uuid())
+  1276→  topicId       String
+  1277→  questionText  String
+  1278→  options       Json     // string[]
+  1279→  correctIndex  Int
+  1280→  explanation   String?
+  1281→  createdAt     DateTime @default(now())
+  1282→
+  1283→  topic         SchoolTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  1284→
+  1285→  @@index([topicId])
+  1286→}
+  1287→
+  1288→model StudentSubjectEnrollment {
+  1289→  id         String   @id @default(uuid())
+  1290→  studentId  String
+  1291→  subjectId  String
+  1292→  createdAt  DateTime @default(now())
+  1293→
+  1294→  student    SchoolStudent  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  1295→  subject    SchoolSubject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  1296→
+  1297→  @@unique([studentId, subjectId])
+  1298→}
+  1299→
+  1300→model StudentTopicProgress {
+  1301→  id          String    @id @default(uuid())
+  1302→  studentId   String
+  1303→  topicId     String
+  1304→  status      String    @default("locked")  // 'locked' | 'available' | 'completed'
+  1305→  score       Float?
+  1306→  attempts    Int       @default(0)
+  1307→  completedAt DateTime?
+  1308→  createdAt   DateTime  @default(now())
+  1309→  updatedAt   DateTime  @default(now()) @updatedAt
+  1310→
+  1311→  student     SchoolStudent @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  1312→  topic       SchoolTopic   @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  1313→
+  1314→  @@unique([studentId, topicId])
+  1315→}
+  1316→
+  1317→model SchoolBadge {
+  1318→  id        String   @id @default(uuid())
+  1319→  studentId String
+  1320→  topicId   String
+  1321→  earnedAt  DateTime @default(now())
+  1322→
+  1323→  student   SchoolStudent @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  1324→  topic     SchoolTopic   @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  1325→
+  1326→  @@unique([studentId, topicId])
+  1327→}
+  1328→
+  1329→// =====================================================================
+  1330→// Phase 20 — Family Mode
+  1331→// =====================================================================
+  1332→// A "Family" is created by a parent who registers one email + password
+  1333→// and then creates 2+ child profiles. Each child has their own username
+  1334→// + passcode (created by the parent) and their own User row so progress,
+  1335→// tokens, and coins are tracked independently.
+  1336→//
+  1337→// Children log in via /api/family/login using { username, passcode }
+  1338→// — they never see or use the parent's email.
+  1339→// =====================================================================
+  1340→
+  1341→model Family {
+  1342→  id            String   @id @default(uuid())
+  1343→  parentUserId  String   @unique  // links to users.id (parent's account)
+  1344→  parentEmail   String            // denormalized for display
+  1345→  displayName   String?           // "The Smith Family" (optional)
+  1346→  createdAt     DateTime @default(now())
+  1347→
+  1348→  children      FamilyChild[]
+  1349→}
+  1350→
+  1351→model FamilyChild {
+  1352→  id            String   @id @default(uuid())
+  1353→  familyId      String
+  1354→  userId        String   @unique  // the child's own User row
+  1355→  parentUserId  String             // denormalized for quick lookup
+  1356→  username      String   @unique   // GLOBALLY unique — child logs in with this
+  1357→  displayName   String             // "Alex", "Sam"
+  1358→  passcodeHash  String             // bcrypt hash of passcode
+  1359→  gradeLevel    String?            // optional: "Grade 3", "Form 1"
+  1360→  avatarEmoji   String?            // optional: "🦊", "🐼"
+  1361→  createdAt     DateTime @default(now())
+  1362→  lastLogin     DateTime?
+  1363→
+  1364→  family        Family   @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  1365→
+  1366→  @@index([familyId])
+  1367→  @@index([parentUserId])
+  1368→}
+  1369→
+  1370→// =====================================================================
+  1371→// Phase 22 — Curriculum Engine
+  1372→// =====================================================================
+  1373→// Admin-curated study database. The admin uploads a PDF or pastes content
+  1374→// per grade + subject, and the AI engine parses it into:
+  1375→//   - Topics (chapters/lessons with markdown content)
+  1376→//   - Flashcards (front/back Q&A pairs)
+  1377→//   - Quiz questions (MCQs with explanations)
+  1378→//   - A learning path (ordered sequence of topics)
+  1379→//
+  1380→// When a user logs in (personal or family mode), their dashboard shows the
+  1381→// subjects for their grade. The AI Tutor, flashcard generator, and quiz
+  1382→// generator pull from this curated content FIRST — no more hallucination.
+  1383→//
+  1384→// Grades have a status: 'ready' (selectable in onboarding) or 'coming_soon'
+  1385→// (shown greyed-out with a "we'll email you when ready" message).
+  1386→// =====================================================================
+  1387→
+  1388→model CurriculumGrade {
+  1389→  id          String   @id @default(uuid())
+  1390→  name        String   @unique   // "Grade 1", "Grade 2", "Form 1", etc.
+  1391→  level       String             // "primary" | "secondary"
+  1392→  orderIndex  Int      @default(0)
+  1393→  status      String   @default("coming_soon")  // 'ready' | 'coming_soon'
+  1394→  description String?
+  1395→  createdAt   DateTime @default(now())
+  1396→  updatedAt   DateTime @updatedAt
+  1397→
+  1398→  subjects    CurriculumSubject[]
+  1399→  exams       CurriculumExam[]
+  1400→  sourceDocs  CurriculumSourceDoc[]
+  1401→}
+  1402→
+  1403→model CurriculumSubject {
+  1404→  id          String   @id @default(uuid())
+  1405→  gradeId     String
+  1406→  name        String             // "Mathematics", "English", etc.
+  1407→  icon        String   @default("📚")  // emoji or short text
+  1408→  imageUrl    String?                  // optional photo for the dashboard card
+  1409→  color       String   @default("#6366F1")
+  1410→  description String?                  // shown on the dashboard card
+  1411→  status      String   @default("locked")  // 'locked' | 'unlocked' — Phase 22c
+  1412→  orderIndex  Int      @default(0)
+  1413→  createdAt   DateTime @default(now())
+  1414→  updatedAt   DateTime @updatedAt
+  1415→
+  1416→  grade       CurriculumGrade @relation(fields: [gradeId], references: [id], onDelete: Cascade)
+  1417→  topics      CurriculumTopic[]
+  1418→  sourceDocs  CurriculumSourceDoc[]
+  1419→  exams       CurriculumExam[]
+  1420→
+  1421→  @@unique([gradeId, name])
+  1422→  @@index([gradeId])
+  1423→}
+  1424→
+  1425→model CurriculumTopic {
+  1426→  id              String   @id @default(uuid())
+  1427→  subjectId       String
+  1428→  name            String                   // "Lines and Shapes", "Addition", etc.
+  1429→  slug            String                   // url-friendly
+  1430→  summary         String?                  // 1-2 sentence AI-generated summary
+  1431→  contentMarkdown String?                   // full lesson content (markdown)
+  1432→  orderIndex      Int      @default(0)     // learning path order
+  1433→  estimatedMin    Int      @default(10)     // estimated study time
+  1434→  createdAt       DateTime @default(now())
+  1435→  updatedAt       DateTime @updatedAt
+  1436→
+  1437→  subject         CurriculumSubject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  1438→  flashcards      CurriculumFlashcard[]
+  1439→  quizQuestions   CurriculumQuizQuestion[]
+  1440→
+  1441→  @@index([subjectId])
+  1442→}
+  1443→
+  1444→model CurriculumFlashcard {
+  1445→  id          String   @id @default(uuid())
+  1446→  topicId     String
+  1447→  front       String                    // question / prompt
+  1448→  back        String                    // answer / explanation
+  1449→  orderIndex  Int      @default(0)
+  1450→  createdAt   DateTime @default(now())
+  1451→  updatedAt   DateTime @updatedAt
+  1452→
+  1453→  topic       CurriculumTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  1454→
+  1455→  @@index([topicId])
+  1456→}
+  1457→
+  1458→model CurriculumQuizQuestion {
+  1459→  id            String   @id @default(uuid())
+  1460→  topicId       String
+  1461→  questionText  String
+  1462→  options       Json                     // string[] — e.g. ["A", "B", "C", "D"]
+  1463→  correctIndex  Int                      // 0-based index into options
+  1464→  explanation   String?
+  1465→  difficulty    String   @default("easy") // 'easy' | 'medium' | 'hard'
+  1466→  orderIndex    Int      @default(0)
+  1467→  createdAt     DateTime @default(now())
+  1468→  updatedAt     DateTime @updatedAt
+  1469→
+  1470→  topic         CurriculumTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  1471→
+  1472→  @@index([topicId])
+  1473→}
+  1474→
+  1475→model CurriculumSourceDoc {
+  1476→  id            String   @id @default(uuid())
+  1477→  gradeId       String
+  1478→  subjectId     String?
+  1479→  fileName      String                   // original filename
+  1480→  rawText       String                   // extracted plain text
+  1481→  sourceType    String   @default("pdf") // 'pdf' | 'doc' | 'paste'
+  1482→  uploadedBy    String?                  // admin userId
+  1483→  parsingStatus String   @default("pending") // 'pending' | 'processing' | 'completed' | 'failed'
+  1484→  parseError    String?
+  1485→  createdAt     DateTime @default(now())
+  1486→  updatedAt     DateTime @updatedAt
+  1487→
+  1488→  grade         CurriculumGrade   @relation(fields: [gradeId], references: [id], onDelete: Cascade)
+  1489→  subject       CurriculumSubject? @relation(fields: [subjectId], references: [id], onDelete: SetNull)
+  1490→
+  1491→  @@index([gradeId])
+  1492→  @@index([subjectId])
+  1493→}
+  1494→
+  1495→model CurriculumExam {
+  1496→  id              String   @id @default(uuid())
+  1497→  gradeId         String
+  1498→  subjectId       String
+  1499→  schoolId        String?                  // optional — links to School model for school-specific exams
+  1500→  title           String                   // "Grade 1 Mathematics End Term 1 Exam"
+  1501→  description     String?
+  1502→  durationMinutes Int      @default(30)
+  1503→  passThreshold   Float    @default(0.5)   // 0..1
+  1504→  status          String   @default("draft") // 'draft' | 'published'
+  1505→  createdAt       DateTime @default(now())
+  1506→  updatedAt       DateTime @updatedAt
+  1507→
+  1508→  grade           CurriculumGrade   @relation(fields: [gradeId], references: [id], onDelete: Cascade)
+  1509→  subject         CurriculumSubject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  1510→  questions       CurriculumExamQuestion[]
+  1511→
+  1512→  @@index([gradeId])
+  1513→  @@index([subjectId])
+  1514→  @@index([schoolId])
+  1515→}
+  1516→
+  1517→model CurriculumExamQuestion {
+  1518→  id            String   @id @default(uuid())
+  1519→  examId        String
+  1520→  questionText  String
+  1521→  options       Json                     // string[]
+  1522→  correctIndex  Int
+  1523→  explanation   String?
+  1524→  marks         Int      @default(1)
+  1525→  orderIndex    Int      @default(0)
+  1526→  createdAt     DateTime @default(now())
+  1527→
+  1528→  exam          CurriculumExam @relation(fields: [examId], references: [id], onDelete: Cascade)
+  1529→
+  1530→  @@index([examId])
+  1531→}
+  1532→
+  1533→
+  1534→// =====================================================================
+  1535→// Phase 22c — Notification log
+  1536→// =====================================================================
+  1537→// When an admin unlocks a new subject for a grade, we record a notification
+  1538→// for each user who has that grade. The notification is stored here so the
+  1539→// admin can see who would be notified (via WhatsApp / SMS / email).
+  1540→//
+  1541→// Later, when we wire up a real WhatsApp/SMS gateway, we'll send these
+  1542→// notifications and update `status` to 'sent'.
+  1543→// =====================================================================
+  1544→
+  1545→model NotificationLog {
+  1546→  id          String   @id @default(uuid())
+  1547→  userId      String
+  1548→  channel     String   // 'whatsapp' | 'sms' | 'email'
+  1549→  recipient   String   // phone number or email
+  1550→  subject     String
+  1551→  body        String
+  1552→  status      String   @default("pending")  // 'pending' | 'sent' | 'failed'
+  1553→  sentAt      DateTime?
+  1554→  createdAt   DateTime @default(now())
+  1555→
+  1556→  @@index([userId])
+  1557→  @@index([status])
+  1558→  @@index([createdAt])
+  1559→}
+  1560→
+  1561→// =====================================================================
+  1562→// Phase 22d — Capacity Engine
+  1563→// =====================================================================
+  1564→// Tracks each student's "capacity" — a measure of their ability + readiness
+  1565→// to advance to the next topic or subject. Built from:
+  1566→//   - Quiz scores per topic
+  1567→//   - Completion rates
+  1568→//   - Study time
+  1569→//   - Streak consistency
+  1570→//
+  1571→// The engine computes a capacity score (0-100) per topic + per subject +
+  1572→// overall, and recommends whether the student should:
+  1573→//   - Review the current topic
+  1574→//   - Move to the next topic
+  1575→//   - Move to the next subject
+  1576→// =====================================================================
+  1577→
+  1578→model StudentCapacity {
+  1579→  id              String   @id @default(uuid())
+  1580→  userId          String
+  1581→  subjectId       String?  // null = overall capacity across all subjects
+  1582→  topicId         String?  // null = subject-level or overall
+  1583→  capacityScore   Float    @default(0)  // 0..100
+  1584→  masteryLevel    Float    @default(0)  // 0..1 (from quiz scores)
+  1585→  completionRate  Float    @default(0)  // 0..1 (topics completed / total)
+  1586→  studyTimeMin    Int      @default(0)
+  1587→  attemptsCount   Int      @default(0)
+  1588→  correctCount    Int      @default(0)
+  1589→  recommendation  String   @default("start")  // 'start' | 'review' | 'practice' | 'advance' | 'mastered'
+  1590→  lastUpdated     DateTime @default(now())
+  1591→  createdAt       DateTime @default(now())
+  1592→
+  1593→  @@unique([userId, subjectId, topicId])
+  1594→  @@index([userId])
+  1595→  @@index([subjectId])
+  1596→}
+  1597→
+  1598→model TopicProgression {
+  1599→  id              String   @id @default(uuid())
+  1600→  userId          String
+  1601→  topicId         String   @unique  // one row per topic per user
+  1602→  status          String   @default("not_started")  // 'not_started' | 'in_progress' | 'completed' | 'mastered'
+  1603→  score           Float    @default(0)  // best quiz score 0..1
+  1604→  attempts        Int      @default(0)
+  1605→  timeSpentSec    Int      @default(0)
+  1606→  lastAttemptAt   DateTime?
+  1607→  completedAt     DateTime?
+  1608→  masteryLevel    Float    @default(0)  // 0..1 — rolling avg of last 3 attempts
+  1609→  createdAt       DateTime @default(now())
+  1610→  updatedAt       DateTime @default(now()) @updatedAt
+  1611→
+  1612→  @@index([userId])
+  1613→  @@index([status])
+  1614→}
+  1615→
+  1616→// =====================================================================
+  1617→// Phase 22e — Study Session + Calendar + Timetable
+  1618→// =====================================================================
+  1619→
+  1620→model StudySession {
+  1621→  id              String   @id @default(uuid())
+  1622→  userId          String
+  1623→  subjectId       String?
+  1624→  topicId         String?
+  1625→  startedAt       DateTime @default(now())
+  1626→  endedAt         DateTime?
+  1627→  durationSec     Int      @default(0)
+  1628→  status          String   @default("active")  // 'active' | 'completed' | 'abandoned'
+  1629→  lastScreen      String?  // where the student was when they left
+  1630→  flashcardsReviewed Int   @default(0)
+  1631→  quizzesTaken    Int      @default(0)
+  1632→  topicsStudied   Int      @default(0)
+  1633→  createdAt       DateTime @default(now())
+  1634→  updatedAt       DateTime @default(now()) @updatedAt
+  1635→
+  1636→  @@index([userId])
+  1637→  @@index([status])
+  1638→  @@index([startedAt])
+  1639→}
+  1640→
+  1641→model CalendarEntry {
+  1642→  id          String   @id @default(uuid())
+  1643→  userId      String
+  1644→  date        DateTime  // the calendar day (stored as date at midnight)
+  1645→  type        String   // 'study' | 'exam' | 'flashcard' | 'quiz' | 'break'
+  1646→  title       String
+  1647→  description String?
+  1648→  durationMin Int      @default(0)
+  1649→  score       Float?   // for quizzes/exams
+  1650→  subjectId   String?
+  1651→  topicId     String?
+  1652→  createdAt   DateTime @default(now())
+  1653→
+  1654→  @@index([userId, date])
+  1655→  @@index([type])
+  1656→}
+  1657→
+  1658→model Timetable {
+  1659→  id          String   @id @default(uuid())
+  1660→  userId      String
+  1661→  dayOfWeek   Int      // 0=Sunday, 1=Monday, ... 6=Saturday
+  1662→  startTime   String   // "16:00" (24h format)
+  1663→  endTime     String   // "17:00"
+  1664→  subjectId   String?
+  1665→  subjectName String
+  1666→  notes       String?
+  1667→  createdAt   DateTime @default(now())
+  1668→
+  1669→  @@unique([userId, dayOfWeek, startTime])
+  1670→  @@index([userId])
+  1671→}
+  1672→

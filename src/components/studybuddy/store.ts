@@ -37,7 +37,8 @@ export type Screen =
   | "curriculumTopic"
   | "exam"
   | "calendar"
-  | "timetable";
+  | "timetable"
+  | "studyBuddy";
 
 export type CreateOption =
   | "upload"

@@ -33,23 +33,34 @@ export type ProviderCallResult = {
   errorMessage: string | null;
 };
 
-/** Load all enabled providers, ordered by priority (then is_default desc). */
+/** Load all enabled providers, ordered by priority (then is_default desc).
+ *  Phase 22g: Pollinations providers don't need an API key — include them
+ *  even if apiKeyEncrypted is null. */
 export async function loadEnabledProviders(): Promise<ProviderRow[]> {
   return db.aiProvider.findMany({
-    where: { enabled: true, apiKeyEncrypted: { not: null } },
+    where: {
+      enabled: true,
+      OR: [
+        { apiKeyEncrypted: { not: null } },
+        { providerType: "pollinations" },
+      ],
+    },
     orderBy: [{ priority: "asc" }, { isDefault: "desc" }, { createdAt: "asc" }],
   }) as Promise<ProviderRow[]>;
 }
 
-/** Call one provider's chat completions endpoint (OpenAI-compatible). */
-async function callProvider(
+/** Export callProvider so it can be called directly for model-specific routing. */
+export async function callProvider(
   provider: ProviderRow,
-  messages: ChatMessage[]
+  messages: ChatMessage[],
+  opts?: { userId?: string; route?: string }
 ): Promise<ProviderCallResult> {
   const apiKey = provider.apiKeyEncrypted
     ? decryptApiKey(provider.apiKeyEncrypted)
     : "";
-  if (!apiKey) {
+
+  // Phase 22g: Pollinations is keyless — allow it without an API key
+  if (!apiKey && provider.providerType !== "pollinations") {
     return {
       content: "",
       providerId: provider.id,
@@ -153,7 +164,7 @@ export async function callWithProviders(
   }
 
   for (const provider of providers) {
-    const result = await callProvider(provider, messages);
+    const result = await callProvider(provider, messages, { userId: ctx.userId, route: ctx.route });
     // log this attempt
     await logAiCall(ctx.userId, result, ctx.route);
 
