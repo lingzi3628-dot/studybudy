@@ -397,31 +397,43 @@ export function Profile() {
 function DeleteAccountButton() {
   const { setScreen } = useApp();
   const [open, setOpen] = useState(false);
-  const [confirmText, setConfirmText] = useState("");
+  const [confirmEmail, setConfirmEmail] = useState("");
+  const [userEmail, setUserEmail] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.authed) setUserEmail(d.user?.email ?? "");
+      })
+      .catch(() => {});
+  }, []);
+
   const doDelete = async () => {
-    if (confirmText !== "DELETE") {
-      setError('Type "DELETE" exactly to confirm.');
+    if (!confirmEmail.trim()) {
+      setError("Please enter your email to confirm");
+      return;
+    }
+    if (confirmEmail.trim().toLowerCase() !== userEmail.toLowerCase()) {
+      setError("Email doesn't match your account");
       return;
     }
     setBusy(true);
     setError(null);
     try {
-      const r = await fetch("/api/user/delete", {
-        method: "POST",
+      const r = await fetch("/api/user/delete-account", {
+        method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ confirmation: "DELETE" }),
+        body: JSON.stringify({ confirmEmail: confirmEmail.trim().toLowerCase() }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error ?? `HTTP ${r.status}`);
-      // Clear local state
       if (typeof window !== "undefined") {
         localStorage.removeItem("studybuddy_onboarded");
       }
       setScreen("landing");
-      alert("Your StudyBuddy data has been deleted.");
     } catch (e: any) {
       setError(e?.message ?? "Delete failed");
     } finally {
@@ -458,18 +470,21 @@ function DeleteAccountButton() {
                 <LogOut className="w-4 h-4 text-gray-500" />
               </button>
             </div>
-            <p className="text-xs text-gray-600 leading-relaxed mb-3">
-              This will permanently delete all your study sets, cards, attempts, review history,
-              mastery data, AI call logs, and sessions from our database. This action{" "}
-              <strong>cannot be undone</strong>.
-            </p>
+            <div className="rounded-xl bg-rose-50 border border-rose-200 p-3 mb-3">
+              <p className="text-xs text-rose-700 leading-relaxed">
+                ⚠️ This will <strong>permanently delete</strong> all your data — study sets,
+                flashcards, quiz results, progress, tokens, coins, AI chat history, and account
+                credentials. This action <strong>cannot be undone</strong>.
+              </p>
+            </div>
             <p className="text-xs text-gray-500 mb-2">
-              Type <code className="bg-gray-100 px-1 rounded font-mono">DELETE</code> to confirm:
+              Enter your email <strong>{userEmail}</strong> to confirm:
             </p>
             <input
-              value={confirmText}
-              onChange={(e) => setConfirmText(e.target.value)}
-              placeholder="DELETE"
+              type="email"
+              value={confirmEmail}
+              onChange={(e) => setConfirmEmail(e.target.value)}
+              placeholder={userEmail}
               className="w-full p-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-100"
             />
             {error && (
@@ -480,7 +495,7 @@ function DeleteAccountButton() {
             )}
             <button
               onClick={doDelete}
-              disabled={busy || confirmText !== "DELETE"}
+              disabled={busy || !confirmEmail.trim()}
               className="mt-3 w-full h-11 rounded-full bg-rose-600 text-white font-semibold text-sm shadow-md hover:bg-rose-700 disabled:opacity-50 flex items-center justify-center gap-1.5"
             >
               {busy ? (
