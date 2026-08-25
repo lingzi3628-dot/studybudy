@@ -1557,3 +1557,58 @@ model NotificationLog {
   @@index([status])
   @@index([createdAt])
 }
+
+// =====================================================================
+// Phase 22d — Capacity Engine
+// =====================================================================
+// Tracks each student's "capacity" — a measure of their ability + readiness
+// to advance to the next topic or subject. Built from:
+//   - Quiz scores per topic
+//   - Completion rates
+//   - Study time
+//   - Streak consistency
+//
+// The engine computes a capacity score (0-100) per topic + per subject +
+// overall, and recommends whether the student should:
+//   - Review the current topic
+//   - Move to the next topic
+//   - Move to the next subject
+// =====================================================================
+
+model StudentCapacity {
+  id              String   @id @default(uuid())
+  userId          String
+  subjectId       String?  // null = overall capacity across all subjects
+  topicId         String?  // null = subject-level or overall
+  capacityScore   Float    @default(0)  // 0..100
+  masteryLevel    Float    @default(0)  // 0..1 (from quiz scores)
+  completionRate  Float    @default(0)  // 0..1 (topics completed / total)
+  studyTimeMin    Int      @default(0)
+  attemptsCount   Int      @default(0)
+  correctCount    Int      @default(0)
+  recommendation  String   @default("start")  // 'start' | 'review' | 'practice' | 'advance' | 'mastered'
+  lastUpdated     DateTime @default(now())
+  createdAt       DateTime @default(now())
+
+  @@unique([userId, subjectId, topicId])
+  @@index([userId])
+  @@index([subjectId])
+}
+
+model TopicProgression {
+  id              String   @id @default(uuid())
+  userId          String
+  topicId         String   @unique  // one row per topic per user
+  status          String   @default("not_started")  // 'not_started' | 'in_progress' | 'completed' | 'mastered'
+  score           Float    @default(0)  // best quiz score 0..1
+  attempts        Int      @default(0)
+  timeSpentSec    Int      @default(0)
+  lastAttemptAt   DateTime?
+  completedAt     DateTime?
+  masteryLevel    Float    @default(0)  // 0..1 — rolling avg of last 3 attempts
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @default(now()) @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}

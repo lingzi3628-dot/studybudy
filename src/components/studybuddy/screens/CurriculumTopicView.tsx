@@ -171,7 +171,7 @@ export function CurriculumTopicView() {
           <LessonView contentMarkdown={topic.contentMarkdown} summary={topic.summary} />
         )}
         {tab === "flashcards" && <FlashcardsView flashcards={topic.flashcards} />}
-        {tab === "quiz" && <QuizView questions={topic.quizQuestions} />}
+        {tab === "quiz" && <QuizView questions={topic.quizQuestions} topicId={topic.id} />}
       </main>
     </div>
   );
@@ -409,6 +409,7 @@ function FlashcardsView({
 
 function QuizView({
   questions,
+  topicId,
 }: {
   questions: Array<{
     id: string;
@@ -418,6 +419,7 @@ function QuizView({
     explanation: string | null;
     difficulty: string;
   }>;
+  topicId: string;
 }) {
   const [answers, setAnswers] = useState<Record<string, number>>({});
   const [submitted, setSubmitted] = useState(false);
@@ -440,6 +442,19 @@ function QuizView({
     setSubmitted(true);
     // Scroll to top so the user sees their score
     window.scrollTo({ top: 0, behavior: "smooth" });
+
+    // Phase 22d — record the quiz attempt to the capacity engine
+    // (best-effort — don't block the UI on this)
+    const score = questions.length > 0 ? correctCount / questions.length : 0;
+    fetch("/api/curriculum/quiz-submit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        topicId,
+        score,
+        timeSpentSec: 0, // we don't track this client-side yet
+      }),
+    }).catch(() => {});
   };
 
   const reset = () => {

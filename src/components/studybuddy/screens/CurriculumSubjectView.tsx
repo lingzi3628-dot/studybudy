@@ -15,6 +15,8 @@ import {
   FileText,
   Brain,
   Trophy,
+  Bot,
+  X,
 } from "lucide-react";
 import { useApp } from "../store";
 
@@ -61,6 +63,8 @@ export function CurriculumSubjectView() {
   const [topics, setTopics] = useState<Topic[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showChatbot, setShowChatbot] = useState(false);
+  const [capacity, setCapacity] = useState<any>(null);
 
   useEffect(() => {
     if (!activeCurriculumSubjectId) {
@@ -79,9 +83,7 @@ export function CurriculumSubjectView() {
         const d = await r.json();
         setTopics(d.topics ?? []);
 
-        // Fetch subject info via the grades+subjects chain — for now we
-        // reconstruct from the first topic's data. A dedicated /api/curriculum/subject/[id]
-        // endpoint would be cleaner, but this works.
+        // Fetch subject info via the first topic's data
         if (d.topics?.length > 0) {
           const firstTopicRes = await fetch(
             `/api/curriculum/topic/${d.topics[0].id}`
@@ -97,6 +99,19 @@ export function CurriculumSubjectView() {
               gradeName: ft.topic?.subject?.gradeName ?? "",
             });
           }
+        }
+
+        // Fetch subject-level capacity (Phase 22d)
+        try {
+          const capRes = await fetch(
+            `/api/curriculum/capacity?subjectId=${activeCurriculumSubjectId}`
+          );
+          if (capRes.ok) {
+            const capData = await capRes.json();
+            setCapacity(capData.capacity ?? null);
+          }
+        } catch {
+          // best-effort
         }
       } catch (e: any) {
         setError(e?.message ?? "Failed to load");
@@ -171,15 +186,68 @@ export function CurriculumSubjectView() {
         <div className="rounded-2xl bg-gradient-to-br from-indigo-50 to-violet-50 border border-indigo-100 p-4">
           <div className="flex items-center gap-2 mb-1">
             <Layers className="w-4 h-4 text-indigo-600" />
-            <p className="text-xs font-bold uppercase tracking-wide text-indigo-700">
+            <p className="text-xs font-bold uppercase tracking-wide text-indigo-700 flex-1">
               Learning Path
             </p>
+            <button
+              onClick={() => setShowChatbot(true)}
+              className="px-3 py-1 rounded-full bg-indigo-600 text-white text-[11px] font-bold hover:bg-indigo-700 transition flex items-center gap-1"
+            >
+              <Bot className="w-3 h-3" /> Plan with AI
+            </button>
           </div>
           <p className="text-sm text-gray-700">
             Work through each topic in order. Each topic has a lesson, flashcards,
             and a short quiz to test your understanding.
           </p>
+
+          {/* Capacity indicator (Phase 22d) */}
+          {capacity && (
+            <div className="mt-3 pt-3 border-t border-indigo-100">
+              <div className="flex items-center gap-3">
+                <div className="flex-1">
+                  <div className="flex items-center justify-between text-[10px] font-bold uppercase text-gray-500 mb-1">
+                    <span>Your capacity</span>
+                    <span>{capacity.capacityScore ?? 0}/100</span>
+                  </div>
+                  <div className="h-2 bg-white rounded-full overflow-hidden border border-indigo-100">
+                    <div
+                      className={`h-full rounded-full transition-all ${
+                        (capacity.capacityScore ?? 0) >= 85
+                          ? "bg-emerald-500"
+                          : (capacity.capacityScore ?? 0) >= 60
+                          ? "bg-indigo-500"
+                          : (capacity.capacityScore ?? 0) >= 30
+                          ? "bg-amber-500"
+                          : "bg-rose-400"
+                      }`}
+                      style={{ width: `${capacity.capacityScore ?? 0}%` }}
+                    />
+                  </div>
+                </div>
+                {capacity.totalTopics !== undefined && (
+                  <span className="text-[10px] text-gray-500 whitespace-nowrap">
+                    {capacity.completedTopics ?? 0}/{capacity.totalTopics} done
+                  </span>
+                )}
+              </div>
+              {capacity.recommendationText && (
+                <p className="mt-2 text-[11px] text-indigo-700">
+                  💡 {capacity.recommendationText}
+                </p>
+              )}
+            </div>
+          )}
         </div>
+
+        {/* Chatbot modal */}
+        {showChatbot && subject && (
+          <ChatbotPathModal
+            subjectId={subject.id}
+            subjectName={subject.name}
+            onClose={() => setShowChatbot(false)}
+          />
+        )}
 
         {/* Topics list */}
         {topics.length === 0 ? (
@@ -251,6 +319,233 @@ export function CurriculumSubjectView() {
           StudyBuddy AI Curriculum
         </p>
       </main>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------
+// ChatbotPathModal — AI-powered learning path creator
+// ---------------------------------------------------------------------
+
+function ChatbotPathModal({
+  subjectId,
+  subjectName,
+  onClose,
+}: {
+  subjectId: string;
+  subjectName: string;
+  onClose: () => void;
+}) {
+  const [questions, setQuestions] = useState<any[]>([]);
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [currentQ, setCurrentQ] = useState(0);
+  const [plan, setPlan] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Load questions on mount
+  useEffect(() => {
+    fetch("/api/curriculum/chatbot-path", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ subjectId }),
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.questions) setQuestions(d.questions);
+        else if (d.error) setError(d.error);
+      })
+      .catch((e) => setError(e?.message ?? "Failed"))
+      .finally(() => setLoading(false));
+  }, [subjectId]);
+
+  const generatePlan = async () => {
+    setGenerating(true);
+    setError(null);
+    try {
+      const r = await fetch("/api/curriculum/chatbot-path", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subjectId, answers }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Failed");
+      setPlan(d.plan);
+    } catch (e: any) {
+      setError(e?.message ?? "Failed");
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const currentQuestion = questions[currentQ];
+  const isLastQ = currentQ === questions.length - 1;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="w-full max-w-md max-h-[90vh] flex flex-col rounded-3xl bg-white shadow-2xl overflow-hidden">
+        {/* Header */}
+        <div className="bg-gradient-to-br from-indigo-600 to-violet-600 p-4 text-white relative">
+          <button
+            onClick={onClose}
+            className="absolute top-3 right-3 w-8 h-8 rounded-full hover:bg-white/10 flex items-center justify-center"
+          >
+            <X className="w-4 h-4" />
+          </button>
+          <div className="flex items-center gap-2">
+            <Bot className="w-5 h-5" />
+            <p className="text-sm font-bold">AI Path Planner</p>
+          </div>
+          <p className="text-[11px] opacity-90 mt-0.5">
+            Personalized {subjectName} plan for you
+          </p>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4">
+          {loading && (
+            <div className="py-8 flex items-center justify-center">
+              <Loader2 className="w-6 h-6 animate-spin text-indigo-500" />
+            </div>
+          )}
+
+          {error && (
+            <div className="rounded-xl bg-rose-50 border border-rose-200 p-3 text-xs text-rose-700">
+              {error}
+            </div>
+          )}
+
+          {/* Interview mode */}
+          {!loading && !plan && currentQuestion && (
+            <div>
+              {/* Progress dots */}
+              <div className="flex items-center gap-1 mb-4">
+                {questions.map((_, i) => (
+                  <span
+                    key={i}
+                    className={`h-1.5 flex-1 rounded-full transition ${
+                      i <= currentQ ? "bg-indigo-600" : "bg-gray-200"
+                    }`}
+                  />
+                ))}
+              </div>
+
+              <p className="text-sm font-bold text-gray-900 mb-3">
+                {currentQuestion.question}
+              </p>
+              <div className="space-y-2">
+                {currentQuestion.options.map((opt: string) => {
+                  const isSelected = answers[currentQuestion.key] === opt;
+                  return (
+                    <button
+                      key={opt}
+                      onClick={() => {
+                        const newAnswers = { ...answers, [currentQuestion.key]: opt };
+                        setAnswers(newAnswers);
+                        // Auto-advance after a short delay
+                        setTimeout(() => {
+                          if (!isLastQ) {
+                            setCurrentQ((q) => q + 1);
+                          }
+                        }, 200);
+                      }}
+                      className={`w-full text-left px-3 py-2.5 rounded-xl border-2 text-sm transition ${
+                        isSelected
+                          ? "border-indigo-500 bg-indigo-50 text-indigo-700 font-semibold"
+                          : "border-gray-200 hover:border-indigo-300"
+                      }`}
+                    >
+                      {opt}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Nav buttons */}
+              <div className="mt-4 flex gap-2">
+                <button
+                  onClick={() => setCurrentQ((q) => Math.max(0, q - 1))}
+                  disabled={currentQ === 0}
+                  className="px-4 py-2 rounded-full bg-gray-100 text-gray-700 text-xs font-semibold hover:bg-gray-200 disabled:opacity-40"
+                >
+                  ← Back
+                </button>
+                {isLastQ ? (
+                  <button
+                    onClick={generatePlan}
+                    disabled={generating || Object.keys(answers).length < questions.length}
+                    className="flex-1 h-10 rounded-full bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-1"
+                  >
+                    {generating ? (
+                      <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Generating…</>
+                    ) : (
+                      <><Bot className="w-3.5 h-3.5" /> Generate my plan</>
+                    )}
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setCurrentQ((q) => q + 1)}
+                    disabled={!answers[currentQuestion.key]}
+                    className="flex-1 h-10 rounded-full bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 disabled:opacity-50"
+                  >
+                    Next →
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Plan display */}
+          {!loading && plan && (
+            <div className="space-y-3">
+              <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3">
+                <p className="text-xs font-bold text-emerald-700 flex items-center gap-1">
+                  <CheckCircle2 className="w-4 h-4" /> Your {plan.totalMonths}-month plan is ready!
+                </p>
+                <p className="text-[11px] text-emerald-700/80 mt-1">{plan.summary}</p>
+              </div>
+
+              {/* Month-by-month plan */}
+              <div className="space-y-2">
+                {plan.months?.map((m: any) => (
+                  <div key={m.month} className="rounded-xl border border-gray-200 p-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-bold flex items-center justify-center">
+                        {m.month}
+                      </span>
+                      <p className="text-sm font-bold text-gray-900">{m.title}</p>
+                    </div>
+                    <p className="text-[11px] text-gray-500 mb-1.5">{m.goal}</p>
+                    <div className="flex flex-wrap gap-1">
+                      {m.topics?.map((t: string, i: number) => (
+                        <span
+                          key={i}
+                          className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-700"
+                        >
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {plan.fallback && (
+                <p className="text-[10px] text-amber-600 text-center">
+                  ⚠️ Generated without AI (fallback mode). {plan.aiError ? `AI error: ${plan.aiError}` : ""}
+                </p>
+              )}
+
+              <button
+                onClick={onClose}
+                className="w-full h-10 rounded-full bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700"
+              >
+                Start studying →
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

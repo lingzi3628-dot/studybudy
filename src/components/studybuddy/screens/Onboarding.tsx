@@ -174,26 +174,10 @@ export function Onboarding() {
         });
       }
 
-      // 2) AUTO-CREATE LEARNING PATH from user's first picked subject
-      //    This ensures the dashboard has a path to show immediately
-      const firstSubject = pickedSubjects[0] ?? "General Knowledge";
-      try {
-        await fetch("/api/onboarding/create-path", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            skill: firstSubject,
-            level: grade?.includes("University") ? "advanced" : 
-                   grade?.includes("Form") || (Number(grade?.replace(/\D/g, "")) >= 9) ? "intermediate" : 
-                   "beginner",
-            goal: goal || `Master ${firstSubject}`,
-          }),
-        });
-        // Mark onboarding complete (redirects to dashboard)
-        await fetch("/api/onboarding/complete", { method: "POST" }).catch(() => {});
-      } catch (e) {
-        console.warn("Path creation failed — user can create later from dashboard");
-      }
+      // 2) Mark onboarding complete (NO auto learning path creation —
+      //    Phase 22d: the learning path is now created inside each
+      //    curriculum subject via the chatbot, not during onboarding.
+      await fetch("/api/onboarding/complete", { method: "POST" }).catch(() => {});
     } catch (e) {
       console.warn("Onboarding save failed", e);
     } finally {
