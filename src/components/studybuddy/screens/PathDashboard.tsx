@@ -193,6 +193,9 @@ export function PathDashboard() {
       {/* No custom top bar — layout provides TopBar with avatar/streak/tokens/coins/level */}
 
       <div className="max-w-md mx-auto px-4 py-4 pb-24">
+        {/* Phase 22e — Continue where you left off banner */}
+        <ResumeSessionBanner />
+
         {/* Phase 22 — Curriculum subjects banner */}
         <CurriculumSubjectsBanner />
 
@@ -591,6 +594,64 @@ function CurriculumSubjectsBanner() {
             </button>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------
+// Phase 22e — Resume session banner
+// ---------------------------------------------------------------------
+
+function ResumeSessionBanner() {
+  const { setScreen, setActiveCurriculumSubjectId, setActiveCurriculumTopicId } = useApp();
+  const [session, setSession] = useState<any>(null);
+  const [resumeText, setResumeText] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/curriculum/session")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.hasIncomplete && d.session) {
+          setSession(d.session);
+          setResumeText(d.resumeText ?? "Continue where you left off.");
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  if (!session) return null;
+
+  const minutesAgo = Math.round(
+    (Date.now() - new Date(session.startedAt).getTime()) / (1000 * 60)
+  );
+
+  return (
+    <div className="mb-4 rounded-2xl bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 p-4">
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-600">
+          <Play className="w-5 h-5" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-bold text-emerald-800">{resumeText}</p>
+          <p className="text-[11px] text-emerald-700/80">
+            {session.subject?.name ?? "Your subject"} · {minutesAgo < 60 ? `${minutesAgo} min ago` : `${Math.round(minutesAgo / 60)} hr ago`}
+          </p>
+        </div>
+        <button
+          onClick={() => {
+            if (session.subjectId) setActiveCurriculumSubjectId(session.subjectId);
+            if (session.topicId) {
+              setActiveCurriculumTopicId(session.topicId);
+              setScreen("curriculumTopic");
+            } else {
+              setScreen("curriculumSubject");
+            }
+          }}
+          className="px-4 py-2 rounded-full bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 transition flex items-center gap-1"
+        >
+          <Play className="w-3.5 h-3.5" /> Resume
+        </button>
       </div>
     </div>
   );

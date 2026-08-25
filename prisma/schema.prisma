@@ -1612,3 +1612,60 @@ model TopicProgression {
   @@index([userId])
   @@index([status])
 }
+
+// =====================================================================
+// Phase 22e — Study Session + Calendar + Timetable
+// =====================================================================
+
+model StudySession {
+  id              String   @id @default(uuid())
+  userId          String
+  subjectId       String?
+  topicId         String?
+  startedAt       DateTime @default(now())
+  endedAt         DateTime?
+  durationSec     Int      @default(0)
+  status          String   @default("active")  // 'active' | 'completed' | 'abandoned'
+  lastScreen      String?  // where the student was when they left
+  flashcardsReviewed Int   @default(0)
+  quizzesTaken    Int      @default(0)
+  topicsStudied   Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @default(now()) @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([startedAt])
+}
+
+model CalendarEntry {
+  id          String   @id @default(uuid())
+  userId      String
+  date        DateTime  // the calendar day (stored as date at midnight)
+  type        String   // 'study' | 'exam' | 'flashcard' | 'quiz' | 'break'
+  title       String
+  description String?
+  durationMin Int      @default(0)
+  score       Float?   // for quizzes/exams
+  subjectId   String?
+  topicId     String?
+  createdAt   DateTime @default(now())
+
+  @@index([userId, date])
+  @@index([type])
+}
+
+model Timetable {
+  id          String   @id @default(uuid())
+  userId      String
+  dayOfWeek   Int      // 0=Sunday, 1=Monday, ... 6=Saturday
+  startTime   String   // "16:00" (24h format)
+  endTime     String   // "17:00"
+  subjectId   String?
+  subjectName String
+  notes       String?
+  createdAt   DateTime @default(now())
+
+  @@unique([userId, dayOfWeek, startTime])
+  @@index([userId])
+}

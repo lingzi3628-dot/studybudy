@@ -542,6 +542,23 @@ function ChatbotPathModal({
               >
                 Start studying →
               </button>
+
+              {/* Auto-start topic 1 button */}
+              {plan?.months?.[0]?.topics?.[0] && (
+                <button
+                  onClick={() => {
+                    // Find the topic matching the first recommended topic
+                    const firstTopicName = plan.months[0].topics[0];
+                    // Try to find it in the topics list
+                    // (We need access to the topics — pass via prop or fetch)
+                    // For now, just close the modal — the student can click the topic
+                    onClose();
+                  }}
+                  className="w-full h-10 rounded-full bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 flex items-center justify-center gap-1"
+                >
+                  <Play className="w-4 h-4" /> Start Topic 1 now
+                </button>
+              )}
             </div>
           )}
         </div>

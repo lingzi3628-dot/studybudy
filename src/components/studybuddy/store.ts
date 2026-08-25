@@ -35,7 +35,9 @@ export type Screen =
   | "parent"
   | "curriculumSubject"
   | "curriculumTopic"
-  | "exam";
+  | "exam"
+  | "calendar"
+  | "timetable";
 
 export type CreateOption =
   | "upload"

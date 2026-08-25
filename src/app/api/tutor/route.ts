@@ -5,6 +5,7 @@ import { decryptApiKey } from "@/lib/crypto";
 import { callAI, type ChatMessage } from "@/lib/ai";
 import { checkRateLimit, refundRateLimit } from "@/lib/rate-limit";
 import { checkAndDeductTokens, refundTokens } from "@/lib/monetization";
+import { buildTeachingProfile } from "@/lib/aware-engine";
 
 export const runtime = "nodejs";
 
@@ -108,7 +109,9 @@ export async function POST(req: NextRequest) {
     "Use short paragraphs, numbered steps where helpful, and one concrete example. " +
     "If the user asks something off-topic from study/learning, gently steer back to learning. " +
     "Reply in the same language the user used. Keep answers under 250 words unless asked to go deep." +
-    curriculumContext;
+    curriculumContext +
+    // Phase 22e — Aware Engine: adapt language to the student's grade level
+    buildTeachingProfile(user.grade ?? "Form 1").systemPromptSuffix;
 
   const messagesForAI: ChatMessage[] = [
     { role: "system", content: systemContent },

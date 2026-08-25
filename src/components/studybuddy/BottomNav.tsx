@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Home, Search, Plus, BarChart3, User, Users, Lock } from "lucide-react";
+import { Home, Search, Plus, BarChart3, User, Users, Lock, Calendar } from "lucide-react";
 import { useApp, type Screen } from "./store";
 
 type Tab = {
@@ -194,6 +194,7 @@ export function Sidebar() {
     { key: "home", label: "Home", icon: Home },
     { key: "search", label: "Search", icon: Search },
     { key: "progress", label: "Progress", icon: BarChart3 },
+    { key: "calendar", label: "Calendar", icon: Calendar },
     // Parents get "My Children" — children and regular users skip this
     ...(isFamilyParent && !isFamilyChild
       ? [{ key: "parent" as Screen, label: "My Children", icon: Users }]
