@@ -6,10 +6,10 @@ export const runtime = "nodejs";
 
 /**
  * POST /api/auth/reset-password
- * Body: { token, newPassword }
+ * Body: { email, code, newPassword }
  *
- * Verifies the reset token, checks expiry, updates the user's password.
- * Marks the token as used so it can't be reused.
+ * Verifies the 6-digit magic code, checks expiry, updates the user's password.
+ * Marks the code as used so it can't be reused.
  */
 export async function POST(req: NextRequest) {
   let body: any;
@@ -19,11 +19,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
-  const token = (body?.token ?? "").toString().trim();
+  const email = (body?.email ?? "").toString().trim().toLowerCase();
+  const code = (body?.code ?? "").toString().trim();
   const newPassword = (body?.newPassword ?? "").toString();
 
-  if (!token || !newPassword) {
-    return NextResponse.json({ error: "Token and new password are required" }, { status: 400 });
+  if (!email || !code || !newPassword) {
+    return NextResponse.json({ error: "Email, code, and new password are required" }, { status: 400 });
   }
 
   if (newPassword.length < 6) {
@@ -31,23 +32,26 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // Find the token
-    const reset = await db.passwordReset.findUnique({ where: { token } });
+    // Find the OTP record
+    const record = await db.emailOtp.findFirst({
+      where: { email, otp: code, purpose: "forgot_password" },
+      orderBy: { createdAt: "desc" },
+    });
 
-    if (!reset) {
-      return NextResponse.json({ error: "Invalid or expired reset link" }, { status: 400 });
+    if (!record) {
+      return NextResponse.json({ error: "Invalid reset code" }, { status: 400 });
     }
 
-    if (reset.usedAt) {
-      return NextResponse.json({ error: "This reset link has already been used" }, { status: 400 });
+    if (record.verifiedAt) {
+      return NextResponse.json({ error: "This code has already been used" }, { status: 400 });
     }
 
-    if (new Date() > reset.expiresAt) {
-      return NextResponse.json({ error: "This reset link has expired. Please request a new one." }, { status: 400 });
+    if (new Date() > record.expiresAt) {
+      return NextResponse.json({ error: "This code has expired. Please request a new one." }, { status: 400 });
     }
 
     // Find the user
-    const user = await db.user.findUnique({ where: { email: reset.email } });
+    const user = await db.user.findUnique({ where: { email } });
     if (!user) {
       return NextResponse.json({ error: "Account not found" }, { status: 404 });
     }
@@ -55,15 +59,15 @@ export async function POST(req: NextRequest) {
     // Hash the new password
     const passwordHash = bcrypt.hashSync(newPassword, 10);
 
-    // Update the password + mark the token as used
+    // Update the password + mark the code as used
     await db.$transaction([
       db.user.update({
         where: { id: user.id },
         data: { passwordHash },
       }),
-      db.passwordReset.update({
-        where: { id: reset.id },
-        data: { usedAt: new Date() },
+      db.emailOtp.update({
+        where: { id: record.id },
+        data: { verifiedAt: new Date() },
       }),
     ]);
 

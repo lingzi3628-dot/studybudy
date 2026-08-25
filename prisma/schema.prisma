@@ -16,6 +16,7 @@ model User {
   email             String?  @unique
   name              String?
   phoneNumber       String?              // Phase 22c — for WhatsApp/SMS notifications
+  emailVerified     Boolean  @default(false)  // Phase 23b — must verify email to use app
   plan              String   @default("free")
   encryptedApiKey   String?
   passwordHash      String?

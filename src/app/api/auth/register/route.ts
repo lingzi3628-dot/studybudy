@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { signUserToken, getUserCookieName, getUserCookieMaxAge } from "@/lib/user-jwt";
-import { sendEmail, newUserNotification } from "@/lib/email";
+import { sendEmail, newUserNotification, emailVerificationOtp } from "@/lib/email";
+import { randomInt } from "crypto";
 
 export const runtime = "nodejs";
 
@@ -105,14 +106,40 @@ export async function POST(req: NextRequest) {
       html,
     }).catch((e: any) => console.error("admin notification email failed:", e?.message));
 
+    // Phase 23b — Auto-send email verification OTP
+    const otp = String(randomInt(100000, 999999));
+    const otpExpiresAt = new Date();
+    otpExpiresAt.setMinutes(otpExpiresAt.getMinutes() + 10);
+
+    // Delete old OTPs for this email
+    await db.emailOtp.deleteMany({
+      where: { email, purpose: "signup" },
+    }).catch(() => {});
+
+    // Save the OTP
+    await db.emailOtp.create({
+      data: { email, otp, purpose: "signup", expiresAt: otpExpiresAt },
+    }).catch((e: any) => console.error("otp save failed:", e?.message));
+
+    // Send the verification email
+    const { subject: otpSubject, html: otpHtml } = emailVerificationOtp({
+      name,
+      email,
+      otp,
+    });
+    sendEmail({ to: email, subject: otpSubject, html: otpHtml })
+      .catch((e: any) => console.error("verification email failed:", e?.message));
+
     const token = signUserToken(user.id, email);
     const res = NextResponse.json({
       ok: true,
+      needsEmailVerification: true,
       user: {
         id: user.id,
         email: user.email,
         name: user.name,
         onboardingCompleted: user.onboardingCompleted,
+        emailVerified: false,
         tokenBalance: user.tokenBalance,
         currentModel: user.currentModel,
         planId: user.planId,

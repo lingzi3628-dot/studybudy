@@ -46,6 +46,47 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Account banned. Contact support." }, { status: 403 });
     }
 
+    // Phase 23b — Block login if email not verified
+    if (!user.emailVerified) {
+      // Auto-send a new verification OTP
+      const { randomInt } = await import("crypto");
+      const { sendEmail, emailVerificationOtp } = await import("@/lib/email");
+      const otp = String(randomInt(100000, 999999));
+      const otpExpiresAt = new Date();
+      otpExpiresAt.setMinutes(otpExpiresAt.getMinutes() + 10);
+
+      await db.emailOtp.deleteMany({
+        where: { email, purpose: "signup" },
+      }).catch(() => {});
+
+      await db.emailOtp.create({
+        data: { email, otp, purpose: "signup", expiresAt: otpExpiresAt },
+      }).catch(() => {});
+
+      const { subject, html } = emailVerificationOtp({
+        name: user.name,
+        email,
+        otp,
+      });
+      sendEmail({ to: email, subject, html }).catch(() => {});
+
+      // Set a temp cookie so the client can access the verification screen
+      const tempToken = signUserToken(user.id, email!);
+      const res = NextResponse.json({
+        ok: false,
+        needsEmailVerification: true,
+        error: "Please verify your email to continue. We've sent a new code to your email.",
+      });
+      res.cookies.set(getUserCookieName(), tempToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        maxAge: getUserCookieMaxAge(),
+        path: "/",
+      });
+      return res;
+    }
+
     // Update lastLogin
     await db.user.update({
       where: { id: user.id },

@@ -13,6 +13,7 @@ import {
   User,
   Users,
   Phone,
+  Check,
 } from "lucide-react";
 import { useApp } from "../store";
 
@@ -21,6 +22,9 @@ type Mode = "signin" | "signup";
 export function AuthScreen() {
   const { setScreen } = useApp();
   const [mode, setMode] = useState<Mode>("signup");
+  // Phase 23b — email verification state (lifted up so AuthScreen can switch views)
+  const [showVerification, setShowVerification] = useState(false);
+  const [verificationEmail, setVerificationEmail] = useState("");
 
   // Check if already authed → redirect to home
   useEffect(() => {
@@ -49,16 +53,39 @@ export function AuthScreen() {
         <div className="rounded-3xl bg-white border border-gray-200 shadow-xl overflow-hidden">
           <div className="bg-gradient-to-br from-indigo-600 to-violet-600 p-6 text-center text-white">
             <div className="w-12 h-12 mx-auto rounded-2xl bg-white/10 flex items-center justify-center">
-              <Sparkles className="w-6 h-6" />
+              {showVerification ? <Mail className="w-6 h-6" /> : <Sparkles className="w-6 h-6" />}
             </div>
             <h1 className="mt-3 text-lg font-bold">
-              {mode === "signup" ? "Create your account" : "Welcome back"}
+              {showVerification
+                ? "Verify your email"
+                : mode === "signup"
+                ? "Create your account"
+                : "Welcome back"}
             </h1>
-            <p className="text-xs opacity-90 mt-1">StudyBuddy AI</p>
+            <p className="text-xs opacity-90 mt-1">
+              {showVerification ? "Enter the code we sent you" : "StudyBuddy AI"}
+            </p>
           </div>
 
           <div className="p-5 space-y-3">
-            <AuthForm mode={mode} setMode={setMode} setScreen={setScreen} />
+            {showVerification ? (
+              <EmailVerificationScreen
+                email={verificationEmail}
+                mode={mode === "signup" ? "signup" : "login"}
+                setScreen={setScreen}
+                onBack={() => setShowVerification(false)}
+              />
+            ) : (
+              <AuthForm
+                mode={mode}
+                setMode={setMode}
+                setScreen={setScreen}
+                onNeedVerification={(email: string) => {
+                  setVerificationEmail(email);
+                  setShowVerification(true);
+                }}
+              />
+            )}
           </div>
         </div>
 
@@ -70,7 +97,7 @@ export function AuthScreen() {
   );
 }
 
-function AuthForm({ mode, setMode, setScreen }: { mode: Mode; setMode: (m: Mode) => void; setScreen: (s: any) => void }) {
+function AuthForm({ mode, setMode, setScreen, onNeedVerification }: { mode: Mode; setMode: (m: Mode) => void; setScreen: (s: any) => void; onNeedVerification: (email: string) => void }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -108,6 +135,12 @@ function AuthForm({ mode, setMode, setScreen }: { mode: Mode; setMode: (m: Mode)
 
       if (!r.ok) {
         throw new Error(d.error ?? `HTTP ${r.status}`);
+      }
+
+      // Phase 23b — If signup or login requires email verification, show the code entry screen
+      if (d.needsEmailVerification) {
+        onNeedVerification(email.trim().toLowerCase());
+        return;
       }
 
       if (d.user?.onboardingCompleted) {
@@ -254,17 +287,162 @@ function AuthForm({ mode, setMode, setScreen }: { mode: Mode; setMode: (m: Mode)
 }
 
 // ---------------------------------------------------------------------
-// Phase 23 — Forgot password link + modal
+// Phase 23b — Email verification screen (enter 6-digit code)
+// ---------------------------------------------------------------------
+
+function EmailVerificationScreen({
+  email,
+  mode,
+  setScreen,
+  onBack,
+}: {
+  email: string;
+  mode: "signup" | "login";
+  setScreen: (s: any) => void;
+  onBack: () => void;
+}) {
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [resendCooldown, setResendCooldown] = useState(0);
+
+  useEffect(() => {
+    if (resendCooldown > 0) {
+      const t = setTimeout(() => setResendCooldown((c) => c - 1), 1000);
+      return () => clearTimeout(t);
+    }
+  }, [resendCooldown]);
+
+  const verify = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!code.trim() || code.length !== 6) {
+      setError("Please enter the 6-digit code");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await fetch("/api/auth/verify-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, otp: code.trim() }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Verification failed");
+      // Success — go to onboarding or home
+      setScreen("onboarding");
+    } catch (e: any) {
+      setError(e?.message ?? "Verification failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const resend = async () => {
+    if (resendCooldown > 0) return;
+    setResendCooldown(30);
+    setError(null);
+    try {
+      const r = await fetch("/api/auth/send-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, purpose: "signup" }),
+      });
+      const d = await r.json();
+      if (r.ok) {
+        setError(null);
+      } else {
+        setError(d.error ?? "Failed to resend");
+      }
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to resend");
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      <button
+        onClick={onBack}
+        className="text-gray-500 hover:text-gray-900 text-sm flex items-center gap-1"
+      >
+        <ChevronLeft className="w-4 h-4" /> Back
+      </button>
+
+      <div className="text-center py-4">
+        <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center mb-4">
+          <Mail className="w-8 h-8 text-white" />
+        </div>
+        <h2 className="text-lg font-bold text-gray-900">Verify your email</h2>
+        <p className="text-xs text-gray-500 mt-1">
+          We sent a 6-digit code to <strong>{email}</strong>
+        </p>
+        <p className="text-[11px] text-gray-400 mt-1">
+          Check your inbox (and spam folder)
+        </p>
+      </div>
+
+      <form onSubmit={verify} className="space-y-3">
+        <div>
+          <input
+            type="text"
+            value={code}
+            onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+            placeholder="000000"
+            autoFocus
+            inputMode="numeric"
+            maxLength={6}
+            className="w-full text-center text-2xl font-bold tracking-[0.5em] p-3 rounded-xl border border-gray-200 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+          />
+        </div>
+
+        {error && (
+          <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            <span>{error}</span>
+          </div>
+        )}
+
+        <button
+          type="submit"
+          disabled={busy || code.length !== 6}
+          className="w-full h-12 rounded-full bg-indigo-600 text-white font-semibold text-sm shadow-md hover:bg-indigo-700 transition disabled:opacity-50 flex items-center justify-center gap-1.5"
+        >
+          {busy ? (
+            <><Loader2 className="w-4 h-4 animate-spin" /> Verifying…</>
+          ) : (
+            <>Verify email →</>
+          )}
+        </button>
+
+        <div className="text-center">
+          <button
+            type="button"
+            onClick={resend}
+            disabled={resendCooldown > 0}
+            className="text-xs text-gray-500 hover:text-indigo-600 disabled:opacity-50"
+          >
+            {resendCooldown > 0
+              ? `Resend code in ${resendCooldown}s`
+              : "Didn't get a code? Resend →"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
 // ---------------------------------------------------------------------
 
 function ForgotPasswordLink() {
   const [showModal, setShowModal] = useState(false);
+  const [step, setStep] = useState<"email" | "code" | "reset" | "done">("email");
   const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [busy, setBusy] = useState(false);
-  const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const submit = async (e: React.FormEvent) => {
+  const sendCode = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email.trim()) {
       setError("Please enter your email");
@@ -280,12 +458,67 @@ function ForgotPasswordLink() {
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error ?? "Failed");
-      setSent(true);
+      setStep("code");
     } catch (e: any) {
       setError(e?.message ?? "Failed");
     } finally {
       setBusy(false);
     }
+  };
+
+  const verifyCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (code.length !== 6) {
+      setError("Please enter the 6-digit code");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    // Just move to the reset step — the code is verified when they submit the new password
+    setStep("reset");
+    setBusy(false);
+  };
+
+  const resetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPassword || newPassword.length < 6) {
+      setError("Password must be at least 6 characters");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError("Passwords don't match");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await fetch("/api/auth/reset-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          code: code.trim(),
+          newPassword,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Failed");
+      setStep("done");
+    } catch (e: any) {
+      setError(e?.message ?? "Failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const close = () => {
+    setShowModal(false);
+    setStep("email");
+    setEmail("");
+    setCode("");
+    setNewPassword("");
+    setConfirmPassword("");
+    setError(null);
   };
 
   return (
@@ -301,37 +534,34 @@ function ForgotPasswordLink() {
       {showModal && (
         <div
           className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
-          onClick={() => setShowModal(false)}
+          onClick={close}
         >
           <div
             className="w-full max-w-sm rounded-3xl bg-white shadow-2xl overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="bg-gradient-to-br from-indigo-600 to-violet-600 p-5 text-white">
-              <h2 className="text-base font-bold">🔐 Reset Password</h2>
+              <h2 className="text-base font-bold">
+                {step === "email" ? "🔐 Reset Password" : step === "code" ? "📧 Enter Code" : step === "reset" ? "🔑 New Password" : "✅ Done!"}
+              </h2>
               <p className="text-[11px] opacity-90 mt-0.5">
-                We'll send a reset link to your email
+                {step === "email" ? "Enter your email to get a reset code" : step === "code" ? `We sent a 6-digit code to ${email}` : step === "reset" ? "Set your new password" : "Your password has been reset"}
               </p>
             </div>
             <div className="p-5 space-y-3">
-              {!sent ? (
-                <form onSubmit={submit} className="space-y-3">
-                  <div>
-                    <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                      Email
-                    </label>
-                    <div className="mt-1 relative">
-                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                      <input
-                        type="email"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        placeholder="you@example.com"
-                        required
-                        autoFocus
-                        className="w-full pl-10 pr-3 p-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
-                      />
-                    </div>
+              {step === "email" && (
+                <form onSubmit={sendCode} className="space-y-3">
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="you@example.com"
+                      required
+                      autoFocus
+                      className="w-full pl-10 pr-3 p-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                    />
                   </div>
                   {error && (
                     <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-start gap-2">
@@ -344,32 +574,94 @@ function ForgotPasswordLink() {
                     disabled={busy}
                     className="w-full h-11 rounded-full bg-indigo-600 text-white font-semibold text-sm shadow-md hover:bg-indigo-700 transition disabled:opacity-50 flex items-center justify-center gap-1.5"
                   >
-                    {busy ? (
-                      <><Loader2 className="w-4 h-4 animate-spin" /> Sending…</>
-                    ) : (
-                      <>Send reset link</>
-                    )}
+                    {busy ? <><Loader2 className="w-4 h-4 animate-spin" /> Sending…</> : "Send reset code"}
                   </button>
                 </form>
-              ) : (
+              )}
+
+              {step === "code" && (
+                <form onSubmit={verifyCode} className="space-y-3">
+                  <input
+                    type="text"
+                    value={code}
+                    onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                    placeholder="000000"
+                    autoFocus
+                    inputMode="numeric"
+                    maxLength={6}
+                    className="w-full text-center text-2xl font-bold tracking-[0.5em] p-3 rounded-xl border border-gray-200 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                  />
+                  {error && (
+                    <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-start gap-2">
+                      <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                      <span>{error}</span>
+                    </div>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={busy || code.length !== 6}
+                    className="w-full h-11 rounded-full bg-indigo-600 text-white font-semibold text-sm shadow-md hover:bg-indigo-700 transition disabled:opacity-50"
+                  >
+                    Continue →
+                  </button>
+                </form>
+              )}
+
+              {step === "reset" && (
+                <form onSubmit={resetPassword} className="space-y-3">
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input
+                      type="password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="New password (min 6 chars)"
+                      required
+                      autoFocus
+                      className="w-full pl-10 pr-3 p-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                    />
+                  </div>
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input
+                      type="password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder="Confirm new password"
+                      required
+                      className="w-full pl-10 pr-3 p-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                    />
+                  </div>
+                  {error && (
+                    <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-start gap-2">
+                      <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                      <span>{error}</span>
+                    </div>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={busy}
+                    className="w-full h-11 rounded-full bg-emerald-600 text-white font-semibold text-sm shadow-md hover:bg-emerald-700 transition disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  >
+                    {busy ? <><Loader2 className="w-4 h-4 animate-spin" /> Resetting…</> : "Reset password"}
+                  </button>
+                </form>
+              )}
+
+              {step === "done" && (
                 <div className="text-center py-4">
                   <div className="w-14 h-14 mx-auto rounded-full bg-emerald-50 flex items-center justify-center mb-3">
-                    <Mail className="w-7 h-7 text-emerald-600" />
+                    <Check className="w-7 h-7 text-emerald-600" />
                   </div>
-                  <p className="text-sm font-bold text-gray-900">Check your inbox! 📬</p>
+                  <p className="text-sm font-bold text-gray-900">Password reset! ✅</p>
                   <p className="text-xs text-gray-500 mt-1">
-                    If an account exists for <strong>{email}</strong>, a reset link
-                    has been sent. Check your spam folder if you don't see it.
+                    You can now sign in with your new password.
                   </p>
                   <button
-                    onClick={() => {
-                      setShowModal(false);
-                      setSent(false);
-                      setEmail("");
-                    }}
-                    className="mt-4 w-full h-10 rounded-full bg-gray-100 text-gray-700 text-xs font-semibold hover:bg-gray-200"
+                    onClick={close}
+                    className="mt-4 w-full h-10 rounded-full bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700"
                   >
-                    Close
+                    Sign in →
                   </button>
                 </div>
               )}
