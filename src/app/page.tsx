@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Lock, Eye, EyeOff, Check, AlertCircle, Loader2 } from "lucide-react";
 import { useApp } from "@/components/studybuddy/store";
 import { TopBar, DesktopTopBar } from "@/components/studybuddy/TopBar";
 import { BottomNav, Sidebar } from "@/components/studybuddy/BottomNav";
@@ -49,19 +50,26 @@ const ADMIN_SECRET = "adminorg";
 export default function Page() {
   const { screen, setScreen } = useApp();
   const keyBuffer = useRef("");
+  const [resetToken, setResetToken] = useState<string | null>(null);
 
-  // Auth check on mount + URL param check for hidden admin access
+  // Auth check on mount + URL param check for hidden admin access + reset password
   useEffect(() => {
     let mounted = true;
 
-    // Check for hidden admin URL parameter
+    // Check for URL parameters
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
       if (params.has(ADMIN_SECRET)) {
         setScreen("adminLogin");
-        // Clean the URL so the param doesn't persist
         window.history.replaceState({}, "", window.location.pathname);
         return;
+      }
+      // Phase 23 — Reset password link from email
+      if (params.has("reset")) {
+        setResetToken(params.get("reset"));
+        // Clear the user_token cookie if they're logged in (so the reset
+        // screen shows on top of the landing, not the dashboard)
+        window.history.replaceState({}, "", window.location.pathname);
       }
     }
 
@@ -210,6 +218,145 @@ export default function Page() {
       </div>
       <BottomNav />
       <CreateModal />
+      {resetToken && (
+        <ResetPasswordModal
+          token={resetToken}
+          onClose={() => setResetToken(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------
+// Phase 23 — Reset Password Modal (shown when user clicks email link)
+// ---------------------------------------------------------------------
+
+function ResetPasswordModal({ token, onClose }: { token: string; onClose: () => void }) {
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPw, setShowPw] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPassword || newPassword.length < 6) {
+      setError("Password must be at least 6 characters");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError("Passwords don't match");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await fetch("/api/auth/reset-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, newPassword }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Failed");
+      setDone(true);
+    } catch (e: any) {
+      setError(e?.message ?? "Failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="w-full max-w-sm rounded-3xl bg-white shadow-2xl overflow-hidden">
+        <div className="bg-gradient-to-br from-indigo-600 to-violet-600 p-5 text-white">
+          <h2 className="text-base font-bold">🔐 Set New Password</h2>
+          <p className="text-[11px] opacity-90 mt-0.5">
+            Enter your new password below
+          </p>
+        </div>
+        <div className="p-5">
+          {!done ? (
+            <form onSubmit={submit} className="space-y-3">
+              <div>
+                <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  New password
+                </label>
+                <div className="mt-1 relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type={showPw ? "text" : "password"}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="At least 6 characters"
+                    required
+                    autoFocus
+                    className="w-full pl-10 pr-10 p-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPw((s) => !s)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  >
+                    {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  Confirm new password
+                </label>
+                <div className="mt-1 relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type={showPw ? "text" : "password"}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Re-enter your new password"
+                    required
+                    className="w-full pl-10 pr-3 p-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                  />
+                </div>
+              </div>
+              {error && (
+                <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-start gap-2">
+                  <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                  <span>{error}</span>
+                </div>
+              )}
+              <button
+                type="submit"
+                disabled={busy}
+                className="w-full h-11 rounded-full bg-indigo-600 text-white font-semibold text-sm shadow-md hover:bg-indigo-700 transition disabled:opacity-50 flex items-center justify-center gap-1.5"
+              >
+                {busy ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" /> Resetting…</>
+                ) : (
+                  <>Reset password</>
+                )}
+              </button>
+            </form>
+          ) : (
+            <div className="text-center py-4">
+              <div className="w-14 h-14 mx-auto rounded-full bg-emerald-50 flex items-center justify-center mb-3">
+                <Check className="w-7 h-7 text-emerald-600" />
+              </div>
+              <p className="text-sm font-bold text-gray-900">Password reset! ✅</p>
+              <p className="text-xs text-gray-500 mt-1">
+                Your password has been changed. You can now sign in with your new password.
+              </p>
+              <button
+                onClick={onClose}
+                className="mt-4 w-full h-10 rounded-full bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700"
+              >
+                Sign in →
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

@@ -1669,3 +1669,33 @@ model Timetable {
   @@unique([userId, dayOfWeek, startTime])
   @@index([userId])
 }
+
+// =====================================================================
+// Phase 23 — Email authentication (password reset + OTP verification)
+// =====================================================================
+
+model PasswordReset {
+  id        String   @id @default(uuid())
+  email     String
+  token     String   @unique  // random secure token for reset link
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([email])
+  @@index([token])
+}
+
+model EmailOtp {
+  id        String   @id @default(uuid())
+  email     String
+  otp       String           // 6-digit code
+  purpose   String           // 'signup' | 'family_child'
+  payload   Json?            // optional context (e.g. childName for family_child)
+  expiresAt DateTime
+  verifiedAt DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([email, purpose])
+  @@index([otp])
+}

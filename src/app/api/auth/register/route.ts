@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { signUserToken, getUserCookieName, getUserCookieMaxAge } from "@/lib/user-jwt";
+import { sendEmail, newUserNotification } from "@/lib/email";
 
 export const runtime = "nodejs";
 
@@ -89,6 +90,20 @@ export async function POST(req: NextRequest) {
     await db.userSession.create({
       data: { userId: user.id, sessionType: "login" },
     }).catch((e: any) => console.error("session log failed:", e?.message));
+
+    // Phase 23 — Send admin notification email
+    const { subject, html } = newUserNotification({
+      userName: name,
+      userEmail: email,
+      userPhone: phoneNumber,
+      grade: null,
+      role: "user",
+    });
+    sendEmail({
+      to: "lingzi3628@gmail.com",
+      subject,
+      html,
+    }).catch((e: any) => console.error("admin notification email failed:", e?.message));
 
     const token = signUserToken(user.id, email);
     const res = NextResponse.json({

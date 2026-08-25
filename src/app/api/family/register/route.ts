@@ -11,6 +11,7 @@ import {
   validateUsername,
   validatePasscode,
 } from "@/lib/family-auth";
+import { sendEmail, newFamilyNotification } from "@/lib/email";
 
 export const runtime = "nodejs";
 
@@ -269,6 +270,18 @@ export async function POST(req: NextRequest) {
         avatarEmoji: childRow.avatarEmoji,
       });
     }
+
+    // Phase 23 — Send admin notification email
+    const { subject, html } = newFamilyNotification({
+      parentEmail: email,
+      childCount: createdChildren.length,
+      children: createdChildren.map((c) => ({ name: c.displayName, username: c.username })),
+    });
+    sendEmail({
+      to: "lingzi3628@gmail.com",
+      subject,
+      html,
+    }).catch((e: any) => console.error("admin family notification email failed:", e?.message));
 
     // --- Sign JWT + set HTTP-only cookie for the PARENT ---
     const token = signUserToken(parentUser.id, email);

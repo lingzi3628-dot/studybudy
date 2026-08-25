@@ -228,6 +228,13 @@ function AuthForm({ mode, setMode, setScreen }: { mode: Mode; setMode: (m: Mode)
         </button>
       </p>
 
+      {/* Phase 23 — Forgot password link (signin mode only) */}
+      {mode === "signin" && (
+        <div className="text-center">
+          <ForgotPasswordLink />
+        </div>
+      )}
+
       {/* Family Mode toggle — Phase 20 */}
       <div className="pt-3 mt-3 border-t border-gray-100">
         <p className="text-center text-[11px] text-gray-500 mb-2">
@@ -243,5 +250,133 @@ function AuthForm({ mode, setMode, setScreen }: { mode: Mode; setMode: (m: Mode)
         </button>
       </div>
     </form>
+  );
+}
+
+// ---------------------------------------------------------------------
+// Phase 23 — Forgot password link + modal
+// ---------------------------------------------------------------------
+
+function ForgotPasswordLink() {
+  const [showModal, setShowModal] = useState(false);
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email.trim()) {
+      setError("Please enter your email");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await fetch("/api/auth/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim().toLowerCase() }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Failed");
+      setSent(true);
+    } catch (e: any) {
+      setError(e?.message ?? "Failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setShowModal(true)}
+        className="text-[11px] text-gray-400 hover:text-indigo-600"
+      >
+        Forgot your password?
+      </button>
+
+      {showModal && (
+        <div
+          className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setShowModal(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-3xl bg-white shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="bg-gradient-to-br from-indigo-600 to-violet-600 p-5 text-white">
+              <h2 className="text-base font-bold">🔐 Reset Password</h2>
+              <p className="text-[11px] opacity-90 mt-0.5">
+                We'll send a reset link to your email
+              </p>
+            </div>
+            <div className="p-5 space-y-3">
+              {!sent ? (
+                <form onSubmit={submit} className="space-y-3">
+                  <div>
+                    <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                      Email
+                    </label>
+                    <div className="mt-1 relative">
+                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                      <input
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="you@example.com"
+                        required
+                        autoFocus
+                        className="w-full pl-10 pr-3 p-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                      />
+                    </div>
+                  </div>
+                  {error && (
+                    <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-start gap-2">
+                      <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                      <span>{error}</span>
+                    </div>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={busy}
+                    className="w-full h-11 rounded-full bg-indigo-600 text-white font-semibold text-sm shadow-md hover:bg-indigo-700 transition disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  >
+                    {busy ? (
+                      <><Loader2 className="w-4 h-4 animate-spin" /> Sending…</>
+                    ) : (
+                      <>Send reset link</>
+                    )}
+                  </button>
+                </form>
+              ) : (
+                <div className="text-center py-4">
+                  <div className="w-14 h-14 mx-auto rounded-full bg-emerald-50 flex items-center justify-center mb-3">
+                    <Mail className="w-7 h-7 text-emerald-600" />
+                  </div>
+                  <p className="text-sm font-bold text-gray-900">Check your inbox! 📬</p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    If an account exists for <strong>{email}</strong>, a reset link
+                    has been sent. Check your spam folder if you don't see it.
+                  </p>
+                  <button
+                    onClick={() => {
+                      setShowModal(false);
+                      setSent(false);
+                      setEmail("");
+                    }}
+                    className="mt-4 w-full h-10 rounded-full bg-gray-100 text-gray-700 text-xs font-semibold hover:bg-gray-200"
+                  >
+                    Close
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
