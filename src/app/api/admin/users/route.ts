@@ -38,6 +38,7 @@ export async function GET(req: NextRequest) {
         id: true,
         email: true,
         name: true,
+        phoneNumber: true,
         plan: true,
         role: true,
         banned: true,

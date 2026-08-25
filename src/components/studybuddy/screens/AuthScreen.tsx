@@ -12,6 +12,7 @@ import {
   Sparkles,
   User,
   Users,
+  Phone,
 } from "lucide-react";
 import { useApp } from "../store";
 
@@ -73,6 +74,7 @@ function AuthForm({ mode, setMode, setScreen }: { mode: Mode; setMode: (m: Mode)
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -95,6 +97,7 @@ function AuthForm({ mode, setMode, setScreen }: { mode: Mode; setMode: (m: Mode)
       const endpoint = mode === "signup" ? "/api/auth/register" : "/api/auth/login";
       const body: any = { email: email.trim().toLowerCase(), password };
       if (mode === "signup" && name.trim()) body.name = name.trim();
+      if (mode === "signup" && phoneNumber.trim()) body.phoneNumber = phoneNumber.trim();
 
       const r = await fetch(endpoint, {
         method: "POST",
@@ -134,6 +137,27 @@ function AuthForm({ mode, setMode, setScreen }: { mode: Mode; setMode: (m: Mode)
               className="w-full pl-10 pr-3 p-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
             />
           </div>
+        </div>
+      )}
+
+      {mode === "signup" && (
+        <div>
+          <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+            Phone number <span className="text-gray-400 normal-case">(for WhatsApp updates)</span>
+          </label>
+          <div className="mt-1 relative">
+            <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              type="tel"
+              value={phoneNumber}
+              onChange={(e) => setPhoneNumber(e.target.value)}
+              placeholder="+254712345678 or 0712345678"
+              className="w-full pl-10 pr-3 p-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+            />
+          </div>
+          <p className="text-[10px] text-gray-400 mt-0.5">
+            We&apos;ll WhatsApp you when new subjects are unlocked for your grade.
+          </p>
         </div>
       )}
 

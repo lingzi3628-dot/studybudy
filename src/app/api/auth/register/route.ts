@@ -28,6 +28,7 @@ export async function POST(req: NextRequest) {
   const email = (body?.email ?? "").toString().trim().toLowerCase();
   const password = (body?.password ?? "").toString();
   const name = (body?.name ?? "").toString().trim() || null;
+  const phoneNumber = (body?.phoneNumber ?? "").toString().trim() || null;
 
   if (!email || !password) {
     return NextResponse.json({ error: "Email and password are required" }, { status: 400 });
@@ -40,6 +41,14 @@ export async function POST(req: NextRequest) {
 
   if (password.length < 6) {
     return NextResponse.json({ error: "Password must be at least 6 characters" }, { status: 400 });
+  }
+
+  // Phone number validation (basic — accepts +254712345678 or 0712345678)
+  if (phoneNumber && !/^\+?\d{9,15}$/.test(phoneNumber.replace(/[\s\-()]/g, ""))) {
+    return NextResponse.json(
+      { error: "Please enter a valid phone number (e.g. +254712345678 or 0712345678)" },
+      { status: 400 }
+    );
   }
 
   try {
@@ -67,6 +76,7 @@ export async function POST(req: NextRequest) {
         clerkUserId,
         email,
         name,
+        phoneNumber,
         passwordHash,
         lastLogin: new Date(),
         tokenBalance: 1000,

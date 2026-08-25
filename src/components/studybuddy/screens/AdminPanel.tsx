@@ -55,7 +55,8 @@ type Stats = {
   totalCostToday: number;
 };
 type AdminUser = {
-  id: string; email: string | null; name: string | null; plan: string; role: string;
+  id: string; email: string | null; name: string | null; phoneNumber: string | null;
+  plan: string; role: string;
   banned: boolean; createdAt: string; lastActive: string | null; grade: string | null;
   hasApiKey: boolean; _count: { studySets: number; attempts: number; aiCallLogs: number };
 };
@@ -446,6 +447,7 @@ function UsersTab() {
           <thead className="bg-gray-50 text-gray-500 uppercase tracking-wide text-[10px]">
             <tr>
               <th className="text-left p-2.5">User</th>
+              <th className="text-left p-2.5 hidden sm:table-cell">Phone</th>
               <th className="text-left p-2.5 hidden sm:table-cell">Plan</th>
               <th className="text-left p-2.5 hidden sm:table-cell">Role</th>
               <th className="text-left p-2.5 hidden md:table-cell">Stats</th>
@@ -469,6 +471,13 @@ function UsersTab() {
                       </p>
                     </div>
                   </div>
+                </td>
+                <td className="p-2.5 hidden sm:table-cell text-gray-700">
+                  {u.phoneNumber ? (
+                    <span className="text-[11px] font-mono">{u.phoneNumber}</span>
+                  ) : (
+                    <span className="text-[10px] text-gray-400">—</span>
+                  )}
                 </td>
                 <td className="p-2.5 hidden sm:table-cell">
                   <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-full ${u.plan === "pro" ? "bg-amber-50 text-amber-700" : "bg-gray-100 text-gray-600"}`}>

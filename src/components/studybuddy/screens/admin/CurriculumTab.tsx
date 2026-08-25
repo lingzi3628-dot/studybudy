@@ -13,12 +13,16 @@ import {
   Layers,
   Brain,
   Lock,
+  LockOpen,
   Trophy,
   Trash2,
   Send,
   Sparkles,
   Bot,
   MessageSquare,
+  Bell,
+  Image as ImageIcon,
+  Palette,
 } from "lucide-react";
 
 type Grade = {
@@ -61,7 +65,7 @@ type SourceDoc = {
  * 3. Source docs — list of all uploaded docs with parse status + re-parse button
  */
 export function CurriculumTab() {
-  const [view, setView] = useState<"grades" | "upload" | "docs" | "exams" | "test">("grades");
+  const [view, setView] = useState<"grades" | "subjects" | "upload" | "docs" | "exams" | "test" | "notifications">("grades");
 
   return (
     <div className="space-y-4">
@@ -84,6 +88,14 @@ export function CurriculumTab() {
           }`}
         >
           <Layers className="w-3.5 h-3.5 inline mr-1" /> Grades
+        </button>
+        <button
+          onClick={() => setView("subjects")}
+          className={`flex-1 px-3 py-1.5 rounded-lg transition whitespace-nowrap ${
+            view === "subjects" ? "bg-white text-indigo-700 shadow-sm" : "text-gray-600"
+          }`}
+        >
+          <Palette className="w-3.5 h-3.5 inline mr-1" /> Subjects
         </button>
         <button
           onClick={() => setView("upload")}
@@ -117,13 +129,23 @@ export function CurriculumTab() {
         >
           <Sparkles className="w-3.5 h-3.5 inline mr-1" /> Test
         </button>
+        <button
+          onClick={() => setView("notifications")}
+          className={`flex-1 px-3 py-1.5 rounded-lg transition whitespace-nowrap ${
+            view === "notifications" ? "bg-white text-indigo-700 shadow-sm" : "text-gray-600"
+          }`}
+        >
+          <Bell className="w-3.5 h-3.5 inline mr-1" /> Notify
+        </button>
       </div>
 
       {view === "grades" && <GradesView />}
+      {view === "subjects" && <SubjectsDesignView />}
       {view === "upload" && <UploadView />}
       {view === "docs" && <DocsView />}
       {view === "exams" && <ExamsView />}
       {view === "test" && <TestView />}
+      {view === "notifications" && <NotificationsView />}
     </div>
   );
 }
@@ -1542,6 +1564,482 @@ function QuizPreview({ questions }: { questions: Array<{ id: string; questionTex
           )}
         </div>
       ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------
+// SubjectsDesignView — design subject cards (rename, image, color, lock/unlock)
+// ---------------------------------------------------------------------
+
+function SubjectsDesignView() {
+  const [grades, setGrades] = useState<Grade[]>([]);
+  const [subjects, setSubjects] = useState<any[]>([]);
+  const [selectedGradeId, setSelectedGradeId] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<any>({});
+  const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/admin/curriculum/grades")
+      .then((r) => r.json())
+      .then((d) => setGrades(d.grades ?? []))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!selectedGradeId) {
+      setSubjects([]);
+      return;
+    }
+    fetch(`/api/admin/curriculum/subjects?gradeId=${selectedGradeId}`)
+      .then((r) => r.json())
+      .then((d) => setSubjects(d.subjects ?? []))
+      .catch(() => setSubjects([]));
+  }, [selectedGradeId]);
+
+  const startEdit = (s: any) => {
+    setEditingId(s.id);
+    setEditForm({
+      name: s.name,
+      icon: s.icon,
+      imageUrl: s.imageUrl ?? "",
+      color: s.color,
+      description: s.description ?? "",
+      status: s.status,
+      orderIndex: s.orderIndex,
+    });
+  };
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      const r = await fetch(`/api/admin/curriculum/subjects/${editingId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: editForm.name,
+          icon: editForm.icon,
+          imageUrl: editForm.imageUrl || null,
+          color: editForm.color,
+          description: editForm.description || null,
+          status: editForm.status,
+          orderIndex: Number(editForm.orderIndex) || 0,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Failed");
+      setEditingId(null);
+      setToast(d.message ?? "✓ Saved");
+      setTimeout(() => setToast(null), 3000);
+      // Reload subjects
+      const sr = await fetch(`/api/admin/curriculum/subjects?gradeId=${selectedGradeId}`);
+      const sd = await sr.json();
+      setSubjects(sd.subjects ?? []);
+    } catch (e: any) {
+      setToast(`✗ ${e?.message ?? "Failed"}`);
+      setTimeout(() => setToast(null), 3000);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggleLock = async (s: any) => {
+    const newStatus = s.status === "locked" ? "unlocked" : "locked";
+    if (newStatus === "unlocked" && (s._count?.topics ?? 0) === 0) {
+      if (!confirm(`⚠️ ${s.name} has 0 topics. Students will see an empty subject.\n\nUnlock anyway?`)) return;
+    } else if (newStatus === "unlocked") {
+      if (!confirm(`Unlock ${s.name}?\n\nStudents will see this subject on their dashboard and you'll be able to notify them via WhatsApp/email.`)) return;
+    }
+    setBusy(true);
+    try {
+      const r = await fetch(`/api/admin/curriculum/subjects/${s.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Failed");
+      setToast(d.message ?? `✓ ${s.name} ${newStatus === "unlocked" ? "unlocked" : "locked"}`);
+      setTimeout(() => setToast(null), 4000);
+      const sr = await fetch(`/api/admin/curriculum/subjects?gradeId=${selectedGradeId}`);
+      const sd = await sr.json();
+      setSubjects(sd.subjects ?? []);
+    } catch (e: any) {
+      setToast(`✗ ${e?.message ?? "Failed"}`);
+      setTimeout(() => setToast(null), 3000);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      {toast && (
+        <div className="rounded-xl bg-indigo-50 border border-indigo-200 p-3 text-xs text-indigo-700 flex items-center gap-2">
+          {toast}
+        </div>
+      )}
+
+      {/* Grade selector */}
+      <div className="rounded-2xl bg-white border border-gray-200 p-4">
+        <label className="text-[10px] font-bold uppercase text-gray-500">Select grade</label>
+        <select
+          value={selectedGradeId}
+          onChange={(e) => setSelectedGradeId(e.target.value)}
+          className="w-full mt-1 px-2 py-1.5 rounded-lg border border-gray-200 text-sm bg-white"
+        >
+          <option value="">Select grade…</option>
+          {grades.map((g) => (
+            <option key={g.id} value={g.id}>{g.name}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* Subjects list */}
+      {selectedGradeId && (
+        <div className="space-y-2">
+          {subjects.length === 0 ? (
+            <div className="rounded-2xl bg-white border border-gray-200 p-8 text-center">
+              <Palette className="w-8 h-8 text-gray-400 mx-auto" />
+              <p className="mt-2 text-sm text-gray-600">No subjects yet for this grade.</p>
+              <p className="text-xs text-gray-400 mt-1">Upload content via the &quot;Upload&quot; tab first.</p>
+            </div>
+          ) : (
+            subjects.map((s) => (
+              <div key={s.id} className="rounded-2xl bg-white border border-gray-200 p-3">
+                {editingId === s.id ? (
+                  // --- Edit mode ---
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-xs font-bold uppercase text-gray-500">Editing subject</p>
+                      <div className="flex gap-1">
+                        <button
+                          onClick={save}
+                          disabled={busy}
+                          className="px-3 py-1 rounded-full bg-emerald-600 text-white text-[11px] font-bold hover:bg-emerald-700 disabled:opacity-50"
+                        >
+                          {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3 inline" />} Save
+                        </button>
+                        <button
+                          onClick={() => setEditingId(null)}
+                          className="px-3 py-1 rounded-full bg-gray-100 text-gray-700 text-[11px] font-bold hover:bg-gray-200"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[10px] font-bold uppercase text-gray-500">Name</label>
+                        <input
+                          value={editForm.name}
+                          onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                          className="w-full px-2 py-1.5 rounded-lg border border-gray-200 text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-bold uppercase text-gray-500">Icon (emoji)</label>
+                        <input
+                          value={editForm.icon}
+                          onChange={(e) => setEditForm({ ...editForm, icon: e.target.value })}
+                          className="w-full px-2 py-1.5 rounded-lg border border-gray-200 text-sm"
+                          placeholder="🔢"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-bold uppercase text-gray-500 flex items-center gap-1">
+                        <ImageIcon className="w-3 h-3" /> Image URL (optional — shown on dashboard card)
+                      </label>
+                      <input
+                        value={editForm.imageUrl}
+                        onChange={(e) => setEditForm({ ...editForm, imageUrl: e.target.value })}
+                        className="w-full px-2 py-1.5 rounded-lg border border-gray-200 text-sm"
+                        placeholder="https://example.com/math.png"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[10px] font-bold uppercase text-gray-500">Color (hex)</label>
+                        <div className="flex gap-1 items-center">
+                          <input
+                            type="color"
+                            value={editForm.color}
+                            onChange={(e) => setEditForm({ ...editForm, color: e.target.value })}
+                            className="w-10 h-9 rounded border border-gray-200"
+                          />
+                          <input
+                            value={editForm.color}
+                            onChange={(e) => setEditForm({ ...editForm, color: e.target.value })}
+                            className="flex-1 px-2 py-1.5 rounded-lg border border-gray-200 text-sm font-mono"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-bold uppercase text-gray-500">Order</label>
+                        <input
+                          type="number"
+                          value={editForm.orderIndex}
+                          onChange={(e) => setEditForm({ ...editForm, orderIndex: e.target.value })}
+                          className="w-full px-2 py-1.5 rounded-lg border border-gray-200 text-sm"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-bold uppercase text-gray-500">Description (shown on card)</label>
+                      <textarea
+                        value={editForm.description}
+                        onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                        rows={2}
+                        className="w-full px-2 py-1.5 rounded-lg border border-gray-200 text-sm"
+                        placeholder="Learn numbers, shapes, and basic counting…"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-bold uppercase text-gray-500">Status</label>
+                      <select
+                        value={editForm.status}
+                        onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}
+                        className="w-full px-2 py-1.5 rounded-lg border border-gray-200 text-sm bg-white"
+                      >
+                        <option value="locked">🔒 Locked (students can&apos;t access yet)</option>
+                        <option value="unlocked">🔓 Unlocked (students can study)</option>
+                      </select>
+                    </div>
+
+                    {/* Live preview */}
+                    <div className="mt-2 p-3 rounded-xl bg-gray-50 border border-gray-200">
+                      <p className="text-[10px] font-bold uppercase text-gray-500 mb-2">Preview (dashboard card)</p>
+                      <div className="flex items-center gap-2 p-2 rounded-xl bg-white border border-gray-200 max-w-[200px]">
+                        {editForm.imageUrl ? (
+                          <img src={editForm.imageUrl} alt="" className="w-9 h-9 rounded-lg object-cover" />
+                        ) : (
+                          <span
+                            className="w-9 h-9 rounded-lg flex items-center justify-center text-base"
+                            style={{ backgroundColor: editForm.color + "20" }}
+                          >
+                            {editForm.icon || "📚"}
+                          </span>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-bold text-gray-900 truncate">{editForm.name || "Subject name"}</p>
+                          <p className="text-[10px] text-gray-500">
+                            {editForm.status === "locked" ? "🔒 Coming soon" : "3 topics"}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  // --- View mode ---
+                  <div className="flex items-center gap-3">
+                    {/* Subject image / icon */}
+                    {s.imageUrl ? (
+                      <img src={s.imageUrl} alt={s.name} className="w-12 h-12 rounded-xl object-cover flex-shrink-0" />
+                    ) : (
+                      <span
+                        className="w-12 h-12 rounded-xl flex items-center justify-center text-xl flex-shrink-0"
+                        style={{ backgroundColor: s.color + "20" }}
+                      >
+                        {s.icon}
+                      </span>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold text-gray-900">{s.name}</p>
+                      <p className="text-[11px] text-gray-500">
+                        {s._count?.topics ?? 0} topics · {s._count?.sourceDocs ?? 0} docs
+                      </p>
+                      {s.description && (
+                        <p className="text-[10px] text-gray-400 truncate mt-0.5">{s.description}</p>
+                      )}
+                    </div>
+                    {/* Lock/unlock status */}
+                    <span
+                      className={`px-2 py-1 rounded-full text-[10px] font-bold ${
+                        s.status === "unlocked"
+                          ? "bg-emerald-50 text-emerald-700"
+                          : "bg-amber-50 text-amber-700"
+                      }`}
+                    >
+                      {s.status === "unlocked" ? "🔓 Unlocked" : "🔒 Locked"}
+                    </span>
+                    {/* Toggle lock button */}
+                    <button
+                      onClick={() => toggleLock(s)}
+                      disabled={busy}
+                      className={`px-2 py-1.5 rounded-full text-[11px] font-bold transition ${
+                        s.status === "unlocked"
+                          ? "bg-amber-50 text-amber-700 hover:bg-amber-100"
+                          : "bg-emerald-600 text-white hover:bg-emerald-700"
+                      } disabled:opacity-50`}
+                    >
+                      {s.status === "unlocked" ? (
+                        <><Lock className="w-3 h-3 inline" /> Lock</>
+                      ) : (
+                        <><LockOpen className="w-3 h-3 inline" /> Unlock</>
+                      )}
+                    </button>
+                    {/* Edit button */}
+                    <button
+                      onClick={() => startEdit(s)}
+                      className="px-2 py-1.5 rounded-full bg-gray-100 text-gray-700 text-[11px] font-bold hover:bg-gray-200"
+                    >
+                      <Palette className="w-3 h-3 inline" /> Design
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------
+// NotificationsView — see pending/sent notifications
+// ---------------------------------------------------------------------
+
+function NotificationsView() {
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [summary, setSummary] = useState<any>({});
+  const [loading, setLoading] = useState(true);
+  const [filterStatus, setFilterStatus] = useState("pending");
+  const [filterChannel, setFilterChannel] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const params = new URLSearchParams();
+    if (filterStatus) params.set("status", filterStatus);
+    if (filterChannel) params.set("channel", filterChannel);
+    try {
+      const r = await fetch(`/api/admin/notifications?${params.toString()}`);
+      const d = await r.json();
+      setNotifications(d.notifications ?? []);
+      setSummary(d.summary ?? {});
+    } catch {}
+    setLoading(false);
+  }, [filterStatus, filterChannel]);
+
+  useEffect(() => { load(); }, [load]);
+
+  return (
+    <div className="space-y-3">
+      {/* Stats */}
+      <div className="grid grid-cols-3 gap-2">
+        <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-center">
+          <p className="text-2xl font-bold text-amber-700">{summary.pending_total ?? 0}</p>
+          <p className="text-[10px] font-bold uppercase text-amber-600">Pending</p>
+        </div>
+        <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3 text-center">
+          <p className="text-2xl font-bold text-emerald-700">{summary.sent_total ?? 0}</p>
+          <p className="text-[10px] font-bold uppercase text-emerald-600">Sent</p>
+        </div>
+        <div className="rounded-xl bg-rose-50 border border-rose-200 p-3 text-center">
+          <p className="text-2xl font-bold text-rose-700">{summary.failed_total ?? 0}</p>
+          <p className="text-[10px] font-bold uppercase text-rose-600">Failed</p>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div className="rounded-2xl bg-white border border-gray-200 p-3 flex gap-2 items-center">
+        <select
+          value={filterStatus}
+          onChange={(e) => setFilterStatus(e.target.value)}
+          className="px-2 py-1.5 rounded-lg border border-gray-200 text-sm bg-white"
+        >
+          <option value="">All statuses</option>
+          <option value="pending">Pending</option>
+          <option value="sent">Sent</option>
+          <option value="failed">Failed</option>
+        </select>
+        <select
+          value={filterChannel}
+          onChange={(e) => setFilterChannel(e.target.value)}
+          className="px-2 py-1.5 rounded-lg border border-gray-200 text-sm bg-white"
+        >
+          <option value="">All channels</option>
+          <option value="whatsapp">WhatsApp</option>
+          <option value="sms">SMS</option>
+          <option value="email">Email</option>
+        </select>
+        <button
+          onClick={load}
+          className="ml-auto text-xs font-semibold text-indigo-600 hover:underline flex items-center gap-1"
+        >
+          <RefreshCw className="w-3 h-3" /> Refresh
+        </button>
+      </div>
+
+      {/* Notifications list */}
+      {loading ? (
+        <div className="py-8 flex items-center justify-center">
+          <Loader2 className="w-5 h-5 animate-spin text-indigo-500" />
+        </div>
+      ) : notifications.length === 0 ? (
+        <div className="rounded-2xl bg-white border border-gray-200 p-8 text-center">
+          <Bell className="w-8 h-8 text-gray-400 mx-auto" />
+          <p className="mt-2 text-sm text-gray-600">No notifications yet.</p>
+          <p className="text-xs text-gray-400 mt-1">
+            Notifications are created automatically when you unlock a subject.
+          </p>
+        </div>
+      ) : (
+        <div className="rounded-2xl bg-white border border-gray-200 overflow-hidden">
+          <ul className="divide-y divide-gray-100">
+            {notifications.map((n) => (
+              <li key={n.id} className="px-4 py-3">
+                <div className="flex items-start gap-3">
+                  <span
+                    className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs ${
+                      n.channel === "whatsapp" ? "bg-emerald-50 text-emerald-600" :
+                      n.channel === "sms" ? "bg-blue-50 text-blue-600" :
+                      "bg-indigo-50 text-indigo-600"
+                    }`}
+                  >
+                    {n.channel === "whatsapp" ? "💬" : n.channel === "sms" ? "📱" : "📧"}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-900">{n.subject}</p>
+                    <p className="text-xs text-gray-600 mt-0.5">{n.body}</p>
+                    <div className="flex items-center gap-3 mt-1.5 text-[10px] text-gray-500">
+                      <span>To: <strong>{n.recipient}</strong></span>
+                      {n.user?.name && <span>· {n.user.name}</span>}
+                      {n.user?.grade && <span>· {n.user.grade}</span>}
+                      <span>· {new Date(n.createdAt).toLocaleString()}</span>
+                    </div>
+                  </div>
+                  <span
+                    className={`flex-shrink-0 text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
+                      n.status === "sent" ? "bg-emerald-50 text-emerald-700" :
+                      n.status === "failed" ? "bg-rose-50 text-rose-700" :
+                      "bg-amber-50 text-amber-700"
+                    }`}
+                  >
+                    {n.status}
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <div className="rounded-xl bg-indigo-50 border border-indigo-200 p-3 text-[11px] text-indigo-700">
+        <strong>💡 How it works:</strong> When you unlock a subject in the &quot;Subjects&quot; tab,
+        a notification is created for every user who has that grade set. Notifications
+        are stored here as <em>pending</em> — they&apos;ll be sent via WhatsApp/SMS/email
+        once we connect a messaging gateway. For now, you can see who would be notified
+        and their phone number / email.
+      </div>
     </div>
   );
 }

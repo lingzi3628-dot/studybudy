@@ -481,7 +481,10 @@ function CurriculumSubjectsBanner() {
     id: string;
     name: string;
     icon: string;
+    imageUrl: string | null;
     color: string;
+    description: string | null;
+    status: string; // 'locked' | 'unlocked'
     topicCount: number;
   }>>([]);
   const [gradeName, setGradeName] = useState<string | null>(null);
@@ -539,29 +542,55 @@ function CurriculumSubjectsBanner() {
         </button>
       </div>
       <div className="p-3 grid grid-cols-2 gap-2">
-        {subjects.map((s) => (
-          <button
-            key={s.id}
-            onClick={() => {
-              setActiveCurriculumSubjectId(s.id);
-              setScreen("curriculumSubject");
-            }}
-            className="flex items-center gap-2 p-2 rounded-xl hover:bg-gray-50 transition text-left"
-          >
-            <span
-              className="w-9 h-9 rounded-lg flex items-center justify-center text-base"
-              style={{ backgroundColor: s.color + "20" }}
+        {subjects.map((s) => {
+          const isLocked = s.status === "locked";
+          return (
+            <button
+              key={s.id}
+              onClick={() => {
+                if (isLocked) return; // locked cards are not clickable
+                setActiveCurriculumSubjectId(s.id);
+                setScreen("curriculumSubject");
+              }}
+              disabled={isLocked}
+              className={`relative flex items-center gap-2 p-2 rounded-xl transition text-left ${
+                isLocked
+                  ? "opacity-50 cursor-not-allowed"
+                  : "hover:bg-gray-50"
+              }`}
             >
-              {s.icon}
-            </span>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-bold text-gray-900 truncate">{s.name}</p>
-              <p className="text-[10px] text-gray-500">
-                {s.topicCount} {s.topicCount === 1 ? "topic" : "topics"}
-              </p>
-            </div>
-          </button>
-        ))}
+              {/* Subject image / icon */}
+              {s.imageUrl ? (
+                <img
+                  src={s.imageUrl}
+                  alt={s.name}
+                  className="w-9 h-9 rounded-lg object-cover flex-shrink-0"
+                />
+              ) : (
+                <span
+                  className="w-9 h-9 rounded-lg flex items-center justify-center text-base flex-shrink-0"
+                  style={{ backgroundColor: s.color + "20" }}
+                >
+                  {s.icon}
+                </span>
+              )}
+              <div className="flex-1 min-w-0">
+                <p className={`text-xs font-bold truncate ${isLocked ? "text-gray-500" : "text-gray-900"}`}>
+                  {s.name}
+                </p>
+                <p className="text-[10px] text-gray-500">
+                  {isLocked ? "🔒 Coming soon" : `${s.topicCount} ${s.topicCount === 1 ? "topic" : "topics"}`}
+                </p>
+              </div>
+              {/* Lock badge for locked subjects */}
+              {isLocked && (
+                <span className="absolute top-1 right-1 w-5 h-5 rounded-full bg-gray-200 flex items-center justify-center">
+                  <Lock className="w-3 h-3 text-gray-500" />
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

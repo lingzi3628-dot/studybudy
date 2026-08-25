@@ -15,6 +15,7 @@ model User {
   clerkUserId       String   @unique
   email             String?  @unique
   name              String?
+  phoneNumber       String?              // Phase 22c — for WhatsApp/SMS notifications
   plan              String   @default("free")
   encryptedApiKey   String?
   passwordHash      String?
@@ -1403,9 +1404,11 @@ model CurriculumSubject {
   id          String   @id @default(uuid())
   gradeId     String
   name        String             // "Mathematics", "English", etc.
-  icon        String   @default("📚")
+  icon        String   @default("📚")  // emoji or short text
+  imageUrl    String?                  // optional photo for the dashboard card
   color       String   @default("#6366F1")
-  description String?
+  description String?                  // shown on the dashboard card
+  status      String   @default("locked")  // 'locked' | 'unlocked' — Phase 22c
   orderIndex  Int      @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -1527,3 +1530,30 @@ model CurriculumExamQuestion {
   @@index([examId])
 }
 
+
+// =====================================================================
+// Phase 22c — Notification log
+// =====================================================================
+// When an admin unlocks a new subject for a grade, we record a notification
+// for each user who has that grade. The notification is stored here so the
+// admin can see who would be notified (via WhatsApp / SMS / email).
+//
+// Later, when we wire up a real WhatsApp/SMS gateway, we'll send these
+// notifications and update `status` to 'sent'.
+// =====================================================================
+
+model NotificationLog {
+  id          String   @id @default(uuid())
+  userId      String
+  channel     String   // 'whatsapp' | 'sms' | 'email'
+  recipient   String   // phone number or email
+  subject     String
+  body        String
+  status      String   @default("pending")  // 'pending' | 'sent' | 'failed'
+  sentAt      DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+}
