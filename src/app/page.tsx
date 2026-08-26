@@ -14,6 +14,7 @@ import { Quiz } from "@/components/studybuddy/screens/Quiz";
 import { GraphExplorer } from "@/components/studybuddy/screens/GraphExplorer";
 import { LanguagePractice } from "@/components/studybuddy/screens/LanguagePractice";
 import { AITutor } from "@/components/studybuddy/screens/AITutor";
+import { AITutorChat } from "@/components/studybuddy/screens/AITutorChat";
 import { LearningPathScreen } from "@/components/studybuddy/screens/LearningPath";
 import { StudyRoom } from "@/components/studybuddy/screens/StudyRoom";
 import { AdminPanel } from "@/components/studybuddy/screens/AdminPanel";
@@ -193,7 +194,7 @@ export default function Page() {
         {screen === "quiz" && <Quiz />}
         {screen === "graph" && <GraphExplorer />}
         {screen === "language" && <LanguagePractice />}
-        {screen === "tutor" && <AITutor />}
+        {screen === "tutor" && <AITutorChat />}
         {screen === "path" && <LearningPathScreen />}
         {screen === "study" && <StudyRoom />}
         {screen === "admin" && <AdminPanel />}

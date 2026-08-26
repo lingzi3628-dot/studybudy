@@ -1786,3 +1786,35 @@ model ExamPaper {
   @@index([subjectName])
   @@index([isPublished])
 }
+
+// =====================================================================
+// Phase 28 — Persistent AI Tutor Chat (like ChatGPT)
+// =====================================================================
+
+model ChatConversation {
+  id          String   @id @default(uuid())
+  userId      String
+  title       String   @default("New chat")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  messages    ChatMessage[]
+  
+  @@index([userId])
+  @@index([updatedAt])
+}
+
+model ChatMessage {
+  id              String   @id @default(uuid())
+  conversationId  String
+  userId          String
+  role            String   // 'user' | 'assistant'
+  content         String   // markdown content
+  attachments     Json?    // [{type: 'image'|'video'|'graph'|'conceptmap', url, caption}]
+  createdAt       DateTime @default(now())
+
+  conversation    ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([userId])
+}
