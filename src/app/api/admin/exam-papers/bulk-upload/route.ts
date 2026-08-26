@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdminJwt as requireAdmin } from "@/lib/admin-session";
 import { db } from "@/lib/db";
 import { callAI, type ChatMessage } from "@/lib/ai";
+import { writeFile, readFile, unlink, mkdir } from "fs/promises";
+import { existsSync } from "fs";
+import path from "path";
+import { execSync } from "child_process";
 
 export const runtime = "nodejs";
 export const maxDuration = 300; // 5 min for bulk uploads
@@ -91,12 +95,43 @@ Return ONLY valid JSON:
     const aiItem = aiMetadata.items?.find((item: any) => item.index === i + 1);
 
     const ext = (file.fileName.split(".").pop() ?? "").toLowerCase();
-    const contentType =
-      ext === "pdf" ? "application/pdf" :
-      ext === "doc" ? "application/msword" :
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
     try {
+      let finalDataUrl = file.dataUrl;
+
+      // Convert DOC/DOCX to PDF using LibreOffice
+      if (ext === "doc" || ext === "docx") {
+        try {
+          const tmpDir = "/tmp/bulk-conversions";
+          if (!existsSync(tmpDir)) await mkdir(tmpDir, { recursive: true });
+
+          // Extract base64 from data URL
+          const base64Data = file.dataUrl.split(",")[1];
+          const originalBuffer = Buffer.from(base64Data, "base64");
+          const tmpFileName = `bulk-${Date.now()}-${i}.${ext}`;
+          const tmpFilePath = path.join(tmpDir, tmpFileName);
+
+          await writeFile(tmpFilePath, originalBuffer);
+
+          execSync(`libreoffice --headless --convert-to pdf --outdir ${tmpDir} ${tmpFilePath}`, {
+            timeout: 30000,
+            stdio: "pipe",
+          });
+
+          const pdfFileName = tmpFileName.replace(/\.(doc|docx)$/, ".pdf");
+          const pdfFilePath = path.join(tmpDir, pdfFileName);
+
+          if (existsSync(pdfFilePath)) {
+            const pdfBuffer = await readFile(pdfFilePath);
+            finalDataUrl = `data:application/pdf;base64,${pdfBuffer.toString("base64")}`;
+            await unlink(tmpFilePath).catch(() => {});
+            await unlink(pdfFilePath).catch(() => {});
+          }
+        } catch (convErr: any) {
+          console.error(`[bulk-upload] File ${i + 1} DOCX→PDF failed:`, convErr?.message);
+          // Keep original dataUrl as fallback
+        }
+      }
       // Generate cover via Pollinations AI
       const coverPrompt = encodeURIComponent(
         (aiItem?.title ?? file.fileName) + " exam cover education"
@@ -114,7 +149,7 @@ Return ONLY valid JSON:
           schoolName: aiItem?.schoolName ?? null,
           year: aiItem?.year ?? null,
           examType: "pdf",
-          fileUrl: file.dataUrl,
+          fileUrl: finalDataUrl,
           coverImage,
           durationMin: 60,
           isPublished: true,

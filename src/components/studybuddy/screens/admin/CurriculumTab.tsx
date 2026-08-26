@@ -2175,12 +2175,12 @@ function PdfUploadView() {
                 ) : (
                   <div>
                     <Upload className="w-6 h-6 text-gray-400 mx-auto mb-1" />
-                    <p className="text-xs text-gray-600">Click to select a PDF file</p>
-                    <p className="text-[10px] text-gray-400 mt-0.5">Max 5MB · PDF only · for larger files use URL mode</p>
+                    <p className="text-xs text-gray-600">Click to select a file</p>
+                    <p className="text-[10px] text-gray-400 mt-0.5">PDF, DOC, DOCX · Max 5MB · DOC/DOCX auto-converted to PDF</p>
                   </div>
                 )}
               </div>
-              <input type="file" accept=".pdf,application/pdf" onChange={handleFileSelect} className="hidden" />
+              <input type="file" accept=".pdf,.doc,.docx" onChange={handleFileSelect} className="hidden" />
             </label>
           </div>
         ) : (
@@ -2512,7 +2512,7 @@ function BulkUploadView() {
     const files = Array.from(e.target.files ?? []);
     const valid = files.filter((f) => {
       const ext = (f.name.split(".").pop() ?? "").toLowerCase();
-      return ["pdf"].includes(ext); // Only PDF — DOC/DOCX can't render in browser
+      return ["pdf", "doc", "docx"].includes(ext); // PDF, DOC, DOCX — DOC/DOCX auto-converted to PDF
     });
     const oversized = files.filter((f) => f.size > 5 * 1024 * 1024);
 
@@ -2607,10 +2607,10 @@ function BulkUploadView() {
         <label className="block w-full cursor-pointer">
           <div className="rounded-xl border-2 border-dashed p-6 text-center transition hover:border-indigo-400 hover:bg-indigo-50/30">
             <Upload className="w-6 h-6 text-gray-400 mx-auto mb-1" />
-            <p className="text-xs text-gray-600">Click to select multiple PDF files</p>
-            <p className="text-[10px] text-gray-400 mt-0.5">PDF only · Max 5MB each · 10-100 files</p>
+            <p className="text-xs text-gray-600">Click to select multiple files</p>
+            <p className="text-[10px] text-gray-400 mt-0.5">PDF, DOC, DOCX · Max 5MB each · DOC/DOCX auto-converted to PDF · 10-100 files</p>
           </div>
-          <input type="file" accept=".pdf,application/pdf" multiple onChange={handleFileSelect} className="hidden" />
+          <input type="file" accept=".pdf,.doc,.docx" multiple onChange={handleFileSelect} className="hidden" />
         </label>
 
         {/* Selected files list */}

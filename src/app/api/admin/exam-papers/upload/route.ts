@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminJwt as requireAdmin } from "@/lib/admin-session";
 import { db } from "@/lib/db";
+import { writeFile, readFile, unlink, mkdir } from "fs/promises";
+import { existsSync } from "fs";
+import path from "path";
+import { execSync } from "child_process";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -8,16 +12,10 @@ export const maxDuration = 60;
 /**
  * POST /api/admin/exam-papers/upload
  *
- * Accepts multipart/form-data with:
- *   - file: the PDF/DOC file (max 5MB for file mode)
- *   - title, description, category, paperType, gradeLevel, subjectName,
- *     schoolName, year, coverImage, pages, durationMinutes
- *
- * Converts the file to a base64 data URL and stores it directly in the
- * ExamPaper table. This works on Vercel (no filesystem needed, no
- * in-memory store that resets on cold start).
- *
- * For files > 5MB, the admin should use 'From URL' mode.
+ * Accepts multipart/form-data with file + metadata.
+ * - PDF files: stored directly as base64 data URL
+ * - DOC/DOCX files: converted to PDF via LibreOffice, then stored as base64
+ * - Max 5MB per file
  */
 export async function POST(req: NextRequest) {
   try { await requireAdmin(); } catch (e: any) {
@@ -27,51 +25,80 @@ export async function POST(req: NextRequest) {
   let formData: FormData;
   try {
     formData = await req.formData();
-  } catch (e: any) {
-    return NextResponse.json(
-      { error: "Failed to parse upload. File may be too large (max 5MB for file upload)." },
-      { status: 400 }
-    );
+  } catch {
+    return NextResponse.json({ error: "Failed to parse upload. File may be too large (max 5MB)." }, { status: 400 });
   }
 
   const file = formData.get("file") as File | null;
-  if (!file) {
-    return NextResponse.json({ error: "No file provided" }, { status: 400 });
-  }
+  if (!file) return NextResponse.json({ error: "No file provided" }, { status: 400 });
 
-  // Max 5MB for file uploads (base64 encoding makes it ~33% larger)
   const MAX_SIZE = 5 * 1024 * 1024;
   if (file.size > MAX_SIZE) {
-    return NextResponse.json({
-      error: "File is too large for direct upload (max 5MB). For larger files, use 'From URL' mode and host the PDF externally (e.g. Google Drive).",
-    }, { status: 413 });
+    return NextResponse.json({ error: "File too large (max 5MB). Use 'From URL' mode for larger files." }, { status: 413 });
   }
+  if (file.size === 0) return NextResponse.json({ error: "File is empty" }, { status: 400 });
 
-  if (file.size === 0) {
-    return NextResponse.json({ error: "File is empty" }, { status: 400 });
-  }
-
-  // Validate file extension — PDF, DOC, DOCX
   const ext = (file.name.split(".").pop() ?? "").toLowerCase();
   if (!["pdf", "doc", "docx"].includes(ext)) {
     return NextResponse.json({ error: "Only PDF, DOC, or DOCX files are allowed" }, { status: 400 });
   }
 
   try {
-    // Convert file to base64 data URL
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    const base64 = buffer.toString("base64");
+    let pdfBuffer: Buffer;
+    let converted = false;
 
-    // Determine content type
-    const contentType =
-      ext === "pdf" ? "application/pdf" :
-      ext === "doc" ? "application/msword" :
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    if (ext === "pdf") {
+      // Already PDF — just read the buffer
+      const arrayBuffer = await file.arrayBuffer();
+      pdfBuffer = Buffer.from(arrayBuffer);
+    } else {
+      // DOC/DOCX — convert to PDF using LibreOffice
+      const arrayBuffer = await file.arrayBuffer();
+      const originalBuffer = Buffer.from(arrayBuffer);
 
-    const dataUrl = `data:${contentType};base64,${base64}`;
+      // Write to /tmp for LibreOffice conversion
+      const tmpDir = "/tmp/exam-conversions";
+      if (!existsSync(tmpDir)) await mkdir(tmpDir, { recursive: true });
 
-    // Extract metadata from form fields
+      const tmpFileName = `upload-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+      const tmpFilePath = path.join(tmpDir, tmpFileName);
+
+      await writeFile(tmpFilePath, originalBuffer);
+
+      try {
+        // Convert to PDF using LibreOffice headless
+        execSync(`libreoffice --headless --convert-to pdf --outdir ${tmpDir} ${tmpFilePath}`, {
+          timeout: 30000,
+          stdio: "pipe",
+        });
+
+        // Read the converted PDF
+        const pdfFileName = tmpFileName.replace(/\.(doc|docx)$/, ".pdf");
+        const pdfFilePath = path.join(tmpDir, pdfFileName);
+
+        if (!existsSync(pdfFilePath)) {
+          throw new Error("PDF conversion failed — LibreOffice didn't produce output");
+        }
+
+        pdfBuffer = await readFile(pdfFilePath);
+        converted = true;
+
+        // Clean up temp files
+        await unlink(tmpFilePath).catch(() => {});
+        await unlink(pdfFilePath).catch(() => {});
+      } catch (convError: any) {
+        // If conversion fails, store as-is (DOC/DOCX won't render in browser
+        // but at least it's saved)
+        console.error("[exam-upload] DOCX→PDF conversion failed:", convError?.message);
+        pdfBuffer = originalBuffer;
+      }
+    }
+
+    // Convert to base64 data URL (always as PDF)
+    const base64 = pdfBuffer.toString("base64");
+    const dataUrl = `data:application/pdf;base64,${base64}`;
+
+    // Extract metadata
     const title = (formData.get("title") as string ?? "").toString().trim();
     const description = (formData.get("description") as string ?? "").toString().trim() || null;
     const category = (formData.get("category") as string ?? "past_paper").toString();
@@ -84,11 +111,8 @@ export async function POST(req: NextRequest) {
     const pages = formData.get("pages") ? Number(formData.get("pages")) : null;
     const durationMinutes = formData.get("durationMinutes") ? Number(formData.get("durationMinutes")) : 60;
 
-    if (!title) {
-      return NextResponse.json({ error: "Title is required" }, { status: 400 });
-    }
+    if (!title) return NextResponse.json({ error: "Title is required" }, { status: 400 });
 
-    // Create the ExamPaper record with the data URL as fileUrl
     const paper = await db.examPaper.create({
       data: {
         title,
@@ -108,20 +132,17 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    console.log("[exam-upload] Created paper:", paper.id, "title:", title, "fileSize:", file.size);
+    console.log("[exam-upload] Created:", paper.id, "title:", title, "converted:", converted, "size:", pdfBuffer.length);
 
     return NextResponse.json({
       ok: true,
       paper,
-      fileUrl: dataUrl.slice(0, 50) + "...(stored in DB)",
       fileName: file.name,
       size: file.size,
+      converted,
     });
   } catch (e: any) {
-    console.error("[exam-upload] error:", e?.message, e?.code);
-    return NextResponse.json(
-      { error: "Failed to save exam: " + (e?.message ?? "unknown error") },
-      { status: 500 }
-    );
+    console.error("[exam-upload] error:", e?.message);
+    return NextResponse.json({ error: "Failed to save exam: " + (e?.message ?? "unknown error") }, { status: 500 });
   }
 }
