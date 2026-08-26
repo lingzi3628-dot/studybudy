@@ -65,7 +65,7 @@ type SourceDoc = {
  * 3. Source docs — list of all uploaded docs with parse status + re-parse button
  */
 export function CurriculumTab() {
-  const [view, setView] = useState<"grades" | "subjects" | "upload" | "docs" | "exams" | "test" | "notifications" | "library" | "examGen">("grades");
+  const [view, setView] = useState<"grades" | "subjects" | "upload" | "docs" | "exams" | "test" | "notifications" | "library">("grades");
 
   return (
     <div className="space-y-4">
@@ -145,14 +145,6 @@ export function CurriculumTab() {
         >
           📚 Library
         </button>
-        <button
-          onClick={() => setView("examGen")}
-          className={`flex-1 px-3 py-1.5 rounded-lg transition whitespace-nowrap ${
-            view === "examGen" ? "bg-white text-indigo-700 shadow-sm" : "text-gray-600"
-          }`}
-        >
-          🖨️ Exam Gen
-        </button>
       </div>
 
       {view === "grades" && <GradesView />}
@@ -163,7 +155,6 @@ export function CurriculumTab() {
       {view === "test" && <TestView />}
       {view === "notifications" && <NotificationsView />}
       {view === "library" && <LibraryAdminView />}
-      {view === "examGen" && <ExamGeneratorView />}
     </div>
   );
 }
@@ -780,380 +771,6 @@ function DocsView() {
 
 // ---------------------------------------------------------------------
 // ExamsView — create + manage exams
-// ---------------------------------------------------------------------
-
-function ExamsView() {
-  const [grades, setGrades] = useState<Grade[]>([]);
-  const [subjects, setSubjects] = useState<Subject[]>([]);
-  const [exams, setExams] = useState<any[]>([]);
-  const [selectedGradeId, setSelectedGradeId] = useState("");
-  const [selectedSubjectId, setSelectedSubjectId] = useState("");
-  const [newExamTitle, setNewExamTitle] = useState("");
-  const [newExamDuration, setNewExamDuration] = useState("30");
-  const [newExamPassThreshold, setNewExamPassThreshold] = useState("0.5");
-  const [busy, setBusy] = useState(false);
-  const [expandedExamId, setExpandedExamId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  // Load grades
-  useEffect(() => {
-    fetch("/api/admin/curriculum/grades")
-      .then((r) => r.json())
-      .then((d) => setGrades(d.grades ?? []))
-      .catch(() => {});
-  }, []);
-
-  // Load subjects when grade changes
-  useEffect(() => {
-    if (!selectedGradeId) {
-      setSubjects([]);
-      return;
-    }
-    fetch(`/api/admin/curriculum/subjects?gradeId=${selectedGradeId}`)
-      .then((r) => r.json())
-      .then((d) => setSubjects(d.subjects ?? []))
-      .catch(() => setSubjects([]));
-    setSelectedSubjectId("");
-  }, [selectedGradeId]);
-
-  // Load exams when subject changes
-  const loadExams = useCallback(async () => {
-    if (!selectedSubjectId) {
-      setExams([]);
-      return;
-    }
-    try {
-      const r = await fetch(
-        `/api/admin/curriculum/exams?gradeId=${selectedGradeId}&subjectId=${selectedSubjectId}`
-      );
-      const d = await r.json();
-      setExams(d.exams ?? []);
-    } catch {}
-  }, [selectedGradeId, selectedSubjectId]);
-
-  useEffect(() => {
-    loadExams();
-  }, [loadExams]);
-
-  const createExam = async () => {
-    if (!selectedGradeId || !selectedSubjectId || !newExamTitle.trim()) {
-      setError("Select grade, subject, and enter a title");
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    try {
-      const r = await fetch("/api/admin/curriculum/exams", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          gradeId: selectedGradeId,
-          subjectId: selectedSubjectId,
-          title: newExamTitle.trim(),
-          durationMinutes: Number(newExamDuration) || 30,
-          passThreshold: Number(newExamPassThreshold) || 0.5,
-        }),
-      });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error ?? "Failed");
-      setNewExamTitle("");
-      await loadExams();
-      setExpandedExamId(d.exam.id);
-    } catch (e: any) {
-      setError(e?.message ?? "Failed");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const togglePublish = async (examId: string, currentStatus: string) => {
-    const newStatus = currentStatus === "published" ? "draft" : "published";
-    await fetch(`/api/admin/curriculum/exams/${examId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: newStatus }),
-    });
-    await loadExams();
-  };
-
-  return (
-    <div className="space-y-3">
-      <div className="rounded-2xl bg-white border border-gray-200 p-4 space-y-3">
-        <h3 className="text-xs font-bold uppercase text-gray-500">Create an exam</h3>
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <label className="text-[10px] font-bold uppercase text-gray-500">Grade</label>
-            <select
-              value={selectedGradeId}
-              onChange={(e) => setSelectedGradeId(e.target.value)}
-              className="w-full px-2 py-1.5 rounded-lg border border-gray-200 text-sm bg-white"
-            >
-              <option value="">Select…</option>
-              {grades.map((g) => (
-                <option key={g.id} value={g.id}>{g.name}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="text-[10px] font-bold uppercase text-gray-500">Subject</label>
-            <select
-              value={selectedSubjectId}
-              onChange={(e) => setSelectedSubjectId(e.target.value)}
-              disabled={!selectedGradeId}
-              className="w-full px-2 py-1.5 rounded-lg border border-gray-200 text-sm bg-white disabled:bg-gray-100"
-            >
-              <option value="">Select…</option>
-              {subjects.map((s) => (
-                <option key={s.id} value={s.id}>{s.name}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-        <div>
-          <label className="text-[10px] font-bold uppercase text-gray-500">Exam title</label>
-          <input
-            value={newExamTitle}
-            onChange={(e) => setNewExamTitle(e.target.value)}
-            placeholder="e.g. Grade 1 Mathematics End Term 1 Exam"
-            className="w-full px-3 py-1.5 rounded-lg border border-gray-200 text-sm"
-          />
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <label className="text-[10px] font-bold uppercase text-gray-500">Duration (min)</label>
-            <input
-              type="number"
-              value={newExamDuration}
-              onChange={(e) => setNewExamDuration(e.target.value)}
-              className="w-full px-2 py-1.5 rounded-lg border border-gray-200 text-sm"
-            />
-          </div>
-          <div>
-            <label className="text-[10px] font-bold uppercase text-gray-500">Pass threshold (0-1)</label>
-            <input
-              type="number"
-              step="0.1"
-              min="0"
-              max="1"
-              value={newExamPassThreshold}
-              onChange={(e) => setNewExamPassThreshold(e.target.value)}
-              className="w-full px-2 py-1.5 rounded-lg border border-gray-200 text-sm"
-            />
-          </div>
-        </div>
-        <button
-          onClick={createExam}
-          disabled={busy}
-          className="w-full h-10 rounded-full bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-1"
-        >
-          {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-          Create exam (draft)
-        </button>
-        {error && (
-          <p className="text-xs text-rose-600 flex items-center gap-1">
-            <AlertCircle className="w-3 h-3" /> {error}
-          </p>
-        )}
-      </div>
-
-      {/* Exams list */}
-      <div className="rounded-2xl bg-white border border-gray-200 overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-100">
-          <h3 className="text-xs font-bold uppercase text-gray-500">
-            Exams ({exams.length})
-          </h3>
-        </div>
-        {exams.length === 0 ? (
-          <p className="px-4 py-8 text-center text-xs text-gray-400">
-            No exams yet. Create one above.
-          </p>
-        ) : (
-          <ul className="divide-y divide-gray-100">
-            {exams.map((exam) => (
-              <li key={exam.id} className="px-4 py-3">
-                <div className="flex items-center gap-3">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-gray-900 truncate">{exam.title}</p>
-                    <p className="text-[11px] text-gray-500">
-                      {exam.durationMinutes} min · {exam._count?.questions ?? 0} questions ·
-                      Pass: {Math.round(exam.passThreshold * 100)}%
-                    </p>
-                  </div>
-                  <span
-                    className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
-                      exam.status === "published"
-                        ? "bg-emerald-50 text-emerald-700"
-                        : "bg-gray-100 text-gray-600"
-                    }`}
-                  >
-                    {exam.status}
-                  </span>
-                  <button
-                    onClick={() => setExpandedExamId(expandedExamId === exam.id ? null : exam.id)}
-                    className="text-xs font-semibold text-indigo-600 hover:underline"
-                  >
-                    {expandedExamId === exam.id ? "Hide" : "Manage"}
-                  </button>
-                  <button
-                    onClick={() => togglePublish(exam.id, exam.status)}
-                    className={`text-[11px] font-bold px-2 py-1 rounded-full ${
-                      exam.status === "published"
-                        ? "bg-amber-50 text-amber-700 hover:bg-amber-100"
-                        : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-                    } flex items-center gap-1`}
-                  >
-                    <Send className="w-3 h-3" />
-                    {exam.status === "published" ? "Unpublish" : "Publish"}
-                  </button>
-                </div>
-                {expandedExamId === exam.id && (
-                  <ExamQuestionEditor examId={exam.id} />
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function ExamQuestionEditor({ examId }: { examId: string }) {
-  const [questions, setQuestions] = useState<any[]>([]);
-  const [newQ, setNewQ] = useState({
-    questionText: "",
-    options: ["", "", "", ""],
-    correctIndex: 0,
-    explanation: "",
-  });
-  const [busy, setBusy] = useState(false);
-
-  const load = useCallback(async () => {
-    try {
-      const r = await fetch(`/api/admin/curriculum/exams/${examId}`);
-      const d = await r.json();
-      setQuestions(d.exam?.questions ?? []);
-    } catch {}
-  }, [examId]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  const addQuestion = async () => {
-    if (!newQ.questionText.trim()) return;
-    if (newQ.options.filter((o) => o.trim()).length < 2) return;
-    setBusy(true);
-    try {
-      await fetch(`/api/admin/curriculum/exams/${examId}/questions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          questionText: newQ.questionText.trim(),
-          options: newQ.options.map((o) => o.trim()).filter(Boolean),
-          correctIndex: newQ.correctIndex,
-          explanation: newQ.explanation.trim() || null,
-        }),
-      });
-      setNewQ({ questionText: "", options: ["", "", "", ""], correctIndex: 0, explanation: "" });
-      await load();
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const deleteQuestion = async (questionId: string) => {
-    await fetch(`/api/admin/curriculum/exams/${examId}/questions`, {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ questionId }),
-    });
-    await load();
-  };
-
-  return (
-    <div className="mt-3 ml-4 p-3 rounded-xl bg-gray-50 border border-gray-200 space-y-3">
-      <p className="text-[10px] font-bold uppercase text-gray-500">
-        Questions ({questions.length})
-      </p>
-      {/* Existing questions */}
-      {questions.length > 0 && (
-        <ul className="space-y-1.5">
-          {questions.map((q, i) => (
-            <li key={q.id} className="rounded-lg bg-white border border-gray-200 p-2 flex items-start gap-2">
-              <span className="text-[10px] font-bold text-gray-400 mt-0.5">{i + 1}.</span>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold text-gray-900">{q.questionText}</p>
-                <p className="text-[10px] text-gray-500">
-                  Correct: {String.fromCharCode(65 + q.correctIndex)}. {q.options?.[q.correctIndex]}
-                </p>
-              </div>
-              <button
-                onClick={() => deleteQuestion(q.id)}
-                className="text-rose-500 hover:text-rose-700"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {/* Add new question */}
-      <div className="space-y-2 pt-2 border-t border-gray-200">
-        <input
-          value={newQ.questionText}
-          onChange={(e) => setNewQ({ ...newQ, questionText: e.target.value })}
-          placeholder="Question text"
-          className="w-full px-2 py-1.5 rounded-lg border border-gray-200 text-xs"
-        />
-        <div className="space-y-1">
-          {newQ.options.map((opt, oi) => (
-            <div key={oi} className="flex items-center gap-2">
-              <button
-                onClick={() => setNewQ({ ...newQ, correctIndex: oi })}
-                className={`w-5 h-5 rounded-full text-[10px] font-bold flex items-center justify-center ${
-                  newQ.correctIndex === oi
-                    ? "bg-emerald-500 text-white"
-                    : "bg-gray-200 text-gray-500"
-                }`}
-              >
-                {String.fromCharCode(65 + oi)}
-              </button>
-              <input
-                value={opt}
-                onChange={(e) => {
-                  const newOptions = [...newQ.options];
-                  newOptions[oi] = e.target.value;
-                  setNewQ({ ...newQ, options: newOptions });
-                }}
-                placeholder={`Option ${String.fromCharCode(65 + oi)}`}
-                className="flex-1 px-2 py-1 rounded border border-gray-200 text-xs"
-              />
-            </div>
-          ))}
-        </div>
-        <input
-          value={newQ.explanation}
-          onChange={(e) => setNewQ({ ...newQ, explanation: e.target.value })}
-          placeholder="Explanation (optional)"
-          className="w-full px-2 py-1.5 rounded-lg border border-gray-200 text-xs"
-        />
-        <button
-          onClick={addQuestion}
-          disabled={busy}
-          className="w-full h-8 rounded-full bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-1"
-        >
-          {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
-          Add question
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------
-// TestView — preview AI tutor + flashcards + quiz for any subject
 // ---------------------------------------------------------------------
 
 function TestView() {
@@ -2203,57 +1820,277 @@ function LibraryAdminView() {
 // ExamGeneratorView — AI-generated printable exams
 // ---------------------------------------------------------------------
 
-function ExamGeneratorView() {
-  const [grades, setGrades] = useState<Grade[]>([]);
-  const [subjects, setSubjects] = useState<any[]>([]);
-  const [exams, setExams] = useState<any[]>([]);
-  const [selectedGradeId, setSelectedGradeId] = useState("");
-  const [selectedSubjectId, setSelectedSubjectId] = useState("");
-  const [form, setForm] = useState({ title: "", studentName: "", numQuestions: "10", durationMinutes: "60" });
+
+// ---------------------------------------------------------------------
+// Unified ExamsView — PDF upload + AI template + exam papers list
+// ---------------------------------------------------------------------
+
+function ExamsView() {
+  const [subView, setSubView] = useState<"list" | "pdf" | "ai">("list");
+
+  return (
+    <div className="space-y-3">
+      {/* Sub-tab toggle */}
+      <div className="flex gap-1 bg-gray-100 p-1 rounded-xl text-xs font-medium">
+        <button
+          onClick={() => setSubView("list")}
+          className={`flex-1 px-3 py-1.5 rounded-lg transition ${subView === "list" ? "bg-white text-indigo-700 shadow-sm" : "text-gray-600"}`}
+        >
+          📋 All Exams
+        </button>
+        <button
+          onClick={() => setSubView("pdf")}
+          className={`flex-1 px-3 py-1.5 rounded-lg transition ${subView === "pdf" ? "bg-white text-indigo-700 shadow-sm" : "text-gray-600"}`}
+        >
+          📄 Upload PDF
+        </button>
+        <button
+          onClick={() => setSubView("ai")}
+          className={`flex-1 px-3 py-1.5 rounded-lg transition ${subView === "ai" ? "bg-white text-indigo-700 shadow-sm" : "text-gray-600"}`}
+        >
+          🤖 AI Template
+        </button>
+      </div>
+
+      {subView === "list" && <ExamPapersList />}
+      {subView === "pdf" && <PdfUploadView />}
+      {subView === "ai" && <AiTemplateView />}
+    </div>
+  );
+}
+
+// --- Exam papers list ---
+function ExamPapersList() {
+  const [papers, setPapers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await fetch("/api/admin/exam-papers");
+      const d = await r.json();
+      setPapers(d.papers ?? []);
+    } catch {}
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const togglePublish = async (paper: any) => {
+    await fetch("/api/admin/exam-papers", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: paper.id, isPublished: !paper.isPublished }),
+    });
+    await load();
+  };
+
+  const toggleTrending = async (paper: any) => {
+    await fetch("/api/admin/exam-papers", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: paper.id, isTrending: !paper.isTrending }),
+    });
+    await load();
+  };
+
+  const deletePaper = async (id: string) => {
+    if (!confirm("Delete this exam paper?")) return;
+    await fetch("/api/admin/exam-papers", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    await load();
+  };
+
+  if (loading) return <div className="py-8 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-indigo-500" /></div>;
+
+  return (
+    <div className="rounded-2xl bg-white border border-gray-200 overflow-hidden">
+      <div className="px-4 py-3 border-b border-gray-100">
+        <h3 className="text-xs font-bold uppercase text-gray-500">All Exam Papers ({papers.length})</h3>
+      </div>
+      {papers.length === 0 ? (
+        <p className="px-4 py-8 text-center text-xs text-gray-400">No exam papers yet. Upload a PDF or generate with AI.</p>
+      ) : (
+        <ul className="divide-y divide-gray-100">
+          {papers.map((p) => (
+            <li key={p.id} className="px-4 py-3 flex items-center gap-2">
+              {p.coverImage ? <img src={p.coverImage} alt="" className="w-10 h-12 rounded object-cover" /> : <div className="w-10 h-12 rounded bg-indigo-50 flex items-center justify-center text-indigo-400">📄</div>}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-gray-900 truncate">{p.title}</p>
+                <p className="text-[10px] text-gray-500">
+                  {p.category} · {p.gradeLevel ?? "—"} · {p.subjectName ?? "—"} · {p.examType === "pdf" ? "PDF" : "AI"}
+                  {p.year ? ` · ${p.year}` : ""}
+                </p>
+              </div>
+              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${p.isTrending ? "bg-amber-50 text-amber-600" : "bg-gray-100 text-gray-400"}`}>
+                🔥
+              </span>
+              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${p.isPublished ? "bg-emerald-50 text-emerald-600" : "bg-gray-100 text-gray-400"}`}>
+                {p.isPublished ? "LIVE" : "DRAFT"}
+              </span>
+              <button onClick={() => togglePublish(p)} className="text-[10px] font-semibold text-indigo-600">{p.isPublished ? "Unpublish" : "Publish"}</button>
+              <button onClick={() => toggleTrending(p)} className="text-[10px] font-semibold text-amber-600">{p.isTrending ? "Un-trend" : "Trend"}</button>
+              <button onClick={() => deletePaper(p.id)} className="text-rose-500"><Trash2 className="w-3.5 h-3.5" /></button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// --- PDF Upload view ---
+function PdfUploadView() {
+  const [form, setForm] = useState({
+    title: "", description: "", category: "past_paper", paperType: "",
+    gradeLevel: "", subjectName: "", schoolName: "", year: "",
+    fileUrl: "", coverImage: "", pages: "", durationMinutes: "60",
+  });
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetch("/api/admin/curriculum/grades").then((r) => r.json()).then((d) => setGrades(d.grades ?? [])).catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    if (!selectedGradeId) return;
-    fetch(`/api/admin/curriculum/subjects?gradeId=${selectedGradeId}`).then((r) => r.json()).then((d) => setSubjects(d.subjects ?? [])).catch(() => {});
-    setSelectedSubjectId("");
-  }, [selectedGradeId]);
-
-  const loadExams = useCallback(async () => {
-    if (!selectedSubjectId) return;
-    const r = await fetch(`/api/curriculum/printable-exams?subjectId=${selectedSubjectId}`);
-    const d = await r.json();
-    setExams(d.exams ?? []);
-  }, [selectedSubjectId]);
-
-  useEffect(() => { loadExams(); }, [loadExams]);
-
-  const generate = async () => {
-    if (!selectedGradeId || !selectedSubjectId) return;
+  const submit = async () => {
+    if (!form.title.trim() || !form.fileUrl.trim()) {
+      setToast("⚠️ Title and PDF URL are required");
+      setTimeout(() => setToast(null), 3000);
+      return;
+    }
     setBusy(true);
-    setToast(null);
     try {
-      const r = await fetch("/api/admin/exams/generate", {
+      const r = await fetch("/api/admin/exam-papers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          gradeId: selectedGradeId,
-          subjectId: selectedSubjectId,
-          title: form.title.trim() || "StudyBuddy Exam",
-          studentName: form.studentName.trim() || null,
+          examType: "pdf",
+          title: form.title.trim(),
+          description: form.description.trim() || null,
+          category: form.category,
+          paperType: form.paperType.trim() || null,
+          gradeLevel: form.gradeLevel || null,
+          subjectName: form.subjectName.trim() || null,
+          schoolName: form.schoolName.trim() || null,
+          year: form.year ? Number(form.year) : null,
+          fileUrl: form.fileUrl.trim(),
+          coverImage: form.coverImage.trim() || null,
+          pages: form.pages ? Number(form.pages) : null,
+          durationMinutes: Number(form.durationMinutes) || 60,
+        }),
+      });
+      if (!r.ok) throw new Error("Failed");
+      setToast("✓ Exam paper uploaded!");
+      setForm({ title: "", description: "", category: "past_paper", paperType: "", gradeLevel: "", subjectName: "", schoolName: "", year: "", fileUrl: "", coverImage: "", pages: "", durationMinutes: "60" });
+      setTimeout(() => setToast(null), 3000);
+    } catch {
+      setToast("✗ Failed");
+      setTimeout(() => setToast(null), 3000);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      {toast && <div className="rounded-xl bg-indigo-50 border border-indigo-200 p-2 text-xs text-indigo-700">{toast}</div>}
+      <div className="rounded-2xl bg-white border border-gray-200 p-4 space-y-2">
+        <h3 className="text-xs font-bold uppercase text-gray-500">Upload Exam PDF</h3>
+        <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Exam title *" className="w-full px-3 py-1.5 rounded-lg border border-gray-200 text-sm" />
+        <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Description (optional)" rows={2} className="w-full px-3 py-1.5 rounded-lg border border-gray-200 text-sm" />
+        <input value={form.fileUrl} onChange={(e) => setForm({ ...form, fileUrl: e.target.value })} placeholder="PDF URL * (e.g. /exams/math-paper1.pdf)" className="w-full px-3 py-1.5 rounded-lg border border-gray-200 text-sm font-mono" />
+        <div className="grid grid-cols-2 gap-2">
+          <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className="px-2 py-1.5 rounded-lg border border-gray-200 text-sm bg-white">
+            <option value="past_paper">Past Paper</option>
+            <option value="kcse_revision">KCSE Revision</option>
+            <option value="kpsea">KPSEA (CBC)</option>
+            <option value="kjsea">KJSEA (Upper Junior)</option>
+            <option value="studybuddy_ai">StudyBuddy AI</option>
+          </select>
+          <input value={form.paperType} onChange={(e) => setForm({ ...form, paperType: e.target.value })} placeholder="Paper 1 / 2 / 3" className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm" />
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <input value={form.gradeLevel} onChange={(e) => setForm({ ...form, gradeLevel: e.target.value })} placeholder="Grade (e.g. Form 4)" className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm" />
+          <input value={form.subjectName} onChange={(e) => setForm({ ...form, subjectName: e.target.value })} placeholder="Subject (e.g. Mathematics)" className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm" />
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <input value={form.schoolName} onChange={(e) => setForm({ ...form, schoolName: e.target.value })} placeholder="School (optional)" className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm" />
+          <input value={form.year} onChange={(e) => setForm({ ...form, year: e.target.value })} placeholder="Year (e.g. 2023)" type="number" className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm" />
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          <input value={form.coverImage} onChange={(e) => setForm({ ...form, coverImage: e.target.value })} placeholder="Cover URL" className="px-2 py-1.5 rounded-lg border border-gray-200 text-sm" />
+          <input value={form.pages} onChange={(e) => setForm({ ...form, pages: e.target.value })} placeholder="Pages" type="number" className="px-2 py-1.5 rounded-lg border border-gray-200 text-sm" />
+          <input value={form.durationMinutes} onChange={(e) => setForm({ ...form, durationMinutes: e.target.value })} placeholder="Min" type="number" className="px-2 py-1.5 rounded-lg border border-gray-200 text-sm" />
+        </div>
+        <button onClick={submit} disabled={busy} className="w-full h-9 rounded-full bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 disabled:opacity-50">
+          {busy ? "Uploading…" : "Upload exam paper"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// --- AI Template view ---
+function AiTemplateView() {
+  const [form, setForm] = useState({
+    title: "", description: "", category: "studybuddy_ai", paperType: "",
+    gradeLevel: "", subjectName: "", schoolName: "", year: "",
+    content: "", numQuestions: "10", durationMinutes: "60", pages: "",
+  });
+  const [diagrams, setDiagrams] = useState<Array<{ url: string; caption: string }>>([]);
+  const [newDiagramUrl, setNewDiagramUrl] = useState("");
+  const [newDiagramCaption, setNewDiagramCaption] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const generatePollinationsImage = () => {
+    if (!form.subjectName.trim() && !form.title.trim()) return;
+    const prompt = encodeURIComponent(`exam diagram ${form.subjectName} ${form.title} education illustration`);
+    setNewDiagramUrl(`https://image.pollinations.ai/prompt/${prompt}?width=400&height=300&nologo=true`);
+  };
+
+  const addDiagram = () => {
+    if (!newDiagramUrl.trim()) return;
+    setDiagrams([...diagrams, { url: newDiagramUrl.trim(), caption: newDiagramCaption.trim() }]);
+    setNewDiagramUrl("");
+    setNewDiagramCaption("");
+  };
+
+  const submit = async () => {
+    if (!form.title.trim() || !form.content.trim()) {
+      setToast("⚠️ Title and content are required");
+      setTimeout(() => setToast(null), 3000);
+      return;
+    }
+    setBusy(true);
+    setToast(null);
+    try {
+      const r = await fetch("/api/admin/exam-papers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          examType: "ai_template",
+          title: form.title.trim(),
+          description: form.description.trim() || null,
+          category: form.category,
+          paperType: form.paperType.trim() || null,
+          gradeLevel: form.gradeLevel || null,
+          subjectName: form.subjectName.trim() || null,
+          schoolName: form.schoolName.trim() || null,
+          year: form.year ? Number(form.year) : null,
+          content: form.content,
           numQuestions: Number(form.numQuestions) || 10,
           durationMinutes: Number(form.durationMinutes) || 60,
+          pages: form.pages ? Number(form.pages) : null,
+          diagrams,
         }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error ?? "Failed");
-      setToast(`✓ Exam generated! ${d.exam?.questions?.length ?? 0} questions, ${d.exam?.totalMarks ?? 0} marks`);
+      setToast(`✓ Generated! ${d.questionsGenerated ?? 0} questions, ${d.paper?.totalMarks ?? 0} marks`);
+      setForm({ title: "", description: "", category: "studybuddy_ai", paperType: "", gradeLevel: "", subjectName: "", schoolName: "", year: "", content: "", numQuestions: "10", durationMinutes: "60", pages: "" });
+      setDiagrams([]);
       setTimeout(() => setToast(null), 4000);
-      await loadExams();
     } catch (e: any) {
       setToast(`✗ ${e?.message ?? "Failed"}`);
       setTimeout(() => setToast(null), 4000);
@@ -2263,60 +2100,66 @@ function ExamGeneratorView() {
   };
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       {toast && <div className="rounded-xl bg-indigo-50 border border-indigo-200 p-2 text-xs text-indigo-700">{toast}</div>}
+      <div className="rounded-2xl bg-white border border-gray-200 p-4 space-y-2">
+        <h3 className="text-xs font-bold uppercase text-gray-500">AI Exam Template</h3>
+        <p className="text-[10px] text-gray-400">Paste notes/content → AI generates exam questions. Add diagrams via URL or generate with Pollinations AI (free).</p>
 
-      <div className="grid grid-cols-2 gap-2">
-        <select value={selectedGradeId} onChange={(e) => setSelectedGradeId(e.target.value)} className="px-2 py-1.5 rounded-lg border border-gray-200 text-sm bg-white">
-          <option value="">Select grade…</option>
-          {grades.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
-        </select>
-        <select value={selectedSubjectId} onChange={(e) => setSelectedSubjectId(e.target.value)} disabled={!selectedGradeId} className="px-2 py-1.5 rounded-lg border border-gray-200 text-sm bg-white disabled:bg-gray-100">
-          <option value="">Select subject…</option>
-          {subjects.map((s) => <option key={s.id} value={s.id}>{s.icon} {s.name}</option>)}
-        </select>
-      </div>
+        <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Exam title *" className="w-full px-3 py-1.5 rounded-lg border border-gray-200 text-sm" />
+        <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Description (optional)" rows={2} className="w-full px-3 py-1.5 rounded-lg border border-gray-200 text-sm" />
 
-      {/* Generate form */}
-      {selectedSubjectId && (
-        <div className="rounded-2xl bg-white border border-gray-200 p-4 space-y-2">
-          <h3 className="text-xs font-bold uppercase text-gray-500">Generate AI Exam</h3>
-          <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Exam title (e.g. Grade 1 Math End Term)" className="w-full px-3 py-1.5 rounded-lg border border-gray-200 text-sm" />
-          <div className="grid grid-cols-2 gap-2">
-            <input value={form.numQuestions} onChange={(e) => setForm({ ...form, numQuestions: e.target.value })} placeholder="Questions (5-30)" type="number" min="5" max="30" className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm" />
-            <input value={form.durationMinutes} onChange={(e) => setForm({ ...form, durationMinutes: e.target.value })} placeholder="Duration (min)" type="number" className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm" />
-          </div>
-          <input value={form.studentName} onChange={(e) => setForm({ ...form, studentName: e.target.value })} placeholder="Student name (optional — leave blank for general)" className="w-full px-3 py-1.5 rounded-lg border border-gray-200 text-sm" />
-          <button onClick={generate} disabled={busy} className="w-full h-9 rounded-full bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-1">
-            {busy ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Generating exam…</> : "🖨️ Generate exam"}
-          </button>
-          <p className="text-[10px] text-gray-400">AI generates questions from the curriculum. Students/parents can then print the exam from the subject view.</p>
+        <div className="grid grid-cols-2 gap-2">
+          <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className="px-2 py-1.5 rounded-lg border border-gray-200 text-sm bg-white">
+            <option value="studybuddy_ai">StudyBuddy AI</option>
+            <option value="kcse_revision">KCSE Revision</option>
+            <option value="kpsea">KPSEA (CBC)</option>
+            <option value="kjsea">KJSEA (Upper Junior)</option>
+            <option value="past_paper">Past Paper</option>
+          </select>
+          <input value={form.paperType} onChange={(e) => setForm({ ...form, paperType: e.target.value })} placeholder="Paper 1 / 2 / 3" className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm" />
         </div>
-      )}
+        <div className="grid grid-cols-2 gap-2">
+          <input value={form.gradeLevel} onChange={(e) => setForm({ ...form, gradeLevel: e.target.value })} placeholder="Grade (e.g. Form 4)" className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm" />
+          <input value={form.subjectName} onChange={(e) => setForm({ ...form, subjectName: e.target.value })} placeholder="Subject (e.g. Mathematics)" className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm" />
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          <input value={form.numQuestions} onChange={(e) => setForm({ ...form, numQuestions: e.target.value })} placeholder="Questions (5-50)" type="number" className="px-2 py-1.5 rounded-lg border border-gray-200 text-sm" />
+          <input value={form.durationMinutes} onChange={(e) => setForm({ ...form, durationMinutes: e.target.value })} placeholder="Min" type="number" className="px-2 py-1.5 rounded-lg border border-gray-200 text-sm" />
+          <input value={form.pages} onChange={(e) => setForm({ ...form, pages: e.target.value })} placeholder="Pages" type="number" className="px-2 py-1.5 rounded-lg border border-gray-200 text-sm" />
+        </div>
 
-      {/* Generated exams list */}
-      {selectedSubjectId && (
-        <div className="rounded-2xl bg-white border border-gray-200 overflow-hidden">
-          <div className="px-4 py-2 border-b border-gray-100"><h3 className="text-xs font-bold uppercase text-gray-500">Generated exams ({exams.length})</h3></div>
-          {exams.length === 0 ? (
-            <p className="px-4 py-6 text-center text-xs text-gray-400">No exams generated yet.</p>
-          ) : (
-            <ul className="divide-y divide-gray-100">
-              {exams.map((exam) => (
-                <li key={exam.id} className="px-4 py-3">
-                  <p className="text-sm font-semibold text-gray-900">{exam.title}</p>
-                  <p className="text-[10px] text-gray-500">
-                    {exam.totalMarks} marks · {exam.durationMinutes} min · {new Date(exam.createdAt).toLocaleString()}
-                  </p>
-                  <a href={`/api/curriculum/printable-exams?subjectId=${selectedSubjectId}`} className="text-[11px] font-semibold text-indigo-600 hover:underline mt-1 inline-block">
-                    View in student panel →
-                  </a>
-                </li>
+        {/* Content paste area */}
+        <textarea value={form.content} onChange={(e) => setForm({ ...form, content: e.target.value })} placeholder="Paste exam content / notes here… The AI will generate questions from this." rows={6} className="w-full px-3 py-2 rounded-lg border border-gray-200 text-xs font-mono" />
+
+        {/* Diagrams section */}
+        <div className="rounded-xl bg-gray-50 border border-gray-200 p-3 space-y-2">
+          <p className="text-[10px] font-bold uppercase text-gray-500">Diagrams (optional)</p>
+          {diagrams.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {diagrams.map((d, i) => (
+                <div key={i} className="relative">
+                  <img src={d.url} alt={d.caption} className="w-20 h-16 rounded object-cover" />
+                  <button onClick={() => setDiagrams(diagrams.filter((_, idx) => idx !== i))} className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 text-white text-[8px]">✕</button>
+                  {d.caption && <p className="text-[8px] text-gray-500 mt-0.5 truncate w-20">{d.caption}</p>}
+                </div>
               ))}
-            </ul>
+            </div>
           )}
+          <div className="flex gap-1">
+            <input value={newDiagramUrl} onChange={(e) => setNewDiagramUrl(e.target.value)} placeholder="Image URL" className="flex-1 px-2 py-1 rounded border border-gray-200 text-xs" />
+            <input value={newDiagramCaption} onChange={(e) => setNewDiagramCaption(e.target.value)} placeholder="Caption" className="flex-1 px-2 py-1 rounded border border-gray-200 text-xs" />
+          </div>
+          <div className="flex gap-1">
+            <button onClick={generatePollinationsImage} className="px-2 py-1 rounded bg-emerald-50 text-emerald-700 text-[10px] font-semibold">🎨 Generate with Pollinations AI</button>
+            <button onClick={addDiagram} className="px-2 py-1 rounded bg-indigo-600 text-white text-[10px] font-semibold">Add diagram</button>
+          </div>
         </div>
-      )}
+
+        <button onClick={submit} disabled={busy} className="w-full h-9 rounded-full bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-1">
+          {busy ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Generating exam…</> : "🤖 Generate & Publish"}
+        </button>
+      </div>
     </div>
   );
 }
