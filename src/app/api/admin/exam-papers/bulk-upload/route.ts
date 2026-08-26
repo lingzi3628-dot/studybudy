@@ -21,9 +21,13 @@ export const maxDuration = 300; // 5 min for bulk uploads
  *   files: [{ fileName: string, dataUrl: string, size: number }],
  *   defaultCategory?: string,
  *   defaultGradeLevel?: string,
+ *   convertToExam?: boolean,  // NEW — if true, extract text from each file and use AI to
+ *                            //       generate exam questions (turns each upload into
+ *                            //       ai_template instead of pdf)
+ *   numQuestions?: number,    // NEW — questions per file when convertToExam is true
  * }
  *
- * Returns: { created: number, results: [{ title, status, error? }] }
+ * Returns: { created: number, results: [{ title, status, error?, questionsGenerated? }] }
  */
 export async function POST(req: NextRequest) {
   try { await requireAdmin(); } catch (e: any) {
@@ -34,6 +38,8 @@ export async function POST(req: NextRequest) {
   const files = Array.isArray(body?.files) ? body.files : [];
   const defaultCategory = (body?.defaultCategory ?? "past_paper").toString();
   const defaultGradeLevel = (body?.defaultGradeLevel ?? "").toString().trim() || null;
+  const convertToExam = Boolean(body?.convertToExam);
+  const numQuestions = Math.min(50, Math.max(5, Number(body?.numQuestions) || 10));
 
   if (files.length < 1) {
     return NextResponse.json({ error: "At least 1 file required" }, { status: 400 });
@@ -42,16 +48,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Max 100 files per bulk upload" }, { status: 400 });
   }
 
-  const results: Array<{ title: string; status: "created" | "failed"; error?: string }> = [];
+  const results: Array<{
+    title: string;
+    status: "created" | "failed";
+    error?: string;
+    questionsGenerated?: number;
+    textExtractedLength?: number;
+  }> = [];
 
   // Build a batch prompt — ask AI to generate metadata for ALL files at once
-  // (much more efficient than calling AI once per file)
   const fileList = files.map((f: any, i: number) => `${i + 1}. ${f.fileName}`).join("\n");
 
   let aiMetadata: any = {};
 
   try {
-    const systemPrompt = `You are an exam metadata generator. Given a list of exam PDF filenames, generate metadata for each.
+    const systemPrompt = `You are an exam metadata generator. Given a list of exam file filenames, generate metadata for each.
 For each file, determine:
 - title: a clean, human-readable exam title
 - subject: the subject (Mathematics, English, Chemistry, etc.)
@@ -89,28 +100,42 @@ Return ONLY valid JSON:
     // Continue without AI metadata — use filename as title
   }
 
+  // Ensure tmp dirs exist
+  const tmpDir = "/tmp/bulk-conversions";
+  const txtDir = "/tmp/bulk-text";
+  try { if (!existsSync(tmpDir)) await mkdir(tmpDir, { recursive: true }); } catch {}
+  try { if (!existsSync(txtDir)) await mkdir(txtDir, { recursive: true }); } catch {}
+
   // Process each file
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
     const aiItem = aiMetadata.items?.find((item: any) => item.index === i + 1);
 
     const ext = (file.fileName.split(".").pop() ?? "").toLowerCase();
+    const allowedExt = ["pdf", "doc", "docx"];
+
+    if (!allowedExt.includes(ext)) {
+      results.push({
+        title: file.fileName,
+        status: "failed",
+        error: `Unsupported file type: .${ext}`,
+      });
+      continue;
+    }
 
     try {
-      let finalDataUrl = file.dataUrl;
+      // Extract base64 from data URL
+      const base64Data = (file.dataUrl as string).split(",")[1] ?? "";
+      const originalBuffer = Buffer.from(base64Data, "base64");
 
-      // Convert DOC/DOCX to PDF using LibreOffice
-      if (ext === "doc" || ext === "docx") {
+      let finalDataUrl: string = file.dataUrl;
+      let extractedText: string = "";
+
+      // --- DOC/DOCX → PDF (for the in-app viewer, when NOT converting to exam) ---
+      if ((ext === "doc" || ext === "docx") && !convertToExam) {
         try {
-          const tmpDir = "/tmp/bulk-conversions";
-          if (!existsSync(tmpDir)) await mkdir(tmpDir, { recursive: true });
-
-          // Extract base64 from data URL
-          const base64Data = file.dataUrl.split(",")[1];
-          const originalBuffer = Buffer.from(base64Data, "base64");
           const tmpFileName = `bulk-${Date.now()}-${i}.${ext}`;
           const tmpFilePath = path.join(tmpDir, tmpFileName);
-
           await writeFile(tmpFilePath, originalBuffer);
 
           execSync(`libreoffice --headless --convert-to pdf --outdir ${tmpDir} ${tmpFilePath}`, {
@@ -129,10 +154,141 @@ Return ONLY valid JSON:
           }
         } catch (convErr: any) {
           console.error(`[bulk-upload] File ${i + 1} DOCX→PDF failed:`, convErr?.message);
-          // Keep original dataUrl as fallback
         }
       }
-      // Generate cover via Pollinations AI
+
+      // --- Text extraction for convertToExam mode ---
+      if (convertToExam) {
+        try {
+          if (ext === "pdf") {
+            // Write the original PDF to a tmp file and use pdftotext
+            const tmpPdf = path.join(txtDir, `extract-${Date.now()}-${i}.pdf`);
+            const tmpTxt = path.join(txtDir, `extract-${Date.now()}-${i}.txt`);
+            await writeFile(tmpPdf, originalBuffer);
+            try {
+              execSync(`pdftotext -layout ${tmpPdf} ${tmpTxt}`, { timeout: 30000, stdio: "pipe" });
+              if (existsSync(tmpTxt)) {
+                extractedText = (await readFile(tmpTxt, "utf-8")).trim();
+              }
+            } catch (pdfErr: any) {
+              console.error(`[bulk-upload] File ${i + 1} pdftotext failed:`, pdfErr?.message);
+            }
+            await unlink(tmpPdf).catch(() => {});
+            await unlink(tmpTxt).catch(() => {});
+          } else if (ext === "doc" || ext === "docx") {
+            // DOC/DOCX → txt via LibreOffice (more reliable than pdf-parse for DOCX)
+            const tmpFileName = `extract-${Date.now()}-${i}.${ext}`;
+            const tmpFilePath = path.join(txtDir, tmpFileName);
+            await writeFile(tmpFilePath, originalBuffer);
+            try {
+              execSync(`libreoffice --headless --convert-to txt:Text --outdir ${txtDir} ${tmpFilePath}`, {
+                timeout: 30000,
+                stdio: "pipe",
+              });
+              const txtFileName = tmpFileName.replace(/\.(doc|docx)$/, ".txt");
+              const txtFilePath = path.join(txtDir, txtFileName);
+              if (existsSync(txtFilePath)) {
+                extractedText = (await readFile(txtFilePath, "utf-8")).trim();
+                await unlink(txtFilePath).catch(() => {});
+              }
+            } catch (docErr: any) {
+              console.error(`[bulk-upload] File ${i + 1} DOCX→TXT failed:`, docErr?.message);
+            }
+            await unlink(tmpFilePath).catch(() => {});
+          }
+        } catch (extractErr: any) {
+          console.error(`[bulk-upload] File ${i + 1} text extraction failed:`, extractErr?.message);
+        }
+
+        if (!extractedText || extractedText.length < 30) {
+          results.push({
+            title: aiItem?.title ?? file.fileName,
+            status: "failed",
+            error: "Could not extract enough text from file (skipped AI exam conversion)",
+          });
+          continue;
+        }
+
+        // --- AI: generate questions from extracted text ---
+        let questions: any[] = [];
+        let totalMarks = 0;
+        try {
+          const systemPrompt = `You are an exam creator. The user uploaded a document containing exam content. Generate ${numQuestions} multiple-choice exam questions based ONLY on the content provided below.
+
+CONTENT (extracted from uploaded file):
+${extractedText.slice(0, 12000)}
+
+Return ONLY valid JSON:
+{"questions":[{"questionText":"...","options":["A","B","C","D"],"correctIndex":0,"marks":1}], "totalMarks": 0}`;
+
+          const messages: ChatMessage[] = [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: `Generate ${numQuestions} exam questions from the uploaded content.` },
+          ];
+          const reply = await callAI(messages, null, {
+            userId: "system",
+            route: "/api/admin/exam-papers/bulk-upload",
+          });
+          let cleaned = reply.trim();
+          if (cleaned.startsWith("```")) {
+            cleaned = cleaned.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "");
+          }
+          const firstBrace = cleaned.indexOf("{");
+          const lastBrace = cleaned.lastIndexOf("}");
+          if (firstBrace !== -1 && lastBrace !== -1) {
+            const parsed = JSON.parse(cleaned.slice(firstBrace, lastBrace + 1));
+            questions = parsed.questions ?? [];
+            totalMarks = parsed.totalMarks ?? questions.reduce((s: number, q: any) => s + (q.marks ?? 1), 0);
+          }
+        } catch (aiErr: any) {
+          console.error(`[bulk-upload] File ${i + 1} AI question generation failed:`, aiErr?.message);
+        }
+
+        if (questions.length === 0) {
+          results.push({
+            title: aiItem?.title ?? file.fileName,
+            status: "failed",
+            error: "AI couldn't generate questions from this file (skipped)",
+            textExtractedLength: extractedText.length,
+          });
+          continue;
+        }
+
+        // Build cover image
+        const coverPrompt = encodeURIComponent(
+          (aiItem?.title ?? file.fileName) + " exam cover education"
+        );
+        const coverImage = `https://image.pollinations.ai/prompt/${coverPrompt}?width=400&height=560&nologo=true`;
+
+        const paper = await db.examPaper.create({
+          data: {
+            title: aiItem?.title ?? file.fileName.replace(/\.[^/.]+$/, ""),
+            description: null,
+            category: aiItem?.category ?? defaultCategory,
+            paperType: aiItem?.paperType ?? null,
+            gradeLevel: aiItem?.gradeLevel ?? defaultGradeLevel,
+            subjectName: aiItem?.subject ?? null,
+            schoolName: aiItem?.schoolName ?? null,
+            year: aiItem?.year ?? null,
+            examType: "ai_template",
+            questions,
+            totalMarks,
+            durationMin: 60,
+            coverImage,
+            isPublished: true,
+          },
+        });
+
+        results.push({
+          title: paper.title,
+          status: "created",
+          questionsGenerated: questions.length,
+          textExtractedLength: extractedText.length,
+        });
+        continue;
+      }
+
+      // --- PDF mode (no exam conversion) ---
       const coverPrompt = encodeURIComponent(
         (aiItem?.title ?? file.fileName) + " exam cover education"
       );

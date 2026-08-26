@@ -29,6 +29,13 @@ type ExamPaper = {
   year: number | null;
   examType: string;
   fileUrl: string | null;
+  questions: Array<{
+    questionText: string;
+    options: string[];
+    correctIndex: number;
+    marks: number;
+    difficulty?: string;
+  }> | null;
   totalMarks: number;
   durationMin: number;
   coverImage: string | null;
@@ -72,6 +79,7 @@ export function ExamHubScreen() {
   const [selectedPaper, setSelectedPaper] = useState<ExamPaper | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [viewingPdf, setViewingPdf] = useState(false);
+  const [viewingExam, setViewingExam] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -98,6 +106,16 @@ export function ExamHubScreen() {
   // --- In-app PDF viewer (read-only, no print, no download) ---
   if (viewingPdf && selectedPaper?.fileUrl) {
     return <InAppPdfViewer dataUrl={selectedPaper.fileUrl} title={selectedPaper.title} onClose={() => setViewingPdf(false)} />;
+  }
+
+  // --- In-app AI-template exam reader (renders the multiple-choice questions) ---
+  if (viewingExam && selectedPaper) {
+    return (
+      <InlineExamReader
+        paper={selectedPaper}
+        onClose={() => setViewingExam(false)}
+      />
+    );
   }
 
   // --- Detail view ---
@@ -164,9 +182,7 @@ export function ExamHubScreen() {
           )}
           {selectedPaper.examType === "ai_template" && (
             <button
-              onClick={() => {
-                setScreen("printableExam");
-              }}
+              onClick={() => setViewingExam(true)}
               className="w-full h-12 rounded-full bg-emerald-600 text-white font-semibold text-sm shadow-md hover:bg-emerald-700 flex items-center justify-center gap-2"
             >
               📖 Read Exam
@@ -333,6 +349,133 @@ export function ExamHubScreen() {
             </div>
           </>
         )}
+      </main>
+    </div>
+  );
+}
+
+// =====================================================================
+// InlineExamReader — in-app viewer for ai_template exams
+// Renders the multiple-choice questions inline, with an optional
+// "Show answers" toggle. Print-friendly.
+// =====================================================================
+function InlineExamReader({ paper, onClose }: { paper: ExamPaper; onClose: () => void }) {
+  const [showAnswers, setShowAnswers] = useState(false);
+
+  const questions = Array.isArray(paper.questions) ? paper.questions : [];
+
+  return (
+    <div className="min-h-screen bg-gray-50 pb-20">
+      <header className="sticky top-0 z-20 bg-white border-b border-gray-200 print:hidden">
+        <div className="max-w-3xl mx-auto px-4 h-14 flex items-center gap-3">
+          <button onClick={onClose} className="text-gray-500">
+            <ChevronLeft className="w-5 h-5" />
+          </button>
+          <p className="text-sm font-bold text-gray-900 truncate flex-1">{paper.title}</p>
+          <button
+            onClick={() => setShowAnswers((s) => !s)}
+            className="text-xs font-semibold px-3 py-1.5 rounded-full bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+          >
+            {showAnswers ? "Hide answers" : "Show answers"}
+          </button>
+          <button
+            onClick={() => window.print()}
+            className="text-xs font-semibold px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+          >
+            Print
+          </button>
+        </div>
+      </header>
+
+      <main className="max-w-3xl mx-auto px-4 py-6">
+        {/* Exam header */}
+        <div className="text-center mb-6 pb-4 border-b-2 border-gray-900">
+          <div className="flex items-center justify-center gap-2 mb-2">
+            <span className="text-2xl">🎓</span>
+            <span className="text-lg font-bold text-gray-900">StudyBuddy AI</span>
+          </div>
+          <h1 className="text-xl font-bold text-gray-900">{paper.title}</h1>
+          <div className="flex flex-wrap items-center justify-center gap-3 text-xs text-gray-600 mt-2">
+            {paper.subjectName && <span>{paper.subjectName}</span>}
+            {paper.paperType && <span>· {paper.paperType}</span>}
+            {paper.gradeLevel && <span>· {paper.gradeLevel}</span>}
+            {paper.year && <span>· {paper.year}</span>}
+            {paper.schoolName && <span>· {paper.schoolName}</span>}
+          </div>
+          <div className="flex items-center justify-center gap-4 text-xs text-gray-600 mt-1">
+            <span className="flex items-center gap-1">
+              <FileText className="w-3 h-3" /> {paper.totalMarks} marks
+            </span>
+            <span className="flex items-center gap-1">
+              <Clock className="w-3 h-3" /> {paper.durationMin} min
+            </span>
+            <span>{questions.length} questions</span>
+          </div>
+          <p className="text-[10px] text-gray-500 mt-2">Answer ALL questions.</p>
+        </div>
+
+        {/* Questions */}
+        {questions.length === 0 ? (
+          <div className="rounded-2xl bg-white border border-gray-200 p-8 text-center">
+            <FileText className="w-12 h-12 text-gray-300 mx-auto mb-2" />
+            <p className="text-sm font-semibold text-gray-700">This exam has no questions yet</p>
+            <p className="text-xs text-gray-500 mt-1">
+              The AI didn't generate any questions from the uploaded content. Try re-uploading
+              the document, or paste the content into the AI Template tab in the admin panel.
+            </p>
+          </div>
+        ) : (
+          <ol className="space-y-5">
+            {questions.map((q, i) => (
+              <li key={i} className="rounded-xl bg-white border border-gray-200 p-4 print:break-inside-avoid">
+                <p className="text-sm font-semibold text-gray-900 mb-3">
+                  <span className="text-indigo-600 mr-1">{i + 1}.</span>
+                  {q.questionText}
+                  <span className="ml-2 text-[10px] font-normal text-gray-400">({q.marks ?? 1} mark{(q.marks ?? 1) > 1 ? "s" : ""})</span>
+                </p>
+                <ol className="space-y-1.5 ml-2" type="A">
+                  {q.options?.map((opt: string, j: number) => {
+                    const isCorrect = showAnswers && q.correctIndex === j;
+                    return (
+                      <li
+                        key={j}
+                        className={`text-sm flex items-start gap-2 ${
+                          isCorrect ? "text-emerald-700 font-semibold" : "text-gray-700"
+                        }`}
+                      >
+                        <span className="font-semibold flex-shrink-0">
+                          {String.fromCharCode(65 + j)}.
+                        </span>
+                        <span>{opt}</span>
+                        {isCorrect && <span className="text-emerald-600 ml-1 text-xs">✓ correct</span>}
+                      </li>
+                    );
+                  })}
+                </ol>
+              </li>
+            ))}
+          </ol>
+        )}
+
+        {/* Answer key at the end (only when showAnswers is on) */}
+        {showAnswers && questions.length > 0 && (
+          <div className="mt-8 rounded-xl bg-emerald-50 border-2 border-emerald-200 p-4 print:break-before-page">
+            <h3 className="text-sm font-bold text-emerald-700 mb-2">📝 Answer Key</h3>
+            <ol className="space-y-1 text-xs text-gray-700">
+              {questions.map((q, i) => (
+                <li key={i} className="flex gap-2">
+                  <span className="font-semibold">{i + 1}.</span>
+                  <span>{String.fromCharCode(65 + (q.correctIndex ?? 0))}</span>
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
+
+        {/* Print-only footer */}
+        <div className="hidden print:block mt-8 pt-4 border-t border-gray-300 text-center text-xs text-gray-500">
+          Generated by StudyBuddy AI · {new Date().toLocaleDateString()}
+        </div>
       </main>
     </div>
   );

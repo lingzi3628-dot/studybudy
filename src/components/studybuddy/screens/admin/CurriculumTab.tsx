@@ -2025,6 +2025,7 @@ function ExamPapersList() {
 function PdfUploadView() {
   const [uploadMode, setUploadMode] = useState<"file" | "url">("file");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [convertToExam, setConvertToExam] = useState(false);
   const [form, setForm] = useState({
     title: "", description: "", category: "past_paper", paperType: "",
     gradeLevel: "", subjectName: "", schoolName: "", year: "",
@@ -2079,6 +2080,7 @@ function PdfUploadView() {
         formData.append("coverImage", form.coverImage.trim());
         formData.append("pages", form.pages);
         formData.append("durationMinutes", form.durationMinutes);
+        formData.append("convertToExam", convertToExam ? "true" : "false");
 
         const r = await fetch("/api/admin/exam-papers/upload", {
           method: "POST",
@@ -2086,10 +2088,15 @@ function PdfUploadView() {
         });
         const d = await r.json();
         if (!r.ok) throw new Error(d.error ?? "Failed");
-        setToast("✓ Exam uploaded successfully!");
+        setToast(
+          d.questionsGenerated
+            ? `✓ Generated ${d.questionsGenerated} exam questions from the file!`
+            : "✓ Exam uploaded successfully!"
+        );
         setForm({ title: "", description: "", category: "past_paper", paperType: "", gradeLevel: "", subjectName: "", schoolName: "", year: "", fileUrl: "", coverImage: "", pages: "", durationMinutes: "60" });
         setSelectedFile(null);
-        setTimeout(() => setToast(null), 3000);
+        setConvertToExam(false);
+        setTimeout(() => setToast(null), 4000);
       } catch (e: any) {
         setToast(`✗ ${e?.message ?? "Failed"}`);
         setTimeout(() => setToast(null), 4000);
@@ -2214,12 +2221,33 @@ function PdfUploadView() {
         </div>
         {/* Cover image: upload (500KB) or Pollinations AI or URL */}
         <CoverImageInput value={form.coverImage} onChange={(url) => setForm({ ...form, coverImage: url })} />
+
+        {/* Convert to Exam toggle (NEW) — only available in file mode */}
+        {uploadMode === "file" && selectedFile && (
+          <div className="rounded-xl border-2 border-indigo-200 bg-indigo-50/40 p-3">
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={convertToExam}
+                onChange={(e) => setConvertToExam(e.target.checked)}
+                className="mt-0.5"
+              />
+              <div className="flex-1">
+                <p className="text-xs font-bold text-indigo-700">🤖 Convert to interactive exam (AI)</p>
+                <p className="text-[10px] text-gray-500 mt-0.5">
+                  When ON: extracts text from the uploaded file (PDF → pdftotext, DOC/DOCX → LibreOffice) and uses AI to generate 15 multiple-choice questions. The result is an interactive exam (ai_template mode), not a PDF view.
+                  <br />When OFF: stores the file as a PDF exam paper (DOC/DOCX auto-converted to PDF for in-app viewing).</p>
+              </div>
+            </label>
+          </div>
+        )}
+
         <button
           onClick={submit}
           disabled={busy || (uploadMode === "file" ? !selectedFile : !form.fileUrl.trim())}
-          className="w-full h-9 rounded-full bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-1"
+          className={`w-full h-9 rounded-full text-white text-xs font-semibold disabled:opacity-50 flex items-center justify-center gap-1 ${convertToExam && uploadMode === "file" ? "bg-emerald-600 hover:bg-emerald-700" : "bg-indigo-600 hover:bg-indigo-700"}`}
         >
-          {busy ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Uploading…</> : "📤 Upload exam paper"}
+          {busy ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> {convertToExam && uploadMode === "file" ? "Generating exam…" : "Uploading…"}</> : (convertToExam && uploadMode === "file" ? "🤖 Convert to exam" : "📤 Upload exam paper")}
         </button>
       </div>
     </div>
@@ -2499,6 +2527,8 @@ function BulkUploadView() {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [defaultCategory, setDefaultCategory] = useState("past_paper");
   const [defaultGrade, setDefaultGrade] = useState("");
+  const [convertToExam, setConvertToExam] = useState(false);
+  const [numQuestions, setNumQuestions] = useState("10");
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const [progressLabel, setProgressLabel] = useState("");
@@ -2569,6 +2599,8 @@ function BulkUploadView() {
           files: filesData,
           defaultCategory,
           defaultGradeLevel: defaultGrade,
+          convertToExam,
+          numQuestions: Number(numQuestions) || 10,
         }),
       });
 
@@ -2598,14 +2630,14 @@ function BulkUploadView() {
 
       <div className="rounded-2xl bg-white border border-gray-200 p-4 space-y-3">
         <h3 className="text-xs font-bold uppercase text-gray-500">📦 Bulk Upload (10-100 files)</h3>
-        <p className="text-[10px] text-gray-400">Select multiple PDF/DOC files. AI analyzes each filename and generates metadata (title, subject, year, category, cover image). Max 5MB per file.</p>
+        <p className="text-[10px] text-gray-400">Select multiple PDF/DOC/DOCX files. By default they're stored as PDF exam papers (DOC/DOCX auto-converted). Enable "Convert to Exam" below to extract text from each file and use AI to generate multiple-choice questions — useful for turning existing worksheets and past papers into interactive exams.</p>
 
         {/* File picker */}
         <label className="block w-full cursor-pointer">
           <div className="rounded-xl border-2 border-dashed p-6 text-center transition hover:border-indigo-400 hover:bg-indigo-50/30">
             <Upload className="w-6 h-6 text-gray-400 mx-auto mb-1" />
             <p className="text-xs text-gray-600">Click to select multiple files</p>
-            <p className="text-[10px] text-gray-400 mt-0.5">PDF, DOC, DOCX · Max 5MB each · DOC/DOCX auto-converted to PDF · 10-100 files</p>
+            <p className="text-[10px] text-gray-400 mt-0.5">PDF, DOC, DOCX · Max 5MB each · DOC/DOCX auto-converted · 10-100 files</p>
           </div>
           <input type="file" accept=".pdf,.doc,.docx" multiple onChange={handleFileSelect} className="hidden" />
         </label>
@@ -2640,6 +2672,37 @@ function BulkUploadView() {
           <input value={defaultGrade} onChange={(e) => setDefaultGrade(e.target.value)} placeholder="Default grade (e.g. Form 4)" className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm" />
         </div>
 
+        {/* Convert to Exam toggle (NEW) */}
+        <div className="rounded-xl border-2 border-indigo-200 bg-indigo-50/40 p-3 space-y-2">
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={convertToExam}
+              onChange={(e) => setConvertToExam(e.target.checked)}
+              className="mt-0.5"
+            />
+            <div className="flex-1">
+              <p className="text-xs font-bold text-indigo-700">🤖 Convert files to interactive exams (AI)</p>
+              <p className="text-[10px] text-gray-500 mt-0.5">
+                When ON: extracts text from each file (PDF → pdftotext, DOC/DOCX → LibreOffice) and uses AI to generate {numQuestions} multiple-choice questions per file. The result is an interactive exam (ai_template mode).
+                <br />When OFF: stores each file as a PDF exam paper (DOC/DOCX auto-converted to PDF for in-app viewing).</p>
+            </div>
+          </label>
+          {convertToExam && (
+            <div className="flex items-center gap-2 pl-6">
+              <label className="text-[10px] text-gray-600 font-semibold">Questions per file:</label>
+              <input
+                type="number"
+                min={5}
+                max={50}
+                value={numQuestions}
+                onChange={(e) => setNumQuestions(e.target.value)}
+                className="w-20 px-2 py-1 rounded border border-gray-200 text-xs"
+              />
+            </div>
+          )}
+        </div>
+
         {/* Progress bar */}
         {busy && (
           <div className="space-y-1">
@@ -2661,7 +2724,10 @@ function BulkUploadView() {
                 <span className={r.status === "created" ? "text-emerald-600" : "text-rose-600"}>
                   {r.status === "created" ? "✓" : "✗"}
                 </span>
-                <span className="text-gray-700 truncate flex-1">{r.title}</span>
+                <span className="text-gray-700 truncate flex-1">
+                  {r.title}
+                  {r.questionsGenerated ? <span className="text-indigo-500 ml-1">({r.questionsGenerated} questions)</span> : null}
+                </span>
                 {r.error && <span className="text-rose-400">{r.error}</span>}
               </div>
             ))}
@@ -2672,9 +2738,9 @@ function BulkUploadView() {
         <button
           onClick={upload}
           disabled={busy || selectedFiles.length < 1}
-          className="w-full h-10 rounded-full bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-1"
+          className={`w-full h-10 rounded-full text-white text-xs font-semibold disabled:opacity-50 flex items-center justify-center gap-1 ${convertToExam ? "bg-emerald-600 hover:bg-emerald-700" : "bg-indigo-600 hover:bg-indigo-700"}`}
         >
-          {busy ? <><Loader2 className="w-4 h-4 animate-spin" /> Processing…</> : `📦 Upload ${selectedFiles.length} files`}
+          {busy ? <><Loader2 className="w-4 h-4 animate-spin" /> Processing…</> : (convertToExam ? `🤖 Convert ${selectedFiles.length} files to exams` : `📦 Upload ${selectedFiles.length} files`)}
         </button>
       </div>
     </div>

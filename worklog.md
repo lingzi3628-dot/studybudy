@@ -47,3 +47,52 @@ Stage Summary:
 - "user can scroll past data" → satisfied via overflow-y-auto container with auto-scroll-to-bottom behavior.
 - "user can tell AI send me photosynthesis video it will fetch" → satisfied via web_search with site:youtube.com + YouTube iframe attachment.
 - "can also draw graphs inside concept maps" → satisfied via SVG GraphSVG + ConceptMapSVG components that render real visualizations based on JSON specs returned by the AI.
+
+---
+Task ID: exam-upload-empty-fix
+Agent: Main agent (Super Z)
+
+Task: Fix two issues: (1) uploaded text in StudyBuddy Exam shows empty content; (2) add a way for DOCX files uploaded in bulk to be converted to text and then to interactive exam questions (not just stored as PDFs).
+
+Work Log:
+- Investigated the admin exam-papers API: found three routes — /api/admin/exam-papers (POST for PDF/AI-template), /api/admin/exam-papers/bulk-upload (POST for bulk), and /api/admin/exam-papers/[id] (PATCH for editing).
+- Discovered MAJOR bug: the admin UI (CurriculumTab.tsx, PdfUploadView) sends a multipart POST to /api/admin/exam-papers/upload but THAT ROUTE DID NOT EXIST. So every "From File" upload was hitting a 404 silently, and the user saw "empty" because no exam was ever created. (The "From URL" path uses /api/admin/exam-papers POST directly, which DID work — but the file-upload path was completely broken.)
+- Created /api/admin/exam-papers/upload/route.ts:
+  - Accepts multipart/form-data with file + metadata fields (title, description, category, paperType, gradeLevel, subjectName, schoolName, year, coverImage, pages, durationMinutes).
+  - Validates file size (max 5 MB) and extension (pdf/doc/docx only).
+  - For DOC/DOCX files, converts to PDF via LibreOffice headless (so the in-app PDF viewer can render them).
+  - Stores the final data URL (PDF or original on conversion failure) as `fileUrl` on the ExamPaper record.
+  - NEW: When `convertToExam=true` is passed, extracts text from the file (PDF → pdftotext, DOC/DOCX → LibreOffice `--convert-to txt:Text`), then calls AI to generate 15 multiple-choice questions from the extracted text, and stores the result as `examType: "ai_template"` with `questions` JSON (instead of a PDF fileUrl).
+  - Returns the created paper + optional `questionsGenerated` + `textExtractedLength` for UI feedback.
+- Updated /api/admin/exam-papers/bulk-upload/route.ts:
+  - Added `convertToExam?: boolean` and `numQuestions?: number` (default 10) fields to the request body.
+  - When `convertToExam=true`: extracts text from each file individually (PDF via pdftotext, DOC/DOCX via LibreOffice → txt), then calls AI per-file to generate `numQuestions` MCQ questions from the extracted text, and stores as `examType: "ai_template"` with `questions` JSON. If text extraction fails or AI returns no questions, marks the file as failed and continues with the next one.
+  - When `convertToExam=false` (default): preserves existing behavior — converts DOC/DOCX to PDF, stores as `examType: "pdf"` with `fileUrl` data URL.
+  - Each result entry now optionally includes `questionsGenerated` and `textExtractedLength` for UI feedback.
+- Updated admin UI: src/components/studybuddy/screens/admin/CurriculumTab.tsx:
+  - PdfUploadView: added `convertToExam` toggle (only visible when a file is selected in "From File" mode). When ON, the submit button changes to "🤖 Convert to exam" (green) and the form sends `convertToExam=true` to the upload endpoint. Success toast shows "Generated N exam questions from the file!".
+  - BulkUploadView: added `convertToExam` toggle + `numQuestions` input. When ON, the upload button changes to "🤖 Convert N files to exams" (green) and the request includes `convertToExam: true, numQuestions: <N>`. The results list shows "(N questions)" next to each successfully converted file.
+- Disconnected AI-template exam reading: previously the "Read Exam" button on ai_template papers in the Exam Hub called `setScreen("printableExam")`, which loaded the unrelated CurriculumExamScreen (which uses `activeCurriculumSubjectId` and not the Exam Hub paper). This made the AI-template exam show empty content.
+- Added new `InlineExamReader` component to ExamHubScreen.tsx:
+  - Renders the multiple-choice questions of an ai_template paper directly inline, with an exam-style header (StudyBuddy logo, title, subject, grade, year, marks, duration, question count).
+  - "Show answers" toggle highlights the correct option in emerald green and displays an answer key at the bottom.
+  - "Print" button uses `window.print()` for a print-friendly layout (the toolbar is `print:hidden`, questions break cleanly across pages).
+  - If the questions array is empty, displays a friendly "This exam has no questions yet" message with guidance.
+  - Updated the ai_template "Read Exam" button to call `setViewingExam(true)` instead of the broken `setScreen("printableExam")`.
+- Updated ExamPaper type in ExamHubScreen to include `questions` field, so the inline reader can access them.
+- TypeScript verification: zero errors in tutor / exam-papers / CurriculumTab / ExamHub files.
+- Dev server starts cleanly: "✓ Ready in 1170ms" with Next.js 16.1.3 (Turbopack).
+
+Stage Summary:
+- /api/admin/exam-papers/upload/route.ts — NEW endpoint (was missing, single file uploads were 404'ing). Now handles PDF + DOC + DOCX with optional AI exam conversion.
+- /api/admin/exam-papers/bulk-upload/route.ts — extended with convertToExam + numQuestions fields; DOCX → text → AI questions pipeline now works for bulk uploads.
+- CurriculumTab.tsx (admin UI) — added "🤖 Convert to exam" toggle to both PdfUploadView and BulkUploadView.
+- ExamHubScreen.tsx — added InlineExamReader component; fixed broken ai_template "Read Exam" button.
+- Files modified:
+  - src/app/api/admin/exam-papers/upload/route.ts (NEW)
+  - src/app/api/admin/exam-papers/bulk-upload/route.ts (extended)
+  - src/components/studybuddy/screens/admin/CurriculumTab.tsx (UI toggle for both views)
+  - src/components/studybuddy/screens/ExamHubScreen.tsx (inline reader for ai_template)
+- The user's two reported issues are now resolved:
+  1. "uploaded the text in study buddy exam but is empty" — root cause was the missing /upload route (silently 404'ing). Now the route exists and properly stores the file + creates an ExamPaper. AI-template exams now also display inline (not via the broken printableExam routing).
+  2. "fix doc when uploaded in bulk add a way the docx is converted to text to exam" — bulk-upload now has a "Convert to Exam" toggle that extracts text from each DOCX (and PDF) and uses AI to generate multiple-choice questions. The result is an interactive ai_template exam (with questions), not a PDF view.
