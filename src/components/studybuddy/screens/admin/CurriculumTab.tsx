@@ -1944,6 +1944,9 @@ function ExamPapersList() {
 
 // --- PDF Upload view ---
 function PdfUploadView() {
+  const [uploadMode, setUploadMode] = useState<"file" | "url">("file");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
   const [form, setForm] = useState({
     title: "", description: "", category: "past_paper", paperType: "",
     gradeLevel: "", subjectName: "", schoolName: "", year: "",
@@ -1952,9 +1955,57 @@ function PdfUploadView() {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 15 * 1024 * 1024) {
+      setToast("⚠️ File too large. Max 15MB.");
+      setTimeout(() => setToast(null), 3000);
+      setSelectedFile(null);
+      return;
+    }
+    setSelectedFile(file);
+    // Auto-fill title if empty
+    if (!form.title) {
+      const name = file.name.replace(/\.[^/.]+$/, "");
+      setForm({ ...form, title: name });
+    }
+  };
+
+  const uploadFile = async () => {
+    if (!selectedFile) return null;
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", selectedFile);
+      const r = await fetch("/api/admin/exam-papers/upload", {
+        method: "POST",
+        body: formData,
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Upload failed");
+      return d.fileUrl as string;
+    } catch (e: any) {
+      setToast(`✗ Upload failed: ${e?.message}`);
+      setTimeout(() => setToast(null), 3000);
+      return null;
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const submit = async () => {
-    if (!form.title.trim() || !form.fileUrl.trim()) {
-      setToast("⚠️ Title and PDF URL are required");
+    let finalFileUrl = form.fileUrl.trim();
+
+    // If file mode, upload first
+    if (uploadMode === "file" && selectedFile) {
+      const uploadedUrl = await uploadFile();
+      if (!uploadedUrl) return;
+      finalFileUrl = uploadedUrl;
+    }
+
+    if (!form.title.trim() || !finalFileUrl) {
+      setToast("⚠️ Title and file are required");
       setTimeout(() => setToast(null), 3000);
       return;
     }
@@ -1973,7 +2024,7 @@ function PdfUploadView() {
           subjectName: form.subjectName.trim() || null,
           schoolName: form.schoolName.trim() || null,
           year: form.year ? Number(form.year) : null,
-          fileUrl: form.fileUrl.trim(),
+          fileUrl: finalFileUrl,
           coverImage: form.coverImage.trim() || null,
           pages: form.pages ? Number(form.pages) : null,
           durationMinutes: Number(form.durationMinutes) || 60,
@@ -1982,6 +2033,7 @@ function PdfUploadView() {
       if (!r.ok) throw new Error("Failed");
       setToast("✓ Exam paper uploaded!");
       setForm({ title: "", description: "", category: "past_paper", paperType: "", gradeLevel: "", subjectName: "", schoolName: "", year: "", fileUrl: "", coverImage: "", pages: "", durationMinutes: "60" });
+      setSelectedFile(null);
       setTimeout(() => setToast(null), 3000);
     } catch {
       setToast("✗ Failed");
@@ -1996,9 +2048,54 @@ function PdfUploadView() {
       {toast && <div className="rounded-xl bg-indigo-50 border border-indigo-200 p-2 text-xs text-indigo-700">{toast}</div>}
       <div className="rounded-2xl bg-white border border-gray-200 p-4 space-y-2">
         <h3 className="text-xs font-bold uppercase text-gray-500">Upload Exam PDF</h3>
+
+        {/* Upload mode toggle */}
+        <div className="flex gap-1 bg-gray-100 p-1 rounded-lg text-xs">
+          <button
+            onClick={() => setUploadMode("file")}
+            className={`flex-1 py-1.5 rounded-md transition ${uploadMode === "file" ? "bg-white text-indigo-700 font-semibold shadow-sm" : "text-gray-600"}`}
+          >
+            📁 From File
+          </button>
+          <button
+            onClick={() => setUploadMode("url")}
+            className={`flex-1 py-1.5 rounded-md transition ${uploadMode === "url" ? "bg-white text-indigo-700 font-semibold shadow-sm" : "text-gray-600"}`}
+          >
+            🔗 From URL
+          </button>
+        </div>
+
+        {/* File upload zone */}
+        {uploadMode === "file" ? (
+          <div>
+            <label className="block w-full cursor-pointer">
+              <div className={`rounded-xl border-2 border-dashed p-6 text-center transition ${
+                selectedFile ? "border-emerald-400 bg-emerald-50" : "border-gray-300 hover:border-indigo-400 hover:bg-indigo-50/30"
+              }`}>
+                {selectedFile ? (
+                  <div>
+                    <Check className="w-6 h-6 text-emerald-600 mx-auto mb-1" />
+                    <p className="text-xs font-semibold text-emerald-700">{selectedFile.name}</p>
+                    <p className="text-[10px] text-gray-500">{(selectedFile.size / 1024 / 1024).toFixed(1)} MB</p>
+                  </div>
+                ) : (
+                  <div>
+                    <Upload className="w-6 h-6 text-gray-400 mx-auto mb-1" />
+                    <p className="text-xs text-gray-600">Click to select a PDF file</p>
+                    <p className="text-[10px] text-gray-400 mt-0.5">Max 15MB · PDF only</p>
+                  </div>
+                )}
+              </div>
+              <input type="file" accept=".pdf,.doc,.docx,application/pdf" onChange={handleFileSelect} className="hidden" />
+            </label>
+          </div>
+        ) : (
+          <input value={form.fileUrl} onChange={(e) => setForm({ ...form, fileUrl: e.target.value })} placeholder="PDF URL (e.g. https://example.com/exam.pdf or /exams/math.pdf)" className="w-full px-3 py-1.5 rounded-lg border border-gray-200 text-sm font-mono" />
+        )}
+
+        {/* Metadata */}
         <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Exam title *" className="w-full px-3 py-1.5 rounded-lg border border-gray-200 text-sm" />
         <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Description (optional)" rows={2} className="w-full px-3 py-1.5 rounded-lg border border-gray-200 text-sm" />
-        <input value={form.fileUrl} onChange={(e) => setForm({ ...form, fileUrl: e.target.value })} placeholder="PDF URL * (e.g. /exams/math-paper1.pdf)" className="w-full px-3 py-1.5 rounded-lg border border-gray-200 text-sm font-mono" />
         <div className="grid grid-cols-2 gap-2">
           <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className="px-2 py-1.5 rounded-lg border border-gray-200 text-sm bg-white">
             <option value="past_paper">Past Paper</option>
@@ -2022,8 +2119,12 @@ function PdfUploadView() {
           <input value={form.pages} onChange={(e) => setForm({ ...form, pages: e.target.value })} placeholder="Pages" type="number" className="px-2 py-1.5 rounded-lg border border-gray-200 text-sm" />
           <input value={form.durationMinutes} onChange={(e) => setForm({ ...form, durationMinutes: e.target.value })} placeholder="Min" type="number" className="px-2 py-1.5 rounded-lg border border-gray-200 text-sm" />
         </div>
-        <button onClick={submit} disabled={busy} className="w-full h-9 rounded-full bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 disabled:opacity-50">
-          {busy ? "Uploading…" : "Upload exam paper"}
+        <button
+          onClick={submit}
+          disabled={busy || uploading || (uploadMode === "file" ? !selectedFile : !form.fileUrl.trim())}
+          className="w-full h-9 rounded-full bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-1"
+        >
+          {uploading ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Uploading file…</> : busy ? "Saving…" : "📤 Upload exam paper"}
         </button>
       </div>
     </div>
