@@ -1827,7 +1827,7 @@ function LibraryAdminView() {
 // ---------------------------------------------------------------------
 
 function ExamsView() {
-  const [subView, setSubView] = useState<"list" | "pdf" | "ai">("list");
+  const [subView, setSubView] = useState<"list" | "pdf" | "ai" | "bulk">("list");
 
   return (
     <div className="space-y-3">
@@ -1851,11 +1851,18 @@ function ExamsView() {
         >
           🤖 AI Template
         </button>
+        <button
+          onClick={() => setSubView("bulk")}
+          className={`flex-1 px-3 py-1.5 rounded-lg transition ${subView === "bulk" ? "bg-white text-indigo-700 shadow-sm" : "text-gray-600"}`}
+        >
+          📦 Bulk Upload
+        </button>
       </div>
 
       {subView === "list" && <ExamPapersList />}
       {subView === "pdf" && <PdfUploadView />}
       {subView === "ai" && <AiTemplateView />}
+      {subView === "bulk" && <BulkUploadView />}
     </div>
   );
 }
@@ -1864,6 +1871,8 @@ function ExamsView() {
 function ExamPapersList() {
   const [papers, setPapers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<any>({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1877,20 +1886,57 @@ function ExamPapersList() {
 
   useEffect(() => { load(); }, [load]);
 
-  const togglePublish = async (paper: any) => {
-    await fetch("/api/admin/exam-papers", {
+  const startEdit = (paper: any) => {
+    setEditingId(paper.id);
+    setEditForm({
+      title: paper.title ?? "",
+      description: paper.description ?? "",
+      category: paper.category ?? "past_paper",
+      paperType: paper.paperType ?? "",
+      gradeLevel: paper.gradeLevel ?? "",
+      subjectName: paper.subjectName ?? "",
+      schoolName: paper.schoolName ?? "",
+      year: paper.year ?? "",
+      coverImage: paper.coverImage ?? "",
+      durationMin: paper.durationMin ?? 60,
+    });
+  };
+
+  const saveEdit = async () => {
+    await fetch(`/api/admin/exam-papers/${editingId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: paper.id, isPublished: !paper.isPublished }),
+      body: JSON.stringify({
+        title: editForm.title.trim(),
+        description: editForm.description.trim() || null,
+        category: editForm.category,
+        paperType: editForm.paperType.trim() || null,
+        gradeLevel: editForm.gradeLevel || null,
+        subjectName: editForm.subjectName.trim() || null,
+        schoolName: editForm.schoolName.trim() || null,
+        year: editForm.year ? Number(editForm.year) : null,
+        coverImage: editForm.coverImage.trim() || null,
+        durationMin: Number(editForm.durationMin) || 60,
+      }),
+    });
+    setEditingId(null);
+    await load();
+  };
+
+  const togglePublish = async (paper: any) => {
+    await fetch(`/api/admin/exam-papers/${paper.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ isPublished: !paper.isPublished }),
     });
     await load();
   };
 
   const toggleTrending = async (paper: any) => {
-    await fetch("/api/admin/exam-papers", {
+    await fetch(`/api/admin/exam-papers/${paper.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: paper.id, isTrending: !paper.isTrending }),
+      body: JSON.stringify({ isTrending: !paper.isTrending }),
     });
     await load();
   };
@@ -1917,24 +1963,56 @@ function ExamPapersList() {
       ) : (
         <ul className="divide-y divide-gray-100">
           {papers.map((p) => (
-            <li key={p.id} className="px-4 py-3 flex items-center gap-2">
-              {p.coverImage ? <img src={p.coverImage} alt="" className="w-10 h-12 rounded object-cover" /> : <div className="w-10 h-12 rounded bg-indigo-50 flex items-center justify-center text-indigo-400">📄</div>}
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-gray-900 truncate">{p.title}</p>
-                <p className="text-[10px] text-gray-500">
-                  {p.category} · {p.gradeLevel ?? "—"} · {p.subjectName ?? "—"} · {p.examType === "pdf" ? "PDF" : "AI"}
-                  {p.year ? ` · ${p.year}` : ""}
-                </p>
-              </div>
-              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${p.isTrending ? "bg-amber-50 text-amber-600" : "bg-gray-100 text-gray-400"}`}>
-                🔥
-              </span>
-              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${p.isPublished ? "bg-emerald-50 text-emerald-600" : "bg-gray-100 text-gray-400"}`}>
-                {p.isPublished ? "LIVE" : "DRAFT"}
-              </span>
-              <button onClick={() => togglePublish(p)} className="text-[10px] font-semibold text-indigo-600">{p.isPublished ? "Unpublish" : "Publish"}</button>
-              <button onClick={() => toggleTrending(p)} className="text-[10px] font-semibold text-amber-600">{p.isTrending ? "Un-trend" : "Trend"}</button>
-              <button onClick={() => deletePaper(p.id)} className="text-rose-500"><Trash2 className="w-3.5 h-3.5" /></button>
+            <li key={p.id} className="px-4 py-3">
+              {editingId === p.id ? (
+                /* Edit form */
+                <div className="space-y-2 rounded-xl bg-gray-50 p-3 border border-gray-200">
+                  <p className="text-[10px] font-bold uppercase text-indigo-600">✏️ Editing: {p.title}</p>
+                  <input value={editForm.title} onChange={(e) => setEditForm({ ...editForm, title: e.target.value })} placeholder="Title" className="w-full px-2 py-1 rounded border border-gray-200 text-sm" />
+                  <textarea value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} placeholder="Description" rows={1} className="w-full px-2 py-1 rounded border border-gray-200 text-sm" />
+                  <div className="grid grid-cols-2 gap-1">
+                    <select value={editForm.category} onChange={(e) => setEditForm({ ...editForm, category: e.target.value })} className="px-2 py-1 rounded border border-gray-200 text-xs bg-white">
+                      <option value="past_paper">Past Paper</option>
+                      <option value="kcse_revision">KCSE Revision</option>
+                      <option value="kpsea">KPSEA</option>
+                      <option value="kjsea">KJSEA</option>
+                      <option value="studybuddy_ai">StudyBuddy AI</option>
+                    </select>
+                    <input value={editForm.paperType} onChange={(e) => setEditForm({ ...editForm, paperType: e.target.value })} placeholder="Paper type" className="px-2 py-1 rounded border border-gray-200 text-xs" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-1">
+                    <input value={editForm.gradeLevel} onChange={(e) => setEditForm({ ...editForm, gradeLevel: e.target.value })} placeholder="Grade" className="px-2 py-1 rounded border border-gray-200 text-xs" />
+                    <input value={editForm.subjectName} onChange={(e) => setEditForm({ ...editForm, subjectName: e.target.value })} placeholder="Subject" className="px-2 py-1 rounded border border-gray-200 text-xs" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-1">
+                    <input value={editForm.schoolName} onChange={(e) => setEditForm({ ...editForm, schoolName: e.target.value })} placeholder="School" className="px-2 py-1 rounded border border-gray-200 text-xs" />
+                    <input value={editForm.year} onChange={(e) => setEditForm({ ...editForm, year: e.target.value })} placeholder="Year" type="number" className="px-2 py-1 rounded border border-gray-200 text-xs" />
+                  </div>
+                  <input value={editForm.coverImage} onChange={(e) => setEditForm({ ...editForm, coverImage: e.target.value })} placeholder="Cover image URL" className="w-full px-2 py-1 rounded border border-gray-200 text-xs" />
+                  <div className="flex gap-1">
+                    <button onClick={saveEdit} className="flex-1 py-1.5 rounded-full bg-emerald-600 text-white text-xs font-bold">Save</button>
+                    <button onClick={() => setEditingId(null)} className="flex-1 py-1.5 rounded-full bg-gray-200 text-gray-700 text-xs font-bold">Cancel</button>
+                  </div>
+                </div>
+              ) : (
+                /* Normal row */
+                <div className="flex items-center gap-2">
+                  {p.coverImage ? <img src={p.coverImage} alt="" className="w-10 h-12 rounded object-cover" /> : <div className="w-10 h-12 rounded bg-indigo-50 flex items-center justify-center text-indigo-400">📄</div>}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-900 truncate">{p.title}</p>
+                    <p className="text-[10px] text-gray-500">
+                      {p.category} · {p.gradeLevel ?? "—"} · {p.subjectName ?? "—"} · {p.examType === "pdf" ? "PDF" : "AI"}
+                      {p.year ? ` · ${p.year}` : ""}
+                    </p>
+                  </div>
+                  <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${p.isTrending ? "bg-amber-50 text-amber-600" : "bg-gray-100 text-gray-400"}`}>🔥</span>
+                  <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${p.isPublished ? "bg-emerald-50 text-emerald-600" : "bg-gray-100 text-gray-400"}`}>{p.isPublished ? "LIVE" : "DRAFT"}</span>
+                  <button onClick={() => startEdit(p)} className="text-[10px] font-semibold text-indigo-600">✏️ Edit</button>
+                  <button onClick={() => togglePublish(p)} className="text-[10px] font-semibold text-gray-600">{p.isPublished ? "Unpublish" : "Publish"}</button>
+                  <button onClick={() => toggleTrending(p)} className="text-[10px] font-semibold text-amber-600">{p.isTrending ? "Un-trend" : "Trend"}</button>
+                  <button onClick={() => deletePaper(p.id)} className="text-rose-500"><Trash2 className="w-3.5 h-3.5" /></button>
+                </div>
+              )}
             </li>
           ))}
         </ul>
@@ -2393,6 +2471,196 @@ export function InAppPdfViewer({ dataUrl, title, onClose }: { dataUrl: string; t
         @media print { body { display: none !important; } }
         iframe { pointer-events: auto; }
       `}</style>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------
+// BulkUploadView — upload 10-100 PDFs, AI generates metadata per file
+// ---------------------------------------------------------------------
+
+function BulkUploadView() {
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [defaultCategory, setDefaultCategory] = useState("past_paper");
+  const [defaultGrade, setDefaultGrade] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [progressLabel, setProgressLabel] = useState("");
+  const [results, setResults] = useState<any[] | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    const valid = files.filter((f) => {
+      const ext = (f.name.split(".").pop() ?? "").toLowerCase();
+      return ["pdf", "doc", "docx"].includes(ext);
+    });
+    const oversized = files.filter((f) => f.size > 5 * 1024 * 1024);
+
+    if (oversized.length > 0) {
+      setToast(`⚠️ ${oversized.length} file(s) over 5MB skipped. Use URL mode for large files.`);
+      setTimeout(() => setToast(null), 4000);
+    }
+    if (valid.length > 100) {
+      setToast(`⚠️ Max 100 files. Only the first 100 will be uploaded.`);
+      setTimeout(() => setToast(null), 4000);
+    }
+    setSelectedFiles(valid.slice(0, 100));
+  };
+
+  const totalSize = selectedFiles.reduce((s, f) => s + f.size, 0);
+
+  const upload = async () => {
+    if (selectedFiles.length < 1) return;
+    setBusy(true);
+    setProgress(0);
+    setResults(null);
+    setProgressLabel("Converting files to base64…");
+
+    try {
+      // Convert all files to base64 data URLs
+      const filesData: Array<{ fileName: string; dataUrl: string; size: number }> = [];
+
+      for (let i = 0; i < selectedFiles.length; i++) {
+        const file = selectedFiles[i];
+        const ext = (file.name.split(".").pop() ?? "").toLowerCase();
+        const contentType =
+          ext === "pdf" ? "application/pdf" :
+          ext === "doc" ? "application/msword" :
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+        const arrayBuffer = await file.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+        const base64 = buffer.toString("base64");
+        const dataUrl = `data:${contentType};base64,${base64}`;
+
+        filesData.push({ fileName: file.name, dataUrl, size: file.size });
+
+        // Update progress (conversion phase: 0-50%)
+        const pct = Math.round(((i + 1) / selectedFiles.length) * 50);
+        setProgress(pct);
+        setProgressLabel(`Converting ${i + 1}/${selectedFiles.length}…`);
+      }
+
+      setProgressLabel("AI generating metadata…");
+      setProgress(55);
+
+      // Send to bulk upload API
+      const r = await fetch("/api/admin/exam-papers/bulk-upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          files: filesData,
+          defaultCategory,
+          defaultGradeLevel: defaultGrade,
+        }),
+      });
+
+      setProgress(90);
+      setProgressLabel("Saving to database…");
+
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Failed");
+
+      setProgress(100);
+      setProgressLabel(`Done! ${d.created}/${d.total} exams created.`);
+      setResults(d.results ?? []);
+      setSelectedFiles([]);
+      setToast(`✓ ${d.created} exams created successfully!`);
+      setTimeout(() => setToast(null), 5000);
+    } catch (e: any) {
+      setToast(`✗ ${e?.message ?? "Failed"}`);
+      setTimeout(() => setToast(null), 5000);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      {toast && <div className="rounded-xl bg-indigo-50 border border-indigo-200 p-2 text-xs text-indigo-700">{toast}</div>}
+
+      <div className="rounded-2xl bg-white border border-gray-200 p-4 space-y-3">
+        <h3 className="text-xs font-bold uppercase text-gray-500">📦 Bulk Upload (10-100 files)</h3>
+        <p className="text-[10px] text-gray-400">Select multiple PDF/DOC files. AI analyzes each filename and generates metadata (title, subject, year, category, cover image). Max 5MB per file.</p>
+
+        {/* File picker */}
+        <label className="block w-full cursor-pointer">
+          <div className="rounded-xl border-2 border-dashed p-6 text-center transition hover:border-indigo-400 hover:bg-indigo-50/30">
+            <Upload className="w-6 h-6 text-gray-400 mx-auto mb-1" />
+            <p className="text-xs text-gray-600">Click to select multiple files</p>
+            <p className="text-[10px] text-gray-400 mt-0.5">PDF, DOC, DOCX · Max 5MB each · 10-100 files</p>
+          </div>
+          <input type="file" accept=".pdf,.doc,.docx" multiple onChange={handleFileSelect} className="hidden" />
+        </label>
+
+        {/* Selected files list */}
+        {selectedFiles.length > 0 && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-bold text-gray-700">{selectedFiles.length} files selected</span>
+              <span className="text-gray-400">{(totalSize / 1024 / 1024).toFixed(1)} MB total</span>
+            </div>
+            <div className="max-h-32 overflow-y-auto rounded-lg bg-gray-50 border border-gray-200 p-2 space-y-1">
+              {selectedFiles.map((f, i) => (
+                <div key={i} className="flex items-center justify-between text-[10px] text-gray-600">
+                  <span className="truncate flex-1">{i + 1}. {f.name}</span>
+                  <span className="text-gray-400 ml-2">{(f.size / 1024).toFixed(0)}KB</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Defaults */}
+        <div className="grid grid-cols-2 gap-2">
+          <select value={defaultCategory} onChange={(e) => setDefaultCategory(e.target.value)} className="px-2 py-1.5 rounded-lg border border-gray-200 text-sm bg-white">
+            <option value="past_paper">Default: Past Paper</option>
+            <option value="kcse_revision">Default: KCSE Revision</option>
+            <option value="kpsea">Default: KPSEA</option>
+            <option value="kjsea">Default: KJSEA</option>
+            <option value="studybuddy_ai">Default: StudyBuddy AI</option>
+          </select>
+          <input value={defaultGrade} onChange={(e) => setDefaultGrade(e.target.value)} placeholder="Default grade (e.g. Form 4)" className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm" />
+        </div>
+
+        {/* Progress bar */}
+        {busy && (
+          <div className="space-y-1">
+            <div className="flex justify-between text-[10px] text-gray-500">
+              <span>{progressLabel}</span>
+              <span>{progress}%</span>
+            </div>
+            <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+              <div className="h-full bg-indigo-600 rounded-full transition-all" style={{ width: `${progress}%` }} />
+            </div>
+          </div>
+        )}
+
+        {/* Results */}
+        {results && (
+          <div className="rounded-lg bg-gray-50 border border-gray-200 p-2 max-h-40 overflow-y-auto space-y-1">
+            {results.map((r, i) => (
+              <div key={i} className="flex items-center gap-2 text-[10px]">
+                <span className={r.status === "created" ? "text-emerald-600" : "text-rose-600"}>
+                  {r.status === "created" ? "✓" : "✗"}
+                </span>
+                <span className="text-gray-700 truncate flex-1">{r.title}</span>
+                {r.error && <span className="text-rose-400">{r.error}</span>}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Upload button */}
+        <button
+          onClick={upload}
+          disabled={busy || selectedFiles.length < 1}
+          className="w-full h-10 rounded-full bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-1"
+        >
+          {busy ? <><Loader2 className="w-4 h-4 animate-spin" /> Processing…</> : `📦 Upload ${selectedFiles.length} files`}
+        </button>
+      </div>
     </div>
   );
 }
