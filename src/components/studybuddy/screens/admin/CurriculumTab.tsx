@@ -2440,10 +2440,16 @@ function CoverImageInput({ value, onChange }: { value: string; onChange: (url: s
 // ---------------------------------------------------------------------
 
 export function InAppPdfViewer({ dataUrl, title, onClose }: { dataUrl: string; title: string; onClose: () => void }) {
-  // Check if it's a PDF (data:application/pdf or .pdf URL)
-  const isPdf = dataUrl.startsWith("data:application/pdf") || dataUrl.toLowerCase().endsWith(".pdf");
-  // Check if it's a DOC/DOCX
-  const isDoc = dataUrl.startsWith("data:application/msword") || dataUrl.startsWith("data:application/vnd.openxmlformats");
+  // The server converts DOC/DOCX to PDF, so the data URL should always be
+  // application/pdf. But if conversion failed, it might be msword.
+  // Check for PDF first, then try to render ANY data URL as PDF (since
+  // our server always tries to convert to PDF).
+  const isPdf = dataUrl.startsWith("data:application/pdf") ||
+                dataUrl.startsWith("data:application/octet-stream") ||
+                dataUrl.toLowerCase().includes(".pdf");
+  const isDoc = (dataUrl.startsWith("data:application/msword") ||
+                 dataUrl.startsWith("data:application/vnd.openxmlformats")) &&
+                !isPdf;
 
   return (
     <div className="fixed inset-0 z-[100] bg-gray-900 flex flex-col">
@@ -2455,28 +2461,19 @@ export function InAppPdfViewer({ dataUrl, title, onClose }: { dataUrl: string; t
         <p className="text-sm font-bold truncate flex-1 text-center">{title}</p>
         <span className="text-[10px] text-gray-400">📖 Read-only</span>
       </div>
-      {/* Viewer — uses <embed> for PDFs (renders inline, no download) */}
-      {isPdf ? (
-        <div className="flex-1 relative overflow-hidden">
-          <embed
-            src={dataUrl}
-            type="application/pdf"
-            className="w-full h-full"
-            style={{ border: "none" }}
-          />
-        </div>
-      ) : isDoc ? (
-        /* DOC/DOCX can't render in browser — show message */
+      {/* Viewer — always try <embed> with application/pdf type */}
+      {isDoc ? (
+        /* Genuine DOC/DOCX that wasn't converted — show message */
         <div className="flex-1 flex items-center justify-center text-center p-8">
           <div>
             <FileText className="w-12 h-12 text-gray-500 mx-auto mb-3" />
             <p className="text-sm text-white font-bold">Word document preview</p>
-            <p className="text-xs text-gray-400 mt-1">This is a DOC/DOCX file which cannot be displayed inline.</p>
-            <p className="text-xs text-gray-400 mt-1">Only PDF files can be viewed in the app. Please convert to PDF and re-upload.</p>
+            <p className="text-xs text-gray-400 mt-1">This DOC/DOCX file was not converted to PDF.</p>
+            <p className="text-xs text-gray-400 mt-1">Only PDF files can be viewed in the app.</p>
           </div>
         </div>
       ) : (
-        /* Fallback for external URLs */
+        /* PDF (or anything that might be a PDF after conversion) — use <embed> */
         <div className="flex-1 relative overflow-hidden">
           <embed
             src={dataUrl}
