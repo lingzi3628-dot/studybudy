@@ -23,6 +23,7 @@ import {
   Bell,
   Image as ImageIcon,
   Palette,
+  ChevronLeft,
 } from "lucide-react";
 
 type Grade = {
