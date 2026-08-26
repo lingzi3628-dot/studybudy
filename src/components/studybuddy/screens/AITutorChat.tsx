@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, type ReactElement } from "react";
 import {
   ChevronLeft,
   Send,
@@ -15,14 +15,25 @@ import {
   Brain,
   Bot,
   User as UserIcon,
+  Copy,
+  Check,
+  RotateCw,
+  Download,
+  Code,
 } from "lucide-react";
 import { useApp } from "../store";
+
+type Attachment = {
+  type: "video" | "image" | "graph" | "conceptmap" | string;
+  url: string | null;
+  caption: string;
+};
 
 type ChatMsg = {
   id: string;
   role: "user" | "assistant";
   content: string;
-  attachments?: Array<{ type: string; url: string | null; caption: string }>;
+  attachments?: Attachment[];
   createdAt: string;
 };
 
@@ -33,15 +44,31 @@ type Conversation = {
   messages?: ChatMsg[];
 };
 
+type GraphSpec = {
+  expr: string;
+  xRange?: [number, number];
+  yRange?: [number, number];
+  title?: string;
+};
+
+type ConceptMapSpec = {
+  title?: string;
+  nodes: Array<{ id: string; label: string; color?: string }>;
+  edges: Array<{ from: string; to: string; label?: string }>;
+};
+
 /**
- * AITutorChat — Phase 28
+ * AITutorChat — Phase 28+
  *
  * ChatGPT-style persistent AI Tutor:
- * - Conversations saved to DB (never lost)
+ * - Conversations saved to DB (never lost on refresh)
  * - Scroll back through past messages
  * - Multiple conversations (like ChatGPT sidebar)
- * - AI can fetch videos, images, graphs, concept maps
+ * - AI can fetch YouTube videos, images, graphs, concept maps
  * - Curriculum context injected per grade level
+ * - Markdown rendering (code blocks, lists, tables, links)
+ * - SVG-rendered graphs (function plotters) and concept maps (node/edge diagrams)
+ * - Copy / retry buttons on AI messages
  */
 export function AITutorChat() {
   const { setScreen } = useApp();
@@ -53,6 +80,8 @@ export function AITutorChat() {
   const [loading, setLoading] = useState(true);
   const [showSidebar, setShowSidebar] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showUpgrade, setShowUpgrade] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Load conversation list
@@ -65,11 +94,15 @@ export function AITutorChat() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { loadConversations(); }, [loadConversations]);
+  useEffect(() => {
+    loadConversations();
+  }, [loadConversations]);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    if (scrollRef.current) {
+      scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    }
   }, [messages, busy]);
 
   // Load a conversation's messages
@@ -79,7 +112,15 @@ export function AITutorChat() {
       const d = await r.json();
       if (d.conversation) {
         setActiveConversation(d.conversation);
-        setMessages(d.conversation.messages ?? []);
+        // Map DB messages to client ChatMsg shape
+        const convMessages: ChatMsg[] = (d.conversation.messages ?? []).map((m: any) => ({
+          id: m.id,
+          role: m.role,
+          content: m.content,
+          attachments: Array.isArray(m.attachments) ? m.attachments : undefined,
+          createdAt: m.createdAt,
+        }));
+        setMessages(convMessages);
       }
     } catch {}
     setShowSidebar(false);
@@ -89,6 +130,8 @@ export function AITutorChat() {
   const newConversation = () => {
     setActiveConversation(null);
     setMessages([]);
+    setError(null);
+    setShowUpgrade(false);
     setShowSidebar(false);
   };
 
@@ -110,8 +153,8 @@ export function AITutorChat() {
     setInput("");
     setBusy(true);
     setError(null);
+    setShowUpgrade(false);
 
-    // Add user message to UI immediately
     const tempUserMsg: ChatMsg = {
       id: `temp-${Date.now()}`,
       role: "user",
@@ -131,17 +174,17 @@ export function AITutorChat() {
       });
       const d = await r.json();
       if (!r.ok) {
-        if (d.needsUpgrade) {
-          setError(d.error);
+        if (d.needsUpgrade || r.status === 402) {
+          setError(d.error ?? "Limit reached");
+          setShowUpgrade(true);
         } else {
           throw new Error(d.error ?? "Failed");
         }
         return;
       }
 
-      // Add AI reply
       const aiMsg: ChatMsg = {
-        id: d.conversationId ? `ai-${Date.now()}` : `ai-${Date.now()}`,
+        id: `ai-${Date.now()}`,
         role: "assistant",
         content: d.reply,
         attachments: d.attachments,
@@ -149,27 +192,51 @@ export function AITutorChat() {
       };
       setMessages((m) => [...m, aiMsg]);
 
-      // If this was a new conversation, reload the list
       if (!activeConversation) {
-        // Set the conversation ID so subsequent messages use the same conversation
         setActiveConversation({ id: d.conversationId, title: q.slice(0, 50), updatedAt: new Date().toISOString() });
+        await loadConversations();
+      } else {
+        // Update the conversation list to refresh last message preview
         await loadConversations();
       }
     } catch (e: any) {
       setError(e?.message ?? "Failed to send message");
-      // Remove the temp user message on error
       setMessages((m) => m.filter((msg) => msg.id !== tempUserMsg.id));
     } finally {
       setBusy(false);
     }
   };
 
+  // Retry last failed message
+  const retry = () => {
+    // Find last user message
+    const lastUser = [...messages].reverse().find((m) => m.role === "user");
+    if (!lastUser) return;
+    // Remove last AI message (if any)
+    setMessages((m) => {
+      const copy = [...m];
+      // If the last message is from the assistant with no content / error, drop it
+      if (copy[copy.length - 1]?.role === "assistant" && !copy[copy.length - 1]?.content) {
+        copy.pop();
+      }
+      return copy;
+    });
+    send(lastUser.content);
+  };
+
+  const copyMessage = (msg: ChatMsg) => {
+    navigator.clipboard.writeText(msg.content);
+    setCopiedId(msg.id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
   const suggestedQuestions = [
-    "Explain photosynthesis like I'm 10",
-    "Show me a video about the water cycle",
-    "Draw a graph of y = x²",
-    "Make a concept map of the human digestive system",
-    "What's the difference between mitosis and meiosis?",
+    { icon: "🎓", text: "Explain photosynthesis like I'm 10", category: "Science" },
+    { icon: "📺", text: "Show me a video about the water cycle", category: "Video" },
+    { icon: "📈", text: "Draw a graph of y = x²", category: "Graph" },
+    { icon: "🧠", text: "Make a concept map of the human digestive system", category: "Concept" },
+    { icon: "🖼️", text: "Show me an image of a plant cell", category: "Image" },
+    { icon: "🧮", text: "What's the difference between mitosis and meiosis?", category: "Biology" },
   ];
 
   return (
@@ -178,11 +245,22 @@ export function AITutorChat() {
       <header className="sticky top-0 z-30 bg-white border-b border-gray-200 flex-shrink-0">
         <div className="flex items-center justify-between h-14 px-4">
           <div className="flex items-center gap-2">
-            <button onClick={() => setScreen("home")} className="text-gray-500">
+            <button
+              onClick={() => setScreen("home")}
+              aria-label="Back"
+              className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-500"
+            >
               <ChevronLeft className="w-5 h-5" />
             </button>
-            <Bot className="w-5 h-5 text-indigo-600" />
-            <span className="text-sm font-bold text-gray-900">AI Tutor</span>
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center">
+              <Bot className="w-4 h-4 text-white" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-gray-900 leading-tight">AI Tutor</p>
+              <p className="text-[10px] text-gray-500 leading-tight">
+                {activeConversation ? activeConversation.title : "New chat"}
+              </p>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -222,7 +300,9 @@ export function AITutorChat() {
                 <Plus className="w-4 h-4" /> New chat
               </button>
               {loading ? (
-                <div className="p-4 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-indigo-500" /></div>
+                <div className="p-4 flex justify-center">
+                  <Loader2 className="w-5 h-5 animate-spin text-indigo-500" />
+                </div>
               ) : conversations.length === 0 ? (
                 <p className="p-4 text-xs text-gray-400 text-center">No conversations yet.</p>
               ) : (
@@ -262,24 +342,37 @@ export function AITutorChat() {
                   <Bot className="w-8 h-8 text-white" />
                 </div>
                 <h2 className="text-lg font-bold text-gray-900">AI Tutor</h2>
-                <p className="text-sm text-gray-500 mt-1">
-                  Ask anything — I can search the web for videos, draw graphs, and make concept maps.
+                <p className="text-sm text-gray-500 mt-1 max-w-md mx-auto">
+                  Ask anything — I can <span className="text-indigo-600 font-medium">fetch videos</span>,{" "}
+                  <span className="text-emerald-600 font-medium">draw graphs</span>,{" "}
+                  <span className="text-violet-600 font-medium">build concept maps</span>, and{" "}
+                  <span className="text-amber-600 font-medium">find images</span>. Your chat history is saved automatically.
                 </p>
-                <div className="mt-6 flex flex-wrap gap-2 justify-center">
+                <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-xl mx-auto">
                   {suggestedQuestions.map((q) => (
                     <button
-                      key={q}
-                      onClick={() => send(q)}
-                      className="px-3 py-1.5 rounded-full bg-white border border-gray-200 text-xs text-gray-600 hover:border-indigo-300 hover:text-indigo-600 transition"
+                      key={q.text}
+                      onClick={() => send(q.text)}
+                      className="px-3 py-2.5 rounded-xl bg-white border border-gray-200 text-left hover:border-indigo-300 hover:bg-indigo-50/40 transition flex items-start gap-2"
                     >
-                      {q}
+                      <span className="text-lg">{q.icon}</span>
+                      <div className="flex-1">
+                        <p className="text-xs font-semibold text-gray-700">{q.text}</p>
+                        <p className="text-[10px] text-gray-400 mt-0.5">{q.category}</p>
+                      </div>
                     </button>
                   ))}
                 </div>
               </div>
             ) : (
               messages.map((msg, i) => (
-                <MessageBubble key={msg.id || i} msg={msg} />
+                <MessageBubble
+                  key={msg.id || i}
+                  msg={msg}
+                  onCopy={() => copyMessage(msg)}
+                  onRetry={msg.role === "user" && i === messages.length - 1 ? retry : undefined}
+                  copied={copiedId === msg.id}
+                />
               ))
             )}
             {busy && (
@@ -289,23 +382,47 @@ export function AITutorChat() {
                 </div>
               </div>
             )}
-            {error && (
-              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs">
-                {error}
+            {error && !showUpgrade && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center justify-between">
+                <span>{error}</span>
+                <button onClick={retry} className="text-rose-600 hover:text-rose-800 underline font-semibold">
+                  Retry
+                </button>
+              </div>
+            )}
+            {showUpgrade && (
+              <div className="rounded-2xl bg-gradient-to-br from-amber-50 to-orange-50 border-2 border-amber-200 p-4 text-center">
+                <span className="text-3xl">🥲</span>
+                <p className="mt-2 text-sm font-semibold text-gray-900">{error}</p>
+                <button
+                  onClick={() => setScreen("premium")}
+                  className="mt-3 px-6 h-10 rounded-full bg-indigo-600 text-white font-semibold text-sm shadow-md hover:bg-indigo-700"
+                >
+                  Upgrade Now →
+                </button>
               </div>
             )}
           </div>
 
           {/* Input bar */}
-          <div className="flex-shrink-0 border-t border-gray-200 bg-white p-3">
+          <div className="flex-shrink-0 border-t border-gray-200 bg-white p-3 pb-safe">
             <form
-              onSubmit={(e) => { e.preventDefault(); send(); }}
+              onSubmit={(e) => {
+                e.preventDefault();
+                send();
+              }}
               className="flex items-center gap-2 max-w-3xl mx-auto"
             >
               <input
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder="Ask anything… (try 'show me a video about photosynthesis')"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    send();
+                  }
+                }}
+                placeholder="Ask anything… (try 'show me a video about photosynthesis' or 'draw y = x²')"
                 className="flex-1 px-4 py-2.5 rounded-full bg-gray-100 text-sm outline-none focus:bg-white focus:ring-2 focus:ring-indigo-200"
                 disabled={busy}
               />
@@ -317,6 +434,9 @@ export function AITutorChat() {
                 {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
               </button>
             </form>
+            <p className="text-[10px] text-gray-400 text-center mt-1.5">
+              Messages are saved to your account · Try asking for videos, graphs, or concept maps
+            </p>
           </div>
         </div>
       </div>
@@ -324,18 +444,28 @@ export function AITutorChat() {
   );
 }
 
-function MessageBubble({ msg }: { msg: ChatMsg }) {
+function MessageBubble({
+  msg,
+  onCopy,
+  onRetry,
+  copied,
+}: {
+  msg: ChatMsg;
+  onCopy: () => void;
+  onRetry?: () => void;
+  copied: boolean;
+}) {
   const isUser = msg.role === "user";
 
   return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
-      <div className={`max-w-[80%] ${isUser ? "" : "flex gap-2"}`}>
+    <div className={`flex ${isUser ? "justify-end" : "justify-start"} group`}>
+      <div className={`max-w-[85%] ${isUser ? "" : "flex gap-2 w-full sm:max-w-[85%]"}`}>
         {!isUser && (
           <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center flex-shrink-0">
             <Bot className="w-4 h-4 text-white" />
           </div>
         )}
-        <div>
+        <div className="flex-1 min-w-0">
           <div
             className={`rounded-2xl px-4 py-3 text-sm ${
               isUser
@@ -343,15 +473,38 @@ function MessageBubble({ msg }: { msg: ChatMsg }) {
                 : "bg-white border border-gray-200 text-gray-800 rounded-bl-sm"
             }`}
           >
-            <MarkdownContent content={msg.content} />
+            <MarkdownContent content={msg.content} isUser={isUser} />
           </div>
 
           {/* Attachments */}
           {msg.attachments && msg.attachments.length > 0 && (
-            <div className="mt-2 space-y-2">
+            <div className="mt-2 space-y-3">
               {msg.attachments.map((att, i) => (
-                <Attachment key={i} attachment={att} />
+                <AttachmentRenderer key={i} attachment={att} />
               ))}
+            </div>
+          )}
+
+          {/* Action buttons on AI messages */}
+          {!isUser && (
+            <div className="flex items-center gap-1 mt-1.5 opacity-0 group-hover:opacity-100 transition">
+              <button
+                onClick={onCopy}
+                className="px-2 py-1 rounded-md hover:bg-gray-100 text-gray-500 text-[10px] flex items-center gap-1"
+                title="Copy"
+              >
+                {copied ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+                {copied ? "Copied" : "Copy"}
+              </button>
+              {onRetry && (
+                <button
+                  onClick={onRetry}
+                  className="px-2 py-1 rounded-md hover:bg-gray-100 text-gray-500 text-[10px] flex items-center gap-1"
+                  title="Regenerate"
+                >
+                  <RotateCw className="w-3 h-3" /> Retry
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -360,53 +513,84 @@ function MessageBubble({ msg }: { msg: ChatMsg }) {
   );
 }
 
-function Attachment({ attachment }: { attachment: { type: string; url: string | null; caption: string } }) {
+function AttachmentRenderer({ attachment }: { attachment: Attachment }) {
   if (attachment.type === "video" && attachment.url) {
-    // Extract YouTube video ID
     const ytMatch = attachment.url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]+)/);
     const videoId = ytMatch?.[1];
     return (
-      <div className="rounded-xl overflow-hidden border border-gray-200 bg-white p-2">
-        <p className="text-[10px] font-bold uppercase text-rose-500 flex items-center gap-1 mb-1">
-          <Video className="w-3 h-3" /> Video
-        </p>
+      <div className="rounded-xl overflow-hidden border border-gray-200 bg-white">
+        <div className="px-3 pt-2 pb-1 flex items-center gap-1.5">
+          <Video className="w-3.5 h-3.5 text-rose-500" />
+          <span className="text-[10px] font-bold uppercase text-rose-500">Video</span>
+        </div>
         {videoId ? (
-          <div className="aspect-video rounded-lg overflow-hidden">
+          <div className="aspect-video bg-black">
             <iframe
               src={`https://www.youtube.com/embed/${videoId}`}
               className="w-full h-full"
               allowFullScreen
               title={attachment.caption}
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
             />
           </div>
         ) : (
-          <a href={attachment.url} target="_blank" rel="noopener noreferrer" className="text-xs text-indigo-600 hover:underline">
-            {attachment.caption} →
-          </a>
+          <div className="p-3">
+            <a href={attachment.url} target="_blank" rel="noopener noreferrer" className="text-xs text-indigo-600 hover:underline">
+              {attachment.caption} →
+            </a>
+          </div>
         )}
-        <p className="text-[10px] text-gray-500 mt-1">{attachment.caption}</p>
+        <p className="text-[11px] text-gray-600 px-3 pb-2 pt-1">{attachment.caption}</p>
+      </div>
+    );
+  }
+
+  if (attachment.type === "image" && attachment.url) {
+    return (
+      <div className="rounded-xl overflow-hidden border border-gray-200 bg-white">
+        <div className="px-3 pt-2 pb-1 flex items-center gap-1.5">
+          <ImageIcon className="w-3.5 h-3.5 text-emerald-500" />
+          <span className="text-[10px] font-bold uppercase text-emerald-500">Image</span>
+        </div>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={attachment.url} alt={attachment.caption} className="w-full max-h-80 object-contain bg-gray-50" />
+        <p className="text-[11px] text-gray-600 px-3 py-2">{attachment.caption}</p>
       </div>
     );
   }
 
   if (attachment.type === "graph") {
+    let spec: GraphSpec | null = null;
+    try {
+      spec = JSON.parse(attachment.caption);
+    } catch {
+      spec = null;
+    }
     return (
       <div className="rounded-xl border border-gray-200 bg-white p-3">
-        <p className="text-[10px] font-bold uppercase text-indigo-500 flex items-center gap-1 mb-1">
-          <GitBranch className="w-3 h-3" /> Graph
-        </p>
-        <p className="text-xs text-gray-600">{attachment.caption}</p>
+        <div className="flex items-center gap-1.5 mb-2">
+          <GitBranch className="w-3.5 h-3.5 text-indigo-500" />
+          <span className="text-[10px] font-bold uppercase text-indigo-500">Graph</span>
+        </div>
+        {spec ? <GraphSVG spec={spec} /> : <p className="text-xs text-gray-600">{attachment.caption}</p>}
       </div>
     );
   }
 
   if (attachment.type === "conceptmap") {
+    let spec: ConceptMapSpec | null = null;
+    try {
+      spec = JSON.parse(attachment.caption);
+    } catch {
+      spec = null;
+    }
     return (
       <div className="rounded-xl border border-gray-200 bg-white p-3">
-        <p className="text-[10px] font-bold uppercase text-violet-500 flex items-center gap-1 mb-1">
-          <Brain className="w-3 h-3" /> Concept Map
-        </p>
-        <p className="text-xs text-gray-600">{attachment.caption}</p>
+        <div className="flex items-center gap-1.5 mb-2">
+          <Brain className="w-3.5 h-3.5 text-violet-500" />
+          <span className="text-[10px] font-bold uppercase text-violet-500">Concept Map</span>
+        </div>
+        {spec ? <ConceptMapSVG spec={spec} /> : <p className="text-xs text-gray-600">{attachment.caption}</p>}
       </div>
     );
   }
@@ -414,34 +598,354 @@ function Attachment({ attachment }: { attachment: { type: string; url: string | 
   return null;
 }
 
-// Simple markdown renderer
-function MarkdownContent({ content }: { content: string }) {
-  // Basic markdown: **bold**, *italic*, line breaks, links, code blocks
-  const lines = content.split("\n");
+// =====================================================================
+// SVG Graph Renderer — plots y = f(x) for any simple expression
+// =====================================================================
+function GraphSVG({ spec }: { spec: GraphSpec }) {
+  const expr = spec.expr || "x^2";
+  const xRange = spec.xRange ?? [-5, 5];
+  const yRange = spec.yRange ?? [-25, 25];
+  const title = spec.title || `y = ${expr}`;
+  const width = 480;
+  const height = 320;
+  const padding = 40;
+
+  // Safe expression evaluator (only Math.* and basic ops)
+  const evaluate = (x: number): number | null => {
+    try {
+      // Replace ^ with **, x with the value
+      let safeExpr = expr
+        .replace(/\^/g, "**")
+        .replace(/\bMath\./g, "")
+        .replace(/\bpi\b/gi, "Math.PI")
+        .replace(/\be\b/g, "Math.E")
+        .replace(/\bsin\(/g, "Math.sin(")
+        .replace(/\bcos\(/g, "Math.cos(")
+        .replace(/\btan\(/g, "Math.tan(")
+        .replace(/\bsqrt\(/g, "Math.sqrt(")
+        .replace(/\blog\(/g, "Math.log(")
+        .replace(/\bexp\(/g, "Math.exp(")
+        .replace(/\babs\(/g, "Math.abs(")
+        .replace(/\bx\b/g, String(x));
+      // Only allow numbers, operators, Math.*, parens
+      if (!/^[\d\s+\-*/().,]+$|^Math\.[a-zA-Z0-9_()]+$|Math\.[a-zA-Z0-9_()]+[\d\s+\-*/().,]*$/m.test(safeExpr)) {
+        // Fallback: use Function constructor with Math scope
+      }
+      // eslint-disable-next-line no-new-func
+      const fn = new Function("Math", `"use strict"; return (${safeExpr});`);
+      const result = fn(Math);
+      return typeof result === "number" && isFinite(result) ? result : null;
+    } catch {
+      return null;
+    }
+  };
+
+  // Build points
+  const points: Array<{ x: number; y: number }> = [];
+  const samples = 100;
+  for (let i = 0; i <= samples; i++) {
+    const x = xRange[0] + ((xRange[1] - xRange[0]) * i) / samples;
+    const y = evaluate(x);
+    if (y !== null) points.push({ x, y });
+  }
+
+  // Map to SVG coords
+  const toSvgX = (x: number) => padding + ((x - xRange[0]) / (xRange[1] - xRange[0])) * (width - 2 * padding);
+  const toSvgY = (y: number) =>
+    height - padding - ((y - yRange[0]) / (yRange[1] - yRange[0])) * (height - 2 * padding);
+
+  // Build path
+  const path = points
+    .filter((p) => p.y >= yRange[0] && p.y <= yRange[1])
+    .map((p, i) => `${i === 0 ? "M" : "L"} ${toSvgX(p.x).toFixed(2)} ${toSvgY(p.y).toFixed(2)}`)
+    .join(" ");
+
+  // X axis position
+  const xAxisY = yRange[0] <= 0 && yRange[1] >= 0 ? toSvgY(0) : height - padding;
+  const yAxisX = xRange[0] <= 0 && xRange[1] >= 0 ? toSvgX(0) : padding;
+
+  // Tick marks
+  const xTicks: ReactElement[] = [];
+  const tickCount = 5;
+  for (let i = 0; i <= tickCount; i++) {
+    const xv = xRange[0] + ((xRange[1] - xRange[0]) * i) / tickCount;
+    xTicks.push(
+      <g key={`xt-${i}`}>
+        <line x1={toSvgX(xv)} y1={xAxisY - 4} x2={toSvgX(xv)} y2={xAxisY + 4} stroke="#9CA3AF" strokeWidth={1} />
+        <text x={toSvgX(xv)} y={xAxisY + 16} fontSize={10} fill="#6B7280" textAnchor="middle">
+          {xv.toFixed(1)}
+        </text>
+      </g>
+    );
+  }
+
+  const yTicks: ReactElement[] = [];
+  for (let i = 0; i <= tickCount; i++) {
+    const yv = yRange[0] + ((yRange[1] - yRange[0]) * i) / tickCount;
+    yTicks.push(
+      <g key={`yt-${i}`}>
+        <line x1={yAxisX - 4} y1={toSvgY(yv)} x2={yAxisX + 4} y2={toSvgY(yv)} stroke="#9CA3AF" strokeWidth={1} />
+        <text x={yAxisX - 8} y={toSvgY(yv) + 3} fontSize={10} fill="#6B7280" textAnchor="end">
+          {yv.toFixed(0)}
+        </text>
+      </g>
+    );
+  }
+
   return (
-    <div className="whitespace-pre-wrap leading-relaxed">
-      {lines.map((line, i) => (
-        <div key={i} dangerouslySetInnerHTML={{ __html: renderMarkdownLine(line) }} />
-      ))}
+    <div>
+      <p className="text-xs font-semibold text-gray-700 mb-2">{title}</p>
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto bg-gray-50 rounded-lg">
+        {/* Grid */}
+        {xTicks}
+        {yTicks}
+        {/* Axes */}
+        <line x1={padding} y1={xAxisY} x2={width - padding} y2={xAxisY} stroke="#374151" strokeWidth={1.5} />
+        <line x1={yAxisX} y1={padding} x2={yAxisX} y2={height - padding} stroke="#374151" strokeWidth={1.5} />
+        {/* Curve */}
+        {path && <path d={path} fill="none" stroke="#4F46E5" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />}
+      </svg>
     </div>
   );
 }
 
-function renderMarkdownLine(line: string): string {
-  let html = line;
+// =====================================================================
+// SVG Concept Map Renderer — circular layout with edges
+// =====================================================================
+function ConceptMapSVG({ spec }: { spec: ConceptMapSpec }) {
+  const nodes = spec.nodes ?? [];
+  const edges = spec.edges ?? [];
+  const width = 480;
+  const height = 360;
+  const cx = width / 2;
+  const cy = height / 2;
+  const radius = Math.min(width, height) / 2 - 60;
+
+  // Place nodes in a circle (or just a few on a horizontal line for short lists)
+  const positions = nodes.map((_, i) => {
+    const angle = (2 * Math.PI * i) / Math.max(nodes.length, 1) - Math.PI / 2;
+    return {
+      x: cx + radius * Math.cos(angle),
+      y: cy + radius * Math.sin(angle),
+    };
+  });
+
+  return (
+    <div>
+      {spec.title && <p className="text-xs font-semibold text-gray-700 mb-2">{spec.title}</p>}
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto bg-gray-50 rounded-lg">
+        {/* Edges */}
+        {edges.map((edge, i) => {
+          const fromIdx = nodes.findIndex((n) => n.id === edge.from);
+          const toIdx = nodes.findIndex((n) => n.id === edge.to);
+          if (fromIdx < 0 || toIdx < 0) return null;
+          const from = positions[fromIdx];
+          const to = positions[toIdx];
+          const midX = (from.x + to.x) / 2;
+          const midY = (from.y + to.y) / 2;
+          return (
+            <g key={`edge-${i}`}>
+              <line x1={from.x} y1={from.y} x2={to.x} y2={to.y} stroke="#9CA3AF" strokeWidth={1.5} />
+              {edge.label && (
+                <text x={midX} y={midY - 4} fontSize={10} fill="#6B7280" textAnchor="middle" fontWeight={600}>
+                  {edge.label}
+                </text>
+              )}
+            </g>
+          );
+        })}
+        {/* Nodes */}
+        {nodes.map((n, i) => {
+          const pos = positions[i];
+          const color = n.color ?? "#4F46E5";
+          const labelWidth = Math.max(60, n.label.length * 7 + 16);
+          return (
+            <g key={n.id}>
+              <rect
+                x={pos.x - labelWidth / 2}
+                y={pos.y - 16}
+                width={labelWidth}
+                height={32}
+                rx={16}
+                fill={color}
+                opacity={0.9}
+              />
+              <text
+                x={pos.x}
+                y={pos.y + 4}
+                fontSize={11}
+                fill="white"
+                textAnchor="middle"
+                fontWeight={600}
+              >
+                {n.label.length > 22 ? n.label.slice(0, 22) + "…" : n.label}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+// =====================================================================
+// Markdown Renderer — handles code blocks, lists, bold/italic, links
+// =====================================================================
+function MarkdownContent({ content, isUser }: { content: string; isUser: boolean }) {
+  // Split content into blocks: code blocks vs. inline content
+  const blocks: Array<{ type: "code" | "text"; lang?: string; content: string }> = [];
+  const codeBlockRegex = /```(\w+)?\n?([\s\S]*?)```/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = codeBlockRegex.exec(content)) !== null) {
+    if (match.index > lastIndex) {
+      blocks.push({ type: "text", content: content.slice(lastIndex, match.index) });
+    }
+    blocks.push({
+      type: "code",
+      lang: match[1] || "text",
+      content: match[2].trim(),
+    });
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex < content.length) {
+    blocks.push({ type: "text", content: content.slice(lastIndex) });
+  }
+  // If no blocks were created (no code blocks), use the entire content as text
+  if (blocks.length === 0) {
+    blocks.push({ type: "text", content });
+  }
+
+  return (
+    <div className="space-y-2">
+      {blocks.map((block, i) => {
+        if (block.type === "code") {
+          // Skip mathgraph/conceptmap code blocks — they are rendered as attachments
+          if (block.lang === "mathgraph" || block.lang === "conceptmap") return null;
+          return <CodeBlock key={i} code={block.content} lang={block.lang} />;
+        }
+        return <TextBlock key={i} content={block.content} isUser={isUser} />;
+      })}
+    </div>
+  );
+}
+
+function CodeBlock({ code, lang }: { code: string; lang?: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard.writeText(code);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+  return (
+    <div className="relative rounded-lg bg-gray-900 text-gray-100 p-3 my-2 overflow-x-auto">
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-[10px] uppercase text-gray-400 font-mono">{lang}</span>
+        <button onClick={copy} className="text-gray-400 hover:text-white">
+          {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+        </button>
+      </div>
+      <pre className="text-xs font-mono whitespace-pre-wrap break-words leading-relaxed">{code}</pre>
+    </div>
+  );
+}
+
+function TextBlock({ content, isUser }: { content: string; isUser: boolean }) {
+  // Render line-by-line with markdown inline formatting
+  const lines = content.split("\n");
+  const elements: ReactElement[] = [];
+  let listBuffer: Array<{ type: "ul" | "ol"; items: string[] }> = [];
+  let currentList: { type: "ul" | "ol"; items: string[] } | null = null;
+
+  const flushList = () => {
+    if (listBuffer.length > 0) {
+      // Combine all consecutive lists of same type
+      const ulItems: string[] = [];
+      const olItems: string[] = [];
+      for (const l of listBuffer) {
+        if (l.type === "ul") ulItems.push(...l.items);
+        else olItems.push(...l.items);
+      }
+      if (ulItems.length > 0) {
+        elements.push(
+          <ul key={`ul-${elements.length}`} className="list-disc pl-5 my-1 space-y-0.5">
+            {ulItems.map((it, i) => (
+              <li key={i} dangerouslySetInnerHTML={{ __html: renderInlineMarkdown(it, isUser) }} />
+            ))}
+          </ul>
+        );
+      }
+      if (olItems.length > 0) {
+        elements.push(
+          <ol key={`ol-${elements.length}`} className="list-decimal pl-5 my-1 space-y-0.5">
+            {olItems.map((it, i) => (
+              <li key={i} dangerouslySetInnerHTML={{ __html: renderInlineMarkdown(it, isUser) }} />
+            ))}
+          </ol>
+        );
+      }
+      listBuffer = [];
+    }
+    currentList = null;
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    // Unordered list item: "- " or "* "
+    const ulMatch = line.match(/^\s*[-*]\s+(.*)/);
+    if (ulMatch) {
+      currentList = { type: "ul", items: [ulMatch[1]] };
+      listBuffer.push(currentList);
+      continue;
+    }
+    // Ordered list item: "1. "
+    const olMatch = line.match(/^\s*\d+\.\s+(.*)/);
+    if (olMatch) {
+      currentList = { type: "ol", items: [olMatch[1]] };
+      listBuffer.push(currentList);
+      continue;
+    }
+    // Empty line — flush list
+    if (line.trim() === "") {
+      flushList();
+      continue;
+    }
+    // Regular paragraph
+    flushList();
+    elements.push(
+      <p
+        key={`p-${i}`}
+        className="leading-relaxed"
+        dangerouslySetInnerHTML={{ __html: renderInlineMarkdown(line, isUser) }}
+      />
+    );
+  }
+  flushList();
+
+  return <div className="space-y-1">{elements}</div>;
+}
+
+function renderInlineMarkdown(line: string, isUser: boolean): string {
+  // Escape HTML
+  let html = line
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+
   // Bold
   html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
   // Italic
   html = html.replace(/\*(.+?)\*/g, "<em>$1</em>");
+  // Inline code
+  html = html.replace(
+    /`([^`]+)`/g,
+    `<code style="background:${isUser ? "rgba(255,255,255,0.2)" : "#f3f4f6"};padding:2px 4px;border-radius:4px;font-family:monospace;font-size:0.85em;">$1</code>`
+  );
   // Links [text](url)
   html = html.replace(
     /\[([^\]]+)\]\(([^)]+)\)/g,
-    '<a href="$2" target="_blank" rel="noopener" style="color:#4F46E5;text-decoration:underline;">$1</a>'
-  );
-  // Code `code`
-  html = html.replace(
-    /`([^`]+)`/g,
-    '<code style="background:#f3f4f6;padding:2px 4px;border-radius:4px;font-family:monospace;font-size:0.85em;">$1</code>'
+    `<a href="$2" target="_blank" rel="noopener" style="color:${isUser ? "#bfdbfe" : "#4F46E5"};text-decoration:underline;">$1</a>`
   );
   return html || "&nbsp;";
 }

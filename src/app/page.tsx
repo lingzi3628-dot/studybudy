@@ -13,7 +13,6 @@ import { Flashcards } from "@/components/studybuddy/screens/Flashcards";
 import { Quiz } from "@/components/studybuddy/screens/Quiz";
 import { GraphExplorer } from "@/components/studybuddy/screens/GraphExplorer";
 import { LanguagePractice } from "@/components/studybuddy/screens/LanguagePractice";
-import { AITutor } from "@/components/studybuddy/screens/AITutor";
 import { AITutorChat } from "@/components/studybuddy/screens/AITutorChat";
 import { LearningPathScreen } from "@/components/studybuddy/screens/LearningPath";
 import { StudyRoom } from "@/components/studybuddy/screens/StudyRoom";
