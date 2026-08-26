@@ -5,6 +5,7 @@ import { existsSync } from "fs";
 import path from "path";
 
 export const runtime = "nodejs";
+export const maxDuration = 60; // Allow 60s for large file uploads
 
 /**
  * POST /api/admin/exam-papers/upload
@@ -18,7 +19,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Admin required" }, { status: 401 });
   }
 
-  const formData = await req.formData();
+  let formData: FormData;
+  try {
+    formData = await req.formData();
+  } catch (e: any) {
+    console.error("formData parse error:", e?.message);
+    return NextResponse.json({ error: "Failed to parse upload. Make sure the file is under 15MB." }, { status: 400 });
+  }
+
   const file = formData.get("file") as File | null;
 
   if (!file) {
@@ -31,12 +39,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "File too large. Max 15MB." }, { status: 413 });
   }
 
-  // Validate file type
-  const allowedTypes = ["application/pdf", "application/octet-stream"];
-  const allowedExtensions = [".pdf", ".doc", ".docx"];
+  if (file.size === 0) {
+    return NextResponse.json({ error: "File is empty" }, { status: 400 });
+  }
+
+  // Validate file extension (be lenient on MIME type — browsers vary)
   const ext = path.extname(file.name).toLowerCase();
-  if (!allowedTypes.includes(file.type) && !allowedExtensions.includes(ext)) {
-    return NextResponse.json({ error: "Only PDF files are allowed" }, { status: 400 });
+  const allowedExtensions = [".pdf", ".doc", ".docx"];
+  if (!allowedExtensions.includes(ext)) {
+    return NextResponse.json({ error: "Only PDF, DOC, or DOCX files are allowed" }, { status: 400 });
   }
 
   try {
@@ -51,12 +62,14 @@ export async function POST(req: NextRequest) {
     const fileName = `${Date.now()}-${safeName}`;
     const filePath = path.join(uploadDir, fileName);
 
-    // Write the file
+    // Write the file — use arrayBuffer → Buffer
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
     await writeFile(filePath, buffer);
 
     const fileUrl = `/exams/${fileName}`;
+
+    console.log("[exam-upload] Saved:", fileName, "size:", file.size, "url:", fileUrl);
 
     return NextResponse.json({
       ok: true,
@@ -65,7 +78,10 @@ export async function POST(req: NextRequest) {
       size: file.size,
     });
   } catch (e: any) {
-    console.error("file upload error:", e?.message);
-    return NextResponse.json({ error: "Failed to upload file" }, { status: 500 });
+    console.error("[exam-upload] file write error:", e?.message, e?.code);
+    return NextResponse.json(
+      { error: "Failed to save file: " + (e?.message ?? "unknown error") },
+      { status: 500 }
+    );
   }
 }
