@@ -1,19 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminJwt as requireAdmin } from "@/lib/admin-session";
+import { db } from "@/lib/db";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-// In-memory store for uploaded files (persists within a warm serverless instance)
-// Key: fileId, Value: { buffer, contentType, fileName }
-const fileStore = new Map<string, { buffer: Buffer; contentType: string; fileName: string }>();
-
 /**
  * POST /api/admin/exam-papers/upload
  *
- * Accepts a multipart/form-data file upload (PDF, max 15MB).
- * Stores the file in memory (serverless-safe, no filesystem writes).
- * Returns { ok, fileUrl } where fileUrl is a dynamic serve URL.
+ * Accepts multipart/form-data with:
+ *   - file: the PDF/DOC file (max 5MB for file mode)
+ *   - title, description, category, paperType, gradeLevel, subjectName,
+ *     schoolName, year, coverImage, pages, durationMinutes
+ *
+ * Converts the file to a base64 data URL and stores it directly in the
+ * ExamPaper table. This works on Vercel (no filesystem needed, no
+ * in-memory store that resets on cold start).
+ *
+ * For files > 5MB, the admin should use 'From URL' mode.
  */
 export async function POST(req: NextRequest) {
   try { await requireAdmin(); } catch (e: any) {
@@ -24,90 +28,100 @@ export async function POST(req: NextRequest) {
   try {
     formData = await req.formData();
   } catch (e: any) {
-    console.error("[exam-upload] formData parse error:", e?.message);
     return NextResponse.json(
-      { error: "Failed to parse upload. Make sure the file is under 15MB." },
+      { error: "Failed to parse upload. File may be too large (max 5MB for file upload)." },
       { status: 400 }
     );
   }
 
   const file = formData.get("file") as File | null;
-
   if (!file) {
     return NextResponse.json({ error: "No file provided" }, { status: 400 });
   }
 
-  // Max 15MB
-  const MAX_SIZE = 15 * 1024 * 1024;
+  // Max 5MB for file uploads (base64 encoding makes it ~33% larger)
+  const MAX_SIZE = 5 * 1024 * 1024;
   if (file.size > MAX_SIZE) {
-    return NextResponse.json({ error: "File too large. Max 15MB." }, { status: 413 });
+    return NextResponse.json({
+      error: "File is too large for direct upload (max 5MB). For larger files, use 'From URL' mode and host the PDF externally (e.g. Google Drive).",
+    }, { status: 413 });
   }
 
   if (file.size === 0) {
     return NextResponse.json({ error: "File is empty" }, { status: 400 });
   }
 
-  // Validate file extension
+  // Validate file extension — PDF, DOC, DOCX
   const ext = (file.name.split(".").pop() ?? "").toLowerCase();
   if (!["pdf", "doc", "docx"].includes(ext)) {
     return NextResponse.json({ error: "Only PDF, DOC, or DOCX files are allowed" }, { status: 400 });
   }
 
   try {
-    // Read file into buffer (in-memory, no filesystem write needed)
+    // Convert file to base64 data URL
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
+    const base64 = buffer.toString("base64");
 
-    // Generate a unique file ID
-    const fileId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    // Determine content type
+    const contentType =
+      ext === "pdf" ? "application/pdf" :
+      ext === "doc" ? "application/msword" :
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
-    // Store in memory
-    const contentType = file.type || (ext === "pdf" ? "application/pdf" : "application/octet-stream");
-    fileStore.set(fileId, { buffer, contentType, fileName: file.name });
+    const dataUrl = `data:${contentType};base64,${base64}`;
 
-    // Generate a serve URL that will stream the file back
-    const fileUrl = `/api/exam-file/${fileId}`;
+    // Extract metadata from form fields
+    const title = (formData.get("title") as string ?? "").toString().trim();
+    const description = (formData.get("description") as string ?? "").toString().trim() || null;
+    const category = (formData.get("category") as string ?? "past_paper").toString();
+    const paperType = (formData.get("paperType") as string ?? "").toString().trim() || null;
+    const gradeLevel = (formData.get("gradeLevel") as string ?? "").toString().trim() || null;
+    const subjectName = (formData.get("subjectName") as string ?? "").toString().trim() || null;
+    const schoolName = (formData.get("schoolName") as string ?? "").toString().trim() || null;
+    const year = formData.get("year") ? Number(formData.get("year")) : null;
+    const coverImage = (formData.get("coverImage") as string ?? "").toString().trim() || null;
+    const pages = formData.get("pages") ? Number(formData.get("pages")) : null;
+    const durationMinutes = formData.get("durationMinutes") ? Number(formData.get("durationMinutes")) : 60;
 
-    console.log("[exam-upload] Stored in memory:", fileId, "size:", file.size, "name:", file.name);
+    if (!title) {
+      return NextResponse.json({ error: "Title is required" }, { status: 400 });
+    }
+
+    // Create the ExamPaper record with the data URL as fileUrl
+    const paper = await db.examPaper.create({
+      data: {
+        title,
+        description,
+        category,
+        paperType,
+        gradeLevel,
+        subjectName,
+        schoolName,
+        year,
+        examType: "pdf",
+        fileUrl: dataUrl,
+        coverImage,
+        pages,
+        durationMin: durationMinutes,
+        isPublished: true,
+      },
+    });
+
+    console.log("[exam-upload] Created paper:", paper.id, "title:", title, "fileSize:", file.size);
 
     return NextResponse.json({
       ok: true,
-      fileUrl,
+      paper,
+      fileUrl: dataUrl.slice(0, 50) + "...(stored in DB)",
       fileName: file.name,
       size: file.size,
     });
   } catch (e: any) {
     console.error("[exam-upload] error:", e?.message, e?.code);
     return NextResponse.json(
-      { error: "Failed to upload file: " + (e?.message ?? "unknown error") },
+      { error: "Failed to save exam: " + (e?.message ?? "unknown error") },
       { status: 500 }
     );
   }
 }
-
-/**
- * GET /api/admin/exam-papers/upload?fileId=...
- *
- * Serves a previously uploaded file from the in-memory store.
- * This allows students to view/download the PDF.
- */
-export async function GET(req: NextRequest) {
-  const url = new URL(req.url);
-  const fileId = url.searchParams.get("fileId") ?? "";
-
-  const stored = fileStore.get(fileId);
-  if (!stored) {
-    return NextResponse.json({ error: "File not found or expired" }, { status: 404 });
-  }
-
-  return new NextResponse(stored.buffer, {
-    headers: {
-      "Content-Type": stored.contentType,
-      "Content-Disposition": `inline; filename="${stored.fileName}"`,
-      "Cache-Control": "public, max-age=3600",
-    },
-  });
-}
-
-// Export the store so the serve route can access it
-export { fileStore };

@@ -1946,7 +1946,6 @@ function ExamPapersList() {
 function PdfUploadView() {
   const [uploadMode, setUploadMode] = useState<"file" | "url">("file");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [uploading, setUploading] = useState(false);
   const [form, setForm] = useState({
     title: "", description: "", category: "past_paper", paperType: "",
     gradeLevel: "", subjectName: "", schoolName: "", year: "",
@@ -1958,9 +1957,9 @@ function PdfUploadView() {
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 15 * 1024 * 1024) {
-      setToast("⚠️ File too large. Max 15MB.");
-      setTimeout(() => setToast(null), 3000);
+    if (file.size > 5 * 1024 * 1024) {
+      setToast("⚠️ File too large for direct upload (max 5MB). Use 'From URL' mode for larger files.");
+      setTimeout(() => setToast(null), 4000);
       setSelectedFile(null);
       return;
     }
@@ -1972,74 +1971,90 @@ function PdfUploadView() {
     }
   };
 
-  const uploadFile = async () => {
-    if (!selectedFile) return null;
-    setUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append("file", selectedFile);
-      const r = await fetch("/api/admin/exam-papers/upload", {
-        method: "POST",
-        body: formData,
-      });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error ?? "Upload failed");
-      return d.fileUrl as string;
-    } catch (e: any) {
-      setToast(`✗ Upload failed: ${e?.message}`);
-      setTimeout(() => setToast(null), 3000);
-      return null;
-    } finally {
-      setUploading(false);
-    }
-  };
-
   const submit = async () => {
-    let finalFileUrl = form.fileUrl.trim();
-
-    // If file mode, upload first
-    if (uploadMode === "file" && selectedFile) {
-      const uploadedUrl = await uploadFile();
-      if (!uploadedUrl) return;
-      finalFileUrl = uploadedUrl;
-    }
-
-    if (!form.title.trim() || !finalFileUrl) {
-      setToast("⚠️ Title and file are required");
+    if (!form.title.trim()) {
+      setToast("⚠️ Title is required");
       setTimeout(() => setToast(null), 3000);
       return;
     }
-    setBusy(true);
-    try {
-      const r = await fetch("/api/admin/exam-papers", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          examType: "pdf",
-          title: form.title.trim(),
-          description: form.description.trim() || null,
-          category: form.category,
-          paperType: form.paperType.trim() || null,
-          gradeLevel: form.gradeLevel || null,
-          subjectName: form.subjectName.trim() || null,
-          schoolName: form.schoolName.trim() || null,
-          year: form.year ? Number(form.year) : null,
-          fileUrl: finalFileUrl,
-          coverImage: form.coverImage.trim() || null,
-          pages: form.pages ? Number(form.pages) : null,
-          durationMinutes: Number(form.durationMinutes) || 60,
-        }),
-      });
-      if (!r.ok) throw new Error("Failed");
-      setToast("✓ Exam paper uploaded!");
-      setForm({ title: "", description: "", category: "past_paper", paperType: "", gradeLevel: "", subjectName: "", schoolName: "", year: "", fileUrl: "", coverImage: "", pages: "", durationMinutes: "60" });
-      setSelectedFile(null);
-      setTimeout(() => setToast(null), 3000);
-    } catch {
-      setToast("✗ Failed");
-      setTimeout(() => setToast(null), 3000);
-    } finally {
-      setBusy(false);
+
+    if (uploadMode === "file") {
+      if (!selectedFile) {
+        setToast("⚠️ Please select a file");
+        setTimeout(() => setToast(null), 3000);
+        return;
+      }
+      // Send file + metadata in one multipart request
+      setBusy(true);
+      try {
+        const formData = new FormData();
+        formData.append("file", selectedFile);
+        formData.append("title", form.title.trim());
+        formData.append("description", form.description.trim());
+        formData.append("category", form.category);
+        formData.append("paperType", form.paperType.trim());
+        formData.append("gradeLevel", form.gradeLevel);
+        formData.append("subjectName", form.subjectName.trim());
+        formData.append("schoolName", form.schoolName.trim());
+        formData.append("year", form.year);
+        formData.append("coverImage", form.coverImage.trim());
+        formData.append("pages", form.pages);
+        formData.append("durationMinutes", form.durationMinutes);
+
+        const r = await fetch("/api/admin/exam-papers/upload", {
+          method: "POST",
+          body: formData,
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error ?? "Failed");
+        setToast("✓ Exam uploaded successfully!");
+        setForm({ title: "", description: "", category: "past_paper", paperType: "", gradeLevel: "", subjectName: "", schoolName: "", year: "", fileUrl: "", coverImage: "", pages: "", durationMinutes: "60" });
+        setSelectedFile(null);
+        setTimeout(() => setToast(null), 3000);
+      } catch (e: any) {
+        setToast(`✗ ${e?.message ?? "Failed"}`);
+        setTimeout(() => setToast(null), 4000);
+      } finally {
+        setBusy(false);
+      }
+    } else {
+      // URL mode — send as JSON
+      if (!form.fileUrl.trim()) {
+        setToast("⚠️ PDF URL is required");
+        setTimeout(() => setToast(null), 3000);
+        return;
+      }
+      setBusy(true);
+      try {
+        const r = await fetch("/api/admin/exam-papers", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            examType: "pdf",
+            title: form.title.trim(),
+            description: form.description.trim() || null,
+            category: form.category,
+            paperType: form.paperType.trim() || null,
+            gradeLevel: form.gradeLevel || null,
+            subjectName: form.subjectName.trim() || null,
+            schoolName: form.schoolName.trim() || null,
+            year: form.year ? Number(form.year) : null,
+            fileUrl: form.fileUrl.trim(),
+            coverImage: form.coverImage.trim() || null,
+            pages: form.pages ? Number(form.pages) : null,
+            durationMinutes: Number(form.durationMinutes) || 60,
+          }),
+        });
+        if (!r.ok) throw new Error("Failed");
+        setToast("✓ Exam paper uploaded!");
+        setForm({ title: "", description: "", category: "past_paper", paperType: "", gradeLevel: "", subjectName: "", schoolName: "", year: "", fileUrl: "", coverImage: "", pages: "", durationMinutes: "60" });
+        setTimeout(() => setToast(null), 3000);
+      } catch {
+        setToast("✗ Failed");
+        setTimeout(() => setToast(null), 3000);
+      } finally {
+        setBusy(false);
+      }
     }
   };
 
@@ -2081,8 +2096,8 @@ function PdfUploadView() {
                 ) : (
                   <div>
                     <Upload className="w-6 h-6 text-gray-400 mx-auto mb-1" />
-                    <p className="text-xs text-gray-600">Click to select a PDF file</p>
-                    <p className="text-[10px] text-gray-400 mt-0.5">Max 15MB · PDF only</p>
+                    <p className="text-xs text-gray-600">Click to select a PDF or DOC file</p>
+                    <p className="text-[10px] text-gray-400 mt-0.5">Max 5MB · PDF, DOC, DOCX · for larger files use URL mode</p>
                   </div>
                 )}
               </div>
@@ -2121,10 +2136,10 @@ function PdfUploadView() {
         </div>
         <button
           onClick={submit}
-          disabled={busy || uploading || (uploadMode === "file" ? !selectedFile : !form.fileUrl.trim())}
+          disabled={busy || (uploadMode === "file" ? !selectedFile : !form.fileUrl.trim())}
           className="w-full h-9 rounded-full bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-1"
         >
-          {uploading ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Uploading file…</> : busy ? "Saving…" : "📤 Upload exam paper"}
+          {busy ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Uploading…</> : "📤 Upload exam paper"}
         </button>
       </div>
     </div>
