@@ -1741,3 +1741,48 @@ model GeneratedExam {
   @@index([gradeId])
   @@index([subjectId])
 }
+
+// =====================================================================
+// Phase 26 — Kenya Exam Hub
+// =====================================================================
+// Netflix-style exam marketplace with:
+//   - KCSE revision (Form 1-4)
+//   - KPSEA (CBC Grade 6 assessment)
+//   - KJSEA (Upper Junior Grade 7-9)
+//   - Past Papers (any school/year)
+//   - StudyBuddy AI-generated exams
+// =====================================================================
+
+model ExamPaper {
+  id            String   @id @default(uuid())
+  title         String
+  description   String?
+  category      String   @default("past_paper")
+  // 'kcse_revision' | 'kpsea' | 'kjsea' | 'past_paper' | 'studybuddy_ai'
+  paperType     String?  // 'Paper 1' | 'Paper 2' | 'Paper 3' | null
+  gradeLevel    String?  // 'Grade 1'..'Grade 12', 'Form 1'..'Form 4'
+  subjectName   String?  // 'Mathematics', 'English', etc.
+  subjectId     String?  // optional link to CurriculumSubject
+  schoolName    String?  // optional — if from a specific school
+  year          Int?
+  examType     String   @default("pdf")
+  // 'pdf' — admin uploaded a PDF file
+  // 'ai_template' — AI-generated with StudyBuddy template
+  fileUrl      String?  // PDF URL (for examType='pdf')
+  questions    Json?    // AI-generated questions (for examType='ai_template')
+  totalMarks   Int      @default(0)
+  durationMin  Int      @default(60)
+  coverImage   String?  // cover image URL
+  pages        Int?     // number of pages
+  uploadedBy   String?  // admin userId
+  isPublished  Boolean  @default(true)
+  isTrending   Boolean  @default(false)
+  viewCount    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([category])
+  @@index([gradeLevel])
+  @@index([subjectName])
+  @@index([isPublished])
+}

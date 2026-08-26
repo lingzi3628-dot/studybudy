@@ -40,7 +40,8 @@ export type Screen =
   | "timetable"
   | "studyBuddy"
   | "bookshelf"
-  | "printableExam";
+  | "printableExam"
+  | "examHub";
 
 export type CreateOption =
   | "upload"

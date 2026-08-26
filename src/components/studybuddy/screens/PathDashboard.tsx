@@ -227,7 +227,7 @@ export function PathDashboard() {
             </div>
           </button>
           <button
-            onClick={() => setScreen("exam")}
+            onClick={() => setScreen("examHub")}
             className="rounded-2xl bg-white border border-gray-200 p-3 hover:border-indigo-300 transition flex items-center gap-2 text-left"
           >
             <span className="w-9 h-9 rounded-lg bg-amber-50 flex items-center justify-center text-amber-600">
