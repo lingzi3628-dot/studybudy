@@ -15,6 +15,7 @@ import {
   School,
 } from "lucide-react";
 import { useApp } from "../store";
+import { InAppPdfViewer } from "./admin/CurriculumTab";
 
 type ExamPaper = {
   id: string;
@@ -70,6 +71,7 @@ export function ExamHubScreen() {
   const [activeGrade, setActiveGrade] = useState("");
   const [selectedPaper, setSelectedPaper] = useState<ExamPaper | null>(null);
   const [showFilters, setShowFilters] = useState(false);
+  const [viewingPdf, setViewingPdf] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -92,6 +94,11 @@ export function ExamHubScreen() {
     const t = setTimeout(() => load(), 300);
     return () => clearTimeout(t);
   }, [search]); // eslint-disable-line
+
+  // --- In-app PDF viewer (read-only, no print, no download) ---
+  if (viewingPdf && selectedPaper?.fileUrl) {
+    return <InAppPdfViewer dataUrl={selectedPaper.fileUrl} title={selectedPaper.title} onClose={() => setViewingPdf(false)} />;
+  }
 
   // --- Detail view ---
   if (selectedPaper) {
@@ -146,12 +153,14 @@ export function ExamHubScreen() {
             </div>
           </div>
 
-          {/* Open exam button */}
+          {/* Open exam button — in-app viewer, read-only */}
           {selectedPaper.examType === "pdf" && selectedPaper.fileUrl && (
-            <a href={selectedPaper.fileUrl} target="_blank" rel="noopener noreferrer"
-              className="w-full h-12 rounded-full bg-indigo-600 text-white font-semibold text-sm shadow-md hover:bg-indigo-700 flex items-center justify-center gap-2">
-              <FileText className="w-5 h-5" /> Open Exam PDF
-            </a>
+            <button
+              onClick={() => setViewingPdf(true)}
+              className="w-full h-12 rounded-full bg-indigo-600 text-white font-semibold text-sm shadow-md hover:bg-indigo-700 flex items-center justify-center gap-2"
+            >
+              <FileText className="w-5 h-5" /> 📖 Read Exam (in-app)
+            </button>
           )}
           {selectedPaper.examType === "ai_template" && (
             <button

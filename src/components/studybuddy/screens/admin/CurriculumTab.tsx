@@ -2129,11 +2129,12 @@ function PdfUploadView() {
           <input value={form.schoolName} onChange={(e) => setForm({ ...form, schoolName: e.target.value })} placeholder="School (optional)" className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm" />
           <input value={form.year} onChange={(e) => setForm({ ...form, year: e.target.value })} placeholder="Year (e.g. 2023)" type="number" className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm" />
         </div>
-        <div className="grid grid-cols-3 gap-2">
-          <input value={form.coverImage} onChange={(e) => setForm({ ...form, coverImage: e.target.value })} placeholder="Cover URL" className="px-2 py-1.5 rounded-lg border border-gray-200 text-sm" />
-          <input value={form.pages} onChange={(e) => setForm({ ...form, pages: e.target.value })} placeholder="Pages" type="number" className="px-2 py-1.5 rounded-lg border border-gray-200 text-sm" />
-          <input value={form.durationMinutes} onChange={(e) => setForm({ ...form, durationMinutes: e.target.value })} placeholder="Min" type="number" className="px-2 py-1.5 rounded-lg border border-gray-200 text-sm" />
+        <div className="grid grid-cols-2 gap-2">
+          <input value={form.pages} onChange={(e) => setForm({ ...form, pages: e.target.value })} placeholder="Pages" type="number" className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm" />
+          <input value={form.durationMinutes} onChange={(e) => setForm({ ...form, durationMinutes: e.target.value })} placeholder="Duration (min)" type="number" className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm" />
         </div>
+        {/* Cover image: upload (500KB) or Pollinations AI or URL */}
+        <CoverImageInput value={form.coverImage} onChange={(url) => setForm({ ...form, coverImage: url })} />
         <button
           onClick={submit}
           disabled={busy || (uploadMode === "file" ? !selectedFile : !form.fileUrl.trim())}
@@ -2276,6 +2277,121 @@ function AiTemplateView() {
           {busy ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Generating exam…</> : "🤖 Generate & Publish"}
         </button>
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------
+// CoverImageInput — upload (500KB) / Pollinations AI / URL
+// ---------------------------------------------------------------------
+
+function CoverImageInput({ value, onChange }: { value: string; onChange: (url: string) => void }) {
+  const [mode, setMode] = useState<"url" | "upload" | "ai">("url");
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [generating, setGenerating] = useState(false);
+
+  const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 500 * 1024) {
+      alert("Image too large. Max 500KB.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      onChange(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const generateAI = () => {
+    if (!aiPrompt.trim()) return;
+    setGenerating(true);
+    const prompt = encodeURIComponent(aiPrompt.trim() + " exam cover education book");
+    const url = `https://image.pollinations.ai/prompt/${prompt}?width=400&height=560&nologo=true`;
+    // Pre-load to check it works
+    const img = new Image();
+    img.onload = () => {
+      onChange(url);
+      setGenerating(false);
+    };
+    img.onerror = () => {
+      setGenerating(false);
+      alert("Failed to generate image. Try again.");
+    };
+    img.src = url;
+  };
+
+  return (
+    <div className="space-y-2">
+      <p className="text-[10px] font-bold uppercase text-gray-500">Cover image</p>
+      <div className="flex gap-1 bg-gray-100 p-1 rounded-lg text-[10px]">
+        <button onClick={() => setMode("url")} className={`flex-1 py-1 rounded ${mode === "url" ? "bg-white text-indigo-700 font-semibold" : "text-gray-600"}`}>🔗 URL</button>
+        <button onClick={() => setMode("upload")} className={`flex-1 py-1 rounded ${mode === "upload" ? "bg-white text-indigo-700 font-semibold" : "text-gray-600"}`}>📁 Upload</button>
+        <button onClick={() => setMode("ai")} className={`flex-1 py-1 rounded ${mode === "ai" ? "bg-white text-indigo-700 font-semibold" : "text-gray-600"}`}>🎨 AI</button>
+      </div>
+      {mode === "url" && (
+        <input value={value} onChange={(e) => onChange(e.target.value)} placeholder="Cover image URL" className="w-full px-3 py-1.5 rounded-lg border border-gray-200 text-sm" />
+      )}
+      {mode === "upload" && (
+        <div>
+          <label className="block cursor-pointer">
+            <div className={`rounded-xl border-2 border-dashed p-3 text-center ${value ? "border-emerald-400 bg-emerald-50" : "border-gray-300 hover:border-indigo-400"}`}>
+              {value ? <img src={value} alt="Cover" className="w-20 h-28 mx-auto rounded object-cover" /> : <p className="text-xs text-gray-500">Click to select image (max 500KB)</p>}
+            </div>
+            <input type="file" accept="image/*" onChange={handleUpload} className="hidden" />
+          </label>
+        </div>
+      )}
+      {mode === "ai" && (
+        <div className="space-y-1">
+          <input value={aiPrompt} onChange={(e) => setAiPrompt(e.target.value)} placeholder="Describe the cover (e.g. 'mathematics exam blue geometric')" className="w-full px-3 py-1.5 rounded-lg border border-gray-200 text-sm" />
+          <button onClick={generateAI} disabled={generating} className="w-full h-7 rounded-full bg-emerald-600 text-white text-[10px] font-semibold disabled:opacity-50">
+            {generating ? "Generating…" : "🎨 Generate with Pollinations AI"}
+          </button>
+          {value && mode === "ai" && <img src={value} alt="Cover" className="w-20 h-28 mx-auto rounded object-cover" />}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------
+// InAppPdfViewer — read-only PDF viewer (no print, no download)
+// ---------------------------------------------------------------------
+
+export function InAppPdfViewer({ dataUrl, title, onClose }: { dataUrl: string; title: string; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-[100] bg-gray-900 flex flex-col">
+      {/* Toolbar */}
+      <div className="flex items-center justify-between px-4 h-14 bg-gray-800 text-white flex-shrink-0">
+        <button onClick={onClose} className="flex items-center gap-1 text-sm">
+          <ChevronLeft className="w-5 h-5" /> Back
+        </button>
+        <p className="text-sm font-bold truncate flex-1 text-center">{title}</p>
+        <span className="text-[10px] text-gray-400">📖 Read-only</span>
+      </div>
+      {/* PDF iframe — read-only, no toolbar, no download */}
+      <div className="flex-1 relative overflow-hidden">
+        <iframe
+          src={dataUrl}
+          className="w-full h-full"
+          title={title}
+          style={{ border: "none" }}
+          // Disable context menu + drag to prevent download
+          onContextMenu={(e) => e.preventDefault()}
+        />
+        {/* Overlay to block right-click on the iframe area */}
+        <div
+          className="absolute inset-0 pointer-events-none"
+          onContextMenu={(e) => e.preventDefault()}
+        />
+      </div>
+      {/* Print-block CSS */}
+      <style>{`
+        @media print { body { display: none !important; } }
+        iframe { pointer-events: auto; }
+      `}</style>
     </div>
   );
 }
