@@ -169,7 +169,7 @@ export function ExamHubScreen() {
               }}
               className="w-full h-12 rounded-full bg-emerald-600 text-white font-semibold text-sm shadow-md hover:bg-emerald-700 flex items-center justify-center gap-2"
             >
-              🖨️ View & Print Exam
+              📖 Read Exam
             </button>
           )}
         </main>

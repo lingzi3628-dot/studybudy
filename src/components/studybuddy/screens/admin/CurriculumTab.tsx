@@ -2175,12 +2175,12 @@ function PdfUploadView() {
                 ) : (
                   <div>
                     <Upload className="w-6 h-6 text-gray-400 mx-auto mb-1" />
-                    <p className="text-xs text-gray-600">Click to select a PDF or DOC file</p>
-                    <p className="text-[10px] text-gray-400 mt-0.5">Max 5MB · PDF, DOC, DOCX · for larger files use URL mode</p>
+                    <p className="text-xs text-gray-600">Click to select a PDF file</p>
+                    <p className="text-[10px] text-gray-400 mt-0.5">Max 5MB · PDF only · for larger files use URL mode</p>
                   </div>
                 )}
               </div>
-              <input type="file" accept=".pdf,.doc,.docx,application/pdf" onChange={handleFileSelect} className="hidden" />
+              <input type="file" accept=".pdf,application/pdf" onChange={handleFileSelect} className="hidden" />
             </label>
           </div>
         ) : (
@@ -2440,6 +2440,11 @@ function CoverImageInput({ value, onChange }: { value: string; onChange: (url: s
 // ---------------------------------------------------------------------
 
 export function InAppPdfViewer({ dataUrl, title, onClose }: { dataUrl: string; title: string; onClose: () => void }) {
+  // Check if it's a PDF (data:application/pdf or .pdf URL)
+  const isPdf = dataUrl.startsWith("data:application/pdf") || dataUrl.toLowerCase().endsWith(".pdf");
+  // Check if it's a DOC/DOCX
+  const isDoc = dataUrl.startsWith("data:application/msword") || dataUrl.startsWith("data:application/vnd.openxmlformats");
+
   return (
     <div className="fixed inset-0 z-[100] bg-gray-900 flex flex-col">
       {/* Toolbar */}
@@ -2450,26 +2455,40 @@ export function InAppPdfViewer({ dataUrl, title, onClose }: { dataUrl: string; t
         <p className="text-sm font-bold truncate flex-1 text-center">{title}</p>
         <span className="text-[10px] text-gray-400">📖 Read-only</span>
       </div>
-      {/* PDF iframe — read-only, no toolbar, no download */}
-      <div className="flex-1 relative overflow-hidden">
-        <iframe
-          src={dataUrl}
-          className="w-full h-full"
-          title={title}
-          style={{ border: "none" }}
-          // Disable context menu + drag to prevent download
-          onContextMenu={(e) => e.preventDefault()}
-        />
-        {/* Overlay to block right-click on the iframe area */}
-        <div
-          className="absolute inset-0 pointer-events-none"
-          onContextMenu={(e) => e.preventDefault()}
-        />
-      </div>
-      {/* Print-block CSS */}
+      {/* Viewer — uses <embed> for PDFs (renders inline, no download) */}
+      {isPdf ? (
+        <div className="flex-1 relative overflow-hidden">
+          <embed
+            src={dataUrl}
+            type="application/pdf"
+            className="w-full h-full"
+            style={{ border: "none" }}
+          />
+        </div>
+      ) : isDoc ? (
+        /* DOC/DOCX can't render in browser — show message */
+        <div className="flex-1 flex items-center justify-center text-center p-8">
+          <div>
+            <FileText className="w-12 h-12 text-gray-500 mx-auto mb-3" />
+            <p className="text-sm text-white font-bold">Word document preview</p>
+            <p className="text-xs text-gray-400 mt-1">This is a DOC/DOCX file which cannot be displayed inline.</p>
+            <p className="text-xs text-gray-400 mt-1">Only PDF files can be viewed in the app. Please convert to PDF and re-upload.</p>
+          </div>
+        </div>
+      ) : (
+        /* Fallback for external URLs */
+        <div className="flex-1 relative overflow-hidden">
+          <embed
+            src={dataUrl}
+            type="application/pdf"
+            className="w-full h-full"
+            style={{ border: "none" }}
+          />
+        </div>
+      )}
+      {/* Block printing */}
       <style>{`
         @media print { body { display: none !important; } }
-        iframe { pointer-events: auto; }
       `}</style>
     </div>
   );
@@ -2493,7 +2512,7 @@ function BulkUploadView() {
     const files = Array.from(e.target.files ?? []);
     const valid = files.filter((f) => {
       const ext = (f.name.split(".").pop() ?? "").toLowerCase();
-      return ["pdf", "doc", "docx"].includes(ext);
+      return ["pdf"].includes(ext); // Only PDF — DOC/DOCX can't render in browser
     });
     const oversized = files.filter((f) => f.size > 5 * 1024 * 1024);
 
@@ -2588,10 +2607,10 @@ function BulkUploadView() {
         <label className="block w-full cursor-pointer">
           <div className="rounded-xl border-2 border-dashed p-6 text-center transition hover:border-indigo-400 hover:bg-indigo-50/30">
             <Upload className="w-6 h-6 text-gray-400 mx-auto mb-1" />
-            <p className="text-xs text-gray-600">Click to select multiple files</p>
-            <p className="text-[10px] text-gray-400 mt-0.5">PDF, DOC, DOCX · Max 5MB each · 10-100 files</p>
+            <p className="text-xs text-gray-600">Click to select multiple PDF files</p>
+            <p className="text-[10px] text-gray-400 mt-0.5">PDF only · Max 5MB each · 10-100 files</p>
           </div>
-          <input type="file" accept=".pdf,.doc,.docx" multiple onChange={handleFileSelect} className="hidden" />
+          <input type="file" accept=".pdf,application/pdf" multiple onChange={handleFileSelect} className="hidden" />
         </label>
 
         {/* Selected files list */}
