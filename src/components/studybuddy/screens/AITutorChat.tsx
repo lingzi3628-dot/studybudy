@@ -359,27 +359,37 @@ export function AITutorChat() {
   };
 
   const suggestedQuestions = [
-    { icon: "🎓", text: "Explain photosynthesis like I'm 10", category: "Science" },
-    { icon: "📺", text: "Show me a video about the water cycle", category: "Video" },
-    { icon: "📈", text: "Plot these data points: (0,0) (1,5) (2,10) (3,15) and draw a line of best fit", category: "Scatter" },
-    { icon: "📊", text: "Make a bar chart of class scores: Math 85, English 72, Science 90, History 68", category: "Bar" },
-    { icon: "🥧", text: "Draw a pie chart of budget: Rent 40%, Food 25%, Transport 15%, Savings 20%", category: "Pie" },
-    { icon: "⭕", text: "Show a Venn diagram of sets A, B, and C with their intersection", category: "Venn" },
-    { icon: "➖", text: "Draw -2 ≤ x ≤ 3 on a number line", category: "Number Line" },
-    { icon: "🌳", text: "Make a probability tree diagram for two coin flips", category: "Tree" },
-    { icon: "📐", text: "Draw triangle ABC with vertices at (0,0), (4,0), (2,3) — label sides", category: "Geometry" },
-    { icon: "📦", text: "Draw a box plot comparing class A and class B test scores", category: "Statistics" },
-    { icon: "➡️", text: "Draw vectors F1 = (3,4) and F2 = (-2,1) on a coordinate plane", category: "Vectors" },
-    { icon: "🧠", text: "Make a concept map of the human digestive system", category: "Concept" },
-    { icon: "🌀", text: "Draw a slope field for dy/dx = x - y", category: "Differential Eq" },
-    { icon: "🌿", text: "Make a stem-and-leaf plot of: 23 25 28 31 32 35 38 42 45 48", category: "Statistics" },
-    { icon: "🧊", text: "Draw a 3D cube with dashed hidden edges", category: "3D Solid" },
-    { icon: "🪢", text: "Draw a trefoil knot diagram", category: "Topology" },
-    { icon: "🔢", text: "Plot z₁ = 2 + i and z₂ = -1 + 1.5i on an Argand diagram", category: "Complex" },
-    { icon: "⛰️", text: "Draw a contour map showing a hill with 3 elevation levels", category: "Topology" },
-    { icon: "🧲", text: "Draw a vector field for F(x,y) = (-y, x) — a rotation field", category: "Vector Field" },
-    { icon: "🔷", text: "Make a hexagon tessellation pattern", category: "Tessellation" },
-    { icon: "🧮", text: "Solve x² + 5x + 6 = 0 using the quadratic formula", category: "Math (LaTeX)" },
+    // Grade 1-3 — early years
+    { icon: "🍎", text: "Make a pictogram: 8 apples, 5 bananas, 10 oranges (🍎 = 2 fruits each)", category: "Grade 1-3" },
+    { icon: "✋", text: "Tally the votes: Red 8, Blue 12, Green 5, Yellow 3", category: "Grade 1-3" },
+    // Grade 4-6 — upper junior
+    { icon: "🟦", text: "Sort shapes: Carroll diagram (is red? is square?)", category: "Grade 4-6" },
+    { icon: "⭕", text: "Show a Venn diagram of sets A, B, and C with their intersection", category: "Grade 4-6" },
+    { icon: "📊", text: "Make a bar chart of class scores: Math 85, English 72, Science 90, History 68", category: "Grade 4-6" },
+    // Grade 7-9 — lower secondary
+    { icon: "📈", text: "Plot these data points: (0,0) (1,5) (2,10) (3,15) and draw a line of best fit", category: "Grade 7-9" },
+    { icon: "🌿", text: "Make a stem-and-leaf plot of: 23 25 28 31 32 35 38 42 45 48", category: "Grade 7-9" },
+    { icon: "📦", text: "Draw a box plot comparing class A and class B test scores", category: "Grade 7-9" },
+    { icon: "📋", text: "Two-way table: gender × sport preference (15M/3F football, 5M/18F netball, 8M/6F tennis)", category: "Grade 7-9" },
+    // Form 1-4 — high school
+    { icon: "➖", text: "Draw -2 ≤ x ≤ 3 on a number line", category: "Form 1-4" },
+    { icon: "🌳", text: "Make a probability tree diagram for two coin flips", category: "Form 1-4" },
+    { icon: "📐", text: "Draw triangle ABC with vertices at (0,0), (4,0), (2,3) — label sides", category: "Form 1-4" },
+    { icon: "🔁", text: "Reflect triangle ABC with vertices (1,1), (3,1), (2,3) across the y-axis", category: "Form 1-4" },
+    { icon: "⭕", text: "Show me sin and cos on the unit circle for angle 60°", category: "Form 1-4" },
+    { icon: "📈", text: "Cumulative frequency (ogive) from bins: 0-10 (3), 10-20 (7), 20-30 (12), 30-40 (5)", category: "Form 1-4" },
+    { icon: "🧮", text: "Solve x² + 5x + 6 = 0 using the quadratic formula", category: "Form 1-4" },
+    // University
+    { icon: "🌀", text: "Draw a slope field for dy/dx = x - y", category: "University" },
+    { icon: "🧲", text: "Draw a vector field for F(x,y) = (-y, x) — a rotation field", category: "University" },
+    { icon: "🔢", text: "Plot z₁ = 2 + i and z₂ = -1 + 1.5i on an Argand diagram", category: "University" },
+    { icon: "🧊", text: "Plot point P(2, 1, 3) in 3D coordinate space", category: "University" },
+    { icon: "🪢", text: "Draw a trefoil knot diagram", category: "University" },
+    { icon: "🥧", text: "Draw a pie chart of budget: Rent 40%, Food 25%, Transport 15%, Savings 20%", category: "General" },
+    { icon: "➡️", text: "Draw vectors F1 = (3,4) and F2 = (-2,1) on a coordinate plane", category: "General" },
+    { icon: "🧠", text: "Make a concept map of the human digestive system", category: "General" },
+    { icon: "🔷", text: "Make a hexagon tessellation pattern", category: "General" },
+    { icon: "⛰️", text: "Draw a contour map showing a hill with 3 elevation levels", category: "General" },
   ];
 
   return (
@@ -919,6 +929,8 @@ function MarkdownContent({ content, isUser }: { content: string; isUser: boolean
             "numberline", "tree", "network", "vector", "polygon", "boxplot",
             "slopefield", "stemleaf", "frequency_polygon", "freeform",
             "argand", "contour", "vectorfield", "tessellation", "knot",
+            "pictogram", "tally", "carroll", "ogive", "unitcircle",
+            "transform", "axes3d", "twoway",
           ]);
           if (
             (block.lang === "json" || block.lang === "text" || block.lang === "") &&

@@ -145,13 +145,31 @@ export function GraphRenderer({ spec }: { spec: GraphSpec }) {
       return <TessellationSVG spec={spec} />;
     case "knot":
       return <KnotSVG spec={spec} />;
+    case "pictogram":
+      return <PictogramSVG spec={spec} />;
+    case "tally":
+      return <TallySVG spec={spec} />;
+    case "carroll":
+      return <CarrollSVG spec={spec} />;
+    case "ogive":
+      return <OgiveSVG spec={spec} />;
+    case "unitcircle":
+      return <UnitCircleSVG spec={spec} />;
+    case "transform":
+      return <GeometricTransformSVG spec={spec} />;
+    case "axes3d":
+      return <Axes3DSVG spec={spec} />;
+    case "twoway":
+      return <TwoWayTableSVG spec={spec} />;
     default:
       return (
         <div className="text-xs text-rose-600 p-3">
           Unknown graph type: <code>{type}</code>. Available types: function,
           scatter, bar, histogram, pie, venn, numberline, tree, network,
           vector, polygon, boxplot, slopefield, stemleaf, frequency_polygon,
-          freeform, argand, contour, vectorfield, tessellation, knot.
+          freeform, argand, contour, vectorfield, tessellation, knot,
+          pictogram, tally, carroll, ogive, unitcircle, transform, axes3d,
+          twoway.
         </div>
       );
   }
@@ -2064,6 +2082,609 @@ function KnotSVG({ spec }: { spec: any }) {
           </text>
         )}
       </svg>
+    </div>
+  );
+}
+
+// =====================================================================
+// 22. Pictogram — symbol-based chart (Grade 1-3) — each symbol = N items
+//     Great for early years: "5 apples = 5 🍎 symbols"
+// =====================================================================
+function PictogramSVG({ spec }: { spec: any }) {
+  const title = spec.title ?? "Pictogram";
+  const categories: string[] = Array.isArray(spec.categories) ? spec.categories : [];
+  const values: number[] = Array.isArray(spec.values) ? spec.values : [];
+  const symbol: string = spec.symbol ?? "●"; // emoji or character
+  const symbolValue: number = spec.symbolValue ?? 1; // how much each symbol represents
+  const colors: string[] = Array.isArray(spec.colors) ? spec.colors : PALETTE;
+
+  const maxRows = Math.max(...values.map((v) => Math.ceil(v / symbolValue)), 1);
+  const cellSize = 28;
+  const labelWidth = 100;
+  const width = Math.max(420, labelWidth + categories.length * (cellSize + 10) + 40);
+  const height = 60 + maxRows * cellSize + 40;
+
+  return (
+    <div>
+      <p className="text-xs font-semibold text-gray-700 mb-1">{title}</p>
+      <p className="text-[10px] text-gray-500 mb-2">Each {symbol} = {symbolValue}</p>
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto bg-gray-50 rounded-lg">
+        {categories.map((cat, ci) => {
+          const v = values[ci] ?? 0;
+          const fullSymbols = Math.floor(v / symbolValue);
+          const remainder = v - fullSymbols * symbolValue;
+          const x = labelWidth + ci * (cellSize + 10);
+          const color = colors[ci % colors.length];
+          const symbols: ReactElement[] = [];
+          for (let r = 0; r < fullSymbols; r++) {
+            const y = 40 + r * cellSize;
+            symbols.push(
+              <text
+                key={`full-${ci}-${r}`}
+                x={x + cellSize / 2}
+                y={y + cellSize - 4}
+                fontSize={20}
+                textAnchor="middle"
+              >{symbol}</text>
+            );
+          }
+          // Partial symbol (last one) if remainder > 0
+          if (remainder > 0) {
+            const y = 40 + fullSymbols * cellSize;
+            symbols.push(
+              <text
+                key={`partial-${ci}`}
+                x={x + cellSize / 2}
+                y={y + cellSize - 4}
+                fontSize={20}
+                textAnchor="middle"
+                opacity={remainder / symbolValue}
+              >{symbol}</text>
+            );
+          }
+          return (
+            <g key={`cat-${ci}`}>
+              {/* Category label */}
+              <text x={10} y={40 + (maxRows - 1) * cellSize / 2 + 18} fontSize={11} fill="#374151" fontWeight={600}>
+                {cat.length > 12 ? cat.slice(0, 12) + "…" : cat}
+              </text>
+              {/* Value label below */}
+              <text x={x + cellSize / 2} y={height - 14} fontSize={11} fill={color} textAnchor="middle" fontWeight={700}>
+                {v}
+              </text>
+              {/* Symbols (top-down column) */}
+              {symbols}
+              {/* Optional column dividers */}
+              <line x1={x - 5} y1={30} x2={x - 5} y2={height - 30} stroke="#E5E7EB" strokeWidth={1} />
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+// =====================================================================
+// 23. Tally chart — groups of 5 strokes (Grade 1-5) — IIII for 4, then
+//     diagonal cross-stroke for the 5th
+// =====================================================================
+function TallySVG({ spec }: { spec: any }) {
+  const title = spec.title ?? "Tally Chart";
+  const categories: string[] = Array.isArray(spec.categories) ? spec.categories : [];
+  const counts: number[] = Array.isArray(spec.counts ?? spec.values) ? (spec.counts ?? spec.values) : [];
+
+  const width = 480;
+  const rowHeight = 38;
+  const height = 60 + categories.length * rowHeight + 20;
+  const labelWidth = 110;
+
+  // Render tally marks: groups of 5 (4 vertical + 1 diagonal)
+  const renderTally = (count: number, x: number, y: number) => {
+    const elements: ReactElement[] = [];
+    const fullGroups = Math.floor(count / 5);
+    const remainder = count - fullGroups * 5;
+    const strokeW = 2;
+    const gap = 4;
+    const groupGap = 10;
+    const strokeH = 24;
+    let curX = x;
+    for (let g = 0; g < fullGroups; g++) {
+      // 4 vertical strokes
+      for (let i = 0; i < 4; i++) {
+        elements.push(
+          <line key={`t-${g}-${i}`} x1={curX} y1={y} x2={curX} y2={y + strokeH} stroke="#374151" strokeWidth={strokeW} />
+        );
+        curX += gap;
+      }
+      // Diagonal 5th stroke across the 4
+      elements.push(
+        <line key={`t-${g}-diag`} x1={curX - gap * 4 + 1} y1={y + strokeH - 2} x2={curX - 1} y2={y + 2} stroke="#EF4444" strokeWidth={2} />
+      );
+      curX += groupGap;
+    }
+    // Remaining strokes
+    for (let i = 0; i < remainder; i++) {
+      elements.push(
+        <line key={`t-r-${i}`} x1={curX} y1={y} x2={curX} y2={y + strokeH} stroke="#374151" strokeWidth={strokeW} />
+      );
+      curX += gap;
+    }
+    return elements;
+  };
+
+  return (
+    <div>
+      <p className="text-xs font-semibold text-gray-700 mb-1">{title}</p>
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto bg-gray-50 rounded-lg">
+        {categories.map((cat, i) => {
+          const c = counts[i] ?? 0;
+          const y = 50 + i * rowHeight;
+          const color = PALETTE[i % PALETTE.length];
+          return (
+            <g key={`row-${i}`}>
+              <text x={10} y={y + 18} fontSize={12} fill="#374151" fontWeight={600}>
+                {cat.length > 14 ? cat.slice(0, 14) + "…" : cat}
+              </text>
+              {/* Tally marks */}
+              {renderTally(c, labelWidth, y)}
+              {/* Count */}
+              <text x={width - 30} y={y + 18} fontSize={13} fill={color} fontWeight={700}>
+                {c}
+              </text>
+              {/* Row divider */}
+              <line x1={10} y1={y + 28} x2={width - 10} y2={y + 28} stroke="#E5E7EB" strokeWidth={1} />
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+// =====================================================================
+// 24. Carroll diagram — 2x2 grid sorting by two Yes/No attributes
+//     (Grade 4-6) — great for "sort shapes by color AND size"
+// =====================================================================
+function CarrollSVG({ spec }: { spec: any }) {
+  const title = spec.title ?? "Carroll Diagram";
+  const attributeX: [string, string] = spec.attributeX ?? ["Yes", "No"];
+  const attributeY: [string, string] = spec.attributeY ?? ["Yes", "No"];
+  const labelX: string = spec.labelX ?? "Attribute X";
+  const labelY: string = spec.labelY ?? "Attribute Y";
+  const cells: {
+    topLeft: string[];
+    topRight: string[];
+    bottomLeft: string[];
+    bottomRight: string[];
+  } = spec.cells ?? {};
+
+  const width = 480;
+  const height = 360;
+  const margin = 60;
+  const cellW = (width - margin * 2) / 2;
+  const cellH = (height - margin * 2) / 2;
+  const cellColors = ["#DBEAFE", "#FEF3C7", "#DCFCE7", "#FCE7F3"];
+
+  const cellEntries = [
+    { items: cells.topLeft, x: margin, y: margin, label: `${attributeY[0]} / ${attributeX[0]}` },
+    { items: cells.topRight, x: margin + cellW, y: margin, label: `${attributeY[0]} / ${attributeX[1]}` },
+    { items: cells.bottomLeft, x: margin, y: margin + cellH, label: `${attributeY[1]} / ${attributeX[0]}` },
+    { items: cells.bottomRight, x: margin + cellW, y: margin + cellH, label: `${attributeY[1]} / ${attributeX[1]}` },
+  ];
+
+  return (
+    <div>
+      <p className="text-xs font-semibold text-gray-700 mb-1">{title}</p>
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto bg-gray-50 rounded-lg">
+        {/* Attribute labels */}
+        <text x={width / 2} y={20} fontSize={13} fill="#1E40AF" textAnchor="middle" fontWeight={700}>{labelX}</text>
+        <text x={20} y={height / 2} fontSize={13} fill="#1E40AF" textAnchor="middle" fontWeight={700} transform={`rotate(-90, 20, ${height / 2})`}>{labelY}</text>
+
+        {/* Yes/No labels on X axis */}
+        <text x={margin + cellW / 2} y={45} fontSize={12} fill="#374151" textAnchor="middle" fontWeight={600}>{attributeX[0]}</text>
+        <text x={margin + cellW + cellW / 2} y={45} fontSize={12} fill="#374151" textAnchor="middle" fontWeight={600}>{attributeX[1]}</text>
+
+        {/* Yes/No labels on Y axis */}
+        <text x={50} y={margin + cellH / 2 + 4} fontSize={12} fill="#374151" textAnchor="middle" fontWeight={600}>{attributeY[0]}</text>
+        <text x={50} y={margin + cellH + cellH / 2 + 4} fontSize={12} fill="#374151" textAnchor="middle" fontWeight={600}>{attributeY[1]}</text>
+
+        {/* Cells */}
+        {cellEntries.map((cell, i) => (
+          <g key={`cell-${i}`}>
+            <rect x={cell.x} y={cell.y} width={cellW} height={cellH} fill={cellColors[i]} stroke="#9CA3AF" strokeWidth={1.5} />
+            {/* Cell label (top-left corner) */}
+            <text x={cell.x + 8} y={cell.y + 16} fontSize={10} fill="#6B7280" fontWeight={600}>
+              {cell.label}
+            </text>
+            {/* Items */}
+            {(cell.items ?? []).map((item: string, j: number) => (
+              <text
+                key={`item-${i}-${j}`}
+                x={cell.x + cellW / 2}
+                y={cell.y + cellH / 2 + (j - (cell.items.length - 1) / 2) * 18 + 4}
+                fontSize={13}
+                fill="#1F2937"
+                textAnchor="middle"
+                fontWeight={500}
+              >
+                {item}
+              </text>
+            ))}
+          </g>
+        ))}
+      </svg>
+    </div>
+  );
+}
+
+// =====================================================================
+// 25. Ogive — cumulative frequency curve (Grade 9-12)
+// =====================================================================
+function OgiveSVG({ spec }: { spec: any }) {
+  const title = spec.title ?? "Ogive (Cumulative Frequency)";
+  const xLabel = spec.xLabel ?? "Upper Class Boundary";
+  const yLabel = spec.yLabel ?? "Cumulative Frequency";
+  // Either explicit points or computed from bins
+  let points: Array<[number, number]> = [];
+  if (Array.isArray(spec.points)) {
+    points = spec.points;
+  } else if (Array.isArray(spec.bins)) {
+    let cumulative = 0;
+    for (const b of spec.bins) {
+      cumulative += b.count;
+      points.push([b.end, cumulative]);
+    }
+  }
+  // Prepend the starting point (lower boundary of first bin, 0)
+  if (points.length > 0) {
+    const firstStart = Array.isArray(spec.bins) ? spec.bins[0].start : points[0][0] - 10;
+    points = [[firstStart, 0], ...points];
+  }
+
+  const width = 480;
+  const height = 320;
+  const padding = { left: 60, right: 30, top: 30, bottom: 50 };
+  const plotW = width - padding.left - padding.right;
+  const plotH = height - padding.top - padding.bottom;
+
+  if (points.length === 0) return <p className="text-xs text-gray-500">No data for ogive.</p>;
+
+  const allX = points.map((p) => p[0]);
+  const allY = points.map((p) => p[1]);
+  const xMin = Math.min(...allX);
+  const xMax = Math.max(...allX);
+  const yMax = Math.max(...allY) * 1.1 || 10;
+  const xPad = (xMax - xMin) * 0.05 || 1;
+  const xMinP = xMin - xPad;
+  const xMaxP = xMax + xPad;
+
+  const toSvgX = (x: number) => padding.left + ((x - xMinP) / (xMaxP - xMinP)) * plotW;
+  const toSvgY = (v: number) => padding.top + plotH - (v / yMax) * plotH;
+
+  // Path: move to start, then L lines
+  const path = points.map((p, i) => `${i === 0 ? "M" : "L"} ${toSvgX(p[0]).toFixed(2)} ${toSvgY(p[1]).toFixed(2)}`).join(" ");
+
+  return (
+    <div>
+      <p className="text-xs font-semibold text-gray-700 mb-1">{title}</p>
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto bg-gray-50 rounded-lg">
+        {/* Y grid */}
+        {Array.from({ length: 6 }, (_, i) => {
+          const yv = (yMax * i) / 5;
+          return (
+            <g key={`yg-${i}`}>
+              <line x1={padding.left} y1={toSvgY(yv)} x2={padding.left + plotW} y2={toSvgY(yv)} stroke="#E5E7EB" strokeWidth={1} />
+              <text x={padding.left - 8} y={toSvgY(yv) + 3} fontSize={10} fill="#6B7280" textAnchor="end">{yv.toFixed(0)}</text>
+            </g>
+          );
+        })}
+        {/* X labels */}
+        {points.map((p, i) => (
+          <text key={`xl-${i}`} x={toSvgX(p[0])} y={padding.top + plotH + 14} fontSize={10} fill="#6B7280" textAnchor="middle">
+            {p[0]}
+          </text>
+        ))}
+        {/* Cumulative frequency line */}
+        <path d={path} fill="none" stroke="#4F46E5" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
+        {/* Points */}
+        {points.map((p, i) => (
+          <circle key={`pt-${i}`} cx={toSvgX(p[0])} cy={toSvgY(p[1])} r={4} fill="#4F46E5" stroke="white" strokeWidth={1.5} />
+        ))}
+        {/* Axes */}
+        <line x1={padding.left} y1={padding.top} x2={padding.left} y2={padding.top + plotH} stroke="#374151" strokeWidth={1.5} />
+        <line x1={padding.left} y1={padding.top + plotH} x2={padding.left + plotW} y2={padding.top + plotH} stroke="#374151" strokeWidth={1.5} />
+        <text x={width / 2} y={height - 8} fontSize={11} fill="#374151" textAnchor="middle" fontWeight={600}>{xLabel}</text>
+        <text x={14} y={height / 2} fontSize={11} fill="#374151" textAnchor="middle" fontWeight={600} transform={`rotate(-90, 14, ${height / 2})`}>{yLabel}</text>
+      </svg>
+      <p className="text-[10px] text-gray-500 mt-1">{points.length - 1} data points · Total cumulative = {Math.max(...allY)}</p>
+    </div>
+  );
+}
+
+// =====================================================================
+// 26. Unit circle — for trigonometry (Grade 10-12)
+//     Shows a circle of radius 1 with a rotating angle θ, and marks
+//     sin(θ) on y-axis and cos(θ) on x-axis.
+// =====================================================================
+function UnitCircleSVG({ spec }: { spec: any }) {
+  const title = spec.title ?? "Unit Circle";
+  const angle: number = (spec.angle ?? 45) * Math.PI / 180; // radians
+  const showLabels: boolean = spec.showLabels !== false;
+
+  const width = 420;
+  const height = 360;
+  const cx = width / 2;
+  const cy = height / 2;
+  const r = 120;
+
+  const pointX = cx + r * Math.cos(angle);
+  const pointY = cy - r * Math.sin(angle);
+  const cosX = cx + r * Math.cos(angle);
+  const sinY = cy - r * Math.sin(angle);
+
+  return (
+    <div>
+      <p className="text-xs font-semibold text-gray-700 mb-1">{title}</p>
+      <p className="text-[10px] text-gray-500 mb-1">θ = {(angle * 180 / Math.PI).toFixed(0)}° · cos θ = {Math.cos(angle).toFixed(3)} · sin θ = {Math.sin(angle).toFixed(3)}</p>
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto bg-gray-50 rounded-lg">
+        {/* Axes */}
+        <line x1={cx - r - 20} y1={cy} x2={cx + r + 20} y2={cy} stroke="#374151" strokeWidth={1.5} />
+        <line x1={cx} y1={cy - r - 20} x2={cx} y2={cy + r + 20} stroke="#374151" strokeWidth={1.5} />
+        {/* Axis labels */}
+        <text x={cx + r + 24} y={cy + 4} fontSize={11} fill="#374151" fontWeight={600}>x</text>
+        <text x={cx + 4} y={cy - r - 22} fontSize={11} fill="#374151" fontWeight={600}>y</text>
+        {/* Unit circle */}
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke="#4F46E5" strokeWidth={2} />
+        {/* Radius line (from origin to point on circle) */}
+        <line x1={cx} y1={cy} x2={pointX} y2={pointY} stroke="#10B981" strokeWidth={2.5} />
+        {/* cos θ projection (horizontal from point to y-axis) */}
+        <line x1={cx} y1={cy} x2={cosX} y2={cy} stroke="#EF4444" strokeWidth={2} strokeDasharray="4 3" />
+        {/* sin θ projection (vertical from point to x-axis) */}
+        <line x1={pointX} y1={pointY} x2={pointX} y2={cy} stroke="#F59E0B" strokeWidth={2} strokeDasharray="4 3" />
+        {/* Angle arc */}
+        <path
+          d={`M ${cx + 30} ${cy} A 30 30 0 0 ${angle > Math.PI ? 1 : 0} ${cx + 30 * Math.cos(angle)} ${cy - 30 * Math.sin(angle)}`}
+          fill="none"
+          stroke="#8B5CF6"
+          strokeWidth={2}
+        />
+        {/* Point on circle */}
+        <circle cx={pointX} cy={pointY} r={6} fill="#10B981" stroke="white" strokeWidth={2} />
+        {/* Labels */}
+        {showLabels && (
+          <>
+            <text x={cx + (cosX - cx) / 2} y={cy + 14} fontSize={11} fill="#EF4444" textAnchor="middle" fontWeight={700}>cos θ</text>
+            <text x={pointX + 8} y={(pointY + cy) / 2} fontSize={11} fill="#F59E0B" fontWeight={700}>sin θ</text>
+            <text x={cx + 38} y={cy - 8} fontSize={11} fill="#8B5CF6" fontWeight={700}>θ</text>
+            <text x={cx + (pointX - cx) / 2 - 8} y={(cy + pointY) / 2 - 8} fontSize={11} fill="#10B981" fontWeight={700}>r=1</text>
+          </>
+        )}
+      </svg>
+    </div>
+  );
+}
+
+// =====================================================================
+// 27. Geometric transform — reflect/rotate/translate/enlarge a shape
+//     (Grade 9-12) — shows original shape + transformed shape + axis of symmetry
+// =====================================================================
+function GeometricTransformSVG({ spec }: { spec: any }) {
+  const title = spec.title ?? "Geometric Transformation";
+  const transformType: string = spec.transformType ?? "reflect"; // reflect | rotate | translate | enlarge
+  const original: Array<[number, number]> = Array.isArray(spec.original) ? spec.original : [];
+  const transformed: Array<[number, number]> = Array.isArray(spec.transformed) ? spec.transformed : [];
+  const mirrorLine: "x" | "y" | "y=x" | "y=-x" | "custom" = spec.mirrorLine ?? "y";
+  const range: [number, number] = spec.range ?? [-8, 8];
+
+  const width = 420;
+  const height = 360;
+  const padding = 30;
+  const toSvgX = (x: number) => padding + ((x - range[0]) / (range[1] - range[0])) * (width - 2 * padding);
+  const toSvgY = (y: number) => height - padding - ((y - range[0]) / (range[1] - range[0])) * (height - 2 * padding);
+
+  // Original path
+  const origPath = original.map((v, i) => `${i === 0 ? "M" : "L"} ${toSvgX(v[0]).toFixed(2)} ${toSvgY(v[1]).toFixed(2)}`).join(" ") + (original.length > 0 ? " Z" : "");
+  // Transformed path
+  const transPath = transformed.map((v, i) => `${i === 0 ? "M" : "L"} ${toSvgX(v[0]).toFixed(2)} ${toSvgY(v[1]).toFixed(2)}`).join(" ") + (transformed.length > 0 ? " Z" : "");
+
+  // Mirror line
+  let mirrorPath = "";
+  if (mirrorLine === "x") mirrorPath = `M ${padding} ${toSvgY(0)} L ${width - padding} ${toSvgY(0)}`;
+  else if (mirrorLine === "y") mirrorPath = `M ${toSvgX(0)} ${padding} L ${toSvgX(0)} ${height - padding}`;
+  else if (mirrorLine === "y=x") mirrorPath = `M ${toSvgX(range[0])} ${toSvgY(range[0])} L ${toSvgX(range[1])} ${toSvgY(range[1])}`;
+  else if (mirrorLine === "y=-x") mirrorPath = `M ${toSvgX(range[0])} ${toSvgY(range[1])} L ${toSvgX(range[1])} ${toSvgY(range[0])}`;
+
+  return (
+    <div>
+      <p className="text-xs font-semibold text-gray-700 mb-1">{title}</p>
+      <p className="text-[10px] text-gray-500 mb-1">Type: <span className="font-mono font-semibold">{transformType}</span>{mirrorLine !== "custom" && transformType === "reflect" ? ` · mirror line: ${mirrorLine}` : ""}</p>
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto bg-gray-50 rounded-lg">
+        {/* Grid */}
+        {Array.from({ length: 17 }, (_, i) => {
+          const v = range[0] + ((range[1] - range[0]) * i) / 16;
+          return (
+            <g key={`grid-${i}`} opacity={0.3}>
+              <line x1={toSvgX(v)} y1={padding} x2={toSvgX(v)} y2={height - padding} stroke="#E5E7EB" strokeWidth={v === 0 ? 1 : 0.5} />
+              <line x1={padding} y1={toSvgY(v)} x2={width - padding} y2={toSvgY(v)} stroke="#E5E7EB" strokeWidth={v === 0 ? 1 : 0.5} />
+            </g>
+          );
+        })}
+        {/* Axes */}
+        <line x1={padding} y1={toSvgY(0)} x2={width - padding} y2={toSvgY(0)} stroke="#374151" strokeWidth={1.5} />
+        <line x1={toSvgX(0)} y1={padding} x2={toSvgX(0)} y2={height - padding} stroke="#374151" strokeWidth={1.5} />
+        {/* Mirror line (for reflection) */}
+        {transformType === "reflect" && mirrorPath && (
+          <path d={mirrorPath} stroke="#EF4444" strokeWidth={2} strokeDasharray="6 4" opacity={0.8} />
+        )}
+        {/* Original shape (dashed gray) */}
+        {origPath && <path d={origPath} fill="#9CA3AF" fillOpacity={0.2} stroke="#6B7280" strokeWidth={2} strokeDasharray="4 2" />}
+        {/* Transformed shape (solid indigo) */}
+        {transPath && <path d={transPath} fill="#4F46E5" fillOpacity={0.25} stroke="#4F46E5" strokeWidth={2.5} />}
+        {/* Vertex labels for original */}
+        {original.map((v, i) => (
+          <text key={`o-${i}`} x={toSvgX(v[0]) + 4} y={toSvgY(v[1]) - 4} fontSize={10} fill="#6B7280" fontWeight={600}>
+            {String.fromCharCode(65 + i)}
+          </text>
+        ))}
+        {/* Vertex labels for transformed */}
+        {transformed.map((v, i) => (
+          <text key={`t-${i}`} x={toSvgX(v[0]) + 4} y={toSvgY(v[1]) - 4} fontSize={10} fill="#4F46E5" fontWeight={700}>
+            {String.fromCharCode(65 + i)}&apos;
+          </text>
+        ))}
+      </svg>
+      <p className="text-[10px] text-gray-500 mt-1">
+        <span className="text-gray-500">⬤ Dashed = original</span> · <span className="text-indigo-600">⬤ Solid = transformed</span>
+        {transformType === "reflect" && <span> · <span className="text-rose-600">⬤ Red dashed = mirror line</span></span>}
+      </p>
+    </div>
+  );
+}
+
+// =====================================================================
+// 28. 3D Axes — x/y/z coordinate axes (Grade 11-university)
+//     Shows 3D origin with three axes, optionally a point in space
+// =====================================================================
+function Axes3DSVG({ spec }: { spec: any }) {
+  const title = spec.title ?? "3D Coordinate System";
+  const points: Array<{ x: number; y: number; z: number; label?: string; color?: string }> = Array.isArray(spec.points) ? spec.points : [];
+  const range: [number, number] = spec.range ?? [-3, 3];
+
+  const width = 420;
+  const height = 360;
+  const cx = width / 2;
+  const cy = height / 2;
+  const axisLen = 110;
+
+  // Project 3D (x, y, z) to 2D using isometric-ish projection
+  // x-axis: goes right-down (45°)
+  // y-axis: goes right-up (standard)
+  // z-axis: goes straight up
+  const project = (x: number, y: number, z: number) => {
+    const isoX = (x - y) * Math.cos(Math.PI / 6); // 30°
+    const isoY = -(z) * 1.0 + (x + y) * Math.sin(Math.PI / 6);
+    return { x: cx + isoX * (axisLen / (range[1] - range[0]) * 2), y: cy + isoY * (axisLen / (range[1] - range[0]) * 2) };
+  };
+
+  // Axes endpoints
+  const origin2d = project(0, 0, 0);
+  const xEnd = project(range[1], 0, 0);
+  const yEnd = project(0, range[1], 0);
+  const zEnd = project(0, 0, range[1]);
+  const xNegEnd = project(range[0], 0, 0);
+  const yNegEnd = project(0, range[0], 0);
+  const zNegEnd = project(0, 0, range[0]);
+
+  return (
+    <div>
+      <p className="text-xs font-semibold text-gray-700 mb-1">{title}</p>
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto bg-gray-50 rounded-lg">
+        {/* Negative axes (dashed) */}
+        <line x1={origin2d.x} y1={origin2d.y} x2={xNegEnd.x} y2={xNegEnd.y} stroke="#9CA3AF" strokeWidth={1} strokeDasharray="3 2" />
+        <line x1={origin2d.x} y1={origin2d.y} x2={yNegEnd.x} y2={yNegEnd.y} stroke="#9CA3AF" strokeWidth={1} strokeDasharray="3 2" />
+        <line x1={origin2d.x} y1={origin2d.y} x2={zNegEnd.x} y2={zNegEnd.y} stroke="#9CA3AF" strokeWidth={1} strokeDasharray="3 2" />
+        {/* Positive axes (solid colored) */}
+        <line x1={origin2d.x} y1={origin2d.y} x2={xEnd.x} y2={xEnd.y} stroke="#EF4444" strokeWidth={2} />
+        <line x1={origin2d.x} y1={origin2d.y} x2={yEnd.x} y2={yEnd.y} stroke="#10B981" strokeWidth={2} />
+        <line x1={origin2d.x} y1={origin2d.y} x2={zEnd.x} y2={zEnd.y} stroke="#4F46E5" strokeWidth={2} />
+        {/* Arrow heads */}
+        <polygon points={`${xEnd.x},${xEnd.y} ${xEnd.x - 6},${xEnd.y - 2} ${xEnd.x - 6},${xEnd.y + 2}`} fill="#EF4444" />
+        <polygon points={`${yEnd.x},${yEnd.y} ${yEnd.x - 6},${yEnd.y + 6} ${yEnd.x + 2},${yEnd.y + 2}`} fill="#10B981" />
+        <polygon points={`${zEnd.x},${zEnd.y} ${zEnd.x - 3},${zEnd.y + 6} ${zEnd.x + 3},${zEnd.y + 6}`} fill="#4F46E5" />
+        {/* Axis labels */}
+        <text x={xEnd.x + 8} y={xEnd.y + 14} fontSize={13} fill="#EF4444" fontWeight={700}>x</text>
+        <text x={yEnd.x + 8} y={yEnd.y + 6} fontSize={13} fill="#10B981" fontWeight={700}>y</text>
+        <text x={zEnd.x + 4} y={zEnd.y - 8} fontSize={13} fill="#4F46E5" fontWeight={700}>z</text>
+        {/* Origin marker */}
+        <circle cx={origin2d.x} cy={origin2d.y} r={3} fill="#1F2937" />
+        <text x={origin2d.x - 12} y={origin2d.y + 14} fontSize={10} fill="#6B7280" fontWeight={600}>O</text>
+        {/* Points in 3D space */}
+        {points.map((p, i) => {
+          const proj = project(p.x, p.y, p.z);
+          const color = p.color ?? PALETTE[i % PALETTE.length];
+          return (
+            <g key={`pt-${i}`}>
+              {/* Projection lines to each axis (dashed) */}
+              <line x1={proj.x} y1={proj.y} x2={project(p.x, 0, 0).x} y2={project(p.x, 0, 0).y} stroke={color} strokeWidth={1} strokeDasharray="2 2" opacity={0.6} />
+              <line x1={proj.x} y1={proj.y} x2={project(0, p.y, 0).x} y2={project(0, p.y, 0).y} stroke={color} strokeWidth={1} strokeDasharray="2 2" opacity={0.6} />
+              <line x1={proj.x} y1={proj.y} x2={project(0, 0, p.z).x} y2={project(0, 0, p.z).y} stroke={color} strokeWidth={1} strokeDasharray="2 2" opacity={0.6} />
+              {/* Point */}
+              <circle cx={proj.x} cy={proj.y} r={5} fill={color} stroke="white" strokeWidth={1.5} />
+              {/* Label */}
+              {p.label && (
+                <text x={proj.x + 8} y={proj.y - 6} fontSize={11} fill={color} fontWeight={700}>
+                  {p.label}
+                </text>
+              )}
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+// =====================================================================
+// 29. Two-way table (contingency table) — for probability/statistics
+//     (Grade 9-12) — rows × columns with cell counts, row/col totals
+// =====================================================================
+function TwoWayTableSVG({ spec }: { spec: any }) {
+  const title = spec.title ?? "Two-Way Table";
+  const rowLabels: string[] = Array.isArray(spec.rowLabels) ? spec.rowLabels : [];
+  const colLabels: string[] = Array.isArray(spec.colLabels) ? spec.colLabels : [];
+  const data: number[][] = Array.isArray(spec.data) ? spec.data : [];
+  const rowLabel: string = spec.rowLabel ?? "Row";
+  const colLabel: string = spec.colLabel ?? "Column";
+
+  if (rowLabels.length === 0 || colLabels.length === 0) {
+    return <p className="text-xs text-gray-500">No data for two-way table.</p>;
+  }
+
+  // Compute row/column totals
+  const rowTotals = data.map((r) => r.reduce((s, v) => s + v, 0));
+  const colTotals = colLabels.map((_, c) => data.reduce((s, r) => s + (r[c] ?? 0), 0));
+  const grandTotal = rowTotals.reduce((s, v) => s + v, 0);
+
+  const width = 480;
+  const height = 80 + (rowLabels.length + 2) * 32;
+  const labelColW = 100;
+  const colWidth = (width - labelColW - 50) / colLabels.length;
+
+  return (
+    <div>
+      <p className="text-xs font-semibold text-gray-700 mb-1">{title}</p>
+      <div className="bg-white border border-gray-200 rounded-lg p-3">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b-2 border-gray-300">
+              <th className="text-left py-2 px-2 text-gray-600 font-semibold">{rowLabel} \ {colLabel}</th>
+              {colLabels.map((c, ci) => (
+                <th key={`col-${ci}`} className="py-2 px-2 text-center text-gray-700 font-semibold">{c}</th>
+              ))}
+              <th className="py-2 px-2 text-center text-indigo-700 font-bold">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rowLabels.map((r, ri) => (
+              <tr key={`row-${ri}`} className="border-b border-gray-100">
+                <td className="py-1.5 px-2 text-gray-700 font-semibold">{r}</td>
+                {(data[ri] ?? []).map((v, ci) => (
+                  <td key={`cell-${ri}-${ci}`} className="py-1.5 px-2 text-center text-gray-800">{v}</td>
+                ))}
+                <td className="py-1.5 px-2 text-center text-indigo-700 font-bold">{rowTotals[ri]}</td>
+              </tr>
+            ))}
+            <tr className="border-t-2 border-gray-300 bg-indigo-50/40">
+              <td className="py-1.5 px-2 text-indigo-700 font-bold">Total</td>
+              {colTotals.map((v, ci) => (
+                <td key={`tot-${ci}`} className="py-1.5 px-2 text-center text-indigo-700 font-bold">{v}</td>
+              ))}
+              <td className="py-1.5 px-2 text-center text-indigo-800 font-extrabold">{grandTotal}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p className="text-[10px] text-gray-500 mt-1">{rowLabels.length} × {colLabels.length} table · n = {grandTotal}</p>
     </div>
   );
 }

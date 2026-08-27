@@ -112,6 +112,17 @@ export async function POST(req: NextRequest) {
     const wantsVectorField = /\bvector field\b|direction field|force field|magnetic field|electric field|flow field/i.test(userMessage);
     const wantsTessellation = /\btessellat|tiling pattern|tile the plane|repeating pattern of/i.test(userMessage);
     const wantsKnot = /\btrefoil\b|\bknot diagram\b|\bfigure.?eight knot\b|\bknot theory\b/i.test(userMessage);
+    // Phase 31 — additional grade-leveled math renderers
+    const wantsPictogram = /\bpictograph\b|\bpictogram\b|picture graph|symbol.*count|emoji.*count/i.test(userMessage);
+    const wantsTally = /\btally (chart|marks?)\b|count tallies/i.test(userMessage);
+    const wantsCarroll = /\bcarroll (diagram|sort)\b|sort by two attributes|sort.*yes.*no/i.test(userMessage);
+    const wantsOgive = /\bogive\b|cumulative frequency curve|cumulative frequency graph/i.test(userMessage);
+    const wantsUnitCircle = /\bunit circle\b|sin.*cos.*circle|trig.*circle|cos θ.*sin θ/i.test(userMessage);
+    const wantsTransform = /\b(reflect|rotate|translate|enlarge|transformation).* (across|in|by|through|of|line|scale factor)/i.test(userMessage) ||
+                            /\breflect (triangle|shape|figure) across\b/i.test(userMessage) ||
+                            /\brotate (triangle|shape|figure) (by|around)\b/i.test(userMessage);
+    const wantsAxes3D = /\b3d (coordinate|axes|space|system)\b|plot.*in 3d|point.*in 3d|\(x, y, z\)|3d graph/i.test(userMessage);
+    const wantsTwoWay = /\btwo[- ]way table\b|contingency table|cross[- ]tabulation/i.test(userMessage);
     const wantsSearch = /\bfind\b|\bsearch\b|\blook up\b|\bwhat is\b|\bwho is\b|\bwhen did\b|\bhow does\b/i.test(userMessage) && !wantsVideo &&
                        !wantsScatter && !wantsBar && !wantsHistogram && !wantsPie && !wantsVenn &&
                        !wantsNumberLine && !wantsTree && !wantsBoxPlot && !wantsVector && !wantsPolygon;
@@ -120,7 +131,9 @@ export async function POST(req: NextRequest) {
     const wantsGraph = wantsFunctionPlot || wantsScatter || wantsBar || wantsHistogram || wantsPie ||
                        wantsVenn || wantsNumberLine || wantsTree || wantsBoxPlot || wantsVector ||
                        wantsPolygon || wantsNetwork || wantsConceptMap || wantsArgand || wantsContour ||
-                       wantsVectorField || wantsTessellation || wantsKnot;
+                       wantsVectorField || wantsTessellation || wantsKnot ||
+                       wantsPictogram || wantsTally || wantsCarroll || wantsOgive || wantsUnitCircle ||
+                       wantsTransform || wantsAxes3D || wantsTwoWay;
 
     let attachments: Array<{ type: string; url: string | null; caption: string }> = [];
     let searchContext = "";
@@ -363,15 +376,68 @@ SPECIALIZED DEDICATED RENDERERS (prefer these over freeform when applicable):
     Predefined: "trefoil" (3 crossings) and "figure8" (4 crossings). For custom knots, pass
     {"strands":[{"path":"M ... C ...","color":"#4F46E5"}], "crossings":[{"x":150,"y":100}]}.
 
-GENERAL RULES:
-- Always pick the MOST APPROPRIATE graph type for the user's request. Don't use "function" for physics data plots — use "scatter" instead. Don't use "function" for statistics — use "bar"/"pie"/"boxplot" instead.
-- When the user provides data points (e.g. "plot these: (0,0), (1,5), (2,10)"), use "scatter" with "lineOfBestFit":true.
-- When the user asks for a graph of velocity vs time, distance vs time, or any measured data, use "scatter" (NOT "function").
-- When the user asks for something you can't express with the 15 specific types above, use "freeform" with raw SVG. Be creative — you can draw 3D cubes (with dashed hidden edges), compass constructions (arcs + lines), phase portraits, contour maps, knot diagrams, etc. Just write the SVG markup directly.
+MATHEMATICAL DRAWING FAMILIES — additional dedicated renderers
+covering Grade 1 through university math:
+
+22. "pictogram" — symbol-based chart (Grade 1-3). Each symbol = N items.
+    JSON spec: {"type":"pictogram", "title":"Favorite Fruits", "categories":["Apples","Bananas","Oranges"], "values":[8,5,10], "symbol":"🍎", "symbolValue":2}
+    The symbol can be an emoji (🍎, ⭐, 🚗) or any character.
+
+23. "tally" — tally chart (Grade 1-5). Groups of 5 strokes (4 vertical + 1 diagonal).
+    JSON spec: {"type":"tally", "title":"Color Tally", "categories":["Red","Blue","Green","Yellow"], "counts":[8,12,5,3]}
+
+24. "carroll" — Carroll diagram (Grade 4-6). 2x2 sort by two attributes.
+    JSON spec: {"type":"carroll", "title":"Shape Sort", "labelX":"Is Red?", "labelY":"Is Square?", "attributeX":["Yes","No"], "attributeY":["Yes","No"], "cells":{"topLeft":["red square A","red square B"], "topRight":["blue square"], "bottomLeft":["red circle"], "bottomRight":["blue triangle"]}}
+
+25. "ogive" — cumulative frequency curve (Grade 9-12).
+    JSON spec: {"type":"ogive", "title":"Ogive", "bins":[{"start":0,"end":10,"count":3},{"start":10,"end":20,"count":7},{"start":20,"end":30,"count":12}]}
+    OR explicit points: {"type":"ogive", "points":[[0,0],[10,3],[20,10],[30,22]]}
+
+26. "unitcircle" — trigonometric unit circle (Grade 10-12). Shows angle θ, radius, cos θ, sin θ.
+    JSON spec: {"type":"unitcircle", "title":"Unit Circle", "angle":45}
+    The angle is in DEGREES (0-360). The renderer auto-projects cos θ to x-axis, sin θ to y-axis,
+    draws the radius line, angle arc, and labels.
+
+27. "transform" — geometric transformation (Grade 9-12). Reflect/rotate/translate/enlarge.
+    JSON spec: {"type":"transform", "title":"Reflect in y-axis", "transformType":"reflect", "mirrorLine":"y", "original":[[1,1],[3,1],[2,3]], "transformed":[[-1,1],[-3,1],[-2,3]], "range":[-5,5]}
+    transformType: "reflect" | "rotate" | "translate" | "enlarge".
+    mirrorLine: "x" | "y" | "y=x" | "y=-x" (only for reflect).
+
+28. "axes3d" — 3D coordinate system (Grade 11-university). x/y/z axes with optional points.
+    JSON spec: {"type":"axes3d", "title":"3D Coordinates", "range":[-3,3], "points":[{"x":2,"y":1,"z":3,"label":"P(2,1,3)","color":"#4F46E5"}]}
+    Uses isometric projection. Negative axes are dashed. Each point has projection lines to each axis.
+
+29. "twoway" — two-way / contingency table (Grade 9-12). Rows × columns with cell counts.
+    JSON spec: {"type":"twoway", "title":"Gender × Sport Preference", "rowLabels":["Male","Female"], "colLabels":["Football","Netball","Tennis"], "data":[[15,5,8],[3,18,6]], "rowLabel":"Gender", "colLabel":"Sport"}
+    Row and column totals are auto-computed.
+
+GENERAL RULES — GENERIC DRAWING PRINCIPLE:
+- ALWAYS pick the MOST APPROPRIATE graph type from the 29 types above. Match by the user's question:
+  * "show 5 apples in pictogram" → pictogram
+  * "tally the votes: A=4, B=7" → tally
+  * "sort shapes by red AND square" → carroll
+  * "cumulative frequency" → ogive
+  * "show sin/cos on unit circle" → unitcircle
+  * "reflect triangle across y-axis" → transform
+  * "plot point (2,1,3) in 3D" → axes3d
+  * "two-way table of gender × sport" → twoway
+  * "vector field for F(x,y) = (-y, x)" → vectorfield
+  * "Argand diagram of z = 2+i" → argand
+  * "trefoil knot" → knot
+  * "hexagon tessellation" → tessellation
+  * "phase portrait for spiral" → freeform (no dedicated renderer yet)
+  * "compass-and-straightedge construction" → freeform
+- When the user asks for something you can't express with the 29 specific types,
+  use "freeform" with raw SVG. Be creative — you can draw 3D cubes (with
+  dashed hidden edges), compass constructions (arcs + lines), phase portraits
+  (spiral/saddle/node shapes), contour maps, knot diagrams, tessellations,
+  Möbius strips, etc. Just write the SVG markup directly.
+- Always include meaningful titles, axis labels, and category labels in the
+  spec — these are shown on the rendered diagram.
 - Be encouraging and clear. Reply in the same language the user used (English / Kiswahili / French).
 - Keep answers under 250 words unless asked for detail.
 - Use markdown: **bold**, *italic*, lists (- or 1.), [link](url), \`code\`, fenced code blocks for graphs.
-- For MATH EQUATIONS, use LaTeX syntax: inline math $y = mx + b$ or block math $$\\frac{a}{b} = c$$ or $$x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}$$. The frontend renders these with serif math styling.
+- For MATH EQUATIONS, use LaTeX syntax: inline math $y = mx + b$ or block math $$\\frac{a}{b} = c$$ or $$x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}$$. The frontend renders these with KaTeX.
 - For SUPERSCRIPTS in plain text, you can also use x², x³, etc. (Unicode), but for complex expressions prefer LaTeX.`;
 
     const aiMessages: AIMessage[] = [
@@ -405,6 +471,8 @@ GENERAL RULES:
         "numberline", "tree", "network", "vector", "polygon", "boxplot",
         "slopefield", "stemleaf", "frequency_polygon", "freeform",
         "argand", "contour", "vectorfield", "tessellation", "knot",
+        "pictogram", "tally", "carroll", "ogive", "unitcircle",
+        "transform", "axes3d", "twoway",
       ]);
 
       // Helper: try to parse a string as JSON and check if it has a known graph type
@@ -829,6 +897,147 @@ GENERAL RULES:
             type: "knot",
             title: isFigure8 ? "Figure-Eight Knot (4_1)" : "Trefoil Knot (3_1)",
             knotType: isFigure8 ? "figure8" : "trefoil",
+          };
+        } else if (wantsPictogram) {
+          // Extract categories + values from the message
+          const symbolMatch = userMessage.match(/([\u{1F000}-\u{1FFFF}])/u);
+          const symbol = symbolMatch?.[1] ?? "●";
+          synthesized = {
+            type: "pictogram",
+            title: "Pictogram",
+            categories: ["A", "B", "C", "D"],
+            values: [6, 9, 4, 8],
+            symbol,
+            symbolValue: 1,
+          };
+        } else if (wantsTally) {
+          // Try to extract categories + counts from the message
+          const pairs = userMessage.matchAll(/(\b[A-Z][a-z]+)\s*(?:=|:|\s)\s*(\d+)/g);
+          const categories: string[] = [];
+          const counts: number[] = [];
+          for (const m of pairs) {
+            categories.push(m[1]);
+            counts.push(parseInt(m[2], 10));
+          }
+          if (categories.length === 0) {
+            synthesized = {
+              type: "tally",
+              title: "Tally Chart",
+              categories: ["Red", "Blue", "Green", "Yellow"],
+              counts: [8, 12, 5, 3],
+            };
+          } else {
+            synthesized = { type: "tally", title: "Tally Chart", categories, counts };
+          }
+        } else if (wantsCarroll) {
+          synthesized = {
+            type: "carroll",
+            title: "Carroll Diagram",
+            labelX: "Attribute 1",
+            labelY: "Attribute 2",
+            attributeX: ["Yes", "No"],
+            attributeY: ["Yes", "No"],
+            cells: {
+              topLeft: ["item 1", "item 2"],
+              topRight: ["item 3"],
+              bottomLeft: ["item 4"],
+              bottomRight: ["item 5"],
+            },
+          };
+        } else if (wantsOgive) {
+          // Try to parse bins from the message
+          const binPairs = userMessage.matchAll(/(\d+)\s*[-–]\s*(\d+)\s*[:(]\s*(\d+)/g);
+          const bins: Array<{ start: number; end: number; count: number }> = [];
+          for (const m of binPairs) {
+            bins.push({ start: parseInt(m[1], 10), end: parseInt(m[2], 10), count: parseInt(m[3], 10) });
+          }
+          synthesized = bins.length > 0
+            ? { type: "ogive", title: "Ogive (Cumulative Frequency)", bins }
+            : {
+                type: "ogive",
+                title: "Ogive (Cumulative Frequency)",
+                bins: [
+                  { start: 0, end: 10, count: 3 },
+                  { start: 10, end: 20, count: 7 },
+                  { start: 20, end: 30, count: 12 },
+                  { start: 30, end: 40, count: 5 },
+                ],
+              };
+        } else if (wantsUnitCircle) {
+          const angleMatch = userMessage.match(/(\d+)\s*(?:°|degrees?|deg)/);
+          const angle = angleMatch ? parseInt(angleMatch[1], 10) : 45;
+          synthesized = {
+            type: "unitcircle",
+            title: `Unit Circle (θ = ${angle}°)`,
+            angle,
+          };
+        } else if (wantsTransform) {
+          // Try to extract vertices from "(0,0), (3,1), (2,3)" patterns
+          const coordMatches = userMessage.match(/\(\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*\)/g);
+          let original: Array<[number, number]> = [[1, 1], [3, 1], [2, 3]];
+          if (coordMatches && coordMatches.length >= 3) {
+            original = coordMatches.slice(0, 6).map((s) => {
+              const m = s.match(/\(\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*\)/);
+              return m ? [parseFloat(m[1]), parseFloat(m[2])] as [number, number] : [0, 0];
+            });
+          }
+          // Determine mirror line / transform type
+          const mirrorMatch = userMessage.match(/\b(x|y|x-axis|y-axis|y\s*=\s*x|y\s*=\s*-x)\s*-?\s*axis?\b/i);
+          let mirrorLine: "x" | "y" | "y=x" | "y=-x" = "y";
+          const m = mirrorMatch?.[1]?.toLowerCase() ?? "y";
+          if (m === "x" || m === "x-axis") mirrorLine = "x";
+          else if (m === "y=x") mirrorLine = "y=x";
+          else if (m === "y=-x") mirrorLine = "y=-x";
+
+          // Compute transformed vertices
+          let transformed: Array<[number, number]>;
+          if (mirrorLine === "y") {
+            transformed = original.map(([x, y]) => [-x, y] as [number, number]);
+          } else if (mirrorLine === "x") {
+            transformed = original.map(([x, y]) => [x, -y] as [number, number]);
+          } else if (mirrorLine === "y=x") {
+            transformed = original.map(([x, y]) => [y, x] as [number, number]);
+          } else {
+            transformed = original.map(([x, y]) => [-y, -x] as [number, number]);
+          }
+
+          synthesized = {
+            type: "transform",
+            title: `Reflect across ${mirrorLine}`,
+            transformType: "reflect",
+            mirrorLine,
+            original,
+            transformed,
+            range: [-5, 5],
+          };
+        } else if (wantsAxes3D) {
+          // Try to extract a 3D point "(x, y, z)" from the message
+          const pointMatch = userMessage.match(/\(\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*\)/);
+          if (pointMatch) {
+            const [x, y, z] = [parseInt(pointMatch[1], 10), parseInt(pointMatch[2], 10), parseInt(pointMatch[3], 10)];
+            synthesized = {
+              type: "axes3d",
+              title: "3D Coordinate System",
+              range: [-Math.max(Math.abs(x), Math.abs(y), Math.abs(z)) - 1, Math.max(Math.abs(x), Math.abs(y), Math.abs(z)) + 1],
+              points: [{ x, y, z, label: `P(${x}, ${y}, ${z})`, color: "#4F46E5" }],
+            };
+          } else {
+            synthesized = {
+              type: "axes3d",
+              title: "3D Coordinate System",
+              range: [-3, 3],
+              points: [{ x: 2, y: 1, z: 3, label: "P(2, 1, 3)", color: "#4F46E5" }],
+            };
+          }
+        } else if (wantsTwoWay) {
+          synthesized = {
+            type: "twoway",
+            title: "Two-Way Table",
+            rowLabels: ["Row A", "Row B"],
+            colLabels: ["Col 1", "Col 2", "Col 3"],
+            data: [[15, 5, 8], [3, 18, 6]],
+            rowLabel: "Row",
+            colLabel: "Column",
           };
         }
 

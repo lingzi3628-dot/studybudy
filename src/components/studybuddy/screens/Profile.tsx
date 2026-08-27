@@ -168,6 +168,9 @@ export function Profile() {
           </button>
         )}
 
+        {/* Study Buddy selector — switch AI models inline in Profile */}
+        <BuddySelectorInline />
+
         {/* API key (BYOK) — hidden for family children */}
         {!isFamilyChild && (
           <section className="mt-6">
@@ -540,5 +543,170 @@ function DeleteAccountButton() {
         </div>
       )}
     </>
+  );
+}
+
+// =====================================================================
+// BuddySelectorInline — compact Study Buddy model switcher in Profile
+//
+// Lets the user switch between available Study Buddies (different AI
+// models/providers) without leaving the Profile screen. When
+// UNLOCK_ALL_MODELS=true env var is set, all models show as unlocked
+// (for testing/comparison). Otherwise, premium models show a lock icon.
+// =====================================================================
+type StudyBuddyModel = {
+  modelName: string;
+  displayName: string;
+  emoji: string;
+  requiresPremium: boolean;
+  tokenCostMultiplier: number;
+  providerId: string | null;
+  modelIdentifier: string | null;
+  canUse?: boolean;
+};
+
+function BuddySelectorInline() {
+  const [buddies, setBuddies] = useState<StudyBuddyModel[]>([]);
+  const [currentModel, setCurrentModel] = useState<string>("");
+  const [expanded, setExpanded] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  // Load buddy list + current model on mount
+  useEffect(() => {
+    Promise.all([fetch("/api/user/models"), fetch("/api/auth/me")])
+      .then(async ([modelsRes, meRes]) => {
+        if (modelsRes.ok) {
+          const d = await modelsRes.json();
+          setBuddies(d.models ?? []);
+        }
+        if (meRes.ok) {
+          const me = await meRes.json();
+          if (me.authed) setCurrentModel(me.user?.currentModel ?? "study_buddy_free");
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const switchBuddy = async (modelName: string, buddy: StudyBuddyModel) => {
+    if (busy || modelName === currentModel) return;
+    setBusy(true);
+    try {
+      const r = await fetch("/api/user/model", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ modelName }),
+      });
+      const d = await r.json();
+      if (!r.ok) {
+        setToast(`✗ ${d.error ?? "Switch failed"}`);
+        setTimeout(() => setToast(null), 3000);
+      } else {
+        setCurrentModel(modelName);
+        setToast(`✓ ${d.celebration ?? `Switched to ${buddy.displayName}`}`);
+        setTimeout(() => setToast(null), 2500);
+      }
+    } catch {
+      setToast("✗ Network error");
+      setTimeout(() => setToast(null), 3000);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const currentBuddy = buddies.find((b) => b.modelName === currentModel);
+  const allUnlocked = buddies.some((b) => b.canUse === true && b.requiresPremium);
+
+  return (
+    <section className="mt-6">
+      <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Study Buddy (AI Model)</h2>
+      <div className="rounded-2xl bg-white border border-gray-200 shadow-sm overflow-hidden">
+        {/* Current buddy — always visible */}
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="w-full p-4 flex items-center gap-3 hover:bg-gray-50 transition"
+        >
+          <span className="w-9 h-9 rounded-full bg-indigo-50 text-2xl flex items-center justify-center">
+            {currentBuddy?.emoji ?? "🤖"}
+          </span>
+          <div className="flex-1 text-left">
+            <p className="text-sm font-semibold text-gray-900">
+              {currentBuddy?.displayName ?? "Study Buddy"}
+            </p>
+            <p className="text-xs text-gray-500">
+              {currentBuddy?.modelIdentifier ?? "Default AI model"} · tap to switch
+            </p>
+          </div>
+          <ChevronRight className={`w-4 h-4 text-gray-400 transition-transform ${expanded ? "rotate-90" : ""}`} />
+        </button>
+
+        {/* Unlock banner when all are unlocked (testing phase) */}
+        {allUnlocked && expanded && (
+          <div className="mx-3 mt-2 mb-2 rounded-lg bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 p-2 text-[10px] text-emerald-800">
+            <div className="flex items-start gap-1.5">
+              <Sparkles className="w-3 h-3 mt-0.5 flex-shrink-0" />
+              <span><strong>All Study Buddies unlocked</strong> for testing. Switch freely — your chat history is preserved.</span>
+            </div>
+          </div>
+        )}
+
+        {/* Buddy list — shown when expanded */}
+        {expanded && (
+          <div className="border-t border-gray-100 max-h-80 overflow-y-auto">
+            {buddies.length === 0 ? (
+              <p className="p-4 text-xs text-gray-500 text-center">No Study Buddies configured.</p>
+            ) : (
+              buddies.map((buddy) => {
+                const isActive = currentModel === buddy.modelName;
+                const canUse = buddy.canUse ?? !buddy.requiresPremium;
+                return (
+                  <button
+                    key={buddy.modelName}
+                    onClick={() => canUse && switchBuddy(buddy.modelName, buddy)}
+                    disabled={busy || isActive || !canUse}
+                    className={`w-full p-3 flex items-center gap-3 transition text-left ${
+                      isActive
+                        ? "bg-indigo-50"
+                        : canUse
+                        ? "hover:bg-gray-50"
+                        : "bg-gray-50 opacity-60 cursor-not-allowed"
+                    }`}
+                  >
+                    <span className="w-8 h-8 rounded-full bg-gray-100 text-xl flex items-center justify-center flex-shrink-0">
+                      {buddy.emoji}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm font-semibold ${isActive ? "text-indigo-700" : "text-gray-800"}`}>
+                        {buddy.displayName}
+                        {isActive && <span className="ml-1.5 text-[10px] uppercase text-indigo-600">● Active</span>}
+                      </p>
+                      <p className="text-[10px] text-gray-500 truncate">
+                        {buddy.modelIdentifier ?? "—"} · {buddy.tokenCostMultiplier}x tokens
+                      </p>
+                    </div>
+                    {buddy.requiresPremium && !canUse ? (
+                      <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
+                        Premium
+                      </span>
+                    ) : isActive ? (
+                      <Check className="w-4 h-4 text-indigo-600" />
+                    ) : (
+                      <ChevronRight className="w-4 h-4 text-gray-300" />
+                    )}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        )}
+
+        {/* Toast */}
+        {toast && (
+          <div className="px-3 py-2 bg-indigo-50 border-t border-indigo-100 text-xs text-indigo-700">
+            {toast}
+          </div>
+        )}
+      </div>
+    </section>
   );
 }

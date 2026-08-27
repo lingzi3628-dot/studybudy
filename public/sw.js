@@ -1,5 +1,5 @@
 /**
- * StudyBuddy AI Service Worker v31 — Offline Mode
+ * StudyBuddy AI Service Worker v32 — Offline Mode
  *
  * v23 — initial AI Tutor upgrade.
  * v24 — 12 graph families.
@@ -9,14 +9,15 @@
  * v28 — freeform SVG nested-<svg> fix.
  * v29 — Phase 30 mega-upgrade.
  * v30 — real KaTeX rendering + defensive ASR.
- * v31 — Voice mode upgrade: use FREE browser Web Speech API as primary
- *        path (no API key, no server config needed — works on Chrome, Edge,
- *        Safari). Server-side TTS/ASR via z-ai SDK is now fallback only
- *        (used for Firefox users). The "Configuration file not found" error
- *        from z-ai SDK will no longer appear on Chrome/Edge/Safari.
+ * v31 — Voice mode uses free browser Web Speech API as primary path.
+ * v32 — Phase 31: 8 more dedicated graph renderers (pictogram, tally,
+ *        carroll, ogive, unitcircle, transform, axes3d, twoway) covering
+ *        Grade 1 through university math. 29 graph types total. Plus:
+ *        StudyBuddy model switcher inline in Profile screen + POST
+ *        /api/user/model also honors UNLOCK_ALL_MODELS env var.
  */
 
-const CACHE_VERSION = "studybuddy-v31-offline";
+const CACHE_VERSION = "studybuddy-v32-offline";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const CONTENT_CACHE = `${CACHE_VERSION}-content`;
 const IMAGE_CACHE = `${CACHE_VERSION}-images`;
