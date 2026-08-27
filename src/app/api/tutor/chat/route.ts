@@ -233,7 +233,18 @@ SPECIAL CAPABILITIES — when the user asks, you can do these (the system has al
 - VIDEO: When the user asks for a video, you have been given YouTube URLs in the web search context above. Reference them in your reply like "Here's a YouTube video that explains it well: [Title](URL)".
 - IMAGE: When the user asks for an image/diagram, mention that you've attached an image below.
 
-GRAPHING & DRAWING — when the user asks you to draw, plot, sketch, or illustrate something, include a fenced code block tagged "mathgraph" containing a JSON object. The frontend will render the appropriate visual as inline SVG.
+GRAPHING & DRAWING — when the user asks you to draw, plot, sketch, or illustrate something, you MUST include a fenced code block tagged "mathgraph" containing a JSON object. The frontend parses this and renders the appropriate visual as inline SVG.
+
+CRITICAL RULES FOR THE mathgraph BLOCK:
+- Use EXACTLY this format (the tag must be "mathgraph", not "json" or "text"):
+  \`\`\`mathgraph
+  {"type":"scatter", "title":"...", "xLabel":"...", "yLabel":"...", "points":[...]}
+  \`\`\`
+- Include the block ONCE per graph (don't repeat the JSON as plain text after).
+- Don't wrap it in any other language tag.
+- The JSON must be on its own line(s), not inlined with prose.
+- Always include a meaningful title and axis labels (e.g. "Velocity vs Time" with xLabel="Time (s)", yLabel="Velocity (m/s)") — these are shown on the rendered graph.
+- Don't use placeholder data — use the EXACT data the user gave you, or sensible real values matching the user's question.
 
 The "type" field tells the frontend which renderer to use. Available types:
 
@@ -305,34 +316,119 @@ GENERAL RULES:
     }
 
     // 8. Parse reply for inline graph / concept map blocks
-    // The AI may have included ```mathgraph {...}``` blocks (covers all 12 graph types)
+    // The AI is asked to use ```mathgraph ... ``` blocks, but in practice it
+    // often uses ```json, ```text, or no code block at all. We use a lenient
+    // parser: scan ALL fenced code blocks AND any inline JSON-looking text
+    // in the reply, then keep only the ones that look like graph specs
+    // (contain a "type" field matching one of our known graph types).
     try {
-      const graphMatch = reply.match(/```mathgraph\s*([\s\S]*?)```/);
-      if (graphMatch) {
-        const graphJson = JSON.parse(graphMatch[1].trim());
+      const KNOWN_GRAPH_TYPES = new Set([
+        "function", "scatter", "bar", "histogram", "pie", "venn",
+        "numberline", "tree", "network", "vector", "polygon", "boxplot",
+      ]);
+
+      // Helper: try to parse a string as JSON and check if it has a known graph type
+      const tryParseGraphSpec = (raw: string): any | null => {
+        let s = raw.trim();
+        if (!s) return null;
+        // Strip leading/trailing ``` if accidentally included
+        s = s.replace(/^```[\w-]*\s*/i, "").replace(/```\s*$/i, "");
+        // Find the first { ... } block (in case there's surrounding text)
+        const firstBrace = s.indexOf("{");
+        const lastBrace = s.lastIndexOf("}");
+        if (firstBrace === -1 || lastBrace === -1 || lastBrace < firstBrace) return null;
+        const jsonStr = s.slice(firstBrace, lastBrace + 1);
+        try {
+          const obj = JSON.parse(jsonStr);
+          if (obj && typeof obj === "object" && typeof obj.type === "string" && KNOWN_GRAPH_TYPES.has(obj.type)) {
+            return obj;
+          }
+          // Also accept old "conceptmap" tag — wrap as network type
+          if (obj && typeof obj === "object" && obj.nodes && obj.edges && !obj.type) {
+            return { ...obj, type: "network" };
+          }
+        } catch {
+          return null;
+        }
+        return null;
+      };
+
+      // 1) Look for fenced code blocks (ANY language tag — mathgraph, json, text, etc.)
+      const codeBlockRe = /```([\w-]*)\s*([\s\S]*?)```/g;
+      const foundSpecs: any[] = [];
+      let codeBlockMatch: RegExpExecArray | null;
+      while ((codeBlockMatch = codeBlockRe.exec(reply)) !== null) {
+        const lang = (codeBlockMatch[1] ?? "").toLowerCase();
+        const body = codeBlockMatch[2] ?? "";
+        // Skip non-JSON code blocks like bash, python, javascript, typescript
+        // (these are real code snippets, not graph specs)
+        if (["bash", "sh", "shell", "python", "py", "javascript", "js", "typescript", "ts", "html", "css", "sql"].includes(lang)) {
+          continue;
+        }
+        const spec = tryParseGraphSpec(body);
+        if (spec) {
+          foundSpecs.push(spec);
+        }
+      }
+
+      // 2) Also scan for inline JSON-looking text outside code blocks
+      // (when the AI just dumps {"type":"scatter",...} directly in the message)
+      // Look for `{"type":"..."` patterns
+      const inlineJsonRe = /\{\s*"(?:type|title)"\s*:[^{}]*\}/g;
+      const strippedReply = reply.replace(/```[\s\S]*?```/g, ""); // skip already-processed blocks
+      let inlineMatch: RegExpExecArray | null;
+      while ((inlineMatch = inlineJsonRe.exec(strippedReply)) !== null) {
+        // Greedy match — find the full {...} starting at this position
+        const start = inlineMatch.index;
+        const end = strippedReply.indexOf("}", start);
+        if (end === -1) continue;
+        // Extend to capture nested braces (graph specs may have nested objects like {bins:[{...}]} or {vectors:[{...}]})
+        let depth = 0;
+        let lastBrace = -1;
+        for (let i = start; i < strippedReply.length; i++) {
+          if (strippedReply[i] === "{") depth++;
+          else if (strippedReply[i] === "}") {
+            depth--;
+            if (depth === 0) { lastBrace = i; break; }
+          }
+        }
+        if (lastBrace === -1) continue;
+        const candidate = strippedReply.slice(start, lastBrace + 1);
+        const spec = tryParseGraphSpec(candidate);
+        if (spec) foundSpecs.push(spec);
+      }
+
+      // 3) Convert each found spec into an attachment
+      for (const spec of foundSpecs) {
+        // For backward compat, network-type specs are tagged as "conceptmap" so the
+        // UI shows the Brain icon — UNLESS the spec type is explicitly "network"
+        // (which means it was actually a graph-theory network diagram).
+        let attachmentType = "graph";
+        if (spec.type === "network") {
+          // Could be a graph-theory network OR a concept map. If the AI used the
+          // old "conceptmap" tag (we already converted that above), or if the
+          // title mentions "concept map" / "mind map", label it as conceptmap.
+          // Otherwise label as graph.
+          const titleLower = (spec.title ?? "").toLowerCase();
+          if (/concept map|mind map|mindmap/.test(titleLower) || wantsConceptMap) {
+            attachmentType = "conceptmap";
+          }
+        }
         attachments.push({
-          type: "graph",
+          type: attachmentType,
           url: null,
-          caption: JSON.stringify(graphJson),
+          caption: JSON.stringify(spec),
         });
       }
 
-      // Backward compat — old "conceptmap" tag maps to "network" type
-      const conceptMapMatch = reply.match(/```conceptmap\s*([\s\S]*?)```/);
-      if (conceptMapMatch) {
-        const cmJson = JSON.parse(conceptMapMatch[1].trim());
-        attachments.push({
-          type: "conceptmap",
-          url: null,
-          caption: JSON.stringify(cmJson),
-        });
-      }
+      // (graphMatch and conceptMapMatch removed — we use foundSpecs.length === 0
+      // to decide whether to run the fallback synthesis below.)
 
-      // Fallback synthesis — if user wanted a graph but AI didn't include the code block,
+      // Fallback synthesis — if user wanted a graph but AI didn't include ANY graph spec,
       // we synthesize a sensible default based on the detected type. This makes the system
       // robust to AI mistakes (e.g. the user's velocity-time complaint — AI gave y=x² instead
       // of a scatter plot, so we override with a scatter plot extracted from the data).
-      if (wantsGraph && !graphMatch && !conceptMapMatch) {
+      if (wantsGraph && foundSpecs.length === 0) {
         let synthesized: any = null;
 
         if (wantsScatter) {

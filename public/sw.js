@@ -1,5 +1,5 @@
 /**
- * StudyBuddy AI Service Worker v24 — Offline Mode
+ * StudyBuddy AI Service Worker v25 — Offline Mode
  *
  * Caching strategy:
  * - App shell: cache-first (instant load)
@@ -11,12 +11,13 @@
  *
  * v23 — bumped cache version to invalidate stale JS bundles (AI Tutor upgrade,
  *       exam upload conversion, inline exam reader).
- * v24 — bumped again for the upgraded GraphRenderers.tsx (12 graph families:
- *       scatter/bar/pie/venn/numberline/tree/network/vector/polygon/boxplot/
- *       histogram/function).
+ * v24 — bumped again for the upgraded GraphRenderers.tsx (12 graph families).
+ * v25 — bumped again for the lenient graph parser (AI was using ```text instead
+ *       of ```mathgraph so the JSON spec was being ignored; now we parse ANY
+ *       code block language tag AND inline JSON-looking text in the reply).
  */
 
-const CACHE_VERSION = "studybuddy-v24-offline";
+const CACHE_VERSION = "studybuddy-v25-offline";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const CONTENT_CACHE = `${CACHE_VERSION}-content`;
 const IMAGE_CACHE = `${CACHE_VERSION}-images`;

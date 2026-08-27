@@ -638,6 +638,21 @@ function MarkdownContent({ content, isUser }: { content: string; isUser: boolean
         if (block.type === "code") {
           // Skip mathgraph/conceptmap code blocks — they are rendered as attachments
           if (block.lang === "mathgraph" || block.lang === "conceptmap") return null;
+          // Also skip JSON / text blocks that look like graph specs (since the
+          // server has parsed them into attachments already). Check if the
+          // block content starts with `{"type": "..."` where type is one of
+          // our known graph types.
+          const graphTypeMatch = block.content.match(/^\{\s*"type"\s*:\s*"(\w+)"/);
+          const KNOWN_GRAPH_TYPES = new Set([
+            "function", "scatter", "bar", "histogram", "pie", "venn",
+            "numberline", "tree", "network", "vector", "polygon", "boxplot",
+          ]);
+          if (
+            (block.lang === "json" || block.lang === "text" || block.lang === "") &&
+            graphTypeMatch && KNOWN_GRAPH_TYPES.has(graphTypeMatch[1])
+          ) {
+            return null;
+          }
           return <CodeBlock key={i} code={block.content} lang={block.lang} />;
         }
         return <TextBlock key={i} content={block.content} isUser={isUser} />;
