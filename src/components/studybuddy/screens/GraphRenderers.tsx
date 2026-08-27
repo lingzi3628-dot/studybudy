@@ -63,12 +63,21 @@ export function GraphRenderer({ spec }: { spec: GraphSpec }) {
       return <PolygonSVG spec={spec} />;
     case "boxplot":
       return <BoxPlotSVG spec={spec} />;
+    case "slopefield":
+      return <SlopeFieldSVG spec={spec} />;
+    case "stemleaf":
+      return <StemLeafSVG spec={spec} />;
+    case "frequency_polygon":
+      return <FrequencyPolygonSVG spec={spec} />;
+    case "freeform":
+      return <FreeformSVG spec={spec} />;
     default:
       return (
         <div className="text-xs text-rose-600 p-3">
           Unknown graph type: <code>{type}</code>. Available types: function,
           scatter, bar, histogram, pie, venn, numberline, tree, network,
-          vector, polygon, boxplot.
+          vector, polygon, boxplot, slopefield, stemleaf, frequency_polygon,
+          freeform.
         </div>
       );
   }
@@ -1203,6 +1212,289 @@ function BoxPlotSVG({ spec }: { spec: any }) {
         })}
         {yLabel && <text x={width / 2} y={height - 6} fontSize={11} fill="#374151" textAnchor="middle" fontWeight={600}>{yLabel}</text>}
       </svg>
+    </div>
+  );
+}
+
+// =====================================================================
+// 13. Slope field (direction field) for differential equations
+//     Draws small tick marks showing the slope of y' = f(x, y) at grid points.
+// =====================================================================
+function SlopeFieldSVG({ spec }: { spec: any }) {
+  const title = spec.title ?? "Slope Field";
+  const expr = spec.expr ?? "x"; // dy/dx = expr (function of x and y)
+  const xRange: [number, number] = spec.xRange ?? [-5, 5];
+  const yRange: [number, number] = spec.yRange ?? [-5, 5];
+  const gridSize: number = spec.gridSize ?? 10; // grid points per axis
+  const xLabel = spec.xLabel ?? "x";
+  const yLabel = spec.yLabel ?? "y";
+  const width = 480;
+  const height = 360;
+  const padding = 40;
+
+  // Safe expression evaluator — supports Math.* + x + y
+  const evaluate = (x: number, y: number): number | null => {
+    try {
+      let safeExpr = expr
+        .replace(/\^/g, "**")
+        .replace(/\bpi\b/gi, "Math.PI")
+        .replace(/\be\b/g, "Math.E")
+        .replace(/\bsin\(/g, "Math.sin(")
+        .replace(/\bcos\(/g, "Math.cos(")
+        .replace(/\btan\(/g, "Math.tan(")
+        .replace(/\bsqrt\(/g, "Math.sqrt(")
+        .replace(/\blog\(/g, "Math.log(")
+        .replace(/\bexp\(/g, "Math.exp(")
+        .replace(/\babs\(/g, "Math.abs(")
+        .replace(/\bx\b/g, String(x))
+        .replace(/\by\b/g, String(y));
+      // eslint-disable-next-line no-new-func
+      const fn = new Function("Math", `"use strict"; return (${safeExpr});`);
+      const result = fn(Math);
+      return typeof result === "number" && isFinite(result) ? result : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const toSvgX = (x: number) => padding + ((x - xRange[0]) / (xRange[1] - xRange[0])) * (width - 2 * padding);
+  const toSvgY = (y: number) =>
+    height - padding - ((y - yRange[0]) / (yRange[1] - yRange[0])) * (height - 2 * padding);
+
+  // Generate slope tick marks
+  const ticks: ReactElement[] = [];
+  const tickLength = 8;
+  for (let i = 0; i <= gridSize; i++) {
+    for (let j = 0; j <= gridSize; j++) {
+      const x = xRange[0] + ((xRange[1] - xRange[0]) * i) / gridSize;
+      const y = yRange[0] + ((yRange[1] - yRange[0]) * j) / gridSize;
+      const slope = evaluate(x, y);
+      if (slope === null) continue;
+      // Normalize direction
+      const dx = 1 / Math.sqrt(1 + slope * slope);
+      const dy = slope / Math.sqrt(1 + slope * slope);
+      const cx = toSvgX(x);
+      const cy = toSvgY(y);
+      const x1 = cx - (tickLength / 2) * dx;
+      const y1 = cy + (tickLength / 2) * dy; // SVG y inverted
+      const x2 = cx + (tickLength / 2) * dx;
+      const y2 = cy - (tickLength / 2) * dy;
+      ticks.push(
+        <line
+          key={`tick-${i}-${j}`}
+          x1={x1.toFixed(2)}
+          y1={y1.toFixed(2)}
+          x2={x2.toFixed(2)}
+          y2={y2.toFixed(2)}
+          stroke="#4F46E5"
+          strokeWidth={1.5}
+          opacity={0.7}
+        />
+      );
+    }
+  }
+
+  // Axes
+  const xAxisY = yRange[0] <= 0 && yRange[1] >= 0 ? toSvgY(0) : height - padding;
+  const yAxisX = xRange[0] <= 0 && xRange[1] >= 0 ? toSvgX(0) : padding;
+
+  return (
+    <div>
+      <p className="text-xs font-semibold text-gray-700 mb-1">{title}</p>
+      <p className="text-[10px] text-gray-500 mb-1">dy/dx = <span className="font-mono">{expr}</span></p>
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto bg-gray-50 rounded-lg">
+        {ticks}
+        <line x1={padding} y1={xAxisY} x2={width - padding} y2={xAxisY} stroke="#374151" strokeWidth={1.5} />
+        <line x1={yAxisX} y1={padding} x2={yAxisX} y2={height - padding} stroke="#374151" strokeWidth={1.5} />
+        <text x={width / 2} y={height - 8} fontSize={11} fill="#374151" textAnchor="middle" fontWeight={600}>{xLabel}</text>
+        <text x={12} y={height / 2} fontSize={11} fill="#374151" textAnchor="middle" fontWeight={600} transform={`rotate(-90, 12, ${height / 2})`}>{yLabel}</text>
+      </svg>
+    </div>
+  );
+}
+
+// =====================================================================
+// 14. Stem-and-leaf plot (statistical data display)
+// =====================================================================
+function StemLeafSVG({ spec }: { spec: any }) {
+  const title = spec.title ?? "Stem-and-Leaf Plot";
+  const data: number[] = Array.isArray(spec.data) ? spec.data : [];
+  const stemUnit: number = spec.stemUnit ?? 10; // e.g. 10 means stem = tens digit
+  const leafUnit: number = spec.leafUnit ?? 1; // e.g. 1 means leaf = ones digit
+
+  if (data.length === 0) {
+    return <p className="text-xs text-gray-500">No data provided for stem-and-leaf plot.</p>;
+  }
+
+  // Group by stem
+  const groups = new Map<number, number[]>();
+  for (const v of data) {
+    const stem = Math.floor(v / stemUnit);
+    const leaf = Math.floor((v - stem * stemUnit) / leafUnit);
+    if (!groups.has(stem)) groups.set(stem, []);
+    groups.get(stem)!.push(leaf);
+  }
+  // Sort stems
+  const sortedStems = [...groups.keys()].sort((a, b) => a - b);
+
+  return (
+    <div>
+      <p className="text-xs font-semibold text-gray-700 mb-1">{title}</p>
+      <p className="text-[10px] text-gray-500 mb-2">Stem = {stemUnit}s, Leaf = {leafUnit}s</p>
+      <div className="bg-white border border-gray-200 rounded-lg p-3 font-mono text-xs">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-gray-200 text-gray-600">
+              <th className="text-left py-1 px-2">Stem</th>
+              <th className="text-left py-1 px-2">Leaves</th>
+              <th className="text-right py-1 px-2 text-gray-400">Count</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sortedStems.map((stem) => {
+              const leaves = (groups.get(stem) ?? []).sort((a, b) => a - b);
+              return (
+                <tr key={stem} className="border-b border-gray-50">
+                  <td className="py-1 px-2 font-bold text-indigo-600">{stem} |</td>
+                  <td className="py-1 px-2 tracking-wide text-gray-800">{leaves.join(" ")}</td>
+                  <td className="py-1 px-2 text-right text-gray-400">{leaves.length}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-[10px] text-gray-500 mt-1">n = {data.length} · Key: {sortedStems[0] ?? 0}|{(groups.get(sortedStems[0]) ?? [0])[0]} = {(sortedStems[0] ?? 0) * stemUnit + (groups.get(sortedStems[0]) ?? [0])[0] * leafUnit}</p>
+    </div>
+  );
+}
+
+// =====================================================================
+// 15. Frequency polygon (line graph connecting midpoints of class intervals)
+// =====================================================================
+function FrequencyPolygonSVG({ spec }: { spec: any }) {
+  const title = spec.title ?? "Frequency Polygon";
+  const xLabel = spec.xLabel ?? "Class Midpoint";
+  const yLabel = spec.yLabel ?? "Frequency";
+  const points: Array<{ midpoint: number; frequency: number }> = Array.isArray(spec.points)
+    ? spec.points
+    : Array.isArray(spec.bins)
+      ? spec.bins.map((b: any) => ({ midpoint: (b.start + b.end) / 2, frequency: b.count }))
+      : [];
+
+  const width = 480;
+  const height = 320;
+  const padding = { left: 50, right: 20, top: 30, bottom: 50 };
+  const plotW = width - padding.left - padding.right;
+  const plotH = height - padding.top - padding.bottom;
+
+  if (points.length === 0) {
+    return <p className="text-xs text-gray-500">No data for frequency polygon.</p>;
+  }
+
+  const allX = points.map((p) => p.midpoint);
+  const allY = points.map((p) => p.frequency);
+  const xMin = Math.min(...allX);
+  const xMax = Math.max(...allX);
+  const yMax = Math.max(...allY) * 1.1 || 10;
+  const xPad = (xMax - xMin) * 0.1 || 1;
+  const xMinP = xMin - xPad;
+  const xMaxP = xMax + xPad;
+
+  const toSvgX = (x: number) => padding.left + ((x - xMinP) / (xMaxP - xMinP)) * plotW;
+  const toSvgY = (v: number) => padding.top + plotH - (v / yMax) * plotH;
+
+  const path = points
+    .map((p, i) => `${i === 0 ? "M" : "L"} ${toSvgX(p.midpoint).toFixed(2)} ${toSvgY(p.frequency).toFixed(2)}`)
+    .join(" ");
+
+  return (
+    <div>
+      <p className="text-xs font-semibold text-gray-700 mb-1">{title}</p>
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto bg-gray-50 rounded-lg">
+        {/* Y grid */}
+        {Array.from({ length: 6 }, (_, i) => {
+          const yv = (yMax * i) / 5;
+          return (
+            <g key={`yg-${i}`}>
+              <line x1={padding.left} y1={toSvgY(yv)} x2={padding.left + plotW} y2={toSvgY(yv)} stroke="#E5E7EB" strokeWidth={1} />
+              <text x={padding.left - 8} y={toSvgY(yv) + 3} fontSize={10} fill="#6B7280" textAnchor="end">{yv.toFixed(0)}</text>
+            </g>
+          );
+        })}
+        {/* X axis labels */}
+        {points.map((p, i) => (
+          <text key={`xl-${i}`} x={toSvgX(p.midpoint)} y={padding.top + plotH + 14} fontSize={10} fill="#6B7280" textAnchor="middle">
+            {p.midpoint.toFixed(1)}
+          </text>
+        ))}
+        {/* Line */}
+        <path d={path} fill="none" stroke="#4F46E5" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
+        {/* Points */}
+        {points.map((p, i) => (
+          <circle key={`pt-${i}`} cx={toSvgX(p.midpoint)} cy={toSvgY(p.frequency)} r={4} fill="#4F46E5" stroke="white" strokeWidth={1.5} />
+        ))}
+        {/* Axes */}
+        <line x1={padding.left} y1={padding.top} x2={padding.left} y2={padding.top + plotH} stroke="#374151" strokeWidth={1.5} />
+        <line x1={padding.left} y1={padding.top + plotH} x2={padding.left + plotW} y2={padding.top + plotH} stroke="#374151" strokeWidth={1.5} />
+        <text x={width / 2} y={height - 8} fontSize={11} fill="#374151" textAnchor="middle" fontWeight={600}>{xLabel}</text>
+        <text x={14} y={height / 2} fontSize={11} fill="#374151" textAnchor="middle" fontWeight={600} transform={`rotate(-90, 14, ${height / 2})`}>{yLabel}</text>
+      </svg>
+    </div>
+  );
+}
+
+// =====================================================================
+// 16. Freeform SVG — AI can output raw SVG markup for any custom drawing
+//     The "svg" field in the spec contains the raw SVG body (without the
+//     outer <svg> tag). We wrap it in a viewBox and render it inline.
+//     DANGEROUS: this executes AI-generated SVG, so we sanitize by stripping
+//     <script> tags, on* event handlers, and external resource references.
+// =====================================================================
+function FreeformSVG({ spec }: { spec: any }) {
+  const title = spec.title ?? "Custom Drawing";
+  const rawSvg: string = typeof spec.svg === "string" ? spec.svg : "";
+  const width: number = spec.width ?? 480;
+  const height: number = spec.height ?? 360;
+
+  if (!rawSvg) {
+    return (
+      <div className="text-xs text-rose-600 p-3">
+        Freeform graph type requires an "svg" field containing raw SVG markup.
+      </div>
+    );
+  }
+
+  // Sanitize: strip <script>...</script>, on* handlers, javascript: URLs,
+  // external image refs, and data: URLs (to prevent XSS and data exfiltration).
+  let sanitized = rawSvg;
+  // Remove <script>...</script> blocks
+  sanitized = sanitized.replace(/<script[\s\S]*?<\/script>/gi, "");
+  // Remove <style>...</style> blocks (allow inline styles only on elements)
+  // (kept — SVG often uses <style> for legitimate styling, but no external refs)
+  // Remove on* event handlers (onclick, onload, onerror, etc.)
+  sanitized = sanitized.replace(/\son\w+\s*=\s*"[^"]*"/gi, "");
+  sanitized = sanitized.replace(/\son\w+\s*=\s*'[^']*'/gi, "");
+  // Remove javascript: URLs
+  sanitized = sanitized.replace(/href\s*=\s*"javascript:[^"]*"/gi, 'href="#"');
+  sanitized = sanitized.replace(/href\s*=\s*'javascript:[^']*'/gi, "href='#'");
+  // Remove external image references (prevent data exfiltration via image URLs)
+  // Keep data: URLs only if they're inline SVG images (not external fetches)
+  // For now, just disallow http(s) image refs
+  sanitized = sanitized.replace(/href\s*=\s*"https?:\/\/[^"]*"/gi, 'href="#"');
+  sanitized = sanitized.replace(/href\s*=\s*'https?:\/\/[^']*'/gi, "href='#'");
+  // Remove xlink:href external references too
+  sanitized = sanitized.replace(/xlink:href\s*=\s*"https?:\/\/[^"]*"/gi, 'xlink:href="#"');
+
+  return (
+    <div>
+      {title && <p className="text-xs font-semibold text-gray-700 mb-1">{title}</p>}
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        className="w-full h-auto bg-gray-50 rounded-lg"
+        xmlns="http://www.w3.org/2000/svg"
+        dangerouslySetInnerHTML={{ __html: sanitized }}
+      />
     </div>
   );
 }

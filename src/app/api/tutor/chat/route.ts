@@ -298,10 +298,34 @@ The "type" field tells the frontend which renderer to use. Available types:
 12. "boxplot" — box-and-whisker plot (quartiles, median, outliers).
     JSON spec: {"type":"boxplot", "title":"Test Scores", "yLabel":"Score", "datasets":[{"label":"Class A","min":45,"q1":60,"median":75,"q3":85,"max":95,"outliers":[30]},{"label":"Class B","min":50,"q1":65,"median":78,"q3":88,"max":92}]}
 
+13. "slopefield" — direction field for a differential equation dy/dx = f(x, y).
+    JSON spec: {"type":"slopefield", "title":"Slope Field", "expr":"x - y", "xRange":[-5,5], "yRange":[-5,5], "gridSize":10, "xLabel":"x", "yLabel":"y"}
+    The "expr" supports Math.* functions and uses x, y as variables (e.g. "x*y", "sin(x) - y").
+
+14. "stemleaf" — stem-and-leaf plot for raw data.
+    JSON spec: {"type":"stemleaf", "title":"Test Scores", "data":[23,25,28,31,32,35,38,42,45,48,52,55,58], "stemUnit":10, "leafUnit":1}
+    stemUnit=10 means stem is the tens digit; leafUnit=1 means leaf is the ones digit.
+
+15. "frequency_polygon" — line graph connecting class midpoints to frequencies.
+    JSON spec: {"type":"frequency_polygon", "title":"Frequency Polygon", "points":[{"midpoint":15,"frequency":3},{"midpoint":25,"frequency":7},{"midpoint":35,"frequency":12},{"midpoint":45,"frequency":8}]}
+    OR using bins: {"type":"frequency_polygon", "bins":[{"start":10,"end":20,"count":3},{"start":20,"end":30,"count":7}]}
+
+16. "freeform" — RAW SVG markup for ANY custom drawing that doesn't fit the other types.
+    This is your escape hatch for advanced drawings: 3D solids, contour maps, phase portraits,
+    tessellations, Argand diagrams, knot diagrams, vector fields, compass-and-straightedge
+    constructions, network graphs with custom layouts, or any other visual you can imagine.
+    JSON spec: {"type":"freeform", "title":"Cube", "width":400, "height":300, "svg":"<rect x='50' y='50' width='100' height='100' fill='#4F46E5'/><polygon points='150,50 200,20 200,120 150,150' fill='#8B5CF6'/>"}
+    The "svg" field contains raw SVG element markup (NOT wrapped in <svg>...</svg> — the
+    frontend wraps it for you). Use any standard SVG elements: rect, circle, line, polygon,
+    path, text, ellipse, polyline, g, defs, marker, style. Use the viewBox 0 0 width height.
+    You MUST NOT include: <script>, on* event handlers, external http(s) URLs, javascript: URLs,
+    or any external resource references (these are stripped by the sanitizer for security).
+
 GENERAL RULES:
 - Always pick the MOST APPROPRIATE graph type for the user's request. Don't use "function" for physics data plots — use "scatter" instead. Don't use "function" for statistics — use "bar"/"pie"/"boxplot" instead.
 - When the user provides data points (e.g. "plot these: (0,0), (1,5), (2,10)"), use "scatter" with "lineOfBestFit":true.
 - When the user asks for a graph of velocity vs time, distance vs time, or any measured data, use "scatter" (NOT "function").
+- When the user asks for something you can't express with the 15 specific types above, use "freeform" with raw SVG. Be creative — you can draw 3D cubes (with dashed hidden edges), compass constructions (arcs + lines), phase portraits, contour maps, knot diagrams, etc. Just write the SVG markup directly.
 - Be encouraging and clear. Reply in the same language the user used (English / Kiswahili / French).
 - Keep answers under 250 words unless asked for detail.
 - Use markdown: **bold**, *italic*, lists (- or 1.), [link](url), \`code\`, and fenced code blocks for graphs.`;
@@ -335,6 +359,7 @@ GENERAL RULES:
       const KNOWN_GRAPH_TYPES = new Set([
         "function", "scatter", "bar", "histogram", "pie", "venn",
         "numberline", "tree", "network", "vector", "polygon", "boxplot",
+        "slopefield", "stemleaf", "frequency_polygon", "freeform",
       ]);
 
       // Helper: try to parse a string as JSON and check if it has a known graph type

@@ -1,5 +1,5 @@
 /**
- * StudyBuddy AI Service Worker v26 — Offline Mode
+ * StudyBuddy AI Service Worker v27 — Offline Mode
  *
  * Caching strategy:
  * - App shell: cache-first (instant load)
@@ -15,18 +15,17 @@
  * v25 — bumped again for the lenient graph parser (AI was using ```text instead
  *       of ```mathgraph so the JSON spec was being ignored; now we parse ANY
  *       code block language tag AND inline JSON-looking text in the reply).
- * v26 — bumped again for the concept map fix: 3 bugs were causing the concept
- *       map to render as an empty function plot instead of a proper hub-and-
- *       spoke network diagram. Now: (1) concept map attachments are tagged
- *       "conceptmap" (so UI shows the Brain icon), (2) synthesized specs
- *       include "type":"network" so GraphRenderer routes correctly,
- *       (3) fallback extraction parses ### headers + topic words (not just
- *       **bolded** terms which the AI often doesn't use), and (4) the
- *       NetworkSVG renderer auto-detects hub-and-spoke layouts and places
- *       the central node in the middle with subtopics radiating out.
+ * v26 — bumped again for the concept map fix (3 root causes fixed).
+ * v27 — bumped again for the generative graphing upgrade: 4 new renderers
+ *       (slopefield, stemleaf, frequency_polygon, freeform). The freeform
+ *       renderer accepts raw SVG markup from the AI, so the AI can now draw
+ *       ANYTHING — 3D solids, contour maps, phase portraits, knot diagrams,
+ *       tessellations, Argand diagrams, compass constructions, etc. — without
+ *       us having to add new renderers. Also: UNLOCK_ALL_MODELS env var
+ *       unlocks all premium Study Buddies for testing.
  */
 
-const CACHE_VERSION = "studybuddy-v26-offline";
+const CACHE_VERSION = "studybuddy-v27-offline";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const CONTENT_CACHE = `${CACHE_VERSION}-content`;
 const IMAGE_CACHE = `${CACHE_VERSION}-images`;

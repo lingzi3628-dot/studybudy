@@ -237,6 +237,10 @@ export function AITutorChat() {
     { icon: "📦", text: "Draw a box plot comparing class A and class B test scores", category: "Statistics" },
     { icon: "➡️", text: "Draw vectors F1 = (3,4) and F2 = (-2,1) on a coordinate plane", category: "Vectors" },
     { icon: "🧠", text: "Make a concept map of the human digestive system", category: "Concept" },
+    { icon: "🌀", text: "Draw a slope field for dy/dx = x - y", category: "Differential Eq" },
+    { icon: "🌿", text: "Make a stem-and-leaf plot of: 23 25 28 31 32 35 38 42 45 48", category: "Statistics" },
+    { icon: "🧊", text: "Draw a 3D cube with dashed hidden edges", category: "3D Solid" },
+    { icon: "🪢", text: "Draw a trefoil knot diagram", category: "Topology" },
   ];
 
   return (
@@ -344,9 +348,9 @@ export function AITutorChat() {
                 <h2 className="text-lg font-bold text-gray-900">AI Tutor</h2>
                 <p className="text-sm text-gray-500 mt-1 max-w-md mx-auto">
                   Ask anything — I can <span className="text-indigo-600 font-medium">fetch videos</span>,{" "}
-                  <span className="text-emerald-600 font-medium">draw 12 kinds of graphs</span> (scatter, bar, pie, Venn, number line, tree, vector, polygon, box plot & more),{" "}
+                  <span className="text-emerald-600 font-medium">draw 16 kinds of graphs</span> (scatter, bar, pie, Venn, slope fields, stem-leaf, 3D solids, knots & more),{" "}
                   <span className="text-violet-600 font-medium">build concept maps</span>, and{" "}
-                  <span className="text-amber-600 font-medium">find images</span>. Your chat history is saved automatically.
+                  <span className="text-amber-600 font-medium">render any custom SVG drawing</span>. Your chat history is saved automatically.
                 </p>
                 <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-xl mx-auto">
                   {suggestedQuestions.map((q) => (
@@ -646,6 +650,7 @@ function MarkdownContent({ content, isUser }: { content: string; isUser: boolean
           const KNOWN_GRAPH_TYPES = new Set([
             "function", "scatter", "bar", "histogram", "pie", "venn",
             "numberline", "tree", "network", "vector", "polygon", "boxplot",
+            "slopefield", "stemleaf", "frequency_polygon", "freeform",
           ]);
           if (
             (block.lang === "json" || block.lang === "text" || block.lang === "") &&

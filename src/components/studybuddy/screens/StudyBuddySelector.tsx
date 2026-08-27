@@ -22,6 +22,9 @@ type StudyBuddy = {
   tokenCostMultiplier: number;
   providerId: string | null;
   modelIdentifier: string | null;
+  // Server-side computed: whether this user can currently use this model.
+  // When UNLOCK_ALL_MODELS env var is set, this is true for all models.
+  canUse?: boolean;
 };
 
 type ActiveRental = {
@@ -152,6 +155,22 @@ export function StudyBuddySelector() {
           </div>
         )}
 
+        {/* Unlock-all banner (shown when server says all models are unlocked) */}
+        {buddies.some((b) => b.canUse === true && b.requiresPremium) && (
+          <div className="rounded-xl bg-gradient-to-r from-emerald-50 to-teal-50 border-2 border-emerald-200 p-3 text-xs text-emerald-800">
+            <div className="flex items-start gap-2">
+              <Sparkles className="w-4 h-4 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="font-bold">🔓 All Study Buddies Unlocked</p>
+                <p className="mt-0.5 text-emerald-700">
+                  Every model is available for you to test. Switch freely and compare
+                  which AI handles your questions best. No premium required during this testing phase.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         <p className="text-xs text-gray-500">
           Each Study Buddy has different intelligence and personality. Switch anytime —
           your progress is saved automatically.
@@ -170,7 +189,9 @@ export function StudyBuddySelector() {
           ) : (
             buddies.map((buddy) => {
               const isActive = currentModel === buddy.modelName;
-              const canUse = !buddy.requiresPremium || isPremium || (activeRental?.modelName === buddy.modelName);
+              // Honor server-side canUse (true when UNLOCK_ALL_MODELS is set)
+              // Falls back to local computation if not provided.
+              const canUse = buddy.canUse ?? (!buddy.requiresPremium || isPremium || (activeRental?.modelName === buddy.modelName));
               return (
                 <button
                   key={buddy.modelName}

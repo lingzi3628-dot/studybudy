@@ -35,8 +35,13 @@ export async function GET() {
     return NextResponse.json({
       models: models.map((m) => ({
         ...m,
-        // Whether this user can currently use this model
-        canUse: !m.requiresPremium || Boolean(user.planId),
+        // Whether this user can currently use this model.
+        // When UNLOCK_ALL_MODELS=true env var is set, all models are unlocked
+        // (used for testing/comparison/beta phases — bypass premium + plan checks).
+        canUse:
+          process.env.UNLOCK_ALL_MODELS === "true"
+            ? true
+            : !m.requiresPremium || Boolean(user.planId),
       })),
     });
   } catch (e: any) {
