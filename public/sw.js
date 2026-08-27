@@ -14,7 +14,7 @@
  *   + Per-conversation model switcher (dropdown in AI Tutor header)
  */
 
-const CACHE_VERSION = "studybuddy-v41-offline";
+const CACHE_VERSION = "studybuddy-v42-offline";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const CONTENT_CACHE = `${CACHE_VERSION}-content`;
 const IMAGE_CACHE = `${CACHE_VERSION}-images`;
@@ -114,39 +114,39 @@ self.addEventListener("fetch", (event) => {
   // --- Navigation (HTML pages) ---
   if (req.mode === "navigate") {
     event.respondWith(
-      fetch(req)
-        .then((res) => {
-          // Cache the response asynchronously — errors are caught in the .catch()
+      (async () => {
+        try {
+          const res = await fetch(req);
+          // Clone FIRST, before the body is consumed by the browser
+          const clone = res.clone();
+          // Cache in the background — don't await, don't block
           caches.open(SHELL_CACHE)
-            .then((cache) => cache.put(req, res.clone()))
-            .catch((e) => console.warn("[SW] nav cache.put failed:", e?.message));
+            .then((cache) => cache.put(req, clone))
+            .catch(() => {});
           return res;
-        })
-        .catch(() => caches.match(req).then((c) => c || caches.match("/")))
+        } catch {
+          return caches.match(req).then((c) => c || caches.match("/"));
+        }
+      })()
     );
     return;
   }
 
   // --- Static assets (JS/CSS): stale-while-revalidate ---
   event.respondWith(
-    caches.open(SHELL_CACHE).then(async (cache) => {
+    (async () => {
+      const cache = await caches.open(SHELL_CACHE);
       const cached = await cache.match(req);
-      const networkFetch = fetch(req)
-        .then((res) => {
-          // Only cache successful, non-opaque responses. Use try/catch
-          // because res.clone() can throw "body already used" in edge cases.
-          if (res.ok) {
-            try {
-              cache.put(req, res.clone());
-            } catch (e) {
-              // Body already consumed — skip caching, just return the response
-              console.warn("[SW] cache.put failed (body used), skipping:", e?.message);
-            }
-          }
-          return res;
-        })
-        .catch(() => cached);
-      return cached || networkFetch;
-    })
+      try {
+        const res = await fetch(req);
+        if (res.ok) {
+          const clone = res.clone();
+          cache.put(req, clone).catch(() => {});
+        }
+        return res;
+      } catch {
+        return cached || caches.match("/");
+      }
+    })()
   );
 });

@@ -165,6 +165,27 @@ export async function callProvider(
           },
           body: JSON.stringify(anthropicBody),
         });
+      } else if (provider.providerType === "huggingface") {
+        // Hugging Face Inference API: different URL format + body format
+        // URL: {baseUrl}/{model}  (model is the path, not a body field)
+        // Body: { inputs: prompt_text } for text-generation models
+        // OR for chat models: { model, messages } (OpenAI-compatible)
+        // HF now supports OpenAI-compatible endpoint at /models/{model}/v1/chat/completions
+        // Try the OpenAI-compatible path first (works for newer models like Llama-3.1)
+        const hfBaseUrl = baseUrl.replace("/models", "");
+        res = await fetch(`${hfBaseUrl}/models/${model}/v1/chat/completions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model,
+            messages,
+            max_tokens: provider.maxTokens,
+            temperature: 0.7,
+          }),
+        });
       } else {
         // Standard OpenAI-compatible providers
         res = await fetch(`${baseUrl}/chat/completions`, {

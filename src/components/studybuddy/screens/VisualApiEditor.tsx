@@ -19,6 +19,7 @@ import {
   Cpu,
   Eye,
   EyeOff,
+  Send,
 } from "lucide-react";
 
 /**
@@ -100,6 +101,11 @@ export function VisualApiEditor({ mode }: Props) {
   const [health, setHealth] = useState<Record<string, { status: "green" | "yellow" | "red" | "unknown"; successRate: number; avgLatencyMs: number | null; lastCheckedAt: string | null; lastError: string | null }>>({});
   const [healthChecking, setHealthChecking] = useState(false);
   const [showAnalytics, setShowAnalytics] = useState(false);
+  // Chat test — mini chat window to test an API directly
+  const [chatProviderId, setChatProviderId] = useState<string | null>(null);
+  const [chatMessages, setChatMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatBusy, setChatBusy] = useState(false);
   const [analyticsData, setAnalyticsData] = useState<any>(null);
   const [analyticsRange, setAnalyticsRange] = useState<"24h" | "7d" | "30d">("7d");
 
@@ -321,6 +327,32 @@ export function VisualApiEditor({ mode }: Props) {
       await load();
     } catch (e: any) {
       setError(e?.message ?? "Delete failed");
+    }
+  };
+
+  // Chat test — send a message directly to a provider's API
+  const sendChatTest = async () => {
+    if (!chatInput.trim() || !chatProviderId || chatBusy) return;
+    const msg = chatInput.trim();
+    setChatInput("");
+    setChatMessages((m) => [...m, { role: "user", content: msg }]);
+    setChatBusy(true);
+    try {
+      const r = await fetch(`/api/admin/providers/${chatProviderId}/test`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customPrompt: msg }),
+      });
+      const d = await r.json();
+      if (d.status === "success") {
+        setChatMessages((m) => [...m, { role: "assistant", content: d.reply ?? "OK" }]);
+      } else {
+        setChatMessages((m) => [...m, { role: "assistant", content: `❌ Error: ${d.error ?? "Failed"}` }]);
+      }
+    } catch (e: any) {
+      setChatMessages((m) => [...m, { role: "assistant", content: `❌ ${e?.message ?? "Network error"}` }]);
+    } finally {
+      setChatBusy(false);
     }
   };
 
@@ -567,7 +599,7 @@ export function VisualApiEditor({ mode }: Props) {
                       </span>
                     )}
                   </div>
-                  <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 6 }}>
+                  <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 4 }}>
                     {/* Test button */}
                     <button
                       onClick={(e) => { e.stopPropagation(); testProvider(p.id); }}
@@ -576,10 +608,18 @@ export function VisualApiEditor({ mode }: Props) {
                     >
                       {testing === p.id ? "…" : "⚡ Test"}
                     </button>
+                    {/* Chat test button */}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setChatProviderId(p.id); }}
+                      style={{ fontSize: 9, padding: "2px 6px", borderRadius: 4, background: "#8B5CF6", color: "white", border: "none", cursor: "pointer", fontWeight: 600 }}
+                      title="Chat directly with this API"
+                    >
+                      💬 Chat
+                    </button>
                     {/* Test result */}
                     {test && (
-                      <span style={{ fontSize: 9, color: test.status === "ok" ? "#10B981" : "#EF4444", fontWeight: 600 }}>
-                        {test.status === "ok" ? `✓ ${test.latencyMs ?? "?"}ms` : `✗ ${test.message ?? ""}`}
+                      <span style={{ fontSize: 8, color: test.status === "ok" ? "#10B981" : "#EF4444", fontWeight: 600, maxWidth: 80, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {test.status === "ok" ? `✓ ${test.latencyMs ?? "?"}ms` : `✗`}
                       </span>
                     )}
                     <span style={{ flex: 1 }} />
@@ -832,6 +872,61 @@ export function VisualApiEditor({ mode }: Props) {
           onRangeChange={setAnalyticsRange}
           onClose={() => setShowAnalytics(false)}
         />
+      )}
+
+      {/* Chat test modal */}
+      {chatProviderId && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+          <div className="absolute inset-0 bg-black/40" onClick={() => { setChatProviderId(null); setChatMessages([]); }} />
+          <div className="relative w-full max-w-md bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl p-4 max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-bold text-gray-900">
+                💬 Chat with {providers.find(p => p.id === chatProviderId)?.name ?? "API"}
+              </h3>
+              <button onClick={() => { setChatProviderId(null); setChatMessages([]); }} className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-500">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto space-y-2 min-h-[200px] max-h-[400px]">
+              {chatMessages.length === 0 && (
+                <p className="text-xs text-gray-400 text-center py-8">Type a message below to test this API directly.</p>
+              )}
+              {chatMessages.map((m, i) => (
+                <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                  <div className={`max-w-[80%] rounded-2xl px-3 py-2 text-xs ${
+                    m.role === "user" ? "bg-indigo-600 text-white" : "bg-gray-100 text-gray-800"
+                  }`}>
+                    {m.content}
+                  </div>
+                </div>
+              ))}
+              {chatBusy && (
+                <div className="flex justify-start">
+                  <div className="bg-gray-100 rounded-2xl px-3 py-2 text-xs text-gray-500 flex items-center gap-1">
+                    <Loader2 className="w-3 h-3 animate-spin" /> Thinking…
+                  </div>
+                </div>
+              )}
+            </div>
+            <form onSubmit={(e) => { e.preventDefault(); sendChatTest(); }} className="mt-3 flex gap-2">
+              <input
+                type="text"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                placeholder="Type a test message…"
+                className="flex-1 px-3 py-2 rounded-full bg-gray-100 text-sm outline-none focus:bg-white focus:ring-2 focus:ring-indigo-200"
+                disabled={chatBusy}
+              />
+              <button
+                type="submit"
+                disabled={chatBusy || !chatInput.trim()}
+                className="w-9 h-9 rounded-full bg-violet-600 text-white flex items-center justify-center disabled:opacity-50"
+              >
+                {chatBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              </button>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );

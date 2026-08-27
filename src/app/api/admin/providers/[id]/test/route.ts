@@ -13,7 +13,7 @@ type Params = { params: Promise<{ id: string }> };
  *
  * Sends a tiny test prompt to the provider to verify the API key works.
  */
-export async function POST(_req: NextRequest, { params }: Params) {
+export async function POST(req: NextRequest, { params }: Params) {
   const admin = await requireAdminJwt();
   const { id } = await params;
 
@@ -40,10 +40,18 @@ export async function POST(_req: NextRequest, { params }: Params) {
   const baseUrl = (provider.baseUrl || "https://api.openai.com/v1").replace(/\/$/, "");
   const model = provider.model || "gpt-4o-mini";
 
-  const testMessages = [
-    { role: "system" as const, content: "You are a test endpoint. Reply with the single word 'ok'." },
-    { role: "user" as const, content: "Reply with ok." },
-  ];
+  const body = await req.json().catch(() => ({}));
+  const customPrompt = (body?.customPrompt ?? "").toString().trim();
+
+  const testMessages = customPrompt
+    ? [
+        { role: "system" as const, content: "You are a helpful AI assistant. Reply concisely." },
+        { role: "user" as const, content: customPrompt },
+      ]
+    : [
+        { role: "system" as const, content: "You are a test endpoint. Reply with the single word 'ok'." },
+        { role: "user" as const, content: "Reply with ok." },
+      ];
 
   const start = Date.now();
   try {
