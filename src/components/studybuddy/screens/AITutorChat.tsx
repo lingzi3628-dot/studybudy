@@ -92,6 +92,14 @@ export function AITutorChat() {
   const voiceModeRef = useRef(false); // ref version for use inside callbacks
   const [voiceModeState, setVoiceModeState] = useState<"idle" | "listening" | "speaking">("idle");
   const voiceListenerRef = useRef<ReturnType<typeof startBrowserListening> | null>(null);
+  // Per-conversation model switcher (Feature #7) + model comparison (Feature #1)
+  const [availableBuddies, setAvailableBuddies] = useState<Array<{ modelName: string; displayName: string; emoji: string; canUse: boolean }>>([]);
+  const [currentModel, setCurrentModel] = useState<string>("");
+  const [showModelPicker, setShowModelPicker] = useState(false);
+  const [showCompare, setShowCompare] = useState(false);
+  const [compareBuddies, setCompareBuddies] = useState<string[]>([]);
+  const [compareResults, setCompareResults] = useState<any[]>([]);
+  const [comparing, setComparing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showSidebar, setShowSidebar] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -417,6 +425,64 @@ export function AITutorChat() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  // Load available buddies for per-conversation switching + comparison
+  useEffect(() => {
+    Promise.all([fetch("/api/user/models"), fetch("/api/auth/me")])
+      .then(async ([mRes, meRes]) => {
+        if (mRes.ok) {
+          const d = await mRes.json();
+          setAvailableBuddies(d.models ?? []);
+        }
+        if (meRes.ok) {
+          const me = await meRes.json();
+          if (me.authed) setCurrentModel(me.user?.currentModel ?? "study_buddy_free");
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Switch model mid-conversation (Feature #7)
+  const switchModel = async (modelName: string) => {
+    if (modelName === currentModel) return;
+    try {
+      const r = await fetch("/api/user/model", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ modelName }),
+      });
+      if (r.ok) {
+        setCurrentModel(modelName);
+        setShowModelPicker(false);
+      }
+    } catch {}
+  };
+
+  // Compare models (Feature #1) — send same prompt to 2-5 buddies in parallel
+  const runComparison = async () => {
+    if (compareBuddies.length < 2 || !input.trim()) return;
+    setComparing(true);
+    setCompareResults([]);
+    try {
+      const r = await fetch("/api/tutor/compare", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: input.trim(),
+          modelNames: compareBuddies,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Comparison failed");
+      setCompareResults(d.results ?? []);
+    } catch (e: any) {
+      setError(e?.message ?? "Comparison failed");
+    } finally {
+      setComparing(false);
+    }
+  };
+
+  const currentBuddy = availableBuddies.find((b) => b.modelName === currentModel);
+
   // Voice mode — start recording
   // Uses browser Web Speech API (webkitSpeechRecognition) as primary path
   // — completely free, no API key, no network call.
@@ -604,7 +670,45 @@ export function AITutorChat() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {/* Voice mode toggle (continuous conversation mode like ChatGPT voice) */}
+            {/* Per-conversation model switcher (Feature #7) */}
+            <div className="relative">
+              <button
+                onClick={() => setShowModelPicker(!showModelPicker)}
+                className="h-8 px-2 rounded-full bg-indigo-50 text-indigo-700 text-xs font-semibold flex items-center gap-1 hover:bg-indigo-100"
+                title="Switch Study Buddy model"
+              >
+                {currentBuddy?.emoji ?? "🤖"} <span className="hidden sm:inline">{currentBuddy?.displayName ?? "AI"}</span>
+                <ChevronLeft className="w-3 h-3 rotate-90" />
+              </button>
+              {showModelPicker && (
+                <div className="absolute right-0 top-10 z-50 bg-white rounded-xl shadow-lg border border-gray-200 p-1 min-w-[180px] max-h-72 overflow-y-auto">
+                  {availableBuddies.filter(b => b.canUse).map((buddy) => (
+                    <button
+                      key={buddy.modelName}
+                      onClick={() => switchModel(buddy.modelName)}
+                      className={`w-full px-3 py-2 text-left text-xs rounded-lg flex items-center gap-2 hover:bg-indigo-50 ${
+                        buddy.modelName === currentModel ? "bg-indigo-50 font-bold text-indigo-700" : "text-gray-700"
+                      }`}
+                    >
+                      <span className="text-lg">{buddy.emoji}</span>
+                      <span className="flex-1">{buddy.displayName}</span>
+                      {buddy.modelName === currentModel && <Check className="w-3 h-3 text-indigo-600" />}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            {/* Model comparison button (Feature #1) */}
+            <button
+              onClick={() => setShowCompare(!showCompare)}
+              className={`w-8 h-8 rounded-full flex items-center justify-center transition ${
+                showCompare ? "bg-violet-600 text-white" : "bg-violet-50 text-violet-700 hover:bg-violet-100"
+              }`}
+              title="Compare multiple Study Buddies side-by-side"
+            >
+              <GitBranch className="w-4 h-4" />
+            </button>
+            {/* Voice mode toggle */}
             <button
               onClick={toggleVoiceMode}
               className={`w-8 h-8 rounded-full flex items-center justify-center transition ${
@@ -773,6 +877,70 @@ export function AITutorChat() {
               </div>
             )}
           </div>
+
+          {/* Model comparison panel — shown when showCompare is true */}
+          {showCompare && (
+            <div className="flex-shrink-0 px-3 py-3 bg-gradient-to-r from-violet-50 to-indigo-50 border-t border-violet-200 space-y-2">
+              <div className="flex items-center gap-2">
+                <GitBranch className="w-4 h-4 text-violet-600" />
+                <p className="text-xs font-bold text-violet-700">Model Comparison — pick 2-5 buddies, ask a question, see all answers side-by-side</p>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {availableBuddies.filter(b => b.canUse).map((buddy) => {
+                  const selected = compareBuddies.includes(buddy.modelName);
+                  return (
+                    <button
+                      key={buddy.modelName}
+                      onClick={() => {
+                        if (selected) {
+                          setCompareBuddies(compareBuddies.filter(b => b !== buddy.modelName));
+                        } else if (compareBuddies.length < 5) {
+                          setCompareBuddies([...compareBuddies, buddy.modelName]);
+                        }
+                      }}
+                      className={`px-2.5 py-1 rounded-full text-xs font-semibold transition ${
+                        selected ? "bg-violet-600 text-white" : "bg-white text-gray-600 hover:bg-violet-100"
+                      }`}
+                    >
+                      {buddy.emoji} {buddy.displayName} {selected && "✓"}
+                    </button>
+                  );
+                })}
+              </div>
+              {compareBuddies.length >= 2 && (
+                <button
+                  onClick={runComparison}
+                  disabled={comparing || !input.trim()}
+                  className="w-full h-9 rounded-full bg-violet-600 text-white text-xs font-semibold hover:bg-violet-700 disabled:opacity-50 flex items-center justify-center gap-1.5"
+                >
+                  {comparing ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Comparing {compareBuddies.length} models…</> : <>⚡ Compare {compareBuddies.length} models with: "{input.slice(0, 40)}{input.length > 40 ? "…" : ""}"</>}
+                </button>
+              )}
+              {compareResults.length > 0 && (
+                <div className="space-y-2 max-h-80 overflow-y-auto mt-2">
+                  {compareResults.map((r, i) => (
+                    <div key={i} className="rounded-xl bg-white border border-violet-200 p-3">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-lg">{r.emoji}</span>
+                          <span className="text-xs font-bold text-gray-900">{r.displayName}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-[10px]">
+                          {r.latencyMs && <span className="text-gray-500">{r.latencyMs}ms</span>}
+                          {r.error && <span className="text-rose-500">✗</span>}
+                        </div>
+                      </div>
+                      {r.reply ? (
+                        <p className="text-xs text-gray-700 whitespace-pre-wrap leading-relaxed">{r.reply}</p>
+                      ) : (
+                        <p className="text-xs text-rose-500">{r.error ?? "No reply"}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Voice mode banner — shown when voiceMode is ON */}
           {voiceMode && (

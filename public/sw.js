@@ -14,7 +14,7 @@
  *   + Per-conversation model switcher (dropdown in AI Tutor header)
  */
 
-const CACHE_VERSION = "studybuddy-v36-offline";
+const CACHE_VERSION = "studybuddy-v37-offline";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const CONTENT_CACHE = `${CACHE_VERSION}-content`;
 const IMAGE_CACHE = `${CACHE_VERSION}-images`;
@@ -116,7 +116,11 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       fetch(req)
         .then((res) => {
-          caches.open(SHELL_CACHE).then((cache) => cache.put(req, res.clone()));
+          try {
+            caches.open(SHELL_CACHE).then((cache) => cache.put(req, res.clone()));
+          } catch (e) {
+            console.warn("[SW] nav cache.put failed:", e?.message);
+          }
           return res;
         })
         .catch(() => caches.match(req).then((c) => c || caches.match("/")))
@@ -130,7 +134,16 @@ self.addEventListener("fetch", (event) => {
       const cached = await cache.match(req);
       const networkFetch = fetch(req)
         .then((res) => {
-          if (res.ok) cache.put(req, res.clone());
+          // Only cache successful, non-opaque responses. Use try/catch
+          // because res.clone() can throw "body already used" in edge cases.
+          if (res.ok) {
+            try {
+              cache.put(req, res.clone());
+            } catch (e) {
+              // Body already consumed — skip caching, just return the response
+              console.warn("[SW] cache.put failed (body used), skipping:", e?.message);
+            }
+          }
           return res;
         })
         .catch(() => cached);

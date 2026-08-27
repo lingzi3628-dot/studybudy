@@ -29,11 +29,14 @@ export async function POST(_req: NextRequest, { params }: Params) {
   if (!provider) {
     return NextResponse.json({ error: "Provider not found" }, { status: 404 });
   }
-  if (!provider.apiKeyEncrypted) {
+
+  // Pollinations and other keyless providers don't need an API key
+  const isKeyless = provider.providerType === "pollinations";
+  if (!provider.apiKeyEncrypted && !isKeyless) {
     return NextResponse.json({ error: "Provider has no API key set" }, { status: 400 });
   }
 
-  const apiKey = decryptApiKey(provider.apiKeyEncrypted);
+  const apiKey = provider.apiKeyEncrypted ? decryptApiKey(provider.apiKeyEncrypted) : "";
   const baseUrl = (provider.baseUrl || "https://api.openai.com/v1").replace(/\/$/, "");
   const model = provider.model || "gpt-4o-mini";
 
@@ -44,6 +47,32 @@ export async function POST(_req: NextRequest, { params }: Params) {
 
   const start = Date.now();
   try {
+    // Pollinations uses a different API format — GET request with prompt as query param
+    if (isKeyless) {
+      const prompt = encodeURIComponent("Reply with the single word 'ok'.");
+      const pollinationsUrl = `${baseUrl}/openai?model=${model}&messages=${JSON.stringify(testMessages)}`;
+      const res = await fetch(pollinationsUrl, {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+      });
+      const latencyMs = Date.now() - start;
+      if (!res.ok) {
+        const txt = await res.text().catch(() => "");
+        refundRateLimit(admin.adminId);
+        return NextResponse.json(
+          { status: "error", httpStatus: res.status, error: txt.slice(0, 300), latencyMs },
+          { status: 200 }
+        );
+      }
+      const text = await res.text();
+      return NextResponse.json({
+        status: "success",
+        reply: text.slice(0, 50),
+        model,
+        latencyMs,
+      });
+    }
+
     const res = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: {

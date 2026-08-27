@@ -108,23 +108,33 @@ export async function callProvider(
     const apiKey = rotationKeys[keyIdx] ?? "";
 
     try {
-      const res = await fetch(`${baseUrl}/chat/completions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-          ...(provider.providerType === "openrouter" ? {
-            "HTTP-Referer": "https://studybuddy.ai",
-            "X-Title": "StudyBuddy AI",
-          } : {}),
-        },
-        body: JSON.stringify({
-          model,
-          messages,
-          max_tokens: provider.maxTokens,
-          temperature: 0.7,
-        }),
-      });
+      // Pollinations uses a different API format — GET request
+      let res: Response;
+      if (provider.providerType === "pollinations") {
+        const url = `${baseUrl}/openai?model=${model}&messages=${encodeURIComponent(JSON.stringify(messages))}`;
+        res = await fetch(url, {
+          method: "GET",
+          headers: { "Content-Type": "application/json" },
+        });
+      } else {
+        res = await fetch(`${baseUrl}/chat/completions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${apiKey}`,
+            ...(provider.providerType === "openrouter" ? {
+              "HTTP-Referer": "https://studybuddy.ai",
+              "X-Title": "StudyBuddy AI",
+            } : {}),
+          },
+          body: JSON.stringify({
+            model,
+            messages,
+            max_tokens: provider.maxTokens,
+            temperature: 0.7,
+          }),
+        });
+      }
 
       if (res.status === 429 && rotationKeys.length > 1) {
         // Rate-limited on this key — try the next one in the rotation
@@ -154,7 +164,9 @@ export async function callProvider(
         };
       }
 
-      const data = await res.json();
+      const data = provider.providerType === "pollinations"
+        ? { choices: [{ message: { content: await res.text() } }] }
+        : await res.json();
       const content: string =
         data?.choices?.[0]?.message?.content ??
         data?.choices?.[0]?.delta?.content ??

@@ -33,7 +33,13 @@ export async function POST(req: NextRequest) {
   }
 
   const providers = await db.aiProvider.findMany({
-    where: { enabled: true, apiKeyEncrypted: { not: null } },
+    where: {
+      enabled: true,
+      OR: [
+        { apiKeyEncrypted: { not: null } },
+        { providerType: "pollinations" },
+      ],
+    },
     orderBy: { priority: "asc" },
   });
 
@@ -41,35 +47,49 @@ export async function POST(req: NextRequest) {
     providers.map(async (p) => {
       const start = Date.now();
       try {
-        const apiKey = decryptApiKey(p.apiKeyEncrypted!);
+        const isKeyless = p.providerType === "pollinations";
+        const apiKey = p.apiKeyEncrypted ? decryptApiKey(p.apiKeyEncrypted) : "";
         const baseUrl = (p.baseUrl || "https://api.openai.com/v1").replace(/\/$/, "");
         const model = p.model || "gpt-4o-mini";
 
-        // Use AbortController for a 15-second timeout
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 15000);
 
-        const res = await fetch(`${baseUrl}/chat/completions`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${apiKey}`,
-            ...(p.providerType === "openrouter" ? {
-              "HTTP-Referer": "https://studybuddy.ai",
-              "X-Title": "StudyBuddy AI",
-            } : {}),
-          },
-          body: JSON.stringify({
-            model,
-            messages: [
-              { role: "system", content: "Reply with the single word 'ok'." },
-              { role: "user", content: "ok" },
-            ],
-            max_tokens: 5,
-            temperature: 0,
-          }),
-          signal: controller.signal,
-        });
+        // Pollinations uses a different API format
+        let res: Response;
+        if (isKeyless) {
+          const messages = [
+            { role: "system", content: "Reply with the single word 'ok'." },
+            { role: "user", content: "ok" },
+          ];
+          res = await fetch(`${baseUrl}/openai?model=${model}&messages=${encodeURIComponent(JSON.stringify(messages))}`, {
+            method: "GET",
+            headers: { "Content-Type": "application/json" },
+            signal: controller.signal,
+          });
+        } else {
+          res = await fetch(`${baseUrl}/chat/completions`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${apiKey}`,
+              ...(p.providerType === "openrouter" ? {
+                "HTTP-Referer": "https://studybuddy.ai",
+                "X-Title": "StudyBuddy AI",
+              } : {}),
+            },
+            body: JSON.stringify({
+              model,
+              messages: [
+                { role: "system", content: "Reply with the single word 'ok'." },
+                { role: "user", content: "ok" },
+              ],
+              max_tokens: 5,
+              temperature: 0,
+            }),
+            signal: controller.signal,
+          });
+        }
         clearTimeout(timeoutId);
 
         const latencyMs = Date.now() - start;
@@ -81,7 +101,9 @@ export async function POST(req: NextRequest) {
           });
           return { providerId: p.id, name: p.name, status, latencyMs, error: `HTTP ${res.status}` };
         }
-        const data = await res.json();
+        const data = p.providerType === "pollinations"
+          ? { choices: [{ message: { content: await res.text() } }] }
+          : await res.json();
         const reply = (data?.choices?.[0]?.message?.content ?? "").trim();
         const status = latencyMs > 5000 ? "slow" : "ok";
         await db.apiHealthCheck.create({
