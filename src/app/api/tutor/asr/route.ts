@@ -6,13 +6,14 @@ export const maxDuration = 30;
 
 /**
  * POST /api/tutor/asr
- * Body: { audioBase64: string }  (base64-encoded audio data, no prefix)
+ * Body: { audioBase64: string }  (base64-encoded audio data, may include data URL prefix)
  *
  * Transcribes spoken audio to text using z-ai-web-dev-sdk ASR.
  * Returns { text: string }.
  *
- * Used for the AI Tutor voice mode — user records audio in the browser,
- * uploads base64, gets back transcribed text which is then sent to /api/tutor/chat.
+ * The SDK returns the response from the upstream ASR API as a JSON object.
+ * The shape can vary — we defensively look for the transcription text in
+ * multiple possible fields (text, result, transcript, data.text, etc.).
  */
 export async function POST(req: NextRequest) {
   let user;
@@ -29,7 +30,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "audioBase64 is required" }, { status: 400 });
   }
 
-  // Strip data URL prefix if present
+  // Strip data URL prefix if present (e.g. "data:audio/webm;base64,...")
   const base64 = audioBase64.replace(/^data:[^;]+;base64,/, "");
 
   try {
@@ -40,11 +41,20 @@ export async function POST(req: NextRequest) {
       file_base64: base64,
     });
 
-    const text = (response?.text ?? "").toString().trim();
+    // The SDK returns response.json() — the exact shape depends on the
+    // upstream API. Try multiple known fields:
+    const text =
+      (response?.text ?? "").toString().trim() ||
+      (response?.transcript ?? "").toString().trim() ||
+      (response?.result ?? "").toString().trim() ||
+      (response?.data?.text ?? "").toString().trim() ||
+      (response?.data?.transcript ?? "").toString().trim() ||
+      "";
 
     if (!text) {
+      console.error("[tutor/asr] no text found in response:", JSON.stringify(response).slice(0, 500));
       return NextResponse.json(
-        { error: "Could not transcribe audio — try speaking more clearly" },
+        { error: "Could not transcribe audio — try speaking more clearly", raw: response },
         { status: 422 }
       );
     }

@@ -1,5 +1,5 @@
 /**
- * StudyBuddy AI Service Worker v29 — Offline Mode
+ * StudyBuddy AI Service Worker v30 — Offline Mode
  *
  * v23 — initial AI Tutor upgrade.
  * v24 — 12 graph families.
@@ -7,19 +7,13 @@
  * v26 — concept map fix.
  * v27 — generative graphing (16 types) + UNLOCK_ALL_MODELS env var.
  * v28 — freeform SVG nested-<svg> fix.
- * v29 — Phase 30 mega-upgrade:
- *   1. Permanent account deletion UI (already existed — verified)
- *   2. Graph download as SVG/PNG (DownloadGraphButton)
- *   3. LaTeX math equation rendering (inline $...$ + block $$...$$)
- *   4. Hover tooltips on scatter points (interactive)
- *   5. 5 new dedicated renderers: argand, contour, vectorfield, tessellation,
- *      knot (21 graph types total)
- *   6. Draggable concept map nodes (NetworkSVG with mouse drag)
- *   7. Voice mode: TTS for AI replies + ASR for user questions (mic button
- *      in input bar, speaker button on AI messages)
+ * v29 — Phase 30 mega-upgrade (download, latex-styled, hover, 5 new renderers, drag, voice).
+ * v30 — real KaTeX rendering for LaTeX math (was just styled spans before,
+ *        users could still see raw \frac{...}{...} commands). Also: ASR
+ *        endpoint made defensive (tries multiple response fields).
  */
 
-const CACHE_VERSION = "studybuddy-v29-offline";
+const CACHE_VERSION = "studybuddy-v30-offline";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const CONTENT_CACHE = `${CACHE_VERSION}-content`;
 const IMAGE_CACHE = `${CACHE_VERSION}-images`;

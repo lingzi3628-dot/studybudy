@@ -64,6 +64,7 @@
     "html-to-image": "^1.11.13",
     "input-otp": "^1.4.2",
     "jsonwebtoken": "^9.0.3",
+    "katex": "^0.18.4",
     "lucide-react": "^0.525.0",
     "mathjs": "^15.2.0",
     "next": "^16.1.1",

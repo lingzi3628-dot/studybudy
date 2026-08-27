@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { useApp } from "../store";
 import { GraphRenderer, type GraphSpec } from "./GraphRenderers";
+import katex from "katex";
 
 type Attachment = {
   type: "video" | "image" | "graph" | "conceptmap" | string;
@@ -953,25 +954,44 @@ function TextBlock({ content, isUser }: { content: string; isUser: boolean }) {
 }
 
 function renderInlineMarkdown(line: string, isUser: boolean): string {
-  // Escape HTML
+  // Escape HTML FIRST so LaTeX commands like \frac don't get HTML-escaped
+  // (well, \ stays as \, but < and > are escaped which is what we want for
+  // safety). KaTeX will receive the LaTeX source as-is.
   let html = line
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 
-  // Inline LaTeX math: $...$ → rendered with .math-inline span (the LaTeX
-  // renderer in the page CSS handles the visual). Block LaTeX $$...$$ is
-  // handled separately in MarkdownContent (whole-line replacement).
-  // For now, render math as styled monospace so it's clearly math.
-  // Inline math $...$
+  // Helper: try to render a LaTeX string to HTML via KaTeX.
+  // Falls back to a styled code span if parsing fails (so users see the
+  // raw source instead of nothing).
+  const renderLatex = (latex: string, displayMode: boolean): string => {
+    try {
+      return katex.renderToString(latex, {
+        displayMode,
+        throwOnError: false,
+        output: "html",
+        // Trust the AI's LaTeX — we're already in dangerouslySetInnerHTML context
+        trust: true,
+        strict: false,
+      });
+    } catch (e: any) {
+      // Fallback: styled span with the raw LaTeX visible
+      const escaped = latex.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      return `<code style="background:${isUser ? "rgba(255,255,255,0.2)" : "#f3f4f6"};padding:2px 4px;border-radius:4px;font-family:monospace;font-size:0.85em;">${escaped}</code>`;
+    }
+  };
+
+  // Block math $$...$$ first (longer pattern matches first)
+  html = html.replace(/\$\$([\s\S]+?)\$\$/g, (_, latex) => {
+    const rendered = renderLatex(latex, true);
+    return `<div style="text-align:center;margin:6px 0;overflow-x:auto;">${rendered}</div>`;
+  });
+
+  // Inline math $...$ (single-line, no $ inside)
   html = html.replace(
     /\$([^\$\n]+?)\$/g,
-    `<span style="font-family:'Cambria Math','STIX Two Math',serif;font-style:italic;color:${isUser ? "#fef3c7" : "#1E40AF"};background:${isUser ? "rgba(255,255,255,0.15)" : "rgba(79,70,229,0.08)"};padding:1px 4px;border-radius:4px;">$1</span>`
-  );
-  // Block math $$...$$ (kept inline here as a styled block)
-  html = html.replace(
-    /\$\$([^\$\n]+?)\$\$/g,
-    `<div style="font-family:'Cambria Math','STIX Two Math',serif;font-style:italic;color:${isUser ? "#fff" : "#1E40AF"};background:${isUser ? "rgba(255,255,255,0.15)" : "rgba(79,70,229,0.08)"};padding:6px 10px;border-radius:6px;margin:4px 0;text-align:center;font-size:1.05em;">$1</div>`
+    (_, latex) => renderLatex(latex, false)
   );
 
   // Bold
