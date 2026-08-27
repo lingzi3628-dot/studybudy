@@ -62,8 +62,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ text });
   } catch (e: any) {
     console.error("[tutor/asr] error:", e?.message);
+    // Friendly error message for the "Configuration file not found" case
+    const msg = e?.message ?? "unknown error";
+    if (msg.includes("Configuration file not found") || msg.includes(".z-ai-config")) {
+      return NextResponse.json(
+        {
+          error: "Server-side ASR is not configured. Use Chrome or Edge for free browser-based voice mode (recommended).",
+          code: "ASR_NOT_CONFIGURED",
+        },
+        { status: 503 }
+      );
+    }
     return NextResponse.json(
-      { error: "ASR failed: " + (e?.message ?? "unknown error") },
+      { error: "ASR failed: " + msg },
       { status: 500 }
     );
   }

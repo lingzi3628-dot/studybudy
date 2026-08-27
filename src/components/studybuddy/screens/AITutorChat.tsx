@@ -28,6 +28,13 @@ import {
 import { useApp } from "../store";
 import { GraphRenderer, type GraphSpec } from "./GraphRenderers";
 import katex from "katex";
+import {
+  isBrowserTTSSupported,
+  isBrowserASRSupported,
+  browserSpeak,
+  stopBrowserSpeech,
+  startBrowserListening,
+} from "./voice-mode";
 
 type Attachment = {
   type: "video" | "image" | "graph" | "conceptmap" | string;
@@ -235,7 +242,60 @@ export function AITutorChat() {
   };
 
   // Voice mode — start recording
+  // Uses browser Web Speech API (webkitSpeechRecognition) as primary path
+  // — completely free, no API key, no network call.
+  // Falls back to MediaRecorder + /api/tutor/asr (server-side) if the
+  // browser doesn't support SpeechRecognition (e.g. Firefox).
+  const browserASRRef = useRef<ReturnType<typeof startBrowserListening> | null>(null);
+
   const startRecording = async () => {
+    setError(null);
+
+    // PRIORITY 1: Browser-based ASR (Web Speech API — completely free)
+    if (isBrowserASRSupported()) {
+      try {
+        const listener = startBrowserListening({
+          lang: "en-US",
+          continuous: false,
+          interimResults: false,
+          maxDurationSec: 30,
+        });
+        browserASRRef.current = listener;
+        setRecording(true);
+
+        listener.onResult((r) => {
+          if (r.isFinal && r.text.trim()) {
+            setInput(r.text);
+            // Auto-send the transcribed text
+            send(r.text);
+          }
+        });
+        listener.onError((e: any) => {
+          console.error("[tutor] browser ASR error:", e?.error ?? e);
+          const err = e?.error;
+          if (err === "not-allowed" || err === "service-not-allowed") {
+            setError("Microphone access denied. Allow mic permission to use voice mode.");
+          } else if (err === "no-speech") {
+            setError("Didn't hear anything — try speaking louder or closer to the mic");
+          } else {
+            setError("Voice recognition error: " + (err ?? "unknown"));
+          }
+          setRecording(false);
+          browserASRRef.current = null;
+        });
+        listener.onEnd(() => {
+          setRecording(false);
+          browserASRRef.current = null;
+        });
+        return;
+      } catch (e: any) {
+        console.warn("[tutor] browser ASR setup failed, falling back to server:", e?.message);
+        // Fall through to MediaRecorder fallback below
+      }
+    }
+
+    // FALLBACK: Server-side ASR via MediaRecorder + /api/tutor/asr
+    // (Used on Firefox and browsers without SpeechRecognition)
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const recorder = new MediaRecorder(stream);
@@ -280,17 +340,22 @@ export function AITutorChat() {
       mediaRecorderRef.current = recorder;
       recorder.start();
       setRecording(true);
-      setError(null);
     } catch (e: any) {
       setError("Microphone access denied. Allow mic permission to use voice mode.");
     }
   };
 
   const stopRecording = () => {
+    // Stop browser ASR listener if active
+    if (browserASRRef.current) {
+      browserASRRef.current.stop();
+      browserASRRef.current = null;
+    }
+    // Stop MediaRecorder if active
     if (mediaRecorderRef.current && recording) {
       mediaRecorderRef.current.stop();
-      setRecording(false);
     }
+    setRecording(false);
   };
 
   const suggestedQuestions = [
@@ -534,10 +599,10 @@ export function AITutorChat() {
             </form>
             <p className="text-[10px] text-gray-400 text-center mt-1.5">
               {recording
-                ? "🔴 Recording… tap ◼ to stop and send"
+                ? "🔴 Listening… tap ◼ to stop and send"
                 : transcribing
                 ? "Transcribing your voice…"
-                : "Messages saved to your account · Try: scatter, bar, pie, Venn, number line, tree, vector, polygon, box plot, slope field, stem-leaf, frequency polygon, 3D solid, knot, or any custom SVG drawing"}
+                : "🎤 Voice mode is free (browser-based, no API key) · 📊 21 graph types · 🔢 LaTeX math · ✋ draggable concept maps"}
             </p>
           </div>
         </div>
@@ -559,32 +624,26 @@ function MessageBubble({
 }) {
   const isUser = msg.role === "user";
   const [speaking, setSpeaking] = useState(false);
-  const [audioEl, setAudioEl] = useState<HTMLAudioElement | null>(null);
 
-  // Clean up audio when component unmounts
+  // Clean up browser speech when component unmounts
   useEffect(() => {
     return () => {
-      if (audioEl) {
-        audioEl.pause();
-        URL.revokeObjectURL(audioEl.src);
-      }
+      if (speaking) stopBrowserSpeech();
     };
-  }, [audioEl]);
+  }, [speaking]);
 
   const speak = async () => {
     // If already speaking, stop
-    if (audioEl) {
-      audioEl.pause();
-      URL.revokeObjectURL(audioEl.src);
-      setAudioEl(null);
+    if (speaking) {
+      stopBrowserSpeech();
       setSpeaking(false);
       return;
     }
 
-    // Strip markdown + attachments for TTS (we only speak the prose)
+    // Strip markdown + LaTeX + attachments for TTS (we only speak the prose)
     const plainText = msg.content
       .replace(/```[\s\S]*?```/g, " [code block] ")
-      .replace(/\$\$[^$]+\$\$/g, " math ")
+      .replace(/\$\$[^$]+\$\$/g, " math equation ")
       .replace(/\$([^$]+)\$/g, " $1 ")
       .replace(/[*_`#>|]/g, "")
       .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
@@ -593,45 +652,62 @@ function MessageBubble({
 
     if (!plainText) return;
 
+    setSpeaking(true);
+
+    // PRIORITY 1: Browser-based TTS (completely free, no API key, no server)
+    if (isBrowserTTSSupported()) {
+      try {
+        const { promise } = browserSpeak(plainText, { rate: 1.0, lang: "en-US" });
+        await promise;
+        setSpeaking(false);
+        return;
+      } catch (e: any) {
+        console.warn("[tutor] browser TTS failed, falling back to server:", e?.message);
+        setSpeaking(false);
+        // Fall through to server fallback below
+      }
+    }
+
+    // FALLBACK: Server-side TTS via z-ai-web-dev-sdk
+    // (only used if browser doesn't support speechSynthesis — very rare)
     try {
-      setSpeaking(true);
-      // Chunk if too long (1024 char limit per request)
       const chunks: string[] = [];
       let remaining = plainText;
       while (remaining.length > 1000) {
-        // Find last sentence boundary
         const cut = remaining.lastIndexOf(".", 1000);
         chunks.push(remaining.slice(0, cut > 0 ? cut + 1 : 1000));
         remaining = remaining.slice(cut > 0 ? cut + 1 : 1000);
       }
       chunks.push(remaining);
 
-      // For now, speak only the first chunk (full multi-chunk playback would queue them)
-      // — keeps things simple and avoids abrupt cut-offs mid-sentence in audio playback.
       const firstChunk = chunks[0];
       const r = await fetch("/api/tutor/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: firstChunk, voice: "tongtong", speed: 1.0 }),
       });
-      if (!r.ok) throw new Error("TTS failed");
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        throw new Error(d.error ?? "TTS failed");
+      }
       const blob = await r.blob();
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
       audio.onended = () => {
         setSpeaking(false);
-        setAudioEl(null);
         URL.revokeObjectURL(url);
       };
       audio.onerror = () => {
         setSpeaking(false);
-        setAudioEl(null);
         URL.revokeObjectURL(url);
       };
-      setAudioEl(audio);
       await audio.play();
     } catch (e: any) {
       console.error("[tutor] TTS error:", e?.message);
+      // Can't setError here — MessageBubble is a child component.
+      // The browser TTS path is the primary; this only runs if browser
+      // doesn't support speechSynthesis (rare) AND server is also broken.
+      alert(e?.message ?? "Voice playback failed");
       setSpeaking(false);
     }
   };

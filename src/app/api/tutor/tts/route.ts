@@ -65,8 +65,18 @@ export async function POST(req: NextRequest) {
     });
   } catch (e: any) {
     console.error("[tutor/tts] error:", e?.message);
+    const msg = e?.message ?? "unknown error";
+    if (msg.includes("Configuration file not found") || msg.includes(".z-ai-config")) {
+      return NextResponse.json(
+        {
+          error: "Server-side TTS is not configured. Use Chrome or Edge for free browser-based voice playback (recommended).",
+          code: "TTS_NOT_CONFIGURED",
+        },
+        { status: 503 }
+      );
+    }
     return NextResponse.json(
-      { error: "TTS generation failed: " + (e?.message ?? "unknown error") },
+      { error: "TTS generation failed: " + msg },
       { status: 500 }
     );
   }
