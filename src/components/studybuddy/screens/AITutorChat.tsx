@@ -22,6 +22,7 @@ import {
   Code,
 } from "lucide-react";
 import { useApp } from "../store";
+import { GraphRenderer, type GraphSpec } from "./GraphRenderers";
 
 type Attachment = {
   type: "video" | "image" | "graph" | "conceptmap" | string;
@@ -42,13 +43,6 @@ type Conversation = {
   title: string;
   updatedAt: string;
   messages?: ChatMsg[];
-};
-
-type GraphSpec = {
-  expr: string;
-  xRange?: [number, number];
-  yRange?: [number, number];
-  title?: string;
 };
 
 type ConceptMapSpec = {
@@ -233,10 +227,16 @@ export function AITutorChat() {
   const suggestedQuestions = [
     { icon: "🎓", text: "Explain photosynthesis like I'm 10", category: "Science" },
     { icon: "📺", text: "Show me a video about the water cycle", category: "Video" },
-    { icon: "📈", text: "Draw a graph of y = x²", category: "Graph" },
+    { icon: "📈", text: "Plot these data points: (0,0) (1,5) (2,10) (3,15) and draw a line of best fit", category: "Scatter" },
+    { icon: "📊", text: "Make a bar chart of class scores: Math 85, English 72, Science 90, History 68", category: "Bar" },
+    { icon: "🥧", text: "Draw a pie chart of budget: Rent 40%, Food 25%, Transport 15%, Savings 20%", category: "Pie" },
+    { icon: "⭕", text: "Show a Venn diagram of sets A, B, and C with their intersection", category: "Venn" },
+    { icon: "➖", text: "Draw -2 ≤ x ≤ 3 on a number line", category: "Number Line" },
+    { icon: "🌳", text: "Make a probability tree diagram for two coin flips", category: "Tree" },
+    { icon: "📐", text: "Draw triangle ABC with vertices at (0,0), (4,0), (2,3) — label sides", category: "Geometry" },
+    { icon: "📦", text: "Draw a box plot comparing class A and class B test scores", category: "Statistics" },
+    { icon: "➡️", text: "Draw vectors F1 = (3,4) and F2 = (-2,1) on a coordinate plane", category: "Vectors" },
     { icon: "🧠", text: "Make a concept map of the human digestive system", category: "Concept" },
-    { icon: "🖼️", text: "Show me an image of a plant cell", category: "Image" },
-    { icon: "🧮", text: "What's the difference between mitosis and meiosis?", category: "Biology" },
   ];
 
   return (
@@ -344,7 +344,7 @@ export function AITutorChat() {
                 <h2 className="text-lg font-bold text-gray-900">AI Tutor</h2>
                 <p className="text-sm text-gray-500 mt-1 max-w-md mx-auto">
                   Ask anything — I can <span className="text-indigo-600 font-medium">fetch videos</span>,{" "}
-                  <span className="text-emerald-600 font-medium">draw graphs</span>,{" "}
+                  <span className="text-emerald-600 font-medium">draw 12 kinds of graphs</span> (scatter, bar, pie, Venn, number line, tree, vector, polygon, box plot & more),{" "}
                   <span className="text-violet-600 font-medium">build concept maps</span>, and{" "}
                   <span className="text-amber-600 font-medium">find images</span>. Your chat history is saved automatically.
                 </p>
@@ -422,7 +422,7 @@ export function AITutorChat() {
                     send();
                   }
                 }}
-                placeholder="Ask anything… (try 'show me a video about photosynthesis' or 'draw y = x²')"
+                placeholder="Ask anything… (try 'plot (0,0) (1,5) (2,10)' or 'bar chart of class scores' or 'Venn of A, B, C')"
                 className="flex-1 px-4 py-2.5 rounded-full bg-gray-100 text-sm outline-none focus:bg-white focus:ring-2 focus:ring-indigo-200"
                 disabled={busy}
               />
@@ -435,7 +435,7 @@ export function AITutorChat() {
               </button>
             </form>
             <p className="text-[10px] text-gray-400 text-center mt-1.5">
-              Messages are saved to your account · Try asking for videos, graphs, or concept maps
+              Messages saved to your account · Try: scatter plots, bar charts, pie charts, Venn diagrams, number lines, tree diagrams, vectors, polygons, box plots, network graphs, or concept maps
             </p>
           </div>
         </div>
@@ -572,7 +572,7 @@ function AttachmentRenderer({ attachment }: { attachment: Attachment }) {
           <GitBranch className="w-3.5 h-3.5 text-indigo-500" />
           <span className="text-[10px] font-bold uppercase text-indigo-500">Graph</span>
         </div>
-        {spec ? <GraphSVG spec={spec} /> : <p className="text-xs text-gray-600">{attachment.caption}</p>}
+        {spec ? <GraphRenderer spec={spec} /> : <p className="text-xs text-gray-600">{attachment.caption}</p>}
       </div>
     );
   }
@@ -590,202 +590,17 @@ function AttachmentRenderer({ attachment }: { attachment: Attachment }) {
           <Brain className="w-3.5 h-3.5 text-violet-500" />
           <span className="text-[10px] font-bold uppercase text-violet-500">Concept Map</span>
         </div>
-        {spec ? <ConceptMapSVG spec={spec} /> : <p className="text-xs text-gray-600">{attachment.caption}</p>}
+        {spec ? (
+          // Route concept maps through the unified graph renderer (network type)
+          <GraphRenderer spec={{ ...spec, type: "network" }} />
+        ) : (
+          <p className="text-xs text-gray-600">{attachment.caption}</p>
+        )}
       </div>
     );
   }
 
   return null;
-}
-
-// =====================================================================
-// SVG Graph Renderer — plots y = f(x) for any simple expression
-// =====================================================================
-function GraphSVG({ spec }: { spec: GraphSpec }) {
-  const expr = spec.expr || "x^2";
-  const xRange = spec.xRange ?? [-5, 5];
-  const yRange = spec.yRange ?? [-25, 25];
-  const title = spec.title || `y = ${expr}`;
-  const width = 480;
-  const height = 320;
-  const padding = 40;
-
-  // Safe expression evaluator (only Math.* and basic ops)
-  const evaluate = (x: number): number | null => {
-    try {
-      // Replace ^ with **, x with the value
-      let safeExpr = expr
-        .replace(/\^/g, "**")
-        .replace(/\bMath\./g, "")
-        .replace(/\bpi\b/gi, "Math.PI")
-        .replace(/\be\b/g, "Math.E")
-        .replace(/\bsin\(/g, "Math.sin(")
-        .replace(/\bcos\(/g, "Math.cos(")
-        .replace(/\btan\(/g, "Math.tan(")
-        .replace(/\bsqrt\(/g, "Math.sqrt(")
-        .replace(/\blog\(/g, "Math.log(")
-        .replace(/\bexp\(/g, "Math.exp(")
-        .replace(/\babs\(/g, "Math.abs(")
-        .replace(/\bx\b/g, String(x));
-      // Only allow numbers, operators, Math.*, parens
-      if (!/^[\d\s+\-*/().,]+$|^Math\.[a-zA-Z0-9_()]+$|Math\.[a-zA-Z0-9_()]+[\d\s+\-*/().,]*$/m.test(safeExpr)) {
-        // Fallback: use Function constructor with Math scope
-      }
-      // eslint-disable-next-line no-new-func
-      const fn = new Function("Math", `"use strict"; return (${safeExpr});`);
-      const result = fn(Math);
-      return typeof result === "number" && isFinite(result) ? result : null;
-    } catch {
-      return null;
-    }
-  };
-
-  // Build points
-  const points: Array<{ x: number; y: number }> = [];
-  const samples = 100;
-  for (let i = 0; i <= samples; i++) {
-    const x = xRange[0] + ((xRange[1] - xRange[0]) * i) / samples;
-    const y = evaluate(x);
-    if (y !== null) points.push({ x, y });
-  }
-
-  // Map to SVG coords
-  const toSvgX = (x: number) => padding + ((x - xRange[0]) / (xRange[1] - xRange[0])) * (width - 2 * padding);
-  const toSvgY = (y: number) =>
-    height - padding - ((y - yRange[0]) / (yRange[1] - yRange[0])) * (height - 2 * padding);
-
-  // Build path
-  const path = points
-    .filter((p) => p.y >= yRange[0] && p.y <= yRange[1])
-    .map((p, i) => `${i === 0 ? "M" : "L"} ${toSvgX(p.x).toFixed(2)} ${toSvgY(p.y).toFixed(2)}`)
-    .join(" ");
-
-  // X axis position
-  const xAxisY = yRange[0] <= 0 && yRange[1] >= 0 ? toSvgY(0) : height - padding;
-  const yAxisX = xRange[0] <= 0 && xRange[1] >= 0 ? toSvgX(0) : padding;
-
-  // Tick marks
-  const xTicks: ReactElement[] = [];
-  const tickCount = 5;
-  for (let i = 0; i <= tickCount; i++) {
-    const xv = xRange[0] + ((xRange[1] - xRange[0]) * i) / tickCount;
-    xTicks.push(
-      <g key={`xt-${i}`}>
-        <line x1={toSvgX(xv)} y1={xAxisY - 4} x2={toSvgX(xv)} y2={xAxisY + 4} stroke="#9CA3AF" strokeWidth={1} />
-        <text x={toSvgX(xv)} y={xAxisY + 16} fontSize={10} fill="#6B7280" textAnchor="middle">
-          {xv.toFixed(1)}
-        </text>
-      </g>
-    );
-  }
-
-  const yTicks: ReactElement[] = [];
-  for (let i = 0; i <= tickCount; i++) {
-    const yv = yRange[0] + ((yRange[1] - yRange[0]) * i) / tickCount;
-    yTicks.push(
-      <g key={`yt-${i}`}>
-        <line x1={yAxisX - 4} y1={toSvgY(yv)} x2={yAxisX + 4} y2={toSvgY(yv)} stroke="#9CA3AF" strokeWidth={1} />
-        <text x={yAxisX - 8} y={toSvgY(yv) + 3} fontSize={10} fill="#6B7280" textAnchor="end">
-          {yv.toFixed(0)}
-        </text>
-      </g>
-    );
-  }
-
-  return (
-    <div>
-      <p className="text-xs font-semibold text-gray-700 mb-2">{title}</p>
-      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto bg-gray-50 rounded-lg">
-        {/* Grid */}
-        {xTicks}
-        {yTicks}
-        {/* Axes */}
-        <line x1={padding} y1={xAxisY} x2={width - padding} y2={xAxisY} stroke="#374151" strokeWidth={1.5} />
-        <line x1={yAxisX} y1={padding} x2={yAxisX} y2={height - padding} stroke="#374151" strokeWidth={1.5} />
-        {/* Curve */}
-        {path && <path d={path} fill="none" stroke="#4F46E5" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />}
-      </svg>
-    </div>
-  );
-}
-
-// =====================================================================
-// SVG Concept Map Renderer — circular layout with edges
-// =====================================================================
-function ConceptMapSVG({ spec }: { spec: ConceptMapSpec }) {
-  const nodes = spec.nodes ?? [];
-  const edges = spec.edges ?? [];
-  const width = 480;
-  const height = 360;
-  const cx = width / 2;
-  const cy = height / 2;
-  const radius = Math.min(width, height) / 2 - 60;
-
-  // Place nodes in a circle (or just a few on a horizontal line for short lists)
-  const positions = nodes.map((_, i) => {
-    const angle = (2 * Math.PI * i) / Math.max(nodes.length, 1) - Math.PI / 2;
-    return {
-      x: cx + radius * Math.cos(angle),
-      y: cy + radius * Math.sin(angle),
-    };
-  });
-
-  return (
-    <div>
-      {spec.title && <p className="text-xs font-semibold text-gray-700 mb-2">{spec.title}</p>}
-      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto bg-gray-50 rounded-lg">
-        {/* Edges */}
-        {edges.map((edge, i) => {
-          const fromIdx = nodes.findIndex((n) => n.id === edge.from);
-          const toIdx = nodes.findIndex((n) => n.id === edge.to);
-          if (fromIdx < 0 || toIdx < 0) return null;
-          const from = positions[fromIdx];
-          const to = positions[toIdx];
-          const midX = (from.x + to.x) / 2;
-          const midY = (from.y + to.y) / 2;
-          return (
-            <g key={`edge-${i}`}>
-              <line x1={from.x} y1={from.y} x2={to.x} y2={to.y} stroke="#9CA3AF" strokeWidth={1.5} />
-              {edge.label && (
-                <text x={midX} y={midY - 4} fontSize={10} fill="#6B7280" textAnchor="middle" fontWeight={600}>
-                  {edge.label}
-                </text>
-              )}
-            </g>
-          );
-        })}
-        {/* Nodes */}
-        {nodes.map((n, i) => {
-          const pos = positions[i];
-          const color = n.color ?? "#4F46E5";
-          const labelWidth = Math.max(60, n.label.length * 7 + 16);
-          return (
-            <g key={n.id}>
-              <rect
-                x={pos.x - labelWidth / 2}
-                y={pos.y - 16}
-                width={labelWidth}
-                height={32}
-                rx={16}
-                fill={color}
-                opacity={0.9}
-              />
-              <text
-                x={pos.x}
-                y={pos.y + 4}
-                fontSize={11}
-                fill="white"
-                textAnchor="middle"
-                fontWeight={600}
-              >
-                {n.label.length > 22 ? n.label.slice(0, 22) + "…" : n.label}
-              </text>
-            </g>
-          );
-        })}
-      </svg>
-    </div>
-  );
 }
 
 // =====================================================================
