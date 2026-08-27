@@ -96,3 +96,26 @@ Stage Summary:
 - The user's two reported issues are now resolved:
   1. "uploaded the text in study buddy exam but is empty" — root cause was the missing /upload route (silently 404'ing). Now the route exists and properly stores the file + creates an ExamPaper. AI-template exams now also display inline (not via the broken printableExam routing).
   2. "fix doc when uploaded in bulk add a way the docx is converted to text to exam" — bulk-upload now has a "Convert to Exam" toggle that extracts text from each DOCX (and PDF) and uses AI to generate multiple-choice questions. The result is an interactive ai_template exam (with questions), not a PDF view.
+
+---
+Task ID: ai-tutor-stale-cache-fix
+Agent: Main agent (Super Z)
+
+Task: User reports seeing the OLD AI Tutor UI ("Hi! I'm your AI tutor..." with the 4 basic suggested questions) instead of the new ChatGPT-style AITutorChat with persistent history, video fetch, graph drawing, and concept maps.
+
+Work Log:
+- Investigated: src/app/page.tsx correctly routes `screen === "tutor"` to `<AITutorChat />`. The old `AITutor` import was already removed. So the code is correct.
+- Verified the new AITutorChat.tsx is intact (has GraphSVG, ConceptMapSVG, copy/retry buttons, full markdown renderer).
+- Discovered that all my Phase 28 changes (AITutorChat + exam upload + InlineExamReader + bulk-upload convertToExam) were already committed in commit 68e6581 ("13 hours ago").
+- Root cause: the service worker (public/sw.js) was on cache version v22 with "stale-while-revalidate" for static assets. So when users with an older deployment cached in their browser revisit, the SW serves the OLD JS bundle immediately and fetches the new one in the background — meaning users need TWO reloads to see the new UI, or never see it if they don't reload.
+- Bumped service worker cache version from v22 → v23. On next page load, the activate handler deletes all caches that don't start with "studybuddy-v23-offline", so the old JS bundles are purged and the new bundle is fetched fresh.
+- Deleted the dead src/components/studybuddy/screens/AITutor.tsx file (287 lines) — it was no longer imported anywhere but was confusing the codebase.
+- Also restored the deleted src/app/api/admin/exam-papers/upload/route.ts (file had been deleted in the working tree between sessions; git tracked it as deleted). Recreated it with the full convertToExam support. After writing, git status is clean (file matches committed version).
+- Committed both changes as commit d4a58d8: "Fix: bump SW cache version (v22→v23) + delete old AITutor.tsx".
+
+Stage Summary:
+- public/sw.js — cache version v22 → v23 (forces all users to get fresh JS bundles on next load)
+- src/components/studybuddy/screens/AITutor.tsx — DELETED (was 287 lines of dead code; not imported anywhere)
+- src/app/api/admin/exam-papers/upload/route.ts — restored (was deleted between sessions)
+- Commit d4a58d8 pushed to git; user needs to push to deploy target (Vercel) for the changes to go live.
+- After deployment, users should hard-reload once (Ctrl+Shift+R or Cmd+Shift+R) to bypass any browser HTTP cache and trigger the SW to activate the new cache version.
