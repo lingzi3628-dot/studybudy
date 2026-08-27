@@ -74,7 +74,7 @@ type Props = {
 const PROVIDER_TEMPLATES: Array<{ type: string; label: string; baseUrl: string; model: string; emoji: string; color: string }> = [
   { type: "openai", label: "OpenAI", baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini", emoji: "🟢", color: "#10B981" },
   { type: "anthropic", label: "Anthropic Claude", baseUrl: "https://api.anthropic.com/v1", model: "claude-3-5-sonnet-20241022", emoji: "🟣", color: "#8B5CF6" },
-  { type: "gemini", label: "Google Gemini", baseUrl: "https://generativelanguage.googleapis.com/v1beta", model: "gemini-1.5-flash", emoji: "🔵", color: "#3B82F6" },
+  { type: "gemini", label: "Google Gemini", baseUrl: "https://generativelanguage.googleapis.com/v1beta", model: "gemini-2.0-flash", emoji: "🔵", color: "#3B82F6" },
   { type: "openrouter", label: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", model: "openai/gpt-4o-mini", emoji: "🔀", color: "#F59E0B" },
   { type: "huggingface", label: "Hugging Face", baseUrl: "https://api-inference.huggingface.co/models", model: "meta-llama/Llama-3.1-8B-Instruct", emoji: "🤗", color: "#FFD21E" },
   { type: "groq", label: "Groq (fast)", baseUrl: "https://api.groq.com/openai/v1", model: "llama-3.1-70b-versatile", emoji: "⚡", color: "#F55036" },
@@ -537,9 +537,23 @@ export function VisualApiEditor({ mode }: Props) {
                     <span style={{ fontSize: 18 }}>{emoji}</span>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <p style={{ fontSize: 12, fontWeight: 700, color: "#1F2937", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</p>
-                      <p style={{ fontSize: 9, color: "#6B7280", fontFamily: "monospace", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                        {p.model ?? "no model set"}
-                      </p>
+                      <input
+                        type="text"
+                        defaultValue={p.model ?? ""}
+                        onBlur={(e) => {
+                          const newModel = e.target.value.trim();
+                          if (newModel && newModel !== p.model) {
+                            fetch(`/api/admin/providers/${p.id}`, {
+                              method: "PUT",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ model: newModel }),
+                            }).then(() => load()).catch(() => {});
+                          }
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        style={{ fontSize: 9, color: "#6B7280", fontFamily: "monospace", width: "100%", border: "none", background: "transparent", outline: "none", padding: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+                        title="Click to edit model name"
+                      />
                     </div>
                     {p.isDefault && (
                       <span style={{ fontSize: 8, fontWeight: 700, background: "#10B981", color: "white", padding: "1px 5px", borderRadius: 6 }}>

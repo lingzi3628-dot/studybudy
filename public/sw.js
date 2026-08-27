@@ -14,7 +14,7 @@
  *   + Per-conversation model switcher (dropdown in AI Tutor header)
  */
 
-const CACHE_VERSION = "studybuddy-v40-offline";
+const CACHE_VERSION = "studybuddy-v41-offline";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const CONTENT_CACHE = `${CACHE_VERSION}-content`;
 const IMAGE_CACHE = `${CACHE_VERSION}-images`;
