@@ -75,7 +75,7 @@ type Props = {
 const PROVIDER_TEMPLATES: Array<{ type: string; label: string; baseUrl: string; model: string; emoji: string; color: string }> = [
   { type: "openai", label: "OpenAI", baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini", emoji: "🟢", color: "#10B981" },
   { type: "anthropic", label: "Anthropic Claude", baseUrl: "https://api.anthropic.com/v1", model: "claude-3-5-sonnet-20241022", emoji: "🟣", color: "#8B5CF6" },
-  { type: "gemini", label: "Google Gemini", baseUrl: "https://generativelanguage.googleapis.com/v1beta", model: "gemini-2.0-flash", emoji: "🔵", color: "#3B82F6" },
+  { type: "gemini", label: "Google Gemini", baseUrl: "https://generativelanguage.googleapis.com/v1beta", model: "gemini-3.6-flash", emoji: "🔵", color: "#3B82F6" },
   { type: "openrouter", label: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", model: "openai/gpt-4o-mini", emoji: "🔀", color: "#F59E0B" },
   { type: "huggingface", label: "Hugging Face", baseUrl: "https://api-inference.huggingface.co/models", model: "meta-llama/Llama-3.1-8B-Instruct", emoji: "🤗", color: "#FFD21E" },
   { type: "groq", label: "Groq (fast)", baseUrl: "https://api.groq.com/openai/v1", model: "llama-3.1-70b-versatile", emoji: "⚡", color: "#F55036" },
