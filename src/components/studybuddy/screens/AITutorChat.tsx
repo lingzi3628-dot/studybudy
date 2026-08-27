@@ -426,7 +426,7 @@ export function AITutorChat() {
                     send();
                   }
                 }}
-                placeholder="Ask anything… (try 'plot (0,0) (1,5) (2,10)' or 'bar chart of class scores' or 'Venn of A, B, C')"
+                placeholder="Ask anything… (try 'plot (0,0) (1,5) (2,10)' or 'draw a 3D cube' or 'draw a trefoil knot')"
                 className="flex-1 px-4 py-2.5 rounded-full bg-gray-100 text-sm outline-none focus:bg-white focus:ring-2 focus:ring-indigo-200"
                 disabled={busy}
               />
@@ -439,7 +439,7 @@ export function AITutorChat() {
               </button>
             </form>
             <p className="text-[10px] text-gray-400 text-center mt-1.5">
-              Messages saved to your account · Try: scatter plots, bar charts, pie charts, Venn diagrams, number lines, tree diagrams, vectors, polygons, box plots, network graphs, or concept maps
+              Messages saved to your account · Try: scatter, bar, pie, Venn, number line, tree, vector, polygon, box plot, slope field, stem-leaf, frequency polygon, 3D solid, knot, or any custom SVG drawing
             </p>
           </div>
         </div>

@@ -1454,8 +1454,8 @@ function FrequencyPolygonSVG({ spec }: { spec: any }) {
 function FreeformSVG({ spec }: { spec: any }) {
   const title = spec.title ?? "Custom Drawing";
   const rawSvg: string = typeof spec.svg === "string" ? spec.svg : "";
-  const width: number = spec.width ?? 480;
-  const height: number = spec.height ?? 360;
+  let width: number = spec.width ?? 480;
+  let height: number = spec.height ?? 360;
 
   if (!rawSvg) {
     return (
@@ -1465,13 +1465,42 @@ function FreeformSVG({ spec }: { spec: any }) {
     );
   }
 
+  // If the AI wrapped its content in an outer <svg>...</svg> tag, extract the
+  // INNER content (we'll wrap it in our own <svg> below). This avoids the
+  // nested-<svg> rendering issue where browsers don't reliably render an
+  // inner SVG element placed via dangerouslySetInnerHTML.
+  // Also extract the viewBox/width/height attributes from the AI's <svg> tag
+  // so we can use the AI's intended dimensions.
+  let svgContent = rawSvg;
+  const outerSvgMatch = rawSvg.match(/<svg\b([^>]*)>([\s\S]*?)<\/svg>/i);
+  if (outerSvgMatch) {
+    const outerAttrs = outerSvgMatch[1] ?? "";
+    svgContent = outerSvgMatch[2] ?? "";
+
+    // Try to extract viewBox / width / height from the AI's <svg> tag
+    const viewBoxMatch = outerAttrs.match(/viewBox\s*=\s*["']([^"']+)["']/i);
+    if (viewBoxMatch) {
+      const parts = viewBoxMatch[1].split(/[\s,]+/).map(Number);
+      if (parts.length === 4 && parts.every((p) => !isNaN(p))) {
+        width = parts[2];
+        height = parts[3];
+      }
+    }
+    const widthMatch = outerAttrs.match(/\bwidth\s*=\s*["'](\d+)["']/i);
+    const heightMatch = outerAttrs.match(/\bheight\s*=\s*["'](\d+)["']/i);
+    if (widthMatch) width = parseInt(widthMatch[1], 10);
+    if (heightMatch) height = parseInt(heightMatch[1], 10);
+  } else if (spec.width && spec.height) {
+    // No outer svg tag — use spec dimensions
+    width = spec.width;
+    height = spec.height;
+  }
+
   // Sanitize: strip <script>...</script>, on* handlers, javascript: URLs,
   // external image refs, and data: URLs (to prevent XSS and data exfiltration).
-  let sanitized = rawSvg;
+  let sanitized = svgContent;
   // Remove <script>...</script> blocks
   sanitized = sanitized.replace(/<script[\s\S]*?<\/script>/gi, "");
-  // Remove <style>...</style> blocks (allow inline styles only on elements)
-  // (kept — SVG often uses <style> for legitimate styling, but no external refs)
   // Remove on* event handlers (onclick, onload, onerror, etc.)
   sanitized = sanitized.replace(/\son\w+\s*=\s*"[^"]*"/gi, "");
   sanitized = sanitized.replace(/\son\w+\s*=\s*'[^']*'/gi, "");
@@ -1479,8 +1508,6 @@ function FreeformSVG({ spec }: { spec: any }) {
   sanitized = sanitized.replace(/href\s*=\s*"javascript:[^"]*"/gi, 'href="#"');
   sanitized = sanitized.replace(/href\s*=\s*'javascript:[^']*'/gi, "href='#'");
   // Remove external image references (prevent data exfiltration via image URLs)
-  // Keep data: URLs only if they're inline SVG images (not external fetches)
-  // For now, just disallow http(s) image refs
   sanitized = sanitized.replace(/href\s*=\s*"https?:\/\/[^"]*"/gi, 'href="#"');
   sanitized = sanitized.replace(/href\s*=\s*'https?:\/\/[^']*'/gi, "href='#'");
   // Remove xlink:href external references too

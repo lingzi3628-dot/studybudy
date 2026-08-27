@@ -1,5 +1,5 @@
 /**
- * StudyBuddy AI Service Worker v27 — Offline Mode
+ * StudyBuddy AI Service Worker v28 — Offline Mode
  *
  * Caching strategy:
  * - App shell: cache-first (instant load)
@@ -12,20 +12,22 @@
  * v23 — bumped cache version to invalidate stale JS bundles (AI Tutor upgrade,
  *       exam upload conversion, inline exam reader).
  * v24 — bumped again for the upgraded GraphRenderers.tsx (12 graph families).
- * v25 — bumped again for the lenient graph parser (AI was using ```text instead
- *       of ```mathgraph so the JSON spec was being ignored; now we parse ANY
- *       code block language tag AND inline JSON-looking text in the reply).
+ * v25 — bumped again for the lenient graph parser.
  * v26 — bumped again for the concept map fix (3 root causes fixed).
- * v27 — bumped again for the generative graphing upgrade: 4 new renderers
- *       (slopefield, stemleaf, frequency_polygon, freeform). The freeform
- *       renderer accepts raw SVG markup from the AI, so the AI can now draw
- *       ANYTHING — 3D solids, contour maps, phase portraits, knot diagrams,
- *       tessellations, Argand diagrams, compass constructions, etc. — without
- *       us having to add new renderers. Also: UNLOCK_ALL_MODELS env var
- *       unlocks all premium Study Buddies for testing.
+ * v27 — bumped again for the generative graphing upgrade (16 graph families
+ *       including freeform raw SVG, plus UNLOCK_ALL_MODELS env var).
+ * v28 — bumped again for the freeform SVG nested-<svg> fix: the AI was
+ *       wrapping its SVG content in its own <svg viewBox=...> tag, which
+ *       created nested <svg> elements that browsers don't reliably render
+ *       via dangerouslySetInnerHTML. Now we detect and strip the outer
+ *       <svg> tag, extract the inner content, and use the AI's viewBox
+ *       dimensions as the outer wrapper dimensions. Also added freeform
+ *       drawing tips to the system prompt (Bézier curves for knots,
+ *       strokeDasharray for 3D hidden edges, etc.) so the AI produces
+ *       higher-quality custom drawings.
  */
 
-const CACHE_VERSION = "studybuddy-v27-offline";
+const CACHE_VERSION = "studybuddy-v28-offline";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const CONTENT_CACHE = `${CACHE_VERSION}-content`;
 const IMAGE_CACHE = `${CACHE_VERSION}-images`;

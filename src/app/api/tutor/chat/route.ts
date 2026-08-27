@@ -315,11 +315,23 @@ The "type" field tells the frontend which renderer to use. Available types:
     tessellations, Argand diagrams, knot diagrams, vector fields, compass-and-straightedge
     constructions, network graphs with custom layouts, or any other visual you can imagine.
     JSON spec: {"type":"freeform", "title":"Cube", "width":400, "height":300, "svg":"<rect x='50' y='50' width='100' height='100' fill='#4F46E5'/><polygon points='150,50 200,20 200,120 150,150' fill='#8B5CF6'/>"}
-    The "svg" field contains raw SVG element markup (NOT wrapped in <svg>...</svg> — the
-    frontend wraps it for you). Use any standard SVG elements: rect, circle, line, polygon,
-    path, text, ellipse, polyline, g, defs, marker, style. Use the viewBox 0 0 width height.
+    The "svg" field contains raw SVG element markup. You MAY include an outer <svg viewBox="...">...</svg>
+    tag (we'll extract the inner content automatically) OR just provide the inner elements
+    directly (rect, circle, line, polygon, path, text, ellipse, polyline, g, defs, marker, style).
+    We'll wrap your content in our own <svg> with the dimensions from your viewBox or width/height.
     You MUST NOT include: <script>, on* event handlers, external http(s) URLs, javascript: URLs,
     or any external resource references (these are stripped by the sanitizer for security).
+
+    TIPS for high-quality drawings:
+    - For curves (knots, spirals, topological figures), use <path d="M ... C ..."/> with cubic
+      Bézier curves (the C command). Don't try to fake curves with <line>.
+    - To draw "over/under" crossings (knot diagrams), use stroke="white" with strokeWidth=8
+      as a background "gap" before drawing the colored strand on top.
+    - For 3D solids (cube, pyramid), draw the back/hidden edges with strokeDasharray="4 3"
+      and the front edges solid.
+    - For phase portraits (differential equations), use small <line> arrows in a grid pattern.
+    - For tessellations, repeat <polygon> elements with transform="translate(...)".
+    - Always use absolute coordinates that fit within your viewBox.
 
 GENERAL RULES:
 - Always pick the MOST APPROPRIATE graph type for the user's request. Don't use "function" for physics data plots — use "scatter" instead. Don't use "function" for statistics — use "bar"/"pie"/"boxplot" instead.
