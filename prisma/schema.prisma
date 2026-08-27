@@ -497,19 +497,40 @@ model AiProvider {
   name                String
   providerType        String   // 'openai' | 'glm' | 'gemini' | 'openrouter' | 'huggingface' | 'pollinations'
   enabled             Boolean  @default(true)
-  apiKeyEncrypted     String?
+  apiKeyEncrypted     String?  // primary key (encrypted)
+  apiKeysEncrypted    Json?    // rotation: array of encrypted keys, cycled when one hits limits
+  apiKeyRotationIndex Int      @default(0)  // which key in apiKeysEncrypted is currently in use
   baseUrl             String?
   model               String?
   maxTokens           Int      @default(2048)
   costPer1kTokens     Float    @default(0)
   isDefault           Boolean  @default(false)
-  priority            Int      @default(100) // lower = higher priority
+  priority            Int      @default(100) // lower = higher priority; also used for fallback chain order
+  dailyBudgetUsd      Float?   // optional cap — when reached, falls back to next provider in chain
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
-  aiCallLogs  AiCallLog[]
+  aiCallLogs   AiCallLog[]
+  healthChecks ApiHealthCheck[]
 
   @@index([enabled, priority])
+}
+
+// =====================================================================
+// API Health Check — automated periodic test calls per provider
+// =====================================================================
+model ApiHealthCheck {
+  id            String   @id @default(uuid())
+  providerId    String
+  status        String   // 'ok' | 'error' | 'slow' | 'timeout'
+  latencyMs     Int?
+  errorMessage   String?
+  checkedAt     DateTime @default(now())
+
+  provider  AiProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  @@index([providerId, checkedAt])
+  @@index([checkedAt])
 }
 
 model Book {

@@ -96,6 +96,61 @@ export function VisualApiEditor({ mode }: Props) {
   const [testResults, setTestResults] = useState<Record<string, TestResult>>({});
   const [testing, setTesting] = useState<string | null>(null);
 
+  // Health monitoring — auto-tested status per provider (Phase 35)
+  const [health, setHealth] = useState<Record<string, { status: "green" | "yellow" | "red" | "unknown"; successRate: number; avgLatencyMs: number | null; lastCheckedAt: string | null; lastError: string | null }>>({});
+  const [healthChecking, setHealthChecking] = useState(false);
+  const [showAnalytics, setShowAnalytics] = useState(false);
+  const [analyticsData, setAnalyticsData] = useState<any>(null);
+  const [analyticsRange, setAnalyticsRange] = useState<"24h" | "7d" | "30d">("7d");
+
+  const loadHealth = useCallback(async () => {
+    try {
+      const r = await fetch("/api/admin/providers/health-check");
+      if (!r.ok) return;
+      const d = await r.json();
+      const map: Record<string, any> = {};
+      for (const s of d.summary ?? []) {
+        map[s.providerId] = {
+          status: s.health,
+          successRate: s.successRate,
+          avgLatencyMs: s.avgLatencyMs,
+          lastCheckedAt: s.lastCheckedAt,
+          lastError: s.lastError,
+        };
+      }
+      setHealth(map);
+    } catch {}
+  }, []);
+
+  const runHealthCheck = async () => {
+    setHealthChecking(true);
+    try {
+      await fetch("/api/admin/providers/health-check", { method: "POST" });
+      await loadHealth();
+    } catch (e: any) {
+      setError(e?.message ?? "Health check failed");
+    } finally {
+      setHealthChecking(false);
+    }
+  };
+
+  const loadAnalytics = useCallback(async () => {
+    try {
+      const r = await fetch(`/api/admin/usage-analytics?range=${analyticsRange}`);
+      if (!r.ok) return;
+      const d = await r.json();
+      setAnalyticsData(d);
+    } catch {}
+  }, [analyticsRange]);
+
+  useEffect(() => {
+    if (mode === "admin") loadHealth();
+  }, [mode, loadHealth]);
+
+  useEffect(() => {
+    if (showAnalytics && mode === "admin") loadAnalytics();
+  }, [showAnalytics, mode, loadAnalytics]);
+
   // Drag state — track which StudyBuddy is being connected to which API
   const [draggingFromBuddy, setDraggingFromBuddy] = useState<string | null>(null);
   const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
@@ -339,7 +394,7 @@ export function VisualApiEditor({ mode }: Props) {
               : "Pick an API + Study Buddy below to set up your own AI model."}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <button
             onClick={() => setShowAddProvider(true)}
             className="px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700 text-xs font-semibold hover:bg-emerald-100 flex items-center gap-1"
@@ -347,12 +402,30 @@ export function VisualApiEditor({ mode }: Props) {
             <Plus className="w-3.5 h-3.5" /> API Key
           </button>
           {mode === "admin" && (
-            <button
-              onClick={() => setShowAddBuddy(true)}
-              className="px-3 py-1.5 rounded-full bg-indigo-50 text-indigo-700 text-xs font-semibold hover:bg-indigo-100 flex items-center gap-1"
-            >
-              <Plus className="w-3.5 h-3.5" /> Study Buddy
-            </button>
+            <>
+              <button
+                onClick={() => setShowAddBuddy(true)}
+                className="px-3 py-1.5 rounded-full bg-indigo-50 text-indigo-700 text-xs font-semibold hover:bg-indigo-100 flex items-center gap-1"
+              >
+                <Plus className="w-3.5 h-3.5" /> Study Buddy
+              </button>
+              <button
+                onClick={runHealthCheck}
+                disabled={healthChecking}
+                className="px-3 py-1.5 rounded-full bg-amber-50 text-amber-700 text-xs font-semibold hover:bg-amber-100 flex items-center gap-1 disabled:opacity-50"
+                title="Test all APIs and update health badges"
+              >
+                {healthChecking ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+                Health Check
+              </button>
+              <button
+                onClick={() => setShowAnalytics(true)}
+                className="px-3 py-1.5 rounded-full bg-violet-50 text-violet-700 text-xs font-semibold hover:bg-violet-100 flex items-center gap-1"
+                title="View usage analytics"
+              >
+                <Cpu className="w-3.5 h-3.5" /> Analytics
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -430,6 +503,11 @@ export function VisualApiEditor({ mode }: Props) {
             const buddyCount = mappings.filter((m) => m.providerId === p.id).length;
             const test = testResults[p.id];
             const isHighlighted = highlightProvider === p.id;
+            // Health badge (Phase 35)
+            const h = health[p.id];
+            const healthColor = h?.status === "green" ? "#10B981" : h?.status === "yellow" ? "#F59E0B" : h?.status === "red" ? "#EF4444" : "#9CA3AF";
+            const healthEmoji = h?.status === "green" ? "🟢" : h?.status === "yellow" ? "🟡" : h?.status === "red" ? "🔴" : "⚪";
+            const healthTitle = h ? `${h.status.toUpperCase()} · ${Math.round(h.successRate * 100)}% success · ${h.avgLatencyMs ?? "?"}ms avg` : "No health data";
             return (
               <foreignObject key={`prov-${p.id}`} x={pos.x} y={pos.y} width={nodeWidth} height={nodeHeight}>
                 <div
@@ -466,6 +544,12 @@ export function VisualApiEditor({ mode }: Props) {
                     {p.isDefault && (
                       <span style={{ fontSize: 8, fontWeight: 700, background: "#10B981", color: "white", padding: "1px 5px", borderRadius: 6 }}>
                         DEFAULT
+                      </span>
+                    )}
+                    {/* Health badge (Phase 35) */}
+                    {mode === "admin" && (
+                      <span title={healthTitle} style={{ fontSize: 11, cursor: "help", filter: h?.status === "red" ? "grayscale(0)" : "none" }}>
+                        {healthEmoji}
                       </span>
                     )}
                   </div>
@@ -725,6 +809,16 @@ export function VisualApiEditor({ mode }: Props) {
           </div>
         </Modal>
       )}
+
+      {/* Analytics modal (admin only) */}
+      {showAnalytics && mode === "admin" && (
+        <AnalyticsModal
+          data={analyticsData}
+          range={analyticsRange}
+          onRangeChange={setAnalyticsRange}
+          onClose={() => setShowAnalytics(false)}
+        />
+      )}
     </div>
   );
 }
@@ -744,5 +838,92 @@ function Modal({ children, onClose, title }: { children: React.ReactNode; onClos
         {children}
       </div>
     </div>
+  );
+}
+
+// =====================================================================
+// Analytics modal — usage analytics dashboard
+// =====================================================================
+function AnalyticsModal({ data, range, onRangeChange, onClose }: { data: any; range: string; onRangeChange: (r: "24h" | "7d" | "30d") => void; onClose: () => void }) {
+  if (!data) return null;
+  const totals = data.totals ?? {};
+  return (
+    <Modal onClose={onClose} title="📊 Usage Analytics">
+      <div className="space-y-3">
+        {/* Range picker */}
+        <div className="flex gap-1 bg-gray-100 p-1 rounded-lg text-xs">
+          {["24h", "7d", "30d"].map((r) => (
+            <button
+              key={r}
+              onClick={() => onRangeChange(r as any)}
+              className={`flex-1 py-1 rounded-md transition ${range === r ? "bg-white text-indigo-700 font-semibold shadow-sm" : "text-gray-600"}`}
+            >
+              {r === "24h" ? "24 hours" : r === "7d" ? "7 days" : "30 days"}
+            </button>
+          ))}
+        </div>
+
+        {/* Totals */}
+        <div className="grid grid-cols-2 gap-2">
+          <div className="rounded-xl bg-indigo-50 p-3">
+            <p className="text-[10px] uppercase font-bold text-indigo-600">Total Calls</p>
+            <p className="text-lg font-bold text-indigo-900">{totals.totalCalls ?? 0}</p>
+          </div>
+          <div className="rounded-xl bg-emerald-50 p-3">
+            <p className="text-[10px] uppercase font-bold text-emerald-600">Success Rate</p>
+            <p className="text-lg font-bold text-emerald-900">
+              {totals.totalCalls ? Math.round((totals.successCount / totals.totalCalls) * 100) : 0}%
+            </p>
+          </div>
+          <div className="rounded-xl bg-amber-50 p-3">
+            <p className="text-[10px] uppercase font-bold text-amber-600">Tokens Used</p>
+            <p className="text-lg font-bold text-amber-900">{(totals.totalTokens ?? 0).toLocaleString()}</p>
+          </div>
+          <div className="rounded-xl bg-rose-50 p-3">
+            <p className="text-[10px] uppercase font-bold text-rose-600">Cost (USD)</p>
+            <p className="text-lg font-bold text-rose-900">${(totals.totalCost ?? 0).toFixed(4)}</p>
+          </div>
+        </div>
+
+        {/* Per-provider breakdown */}
+        <div>
+          <p className="text-xs font-semibold text-gray-700 mb-1.5">By Provider ({data.groupBy})</p>
+          <div className="space-y-1 max-h-64 overflow-y-auto">
+            {(data.buckets ?? []).map((b: any) => (
+              <div key={b.key} className="rounded-lg bg-white border border-gray-200 p-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold text-gray-800 truncate">{b.key}</p>
+                  <span className="text-[10px] text-gray-500">{b.totalCalls} calls</span>
+                </div>
+                <div className="flex gap-3 mt-1 text-[10px] text-gray-600">
+                  <span className="text-emerald-600">✓ {b.successCount}</span>
+                  <span className="text-rose-500">✗ {b.errorCount}</span>
+                  <span>{(b.totalTokens ?? 0).toLocaleString()} tokens</span>
+                  <span className="text-amber-600">${(b.totalCost ?? 0).toFixed(4)}</span>
+                </div>
+                {/* Mini sparkline — calls per day */}
+                {Array.isArray(b.byDay) && b.byDay.length > 1 && (
+                  <div className="flex items-end gap-0.5 mt-1 h-6">
+                    {b.byDay.map((d: any, i: number) => {
+                      const max = Math.max(...b.byDay.map((x: any) => x.calls), 1);
+                      return (
+                        <div
+                          key={i}
+                          style={{ height: `${(d.calls / max) * 100}%`, background: "#4F46E5", opacity: 0.4 + 0.6 * (d.calls / max), flex: 1, minWidth: 2 }}
+                          title={`${d.day}: ${d.calls} calls`}
+                        />
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            ))}
+            {(!data.buckets || data.buckets.length === 0) && (
+              <p className="text-xs text-gray-400 text-center p-3 italic">No usage in this range.</p>
+            )}
+          </div>
+        </div>
+      </div>
+    </Modal>
   );
 }
