@@ -454,10 +454,11 @@ export async function checkAndDeductTokens(userId: string, feature: string): Pro
     const multiplier = mapping?.tokenCostMultiplier ?? 1;
 
     // Premium-model permission check
-    // OVERRIDE: when UNLOCK_ALL_MODELS=true env var is set, all models are
+    // OVERRIDE: when UNLOCK_ALL_MODELS env var is set, all models are
     // unlocked for all users (used for testing/comparison/beta phases).
-    // The check is bypassed entirely — no premium/rental requirement.
-    const unlockAll = process.env.UNLOCK_ALL_MODELS === "true";
+    // Default: ON (no env var needed). To re-enable premium enforcement,
+    // set UNLOCK_ALL_MODELS=false on Vercel.
+    const unlockAll = process.env.UNLOCK_ALL_MODELS !== "false";
     if (!unlockAll && mapping?.requiresPremium && !isPremium && effectiveModel !== "study_buddy_free") {
       const activeRental = await db.modelRental.findFirst({
         where: { userId: billingUserId, modelName: effectiveModel, status: "active", expiresAt: { gt: new Date() } },
@@ -620,8 +621,10 @@ export async function checkModelPermission(userId: string) {
   if (!mapping) return { allowed: true, reason: null };
 
   if (mapping.requiresPremium) {
-    // OVERRIDE: when UNLOCK_ALL_MODELS=true, all premium models are unlocked.
-    const unlockAll = process.env.UNLOCK_ALL_MODELS === "true";
+    // OVERRIDE: when UNLOCK_ALL_MODELS is not "false", all premium models
+    // are unlocked. Default: ON for testing. To enforce premium, set
+    // UNLOCK_ALL_MODELS=false on Vercel.
+    const unlockAll = process.env.UNLOCK_ALL_MODELS !== "false";
     if (unlockAll) {
       return { allowed: true, reason: null };
     }

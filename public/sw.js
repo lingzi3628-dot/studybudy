@@ -1,23 +1,27 @@
 /**
- * StudyBuddy AI Service Worker v32 — Offline Mode
+ * StudyBuddy AI Service Worker v33 — Offline Mode
  *
- * v23 — initial AI Tutor upgrade.
- * v24 — 12 graph families.
- * v25 — lenient graph parser.
- * v26 — concept map fix.
- * v27 — generative graphing (16 types) + UNLOCK_ALL_MODELS env var.
- * v28 — freeform SVG nested-<svg> fix.
- * v29 — Phase 30 mega-upgrade.
- * v30 — real KaTeX rendering + defensive ASR.
- * v31 — Voice mode uses free browser Web Speech API as primary path.
- * v32 — Phase 31: 8 more dedicated graph renderers (pictogram, tally,
- *        carroll, ogive, unitcircle, transform, axes3d, twoway) covering
- *        Grade 1 through university math. 29 graph types total. Plus:
- *        StudyBuddy model switcher inline in Profile screen + POST
- *        /api/user/model also honors UNLOCK_ALL_MODELS env var.
+ * v23-v31 — prior upgrades (graphs, voice, KaTeX, free Web Speech API).
+ * v32 — 29 graph types covering Grade 1 → university + Profile model switcher.
+ * v33 — Phase 32:
+ *   1. UNLOCK_ALL_MODELS now defaults ON (no env var needed). To re-enable
+ *      premium enforcement later, set UNLOCK_ALL_MODELS=false on Vercel.
+ *   2. NEW: 'csv' graph type — spreadsheet/Excel worksheet preview with a
+ *      Download CSV button (opens in Excel, Google Sheets, LibreOffice).
+ *      For "build me an Excel sheet / worksheet" requests.
+ *   3. NEW: 'erdiagram' graph type — Access-style database schema with
+ *      tables, primary keys (🔑), foreign keys (🔗), and relationship lines.
+ *      For "draw a database / ER diagram / MS Access" requests.
+ *   4. Added CSV download button to pictogram, tally, and two-way table
+ *      renderers — students can export any tabular data to Excel.
+ *   5. Server-side fallback synthesis for both new types — auto-detects the
+ *      user's domain (food capacity, payment, attendance, grade book,
+ *      inventory, budget; school, library, store) and builds a sensible
+ *      default table or schema with realistic Kenyan context (KSh prices,
+ *      local names). 31 graph types total.
  */
 
-const CACHE_VERSION = "studybuddy-v32-offline";
+const CACHE_VERSION = "studybuddy-v33-offline";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const CONTENT_CACHE = `${CACHE_VERSION}-content`;
 const IMAGE_CACHE = `${CACHE_VERSION}-images`;

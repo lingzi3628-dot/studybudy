@@ -379,12 +379,21 @@ export function AITutorChat() {
     { icon: "⭕", text: "Show me sin and cos on the unit circle for angle 60°", category: "Form 1-4" },
     { icon: "📈", text: "Cumulative frequency (ogive) from bins: 0-10 (3), 10-20 (7), 20-30 (12), 30-40 (5)", category: "Form 1-4" },
     { icon: "🧮", text: "Solve x² + 5x + 6 = 0 using the quadratic formula", category: "Form 1-4" },
+    // Spreadsheet + database
+    { icon: "📊", text: "Build me an Excel worksheet for food capacity: maize flour 50kg, beans 20kg, rice 15kg, cooking oil 5L", category: "Spreadsheets" },
+    { icon: "💰", text: "Build a payment schedule spreadsheet for 3 employees with hours, rate, gross, tax, net", category: "Spreadsheets" },
+    { icon: "📅", text: "Build a class attendance register spreadsheet for 5 students Mon-Fri", category: "Spreadsheets" },
+    { icon: "🎒", text: "Build a grade book spreadsheet for 3 students in Math, English, Science with averages", category: "Spreadsheets" },
+    { icon: "🏦", text: "Build a simple database schema for a school with Students, Classes, Teachers", category: "Database" },
+    { icon: "📚", text: "Design a database schema for a library: Books, Authors, Borrowers, Loans", category: "Database" },
+    { icon: "🛒", text: "Design a store database schema: Customers, Products, Orders, Order Items", category: "Database" },
     // University
     { icon: "🌀", text: "Draw a slope field for dy/dx = x - y", category: "University" },
     { icon: "🧲", text: "Draw a vector field for F(x,y) = (-y, x) — a rotation field", category: "University" },
     { icon: "🔢", text: "Plot z₁ = 2 + i and z₂ = -1 + 1.5i on an Argand diagram", category: "University" },
     { icon: "🧊", text: "Plot point P(2, 1, 3) in 3D coordinate space", category: "University" },
     { icon: "🪢", text: "Draw a trefoil knot diagram", category: "University" },
+    // General
     { icon: "🥧", text: "Draw a pie chart of budget: Rent 40%, Food 25%, Transport 15%, Savings 20%", category: "General" },
     { icon: "➡️", text: "Draw vectors F1 = (3,4) and F2 = (-2,1) on a coordinate plane", category: "General" },
     { icon: "🧠", text: "Make a concept map of the human digestive system", category: "General" },
@@ -930,7 +939,7 @@ function MarkdownContent({ content, isUser }: { content: string; isUser: boolean
             "slopefield", "stemleaf", "frequency_polygon", "freeform",
             "argand", "contour", "vectorfield", "tessellation", "knot",
             "pictogram", "tally", "carroll", "ogive", "unitcircle",
-            "transform", "axes3d", "twoway",
+            "transform", "axes3d", "twoway", "erdiagram", "csv",
           ]);
           if (
             (block.lang === "json" || block.lang === "text" || block.lang === "") &&

@@ -66,6 +66,47 @@ function HoverPoint({
   );
 }
 
+// CSVDownloadButton — small button that downloads rows as a CSV file
+// (opens in Excel, Google Sheets, LibreOffice)
+function CSVDownloadButton({
+  headers,
+  rows,
+  downloadName = "table.csv",
+}: {
+  headers: string[];
+  rows: (string | number)[][];
+  downloadName?: string;
+}) {
+  const escapeCSV = (val: string | number) => {
+    const s = String(val ?? "");
+    if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+  };
+  const csvText = [headers, ...rows].map((r) => r.map(escapeCSV).join(",")).join("\n");
+
+  const download = () => {
+    const blob = new Blob([csvText], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = downloadName.endsWith(".csv") ? downloadName : `${downloadName}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <button
+      onClick={download}
+      className="text-[10px] text-gray-500 hover:text-emerald-700 flex items-center gap-0.5"
+      title="Download as CSV (opens in Excel)"
+    >
+      📄 CSV
+    </button>
+  );
+}
+
 // =====================================================================
 // GraphRenderers — Phase 28+
 //
@@ -161,6 +202,10 @@ export function GraphRenderer({ spec }: { spec: GraphSpec }) {
       return <Axes3DSVG spec={spec} />;
     case "twoway":
       return <TwoWayTableSVG spec={spec} />;
+    case "erdiagram":
+      return <ERDiagramSVG spec={spec} />;
+    case "csv":
+      return <CSVPreviewSVG spec={spec} />;
     default:
       return (
         <div className="text-xs text-rose-600 p-3">
@@ -169,7 +214,7 @@ export function GraphRenderer({ spec }: { spec: GraphSpec }) {
           vector, polygon, boxplot, slopefield, stemleaf, frequency_polygon,
           freeform, argand, contour, vectorfield, tessellation, knot,
           pictogram, tally, carroll, ogive, unitcircle, transform, axes3d,
-          twoway.
+          twoway, erdiagram, csv.
         </div>
       );
   }
@@ -2106,7 +2151,14 @@ function PictogramSVG({ spec }: { spec: any }) {
 
   return (
     <div>
-      <p className="text-xs font-semibold text-gray-700 mb-1">{title}</p>
+      <div className="flex items-center justify-between mb-1">
+        <p className="text-xs font-semibold text-gray-700">{title}</p>
+        <CSVDownloadButton
+          headers={["Category", "Value"]}
+          rows={categories.map((cat, i) => [cat, values[i] ?? 0])}
+          downloadName="pictogram.csv"
+        />
+      </div>
       <p className="text-[10px] text-gray-500 mb-2">Each {symbol} = {symbolValue}</p>
       <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto bg-gray-50 rounded-lg">
         {categories.map((cat, ci) => {
@@ -2214,7 +2266,14 @@ function TallySVG({ spec }: { spec: any }) {
 
   return (
     <div>
-      <p className="text-xs font-semibold text-gray-700 mb-1">{title}</p>
+      <div className="flex items-center justify-between mb-1">
+        <p className="text-xs font-semibold text-gray-700">{title}</p>
+        <CSVDownloadButton
+          headers={["Category", "Count"]}
+          rows={categories.map((cat, i) => [cat, counts[i] ?? 0])}
+          downloadName="tally.csv"
+        />
+      </div>
       <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto bg-gray-50 rounded-lg">
         {categories.map((cat, i) => {
           const c = counts[i] ?? 0;
@@ -2652,7 +2711,14 @@ function TwoWayTableSVG({ spec }: { spec: any }) {
 
   return (
     <div>
-      <p className="text-xs font-semibold text-gray-700 mb-1">{title}</p>
+      <div className="flex items-center justify-between mb-1">
+        <p className="text-xs font-semibold text-gray-700">{title}</p>
+        <CSVDownloadButton
+          headers={[rowLabel, ...colLabels, "Total"]}
+          rows={rowLabels.map((r, ri) => [r, ...(data[ri] ?? []), rowTotals[ri]])}
+          downloadName="two-way-table.csv"
+        />
+      </div>
       <div className="bg-white border border-gray-200 rounded-lg p-3">
         <table className="w-full text-xs">
           <thead>
@@ -2685,6 +2751,208 @@ function TwoWayTableSVG({ spec }: { spec: any }) {
         </table>
       </div>
       <p className="text-[10px] text-gray-500 mt-1">{rowLabels.length} × {colLabels.length} table · n = {grandTotal}</p>
+    </div>
+  );
+}
+
+// =====================================================================
+// 30. ER Diagram / Database Schema — Access-style table view
+//      Shows tables as boxes with field lists, primary keys (🔑),
+//      foreign keys (🔗), and relationship lines between FKs and PKs
+// =====================================================================
+function ERDiagramSVG({ spec }: { spec: any }) {
+  const title = spec.title ?? "Database Schema (ER Diagram)";
+  type Field = { name: string; type: string; pk?: boolean; fk?: string };
+  type Table = {
+    name: string;
+    fields: Field[];
+    color?: string;
+  };
+  const tables: Table[] = Array.isArray(spec.tables) ? spec.tables : [];
+  // Optional relationships: [{from: "table1.field", to: "table2.field", label?: "..."}]
+  const relationships: Array<{ from: string; to: string; label?: string }> = Array.isArray(spec.relationships) ? spec.relationships : [];
+
+  // Layout: arrange tables in a grid (3 per row)
+  const tablesPerRow = Math.min(3, Math.ceil(Math.sqrt(tables.length)));
+  const tableWidth = 220;
+  const tableHeight = (table: Table) => 36 + table.fields.length * 22 + 8;
+  const tableGap = 30;
+  const rows = Math.ceil(tables.length / tablesPerRow);
+  const width = Math.max(420, tablesPerRow * (tableWidth + tableGap) + 20);
+  const height = Math.max(300, rows * (Math.max(...tables.map((t) => tableHeight(t))) + tableGap) + 60);
+
+  // Position tables in a grid
+  const positions = tables.map((_, i) => {
+    const row = Math.floor(i / tablesPerRow);
+    const col = i % tablesPerRow;
+    return {
+      x: 20 + col * (tableWidth + tableGap),
+      y: 50 + row * (Math.max(...tables.map((t) => tableHeight(t))) + tableGap),
+    };
+  });
+
+  // Helper: find table + field coordinates for relationships
+  const findFieldCoords = (ref: string): { x: number; y: number; tableIdx: number } | null => {
+    const [tableName, fieldName] = ref.split(".");
+    const tableIdx = tables.findIndex((t) => t.name === tableName);
+    if (tableIdx < 0) return null;
+    const fieldIdx = tables[tableIdx].fields.findIndex((f) => f.name === fieldName);
+    if (fieldIdx < 0) return null;
+    const pos = positions[tableIdx];
+    return {
+      x: pos.x + tableWidth,
+      y: pos.y + 36 + fieldIdx * 22 + 11,
+      tableIdx,
+    };
+  };
+
+  return (
+    <div>
+      <p className="text-xs font-semibold text-gray-700 mb-1">{title}</p>
+      <p className="text-[10px] text-gray-500 mb-2">🔑 Primary key · 🔗 Foreign key (refers to another table)</p>
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto bg-gray-50 rounded-lg">
+        {/* Relationships (lines) drawn first so they're behind tables */}
+        {relationships.map((rel, i) => {
+          const from = findFieldCoords(rel.from);
+          const to = findFieldCoords(rel.to);
+          if (!from || !to) return null;
+          const fromLeft = { x: from.x - tableWidth, y: from.y };
+          const toLeft = { x: to.x - tableWidth, y: to.y };
+          // Connect from left side of one to right side of other (whichever side is closer)
+          const fromX = Math.abs(from.x - to.x) > Math.abs(fromLeft.x - toLeft.x) ? fromLeft.x : from.x;
+          const toX = fromX === from.x ? toLeft.x : to.x;
+          const midX = (fromX + toX) / 2;
+          const path = `M ${fromX} ${from.y} C ${midX} ${from.y}, ${midX} ${to.y}, ${toX} ${to.y}`;
+          return (
+            <g key={`rel-${i}`}>
+              <path d={path} fill="none" stroke="#9CA3AF" strokeWidth={1.5} strokeDasharray="4 2" />
+              {/* Endpoint dots */}
+              <circle cx={fromX} cy={from.y} r={3} fill="#4F46E5" />
+              <circle cx={toX} cy={to.y} r={3} fill="#EF4444" />
+              {/* Label */}
+              {rel.label && (
+                <text x={midX} y={(from.y + to.y) / 2 - 4} fontSize={9} fill="#6B7280" textAnchor="middle" fontWeight={600}>
+                  {rel.label}
+                </text>
+              )}
+            </g>
+          );
+        })}
+        {/* Tables */}
+        {tables.map((table, ti) => {
+          const pos = positions[ti];
+          const h = tableHeight(table);
+          const color = table.color ?? PALETTE[ti % PALETTE.length];
+          return (
+            <g key={`table-${ti}`}>
+              {/* Header */}
+              <rect x={pos.x} y={pos.y} width={tableWidth} height={36} rx={6} fill={color} opacity={0.95} />
+              <text x={pos.x + 10} y={pos.y + 22} fontSize={13} fill="white" fontWeight={700}>
+                {table.name}
+              </text>
+              {/* Body */}
+              <rect x={pos.x} y={pos.y + 36} width={tableWidth} height={h - 36} rx={0} fill="white" stroke={color} strokeWidth={1.5} />
+              {/* Field rows */}
+              {table.fields.map((f, fi) => {
+                const y = pos.y + 36 + fi * 22 + 14;
+                return (
+                  <g key={`field-${ti}-${fi}`}>
+                    <text x={pos.x + 6} y={y + 4} fontSize={10} fill="#1F2937" fontWeight={f.pk ? 700 : 400}>
+                      {f.pk ? "🔑 " : f.fk ? "🔗 " : "   "}{f.name}
+                    </text>
+                    <text x={pos.x + tableWidth - 6} y={y + 4} fontSize={9} fill="#6B7280" textAnchor="end" fontFamily="monospace">
+                      {f.type}
+                    </text>
+                    {fi < table.fields.length - 1 && (
+                      <line x1={pos.x + 6} y1={y + 11} x2={pos.x + tableWidth - 6} y2={y + 11} stroke="#F3F4F6" strokeWidth={1} />
+                    )}
+                  </g>
+                );
+              })}
+            </g>
+          );
+        })}
+      </svg>
+      <p className="text-[10px] text-gray-500 mt-1">{tables.length} tables · {relationships.length} relationships</p>
+    </div>
+  );
+}
+
+// =====================================================================
+// 31. CSV Preview — preview a CSV table (rendered as a styled HTML table)
+//      Also offers a download link for the CSV file
+// =====================================================================
+function CSVPreviewSVG({ spec }: { spec: any }) {
+  const title = spec.title ?? "CSV Table";
+  const headers: string[] = Array.isArray(spec.headers) ? spec.headers : [];
+  const rows: string[][] = Array.isArray(spec.rows) ? spec.rows : [];
+  const downloadName: string = (spec.downloadName ?? "table.csv").toString();
+
+  // Build the CSV text for download
+  const escapeCSV = (val: string) => {
+    if (/[",\n]/.test(val)) return `"${val.replace(/"/g, '""')}"`;
+    return val;
+  };
+  const csvText = [headers, ...rows]
+    .map((r) => r.map((c) => escapeCSV(String(c ?? ""))).join(","))
+    .join("\n");
+
+  const downloadCSV = () => {
+    const blob = new Blob([csvText], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = downloadName.endsWith(".csv") ? downloadName : `${downloadName}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs font-semibold text-gray-700">{title}</p>
+        <button
+          onClick={downloadCSV}
+          className="px-2 py-1 rounded-md bg-emerald-50 text-emerald-700 text-[10px] font-semibold hover:bg-emerald-100 flex items-center gap-1"
+          title="Download as CSV (opens in Excel)"
+        >
+          📄 Download CSV
+        </button>
+      </div>
+      <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+        <div className="overflow-x-auto max-h-72">
+          <table className="w-full text-xs">
+            <thead className="sticky top-0 bg-gray-100">
+              <tr>
+                {headers.map((h, hi) => (
+                  <th key={hi} className="px-2 py-1.5 text-left text-gray-700 font-semibold border-b border-gray-200">
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, ri) => (
+                <tr key={ri} className="hover:bg-indigo-50/30">
+                  {row.map((cell, ci) => (
+                    <td key={ci} className="px-2 py-1 text-gray-800 border-b border-gray-50">
+                      {cell}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+              {rows.length === 0 && (
+                <tr><td colSpan={headers.length} className="px-2 py-3 text-center text-gray-400 italic">(no rows)</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <p className="text-[10px] text-gray-500 mt-1">
+        {headers.length} columns · {rows.length} rows · opens in Excel, Google Sheets, LibreOffice
+      </p>
     </div>
   );
 }

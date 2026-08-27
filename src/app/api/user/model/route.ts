@@ -34,9 +34,11 @@ export async function POST(req: NextRequest) {
   }
 
   // Check premium permission
-  // OVERRIDE: when UNLOCK_ALL_MODELS=true env var is set, all models are
-  // unlocked (used for testing/comparison phases).
-  if (process.env.UNLOCK_ALL_MODELS !== "true" && mapping.requiresPremium) {
+  // OVERRIDE: when UNLOCK_ALL_MODELS is not "false" (default), all models
+  // are unlocked for testing. To enforce premium, set UNLOCK_ALL_MODELS=false
+  // on Vercel.
+  const unlockAll = process.env.UNLOCK_ALL_MODELS !== "false";
+  if (!unlockAll && mapping.requiresPremium) {
     const hasActivePlan = user.planId && (!user.subscriptionExpiry || new Date() < user.subscriptionExpiry);
     if (!hasActivePlan) {
       return NextResponse.json({

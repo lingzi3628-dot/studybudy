@@ -123,6 +123,9 @@ export async function POST(req: NextRequest) {
                             /\brotate (triangle|shape|figure) (by|around)\b/i.test(userMessage);
     const wantsAxes3D = /\b3d (coordinate|axes|space|system)\b|plot.*in 3d|point.*in 3d|\(x, y, z\)|3d graph/i.test(userMessage);
     const wantsTwoWay = /\btwo[- ]way table\b|contingency table|cross[- ]tabulation/i.test(userMessage);
+    // Phase 32 — spreadsheet + database
+    const wantsCSV = /\bexcel sheet\b|\bspreadsheet\b|\bworksheet\b|\bbuild a sheet\b|make a (food capacity|payment|attendance|inventory|grade book|budget) (sheet|worksheet|spreadsheet)/i.test(userMessage);
+    const wantsERDiagram = /\b(er diagram|entity.?relationship|database schema|database design|access table|ms access|simple database|build a database|design a database)/i.test(userMessage);
     const wantsSearch = /\bfind\b|\bsearch\b|\blook up\b|\bwhat is\b|\bwho is\b|\bwhen did\b|\bhow does\b/i.test(userMessage) && !wantsVideo &&
                        !wantsScatter && !wantsBar && !wantsHistogram && !wantsPie && !wantsVenn &&
                        !wantsNumberLine && !wantsTree && !wantsBoxPlot && !wantsVector && !wantsPolygon;
@@ -133,7 +136,8 @@ export async function POST(req: NextRequest) {
                        wantsPolygon || wantsNetwork || wantsConceptMap || wantsArgand || wantsContour ||
                        wantsVectorField || wantsTessellation || wantsKnot ||
                        wantsPictogram || wantsTally || wantsCarroll || wantsOgive || wantsUnitCircle ||
-                       wantsTransform || wantsAxes3D || wantsTwoWay;
+                       wantsTransform || wantsAxes3D || wantsTwoWay ||
+                       wantsCSV || wantsERDiagram;
 
     let attachments: Array<{ type: string; url: string | null; caption: string }> = [];
     let searchContext = "";
@@ -411,8 +415,18 @@ covering Grade 1 through university math:
     JSON spec: {"type":"twoway", "title":"Gender × Sport Preference", "rowLabels":["Male","Female"], "colLabels":["Football","Netball","Tennis"], "data":[[15,5,8],[3,18,6]], "rowLabel":"Gender", "colLabel":"Sport"}
     Row and column totals are auto-computed.
 
+30. "erdiagram" — Entity-Relationship diagram / database schema (Access-style table view).
+    Shows tables as boxes with field lists, primary keys (🔑), foreign keys (🔗),
+    and relationship lines between FKs and PKs.
+    JSON spec: {"type":"erdiagram", "title":"Library Database Schema", "tables":[{"name":"Students","fields":[{"name":"id","type":"INT","pk":true},{"name":"name","type":"VARCHAR(100)"},{"name":"class_id","type":"INT","fk":"Classes.id"}]},{"name":"Classes","fields":[{"name":"id","type":"INT","pk":true},{"name":"name","type":"VARCHAR(50)"}]}], "relationships":[{"from":"Students.class_id","to":"Classes.id","label":"belongs to"}]}
+
+31. "csv" — spreadsheet / worksheet (Excel/CSV preview). For when the user asks for
+    "Excel sheet", "spreadsheet", "worksheet", "table of data", "build a sheet".
+    Renders an HTML table with a "Download CSV" button (opens in Excel/Google Sheets).
+    JSON spec: {"type":"csv", "title":"Food Capacity Worksheet", "downloadName":"food-capacity.csv", "headers":["Item","Quantity","Unit","Cost per unit","Total"], "rows":[["Maize flour","50","kg","120","6000"],["Beans","20","kg","200","4000"],["Rice","15","kg","250","3750"],["Cooking oil","5","litres","300","1500"]]}
+
 GENERAL RULES — GENERIC DRAWING PRINCIPLE:
-- ALWAYS pick the MOST APPROPRIATE graph type from the 29 types above. Match by the user's question:
+- ALWAYS pick the MOST APPROPRIATE graph type from the 31 types above. Match by the user's question:
   * "show 5 apples in pictogram" → pictogram
   * "tally the votes: A=4, B=7" → tally
   * "sort shapes by red AND square" → carroll
@@ -425,13 +439,22 @@ GENERAL RULES — GENERIC DRAWING PRINCIPLE:
   * "Argand diagram of z = 2+i" → argand
   * "trefoil knot" → knot
   * "hexagon tessellation" → tessellation
+  * "build me an Excel sheet / spreadsheet / worksheet for [topic]" → csv (with proper headers + rows + a download button)
+  * "draw a database schema / ER diagram / Access-style tables" → erdiagram (with tables + PKs/FKs + relationships)
   * "phase portrait for spiral" → freeform (no dedicated renderer yet)
   * "compass-and-straightedge construction" → freeform
-- When the user asks for something you can't express with the 29 specific types,
+- When the user asks for something you can't express with the 31 specific types,
   use "freeform" with raw SVG. Be creative — you can draw 3D cubes (with
   dashed hidden edges), compass constructions (arcs + lines), phase portraits
   (spiral/saddle/node shapes), contour maps, knot diagrams, tessellations,
   Möbius strips, etc. Just write the SVG markup directly.
+- For spreadsheet/Excel/worksheet requests, ALWAYS use "csv" type with realistic
+  rows matching the user's scenario (food capacity, payment schedule, budget,
+  attendance, inventory, grade book, etc.). Include the column headers
+  matching the user's request.
+- For database requests, ALWAYS use "erdiagram" type with sensible tables
+  (primary keys, foreign keys, types) matching the user's domain (library,
+  school, store, hospital, etc.). Include relationships between FKs and PKs.
 - Always include meaningful titles, axis labels, and category labels in the
   spec — these are shown on the rendered diagram.
 - Be encouraging and clear. Reply in the same language the user used (English / Kiswahili / French).
@@ -472,7 +495,7 @@ GENERAL RULES — GENERIC DRAWING PRINCIPLE:
         "slopefield", "stemleaf", "frequency_polygon", "freeform",
         "argand", "contour", "vectorfield", "tessellation", "knot",
         "pictogram", "tally", "carroll", "ogive", "unitcircle",
-        "transform", "axes3d", "twoway",
+        "transform", "axes3d", "twoway", "erdiagram", "csv",
       ]);
 
       // Helper: try to parse a string as JSON and check if it has a known graph type
@@ -1039,6 +1062,246 @@ GENERAL RULES — GENERIC DRAWING PRINCIPLE:
             rowLabel: "Row",
             colLabel: "Column",
           };
+        } else if (wantsCSV) {
+          // Spreadsheet / Excel worksheet — synthesize a generic data table
+          // matching the user's scenario (we try to detect keywords).
+          const lowerMsg = userMessage.toLowerCase();
+          let headers: string[] = ["Item", "Quantity", "Unit"];
+          let rows: string[][] = [
+            ["Item A", "10", "units"],
+            ["Item B", "20", "units"],
+            ["Item C", "15", "units"],
+          ];
+          let downloadName = "worksheet.csv";
+          let title = "Worksheet";
+
+          // Food capacity
+          if (/food|capacity|menu|meal|kitchen|recipe|ingredient/i.test(lowerMsg)) {
+            title = "Food Capacity Worksheet";
+            downloadName = "food-capacity.csv";
+            headers = ["Food Item", "Quantity", "Unit", "Cost per Unit (KSh)", "Total Cost (KSh)"];
+            rows = [
+              ["Maize flour", "50", "kg", "120", "6000"],
+              ["Beans", "20", "kg", "200", "4000"],
+              ["Rice", "15", "kg", "250", "3750"],
+              ["Cooking oil", "5", "litres", "300", "1500"],
+              ["Vegetables", "30", "kg", "80", "2400"],
+              ["Meat", "10", "kg", "500", "5000"],
+            ];
+          } else if (/payment|salary|wage|payroll/i.test(lowerMsg)) {
+            title = "Payment Schedule";
+            downloadName = "payment-schedule.csv";
+            headers = ["Employee", "Hours", "Rate (KSh/hr)", "Gross (KSh)", "Tax (KSh)", "Net (KSh)"];
+            rows = [
+              ["Alice", "40", "200", "8000", "1200", "6800"],
+              ["Bob", "35", "180", "6300", "945", "5355"],
+              ["Carol", "40", "250", "10000", "1500", "8500"],
+            ];
+          } else if (/attendance|register/i.test(lowerMsg)) {
+            title = "Attendance Register";
+            downloadName = "attendance.csv";
+            headers = ["Student Name", "Mon", "Tue", "Wed", "Thu", "Fri", "Total Present"];
+            rows = [
+              ["Alice Otieno", "P", "P", "P", "A", "P", "4"],
+              ["Bob Kamau", "P", "A", "P", "P", "P", "4"],
+              ["Carol Wanjiku", "P", "P", "P", "P", "P", "5"],
+            ];
+          } else if (/grade|mark|score|report card/i.test(lowerMsg)) {
+            title = "Grade Book";
+            downloadName = "grade-book.csv";
+            headers = ["Student", "Math", "English", "Science", "Average", "Grade"];
+            rows = [
+              ["Alice", "85", "78", "92", "85", "A"],
+              ["Bob", "72", "80", "75", "76", "B"],
+              ["Carol", "90", "88", "95", "91", "A"],
+            ];
+          } else if (/budget|finance|expense/i.test(lowerMsg)) {
+            title = "Budget Worksheet";
+            downloadName = "budget.csv";
+            headers = ["Category", "Planned (KSh)", "Actual (KSh)", "Difference"];
+            rows = [
+              ["Rent", "15000", "15000", "0"],
+              ["Food", "8000", "9200", "-1200"],
+              ["Transport", "3000", "2500", "+500"],
+              ["Savings", "5000", "5000", "0"],
+            ];
+          } else if (/inventory|stock|product/i.test(lowerMsg)) {
+            title = "Inventory Sheet";
+            downloadName = "inventory.csv";
+            headers = ["Product", "Stock", "Reorder Level", "Price (KSh)", "Status"];
+            rows = [
+              ["Maize flour 2kg", "45", "20", "180", "OK"],
+              ["Sugar 1kg", "8", "15", "150", "LOW"],
+              ["Cooking oil 1L", "30", "10", "320", "OK"],
+            ];
+          }
+
+          synthesized = {
+            type: "csv",
+            title,
+            downloadName,
+            headers,
+            rows,
+          };
+        } else if (wantsERDiagram) {
+          // Database schema — pick a sensible default based on the user's domain
+          const lowerMsg = userMessage.toLowerCase();
+          let title = "Database Schema (ER Diagram)";
+          let tables: any[] = [];
+          let relationships: any[] = [];
+
+          if (/school|student|class|teacher/i.test(lowerMsg)) {
+            title = "School Database Schema";
+            tables = [
+              {
+                name: "Students",
+                fields: [
+                  { name: "id", type: "INT", pk: true },
+                  { name: "name", type: "VARCHAR(100)" },
+                  { name: "class_id", type: "INT", fk: "Classes.id" },
+                ],
+              },
+              {
+                name: "Classes",
+                fields: [
+                  { name: "id", type: "INT", pk: true },
+                  { name: "name", type: "VARCHAR(50)" },
+                  { name: "teacher_id", type: "INT", fk: "Teachers.id" },
+                ],
+              },
+              {
+                name: "Teachers",
+                fields: [
+                  { name: "id", type: "INT", pk: true },
+                  { name: "name", type: "VARCHAR(100)" },
+                  { name: "subject", type: "VARCHAR(50)" },
+                ],
+              },
+            ];
+            relationships = [
+              { from: "Students.class_id", to: "Classes.id", label: "enrolled in" },
+              { from: "Classes.teacher_id", to: "Teachers.id", label: "taught by" },
+            ];
+          } else if (/library|book|borrow/i.test(lowerMsg)) {
+            title = "Library Database Schema";
+            tables = [
+              {
+                name: "Books",
+                fields: [
+                  { name: "id", type: "INT", pk: true },
+                  { name: "title", type: "VARCHAR(200)" },
+                  { name: "author_id", type: "INT", fk: "Authors.id" },
+                ],
+              },
+              {
+                name: "Authors",
+                fields: [
+                  { name: "id", type: "INT", pk: true },
+                  { name: "name", type: "VARCHAR(100)" },
+                ],
+              },
+              {
+                name: "Loans",
+                fields: [
+                  { name: "id", type: "INT", pk: true },
+                  { name: "book_id", type: "INT", fk: "Books.id" },
+                  { name: "borrower_id", type: "INT", fk: "Borrowers.id" },
+                  { name: "loan_date", type: "DATE" },
+                ],
+              },
+              {
+                name: "Borrowers",
+                fields: [
+                  { name: "id", type: "INT", pk: true },
+                  { name: "name", type: "VARCHAR(100)" },
+                ],
+              },
+            ];
+            relationships = [
+              { from: "Books.author_id", to: "Authors.id", label: "written by" },
+              { from: "Loans.book_id", to: "Books.id", label: "loaned" },
+              { from: "Loans.borrower_id", to: "Borrowers.id", label: "borrowed by" },
+            ];
+          } else if (/store|shop|product|order|customer/i.test(lowerMsg)) {
+            title = "Store Database Schema";
+            tables = [
+              {
+                name: "Customers",
+                fields: [
+                  { name: "id", type: "INT", pk: true },
+                  { name: "name", type: "VARCHAR(100)" },
+                  { name: "email", type: "VARCHAR(100)" },
+                ],
+              },
+              {
+                name: "Products",
+                fields: [
+                  { name: "id", type: "INT", pk: true },
+                  { name: "name", type: "VARCHAR(100)" },
+                  { name: "price", type: "DECIMAL(10,2)" },
+                ],
+              },
+              {
+                name: "Orders",
+                fields: [
+                  { name: "id", type: "INT", pk: true },
+                  { name: "customer_id", type: "INT", fk: "Customers.id" },
+                  { name: "order_date", type: "DATE" },
+                ],
+              },
+              {
+                name: "Order_Items",
+                fields: [
+                  { name: "id", type: "INT", pk: true },
+                  { name: "order_id", type: "INT", fk: "Orders.id" },
+                  { name: "product_id", type: "INT", fk: "Products.id" },
+                  { name: "quantity", type: "INT" },
+                ],
+              },
+            ];
+            relationships = [
+              { from: "Orders.customer_id", to: "Customers.id", label: "placed by" },
+              { from: "Order_Items.order_id", to: "Orders.id", label: "part of" },
+              { from: "Order_Items.product_id", to: "Products.id", label: "contains" },
+            ];
+          } else {
+            // Generic / hospital / etc. — fallback default
+            tables = [
+              {
+                name: "Users",
+                fields: [
+                  { name: "id", type: "INT", pk: true },
+                  { name: "name", type: "VARCHAR(100)" },
+                  { name: "email", type: "VARCHAR(100)" },
+                ],
+              },
+              {
+                name: "Posts",
+                fields: [
+                  { name: "id", type: "INT", pk: true },
+                  { name: "user_id", type: "INT", fk: "Users.id" },
+                  { name: "title", type: "VARCHAR(200)" },
+                  { name: "body", type: "TEXT" },
+                ],
+              },
+              {
+                name: "Comments",
+                fields: [
+                  { name: "id", type: "INT", pk: true },
+                  { name: "post_id", type: "INT", fk: "Posts.id" },
+                  { name: "user_id", type: "INT", fk: "Users.id" },
+                  { name: "body", type: "TEXT" },
+                ],
+              },
+            ];
+            relationships = [
+              { from: "Posts.user_id", to: "Users.id", label: "authored by" },
+              { from: "Comments.post_id", to: "Posts.id", label: "on" },
+              { from: "Comments.user_id", to: "Users.id", label: "by" },
+            ];
+          }
+
+          synthesized = { type: "erdiagram", title, tables, relationships };
         }
 
         if (synthesized) {
