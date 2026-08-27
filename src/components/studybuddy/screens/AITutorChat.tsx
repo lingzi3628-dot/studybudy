@@ -100,6 +100,7 @@ export function AITutorChat() {
   const [compareBuddies, setCompareBuddies] = useState<string[]>([]);
   const [compareResults, setCompareResults] = useState<any[]>([]);
   const [comparing, setComparing] = useState(false);
+  const [preferredIndex, setPreferredIndex] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [showSidebar, setShowSidebar] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -215,6 +216,19 @@ export function AITutorChat() {
         return;
       }
 
+      // Handle graceful errors returned as 200 with ok:false (e.g. disconnected Study Buddy)
+      if (d.ok === false) {
+        // Show the error as an AI message in the chat (not a red banner)
+        const errorMsg: ChatMsg = {
+          id: `error-${Date.now()}`,
+          role: "assistant",
+          content: d.error ?? "AI couldn't respond. Please try another Study Buddy.",
+          createdAt: new Date().toISOString(),
+        };
+        setMessages((m) => [...m, errorMsg]);
+        return;
+      }
+
       const aiMsg: ChatMsg = {
         id: `ai-${Date.now()}`,
         role: "assistant",
@@ -299,7 +313,6 @@ export function AITutorChat() {
         }
       });
       listener.onError((e: any) => {
-        console.error("[voice mode] ASR error:", e?.error ?? e);
         const err = e?.error;
         if (err === "not-allowed" || err === "service-not-allowed") {
           setError("Microphone access denied. Allow mic permission for voice mode.");
@@ -310,8 +323,19 @@ export function AITutorChat() {
           if (voiceModeRef.current) {
             setTimeout(() => startVoiceListening(), 300);
           }
+        } else if (err === "aborted" || err === "interrupted") {
+          // Normal events in voice mode — ASR gets aborted when user stops,
+          // TTS gets interrupted when user starts speaking. Don't show errors.
+          // Just restart listening if voice mode is still on.
+          if (voiceModeRef.current) {
+            setTimeout(() => startVoiceListening(), 200);
+          }
         } else {
-          setError("Voice error: " + (err ?? "unknown"));
+          console.warn("[voice mode] ASR error:", err ?? "unknown");
+          // Don't show error banner for minor voice mode issues — just restart
+          if (voiceModeRef.current) {
+            setTimeout(() => startVoiceListening(), 500);
+          }
         }
       });
       listener.onEnd(() => {
@@ -358,7 +382,10 @@ export function AITutorChat() {
           setTimeout(() => startVoiceListening(), 300);
         }
       }).catch((e: any) => {
-        console.warn("[voice mode] TTS error:", e?.message);
+        // "interrupted" is normal — happens when TTS is cancelled (e.g. user taps stop)
+        if (e?.message !== "interrupted" && e?.message !== "aborted") {
+          console.warn("[voice mode] TTS error:", e?.message);
+        }
         // Go back to listening even on TTS error
         if (voiceModeRef.current) {
           setTimeout(() => startVoiceListening(), 300);
@@ -462,6 +489,7 @@ export function AITutorChat() {
     if (compareBuddies.length < 2 || !input.trim()) return;
     setComparing(true);
     setCompareResults([]);
+    setPreferredIndex(null);
     try {
       const r = await fetch("/api/tutor/compare", {
         method: "POST",
@@ -478,6 +506,23 @@ export function AITutorChat() {
       setError(e?.message ?? "Comparison failed");
     } finally {
       setComparing(false);
+    }
+  };
+
+  // Handle user preference — saves the winning model as currentModel
+  const handlePrefer = async (index: number) => {
+    setPreferredIndex(index);
+    const winner = compareResults[index];
+    if (winner?.modelName && winner.modelName !== currentModel) {
+      // Switch to the preferred model for future questions
+      try {
+        await fetch("/api/user/model", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ modelName: winner.modelName }),
+        });
+        setCurrentModel(winner.modelName);
+      } catch {}
     }
   };
 
@@ -917,26 +962,28 @@ export function AITutorChat() {
                 </button>
               )}
               {compareResults.length > 0 && (
-                <div className="space-y-2 max-h-80 overflow-y-auto mt-2">
-                  {compareResults.map((r, i) => (
-                    <div key={i} className="rounded-xl bg-white border border-violet-200 p-3">
-                      <div className="flex items-center justify-between mb-1.5">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-lg">{r.emoji}</span>
-                          <span className="text-xs font-bold text-gray-900">{r.displayName}</span>
-                        </div>
-                        <div className="flex items-center gap-2 text-[10px]">
-                          {r.latencyMs && <span className="text-gray-500">{r.latencyMs}ms</span>}
-                          {r.error && <span className="text-rose-500">✗</span>}
-                        </div>
-                      </div>
-                      {r.reply ? (
-                        <p className="text-xs text-gray-700 whitespace-pre-wrap leading-relaxed">{r.reply}</p>
-                      ) : (
-                        <p className="text-xs text-rose-500">{r.error ?? "No reply"}</p>
-                      )}
+                <div className="mt-2 space-y-2">
+                  {/* Two-column side-by-side layout for exactly 2 results */}
+                  {compareResults.length === 2 && (
+                    <div className="grid grid-cols-2 gap-2">
+                      {compareResults.map((r, i) => (
+                        <CompareCard key={i} result={r} onPrefer={() => handlePrefer(i)} />
+                      ))}
                     </div>
-                  ))}
+                  )}
+                  {/* Stacked layout for 3-5 results */}
+                  {compareResults.length > 2 && (
+                    <div className="space-y-2 max-h-80 overflow-y-auto">
+                      {compareResults.map((r, i) => (
+                        <CompareCard key={i} result={r} onPrefer={() => handlePrefer(i)} />
+                      ))}
+                    </div>
+                  )}
+                  {preferredIndex !== null && (
+                    <div className="text-center text-xs text-emerald-600 font-semibold py-1">
+                      ✓ You preferred {compareResults[preferredIndex]?.displayName} {compareResults[preferredIndex]?.emoji} — we'll remember this for future questions!
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1738,5 +1785,43 @@ function FlashcardsFromConceptMapButton({ spec }: { spec: any }) {
       {busy ? "Making…" : "Flashcards"}
       {error && <span className="text-rose-500 ml-1">✗</span>}
     </button>
+  );
+}
+
+// =====================================================================
+// CompareCard — shows a model's reply in the comparison panel with a
+// "I prefer this" voting button
+// =====================================================================
+function CompareCard({ result, onPrefer }: { result: any; onPrefer: () => void }) {
+  return (
+    <div className={`rounded-xl border-2 p-3 transition ${
+      result.error
+        ? "border-rose-200 bg-rose-50/40"
+        : "border-violet-200 bg-white hover:border-violet-300"
+    }`}>
+      <div className="flex items-center justify-between mb-1.5">
+        <div className="flex items-center gap-1.5">
+          <span className="text-lg">{result.emoji}</span>
+          <span className="text-xs font-bold text-gray-900">{result.displayName}</span>
+        </div>
+        <div className="flex items-center gap-2 text-[10px]">
+          {result.latencyMs && <span className="text-gray-500">{result.latencyMs}ms</span>}
+          {result.error && <span className="text-rose-500">✗</span>}
+        </div>
+      </div>
+      {result.reply ? (
+        <p className="text-xs text-gray-700 whitespace-pre-wrap leading-relaxed max-h-40 overflow-y-auto">{result.reply}</p>
+      ) : (
+        <p className="text-xs text-rose-500">{result.error ?? "No reply"}</p>
+      )}
+      {!result.error && result.reply && (
+        <button
+          onClick={onPrefer}
+          className="mt-2 w-full py-1 rounded-full bg-violet-50 text-violet-700 text-[10px] font-semibold hover:bg-violet-100 transition border border-violet-200"
+        >
+          👍 I prefer this one
+        </button>
+      )}
+    </div>
   );
 }

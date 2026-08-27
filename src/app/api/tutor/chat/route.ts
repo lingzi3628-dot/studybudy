@@ -540,12 +540,13 @@ CRITICAL RULES — NO MARKDOWN TABLES WHEN A GRAPH IS REQUESTED:
       }
     } catch (e: any) {
       await refundTokens(user.id, "tutor", deduct.costTokens);
-      // Pass through the actual error message (e.g. "not connected to an API")
-      // instead of a generic "AI couldn't respond" — so the user knows what's wrong.
-      return NextResponse.json(
-        { error: e?.message ?? "AI couldn't respond right now. Please try again." },
-        { status: 500 }
-      );
+      // Return 200 (not 500) so the client shows the error as a chat message
+      // instead of a network error. The error message is displayed in the
+      // error banner at the bottom of the chat.
+      return NextResponse.json({
+        ok: false,
+        error: e?.message ?? "AI couldn't respond right now. Please try again.",
+      });
     }
 
     // 8. Parse reply for inline graph / concept map blocks
