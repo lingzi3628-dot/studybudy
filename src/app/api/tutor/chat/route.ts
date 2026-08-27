@@ -107,6 +107,11 @@ export async function POST(req: NextRequest) {
                          /draw|sketch|construct|label|illustrat/i.test(userMessage);
     const wantsNetwork = /\bnetwork graph\b|graph theory|vertices and edges|social network|friend graph/i.test(userMessage);
     const wantsConceptMap = /\bconcept map\b|\bmind map\b|\bmindmap\b|\brelationship between\b/i.test(userMessage);
+    const wantsArgand = /\bargand\b|complex plane|complex number plot|plot.*\bz_\d|plot.*complex number/i.test(userMessage);
+    const wantsContour = /\bcontour map\b|contour lines?|level curves?|topographic|elevation levels?/i.test(userMessage);
+    const wantsVectorField = /\bvector field\b|direction field|force field|magnetic field|electric field|flow field/i.test(userMessage);
+    const wantsTessellation = /\btessellat|tiling pattern|tile the plane|repeating pattern of/i.test(userMessage);
+    const wantsKnot = /\btrefoil\b|\bknot diagram\b|\bfigure.?eight knot\b|\bknot theory\b/i.test(userMessage);
     const wantsSearch = /\bfind\b|\bsearch\b|\blook up\b|\bwhat is\b|\bwho is\b|\bwhen did\b|\bhow does\b/i.test(userMessage) && !wantsVideo &&
                        !wantsScatter && !wantsBar && !wantsHistogram && !wantsPie && !wantsVenn &&
                        !wantsNumberLine && !wantsTree && !wantsBoxPlot && !wantsVector && !wantsPolygon;
@@ -114,7 +119,8 @@ export async function POST(req: NextRequest) {
     // Aggregate "wants graph" — true if ANY graph type detected
     const wantsGraph = wantsFunctionPlot || wantsScatter || wantsBar || wantsHistogram || wantsPie ||
                        wantsVenn || wantsNumberLine || wantsTree || wantsBoxPlot || wantsVector ||
-                       wantsPolygon || wantsNetwork || wantsConceptMap;
+                       wantsPolygon || wantsNetwork || wantsConceptMap || wantsArgand || wantsContour ||
+                       wantsVectorField || wantsTessellation || wantsKnot;
 
     let attachments: Array<{ type: string; url: string | null; caption: string }> = [];
     let searchContext = "";
@@ -333,6 +339,30 @@ The "type" field tells the frontend which renderer to use. Available types:
     - For tessellations, repeat <polygon> elements with transform="translate(...)".
     - Always use absolute coordinates that fit within your viewBox.
 
+SPECIALIZED DEDICATED RENDERERS (prefer these over freeform when applicable):
+17. "argand" — Argand diagram for complex numbers on the complex plane (Re/Im axes).
+    JSON spec: {"type":"argand", "title":"Argand Diagram", "range":[-3,3], "points":[{"re":2,"im":1,"label":"z₁","color":"#4F46E5"},{"re":-1,"im":1.5,"label":"z₂","color":"#10B981"}]}
+    Each point is drawn as a vector from origin to (Re, Im) with a labeled dot.
+
+18. "contour" — contour map (topographic-style level curves) for f(x, y) = z.
+    JSON spec: {"type":"contour", "title":"Contour Map", "levels":[{"level":10,"color":"#06B6D4"},{"level":20,"color":"#4F46E5"},{"level":30,"color":"#EF4444"}]}
+    Each level can include optional "points" (a closed polygon path); if missing, the renderer
+    falls back to circular rings centered on the canvas.
+
+19. "vectorfield" — vector field F(x,y) = (P(x,y), Q(x,y)) as arrows on a grid.
+    JSON spec: {"type":"vectorfield", "title":"Vector Field", "exprP":"-y", "exprQ":"x", "range":[-5,5], "gridSize":8}
+    OR for explicit vectors: {"type":"vectorfield", "vectors":[{"from":[0,0],"to":[2,0]},{"from":[0,1],"to":[1,2]}]}
+    Arrows colored by magnitude (cyan=weak → indigo=medium → red=strong).
+
+20. "tessellation" — repeating geometric tile pattern that fills the plane.
+    JSON spec: {"type":"tessellation", "title":"Hexagon Tessellation", "tile":"hexagon", "cols":6, "rows":5, "tileSize":50, "colors":["#4F46E5","#10B981","#F59E0B"]}
+    Predefined tiles: "triangle", "square", "hexagon". Or use "tileVertices":[[x,y],...] for custom polygon.
+
+21. "knot" — knot diagram (trefoil, figure-eight, or custom) with over/under crossings.
+    JSON spec: {"type":"knot", "title":"Trefoil Knot", "knotType":"trefoil"}
+    Predefined: "trefoil" (3 crossings) and "figure8" (4 crossings). For custom knots, pass
+    {"strands":[{"path":"M ... C ...","color":"#4F46E5"}], "crossings":[{"x":150,"y":100}]}.
+
 GENERAL RULES:
 - Always pick the MOST APPROPRIATE graph type for the user's request. Don't use "function" for physics data plots — use "scatter" instead. Don't use "function" for statistics — use "bar"/"pie"/"boxplot" instead.
 - When the user provides data points (e.g. "plot these: (0,0), (1,5), (2,10)"), use "scatter" with "lineOfBestFit":true.
@@ -340,7 +370,9 @@ GENERAL RULES:
 - When the user asks for something you can't express with the 15 specific types above, use "freeform" with raw SVG. Be creative — you can draw 3D cubes (with dashed hidden edges), compass constructions (arcs + lines), phase portraits, contour maps, knot diagrams, etc. Just write the SVG markup directly.
 - Be encouraging and clear. Reply in the same language the user used (English / Kiswahili / French).
 - Keep answers under 250 words unless asked for detail.
-- Use markdown: **bold**, *italic*, lists (- or 1.), [link](url), \`code\`, and fenced code blocks for graphs.`;
+- Use markdown: **bold**, *italic*, lists (- or 1.), [link](url), \`code\`, fenced code blocks for graphs.
+- For MATH EQUATIONS, use LaTeX syntax: inline math $y = mx + b$ or block math $$\\frac{a}{b} = c$$ or $$x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}$$. The frontend renders these with serif math styling.
+- For SUPERSCRIPTS in plain text, you can also use x², x³, etc. (Unicode), but for complex expressions prefer LaTeX.`;
 
     const aiMessages: AIMessage[] = [
       { role: "system", content: systemContent },
@@ -372,6 +404,7 @@ GENERAL RULES:
         "function", "scatter", "bar", "histogram", "pie", "venn",
         "numberline", "tree", "network", "vector", "polygon", "boxplot",
         "slopefield", "stemleaf", "frequency_polygon", "freeform",
+        "argand", "contour", "vectorfield", "tessellation", "knot",
       ]);
 
       // Helper: try to parse a string as JSON and check if it has a known graph type
@@ -731,6 +764,71 @@ GENERAL RULES:
             title: `Concept Map: ${topicName}`,
             nodes,
             edges,
+          };
+        } else if (wantsArgand) {
+          // Default Argand diagram if AI doesn't include the spec
+          const complexMatch = userMessage.match(/\bz_?(\d+|[ivIV]+)\b\s*=\s*(\-?\d+(?:\.\d+)?)\s*([+\-])\s*(\d+(?:\.\d+)?)i/);
+          if (complexMatch) {
+            const re = parseFloat(complexMatch[2]);
+            const im = complexMatch[3] === "-" ? -parseFloat(complexMatch[4]) : parseFloat(complexMatch[4]);
+            const label = `z${complexMatch[1]}`;
+            synthesized = {
+              type: "argand",
+              title: "Argand Diagram",
+              range: [-Math.max(Math.abs(re), Math.abs(im)) - 1, Math.max(Math.abs(re), Math.abs(im)) + 1],
+              points: [{ re, im, label, color: "#4F46E5" }],
+            };
+          } else {
+            synthesized = {
+              type: "argand",
+              title: "Argand Diagram",
+              range: [-3, 3],
+              points: [
+                { re: 2, im: 1, label: "z₁", color: "#4F46E5" },
+                { re: -1, im: 1.5, label: "z₂", color: "#10B981" },
+              ],
+            };
+          }
+        } else if (wantsContour) {
+          synthesized = {
+            type: "contour",
+            title: "Contour Map",
+            levels: [
+              { level: 10, color: "#06B6D4" },
+              { level: 20, color: "#10B981" },
+              { level: 30, color: "#F59E0B" },
+              { level: 40, color: "#EF4444" },
+            ],
+          };
+        } else if (wantsVectorField) {
+          // Try to extract P and Q from "F(x,y) = (P, Q)"
+          const fieldMatch = userMessage.match(/\(\s*([^,()]+?)\s*,\s*([^,()]+?)\s*\)/);
+          const exprP = fieldMatch?.[1] ?? "-y";
+          const exprQ = fieldMatch?.[2] ?? "x";
+          synthesized = {
+            type: "vectorfield",
+            title: "Vector Field",
+            exprP, exprQ,
+            range: [-5, 5],
+            gridSize: 8,
+          };
+        } else if (wantsTessellation) {
+          const tileMatch = userMessage.match(/\b(hexagon|triangle|square)\b/i);
+          const tile = tileMatch?.[1]?.toLowerCase() ?? "hexagon";
+          synthesized = {
+            type: "tessellation",
+            title: `${tile.charAt(0).toUpperCase() + tile.slice(1)} Tessellation`,
+            tile,
+            cols: 6,
+            rows: 5,
+            tileSize: 50,
+          };
+        } else if (wantsKnot) {
+          const isFigure8 = /figure.?eight|fig4|4_1/i.test(userMessage);
+          synthesized = {
+            type: "knot",
+            title: isFigure8 ? "Figure-Eight Knot (4_1)" : "Trefoil Knot (3_1)",
+            knotType: isFigure8 ? "figure8" : "trefoil",
           };
         }
 

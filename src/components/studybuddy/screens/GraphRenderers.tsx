@@ -1,6 +1,70 @@
 "use client";
 
-import { type ReactElement } from "react";
+import { type ReactElement, useState, useRef, useEffect, useCallback } from "react";
+
+// =====================================================================
+// Shared interactivity hooks
+// =====================================================================
+
+// Zoom/pan state for coordinate plots
+function useZoomPan(initialRange: [number, number]) {
+  const [range, setRange] = useState<[number, number]>(initialRange);
+  const [zoom, setZoom] = useState(1);
+  return { range, zoom, setRange, setZoom };
+}
+
+// Hover tooltip for scatter points
+function HoverPoint({
+  cx,
+  cy,
+  label,
+  color,
+}: {
+  cx: number;
+  cy: number;
+  label: string;
+  color: string;
+}) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <g
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{ cursor: "pointer" }}
+    >
+      <circle
+        cx={cx}
+        cy={cy}
+        r={hovered ? 7 : 5}
+        fill={color}
+        stroke="white"
+        strokeWidth={hovered ? 2 : 1.5}
+        style={{ transition: "r 0.1s" }}
+      />
+      {hovered && (
+        <g>
+          <rect
+            x={cx + 10}
+            y={cy - 22}
+            width={label.length * 6 + 12}
+            height={20}
+            rx={4}
+            fill="rgba(17, 24, 39, 0.92)"
+          />
+          <text
+            x={cx + 16}
+            y={cy - 8}
+            fontSize={11}
+            fill="white"
+            fontWeight={600}
+          >
+            {label}
+          </text>
+        </g>
+      )}
+    </g>
+  );
+}
 
 // =====================================================================
 // GraphRenderers — Phase 28+
@@ -71,13 +135,23 @@ export function GraphRenderer({ spec }: { spec: GraphSpec }) {
       return <FrequencyPolygonSVG spec={spec} />;
     case "freeform":
       return <FreeformSVG spec={spec} />;
+    case "argand":
+      return <ArgandSVG spec={spec} />;
+    case "contour":
+      return <ContourSVG spec={spec} />;
+    case "vectorfield":
+      return <VectorFieldSVG spec={spec} />;
+    case "tessellation":
+      return <TessellationSVG spec={spec} />;
+    case "knot":
+      return <KnotSVG spec={spec} />;
     default:
       return (
         <div className="text-xs text-rose-600 p-3">
           Unknown graph type: <code>{type}</code>. Available types: function,
           scatter, bar, histogram, pie, venn, numberline, tree, network,
           vector, polygon, boxplot, slopefield, stemleaf, frequency_polygon,
-          freeform.
+          freeform, argand, contour, vectorfield, tessellation, knot.
         </div>
       );
   }
@@ -277,15 +351,14 @@ function ScatterSVG({ spec }: { spec: any }) {
         {/* Best fit line */}
         {bestFitPath && <path d={bestFitPath} fill="none" stroke="#EF4444" strokeWidth={2} strokeDasharray="6 4" opacity={0.85} />}
         {/* Data points */}
+        {/* Data points — interactive (hover for tooltip with values) */}
         {points.map((p, i) => (
-          <circle
+          <HoverPoint
             key={`pt-${i}`}
             cx={toSvgX(p[0])}
             cy={toSvgY(p[1])}
-            r={5}
-            fill="#4F46E5"
-            stroke="white"
-            strokeWidth={1.5}
+            label={`(${p[0]}, ${p[1]})`}
+            color="#4F46E5"
           />
         ))}
         {/* Labels */}
@@ -811,9 +884,7 @@ function NetworkSVG({ spec }: { spec: any }) {
   const cy = height / 2;
   const radius = Math.min(width, height) / 2 - 70;
 
-  // Detect hub-and-spoke layout: if one node is connected to MANY others (degree >= 3)
-  // and all other nodes only connect to it, treat that node as the central hub.
-  // This is the typical concept-map structure (central topic + subtopics radiating out).
+  // Detect hub-and-spoke layout
   const nodeDegree = new Map<string, number>();
   for (const e of edges) {
     nodeDegree.set(e.from, (nodeDegree.get(e.from) ?? 0) + 1);
@@ -825,51 +896,87 @@ function NetworkSVG({ spec }: { spec: any }) {
     if (sortedByDegree.length > 0 && sortedByDegree[0][1] >= 3) {
       const topDegree = sortedByDegree[0][1];
       const secondDegree = sortedByDegree[1]?.[1] ?? 0;
-      // The hub should have significantly higher degree than others
       if (topDegree >= secondDegree * 2) {
         hubId = sortedByDegree[0][0];
       }
     }
   }
 
-  let positions: Array<{ x: number; y: number }>;
-  if (hubId) {
-    // Hub-and-spoke: hub in center, others around the circle
-    const hubIdx = nodes.findIndex((n) => n.id === hubId);
-    const otherNodes = nodes.filter((n) => n.id !== hubId);
-    const otherCount = otherNodes.length;
-    const angleStep = (2 * Math.PI) / Math.max(otherCount, 1);
-    const startAngle = -Math.PI / 2;
-    // Build positions array aligned with node index
-    positions = nodes.map((n) => ({ x: cx, y: cy }));
-    let otherIdx = 0;
-    for (let i = 0; i < nodes.length; i++) {
-      if (i === hubIdx) {
-        positions[i] = { x: cx, y: cy };
-      } else {
-        const angle = startAngle + otherIdx * angleStep;
-        positions[i] = {
+  // Compute INITIAL positions (auto-layout) — stored in state so user can drag
+  const computeInitial = useCallback(() => {
+    let pos: Array<{ x: number; y: number }>;
+    if (hubId) {
+      const hubIdx = nodes.findIndex((n) => n.id === hubId);
+      const otherCount = nodes.length - 1;
+      const angleStep = (2 * Math.PI) / Math.max(otherCount, 1);
+      const startAngle = -Math.PI / 2;
+      pos = nodes.map((n) => ({ x: cx, y: cy }));
+      let otherIdx = 0;
+      for (let i = 0; i < nodes.length; i++) {
+        if (i === hubIdx) {
+          pos[i] = { x: cx, y: cy };
+        } else {
+          const angle = startAngle + otherIdx * angleStep;
+          pos[i] = {
+            x: cx + radius * Math.cos(angle),
+            y: cy + radius * Math.sin(angle),
+          };
+          otherIdx++;
+        }
+      }
+    } else {
+      pos = nodes.map((_, i) => {
+        const angle = (2 * Math.PI * i) / Math.max(nodes.length, 1) - Math.PI / 2;
+        return {
           x: cx + radius * Math.cos(angle),
           y: cy + radius * Math.sin(angle),
         };
-        otherIdx++;
-      }
+      });
     }
-  } else {
-    // Standard circular layout
-    positions = nodes.map((_, i) => {
-      const angle = (2 * Math.PI * i) / Math.max(nodes.length, 1) - Math.PI / 2;
-      return {
-        x: cx + radius * Math.cos(angle),
-        y: cy + radius * Math.sin(angle),
-      };
-    });
-  }
+    return pos;
+  }, [hubId, nodes, cx, cy, radius]);
+
+  const [positions, setPositions] = useState<Array<{ x: number; y: number }>>(computeInitial);
+  // Reset positions when spec changes (new conversation)
+  useEffect(() => {
+    setPositions(computeInitial());
+  }, [computeInitial]);
+
+  // Drag state
+  const [dragging, setDragging] = useState<string | null>(null);
+  const svgRef = useRef<SVGSVGElement | null>(null);
+
+  const onNodeMouseDown = (id: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    setDragging(id);
+  };
+
+  const onMouseMove = (e: React.MouseEvent) => {
+    if (!dragging || !svgRef.current) return;
+    const rect = svgRef.current.getBoundingClientRect();
+    // Convert mouse coords to SVG viewBox coords
+    const scale = width / rect.width;
+    const svgX = (e.clientX - rect.left) * scale;
+    const svgY = (e.clientY - rect.top) * (height / rect.height);
+    setPositions((prev) =>
+      prev.map((p, i) => (nodes[i]?.id === dragging ? { x: svgX, y: svgY } : p))
+    );
+  };
+
+  const onMouseUp = () => setDragging(null);
 
   return (
     <div>
       {title && <p className="text-xs font-semibold text-gray-700 mb-1">{title}</p>}
-      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto bg-gray-50 rounded-lg">
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        className="w-full h-auto bg-gray-50 rounded-lg select-none"
+        ref={svgRef}
+        onMouseMove={onMouseMove}
+        onMouseUp={onMouseUp}
+        onMouseLeave={onMouseUp}
+        style={{ touchAction: "none" }}
+      >
         {/* Edges */}
         {edges.map((edge, i) => {
           const fromIdx = nodes.findIndex((n) => n.id === edge.from);
@@ -896,17 +1003,22 @@ function NetworkSVG({ spec }: { spec: any }) {
             </g>
           );
         })}
-        {/* Nodes */}
+        {/* Nodes (draggable) */}
         {nodes.map((n, i) => {
           const pos = positions[i];
           const isHub = n.id === hubId;
+          const isDragging = dragging === n.id;
           const color = n.color ?? PALETTE[i % PALETTE.length];
           const fontSize = isHub ? 12 : 11;
           const padding = isHub ? 12 : 8;
           const rectHeight = isHub ? 36 : 32;
           const labelWidth = Math.max(isHub ? 100 : 60, n.label.length * 7 + padding);
           return (
-            <g key={n.id}>
+            <g
+              key={n.id}
+              onMouseDown={(e) => onNodeMouseDown(n.id, e)}
+              style={{ cursor: isDragging ? "grabbing" : "grab" }}
+            >
               {isHub && (
                 // Glow / highlight ring around the hub
                 <rect
@@ -937,6 +1049,7 @@ function NetworkSVG({ spec }: { spec: any }) {
                 fill="white"
                 textAnchor="middle"
                 fontWeight={isHub ? 700 : 600}
+                style={{ pointerEvents: "none" }}
               >
                 {n.label.length > (isHub ? 28 : 22) ? n.label.slice(0, isHub ? 28 : 22) + "…" : n.label}
               </text>
@@ -944,6 +1057,9 @@ function NetworkSVG({ spec }: { spec: any }) {
           );
         })}
       </svg>
+      <p className="text-[10px] text-gray-400 mt-1 flex items-center gap-1">
+        <span className="cursor-grab">✋</span> Drag nodes to rearrange
+      </p>
     </div>
   );
 }
@@ -1522,6 +1638,432 @@ function FreeformSVG({ spec }: { spec: any }) {
         xmlns="http://www.w3.org/2000/svg"
         dangerouslySetInnerHTML={{ __html: sanitized }}
       />
+    </div>
+  );
+}
+
+// =====================================================================
+// 17. Argand diagram — plot complex numbers on the complex plane
+//     (real axis + imaginary axis)
+// =====================================================================
+function ArgandSVG({ spec }: { spec: any }) {
+  const title = spec.title ?? "Argand Diagram";
+  const points: Array<{ re: number; im: number; label?: string; color?: string }> = Array.isArray(spec.points)
+    ? spec.points
+    : [];
+  const range: [number, number] = spec.range ?? [-5, 5];
+  const width = 420;
+  const height = 360;
+  const padding = 40;
+
+  const toSvgX = (x: number) => padding + ((x - range[0]) / (range[1] - range[0])) * (width - 2 * padding);
+  const toSvgY = (y: number) =>
+    height - padding - ((y - range[0]) / (range[1] - range[0])) * (height - 2 * padding);
+  const originX = toSvgX(0);
+  const originY = toSvgY(0);
+
+  return (
+    <div>
+      <p className="text-xs font-semibold text-gray-700 mb-1">{title}</p>
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto bg-gray-50 rounded-lg">
+        {/* Grid */}
+        {Array.from({ length: 11 }, (_, i) => {
+          const v = range[0] + ((range[1] - range[0]) * i) / 10;
+          return (
+            <g key={`grid-${i}`}>
+              <line x1={toSvgX(v)} y1={padding} x2={toSvgX(v)} y2={height - padding} stroke="#E5E7EB" strokeWidth={v === 0 ? 1.5 : 0.5} />
+              <line x1={padding} y1={toSvgY(v)} x2={width - padding} y2={toSvgY(v)} stroke="#E5E7EB" strokeWidth={v === 0 ? 1.5 : 0.5} />
+            </g>
+          );
+        })}
+        {/* Axes — real (horizontal) and imaginary (vertical) */}
+        <line x1={padding} y1={originY} x2={width - padding} y2={originY} stroke="#374151" strokeWidth={1.5} />
+        <line x1={originX} y1={padding} x2={originX} y2={height - padding} stroke="#374151" strokeWidth={1.5} />
+        {/* Arrows */}
+        <polygon points={`${width - padding},${originY} ${width - padding - 8},${originY - 4} ${width - padding - 8},${originY + 4}`} fill="#374151" />
+        <polygon points={`${originX},${padding} ${originX - 4},${padding + 8} ${originX + 4},${padding + 8}`} fill="#374151" />
+        {/* Axis labels */}
+        <text x={width - padding + 4} y={originY + 14} fontSize={11} fill="#374151" fontWeight={600}>Re</text>
+        <text x={originX + 6} y={padding + 4} fontSize={11} fill="#374151" fontWeight={600}>Im</text>
+        {/* Points (complex numbers) */}
+        {points.map((p, i) => {
+          const color = p.color ?? PALETTE[i % PALETTE.length];
+          const cx = toSvgX(p.re);
+          const cy = toSvgY(p.im);
+          return (
+            <g key={`arg-${i}`}>
+              {/* Vector from origin to point */}
+              <line x1={originX} y1={originY} x2={cx} y2={cy} stroke={color} strokeWidth={1.5} opacity={0.5} />
+              {/* Point */}
+              <circle cx={cx} cy={cy} r={5} fill={color} stroke="white" strokeWidth={1.5} />
+              {/* Label */}
+              {p.label && (
+                <text x={cx + 8} y={cy - 4} fontSize={11} fill={color} fontWeight={700}>
+                  {p.label}
+                </text>
+              )}
+            </g>
+          );
+        })}
+      </svg>
+      <p className="text-[10px] text-gray-500 mt-1">
+        {points.length} complex number{points.length !== 1 ? "s" : ""} plotted on the complex plane (Re/Im axes)
+      </p>
+    </div>
+  );
+}
+
+// =====================================================================
+// 18. Contour map — topographic-style level curves for f(x, y) = z
+//     Draws nested closed curves at multiple z levels (or a square grid
+//     of color bands if a 2D scalar field is provided)
+// =====================================================================
+function ContourSVG({ spec }: { spec: any }) {
+  const title = spec.title ?? "Contour Map";
+  const levels: Array<{ level: number; color?: string; points?: Array<[number, number]> }> = Array.isArray(spec.levels) ? spec.levels : [];
+  // If `levels` not provided, generate circular contour rings as a fallback
+  const fallbackLevels = levels.length === 0
+    ? Array.from({ length: 6 }, (_, i) => ({
+        level: (i + 1) * 10,
+        color: PALETTE[i % PALETTE.length],
+      }))
+    : levels;
+
+  const width = 420;
+  const height = 360;
+  const cx = width / 2;
+  const cy = height / 2;
+  const maxR = Math.min(width, height) / 2 - 40;
+
+  return (
+    <div>
+      <p className="text-xs font-semibold text-gray-700 mb-1">{title}</p>
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto bg-gray-50 rounded-lg">
+        {/* Background grid (subtle) */}
+        {Array.from({ length: 9 }, (_, i) => (
+          <g key={`grid-${i}`}>
+            <line x1={20 + i * (width - 40) / 8} y1={20} x2={20 + i * (width - 40) / 8} y2={height - 20} stroke="#F3F4F6" strokeWidth={1} />
+            <line x1={20} y1={20 + i * (height - 40) / 8} x2={width - 20} y2={20 + i * (height - 40) / 8} stroke="#F3F4F6" strokeWidth={1} />
+          </g>
+        ))}
+        {/* Contour curves */}
+        {fallbackLevels.map((lvl, i) => {
+          const r = maxR * (i + 1) / fallbackLevels.length;
+          const color = lvl.color ?? PALETTE[i % PALETTE.length];
+          // If points are provided, draw a polygon path; otherwise draw a circle (fallback)
+          if (Array.isArray(lvl.points) && lvl.points.length >= 3) {
+            const path = lvl.points.map((p, j) => `${j === 0 ? "M" : "L"} ${p[0].toFixed(2)} ${p[1].toFixed(2)}`).join(" ") + " Z";
+            return <path key={`contour-${i}`} d={path} fill="none" stroke={color} strokeWidth={1.5} opacity={0.8} />;
+          }
+          return (
+            <g key={`contour-${i}`}>
+              <circle cx={cx} cy={cy} r={r} fill="none" stroke={color} strokeWidth={1.5} opacity={0.8} />
+              <text x={cx + r + 4} y={cy - r * 0.7} fontSize={9} fill={color} fontWeight={600}>
+                {lvl.level}
+              </text>
+            </g>
+          );
+        })}
+        {/* Peak marker */}
+        <circle cx={cx} cy={cy} r={3} fill="#1E40AF" />
+        <text x={cx + 6} y={cy - 4} fontSize={10} fill="#1E40AF" fontWeight={700}>peak</text>
+      </svg>
+      <p className="text-[10px] text-gray-500 mt-1">{fallbackLevels.length} contour levels</p>
+    </div>
+  );
+}
+
+// =====================================================================
+// 19. Vector field — arrows showing direction and magnitude at grid points
+//     For F(x, y) = (P(x,y), Q(x,y)) — typically for force/magnetic fields
+// =====================================================================
+function VectorFieldSVG({ spec }: { spec: any }) {
+  const title = spec.title ?? "Vector Field";
+  // P and Q expressions (string) or precomputed vectors
+  const exprP: string = spec.exprP ?? "1";
+  const exprQ: string = spec.exprQ ?? "0";
+  const vectors: Array<{ from?: [number, number]; to?: [number, number]; magnitude?: number }> = Array.isArray(spec.vectors) ? spec.vectors : [];
+  const range: [number, number] = spec.range ?? [-5, 5];
+  const gridSize: number = spec.gridSize ?? 8;
+  const xLabel = spec.xLabel ?? "x";
+  const yLabel = spec.yLabel ?? "y";
+
+  const width = 420;
+  const height = 360;
+  const padding = 30;
+
+  const toSvgX = (x: number) => padding + ((x - range[0]) / (range[1] - range[0])) * (width - 2 * padding);
+  const toSvgY = (y: number) => height - padding - ((y - range[0]) / (range[1] - range[0])) * (height - 2 * padding);
+
+  // Evaluator for P and Q
+  const eval2 = (expr: string, x: number, y: number): number | null => {
+    try {
+      let s = expr
+        .replace(/\^/g, "**")
+        .replace(/\bpi\b/gi, "Math.PI")
+        .replace(/\be\b/g, "Math.E")
+        .replace(/\bsin\(/g, "Math.sin(")
+        .replace(/\bcos\(/g, "Math.cos(")
+        .replace(/\btan\(/g, "Math.tan(")
+        .replace(/\bsqrt\(/g, "Math.sqrt(")
+        .replace(/\bx\b/g, String(x))
+        .replace(/\by\b/g, String(y));
+      // eslint-disable-next-line no-new-func
+      const fn = new Function("Math", `"use strict"; return (${s});`);
+      const r = fn(Math);
+      return typeof r === "number" && isFinite(r) ? r : null;
+    } catch { return null; }
+  };
+
+  // If vectors are precomputed, use them; otherwise generate from exprP/exprQ
+  const fieldVectors: Array<{ x: number; y: number; dx: number; dy: number; magnitude: number }> = [];
+  if (vectors.length > 0) {
+    for (const v of vectors) {
+      const from = v.from ?? [0, 0];
+      const to = v.to ?? [from[0] + 1, from[1]];
+      fieldVectors.push({
+        x: from[0], y: from[1],
+        dx: to[0] - from[0],
+        dy: to[1] - from[1],
+        magnitude: v.magnitude ?? Math.sqrt((to[0] - from[0]) ** 2 + (to[1] - from[1]) ** 2),
+      });
+    }
+  } else {
+    // Generate grid of arrows
+    for (let i = 0; i <= gridSize; i++) {
+      for (let j = 0; j <= gridSize; j++) {
+        const x = range[0] + ((range[1] - range[0]) * i) / gridSize;
+        const y = range[0] + ((range[1] - range[0]) * j) / gridSize;
+        const p = eval2(exprP, x, y);
+        const q = eval2(exprQ, x, y);
+        if (p === null || q === null) continue;
+        // Normalize: arrow length = 1 unit in field direction
+        const mag = Math.sqrt(p * p + q * q) || 1;
+        const scale = Math.min(range[1] - range[0], range[1] - range[0]) / gridSize * 0.4;
+        const dx = (p / mag) * scale;
+        const dy = (q / mag) * scale;
+        fieldVectors.push({ x, y, dx, dy, magnitude: mag });
+      }
+    }
+  }
+
+  // Color scale by magnitude
+  const maxMag = Math.max(...fieldVectors.map((v) => v.magnitude), 1);
+
+  return (
+    <div>
+      <p className="text-xs font-semibold text-gray-700 mb-1">{title}</p>
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto bg-gray-50 rounded-lg">
+        {/* Axes */}
+        <line x1={padding} y1={toSvgY(0)} x2={width - padding} y2={toSvgY(0)} stroke="#374151" strokeWidth={1} opacity={0.5} />
+        <line x1={toSvgX(0)} y1={padding} x2={toSvgX(0)} y2={height - padding} stroke="#374151" strokeWidth={1} opacity={0.5} />
+        {/* Arrows */}
+        {fieldVectors.map((v, i) => {
+          const startX = toSvgX(v.x);
+          const startY = toSvgY(v.y);
+          const endX = toSvgX(v.x + v.dx);
+          const endY = toSvgY(v.y + v.dy);
+          const intensity = v.magnitude / maxMag;
+          const color = intensity < 0.33 ? "#06B6D4" : intensity < 0.66 ? "#4F46E5" : "#EF4444";
+          return (
+            <g key={`vf-${i}`}>
+              <line
+                x1={startX}
+                y1={startY}
+                x2={endX}
+                y2={endY}
+                stroke={color}
+                strokeWidth={1.5}
+                opacity={0.85}
+              />
+              <polygon
+                points={arrowPoints(startX, startY, endX, endY, 6)}
+                fill={color}
+              />
+            </g>
+          );
+        })}
+        <text x={width / 2} y={height - 6} fontSize={11} fill="#374151" textAnchor="middle" fontWeight={600}>{xLabel}</text>
+        <text x={10} y={height / 2} fontSize={11} fill="#374151" textAnchor="middle" fontWeight={600} transform={`rotate(-90, 10, ${height / 2})`}>{yLabel}</text>
+      </svg>
+      <p className="text-[10px] text-gray-500 mt-1">
+        {fieldVectors.length} arrows · Color: <span className="text-cyan-600">weak</span> → <span className="text-indigo-600">medium</span> → <span className="text-rose-600">strong</span>
+      </p>
+    </div>
+  );
+}
+
+// =====================================================================
+// 20. Tessellation — repeating geometric pattern that tiles the plane
+//     Accepts a base tile (polygon) + a tiling pattern (translate/scale)
+// =====================================================================
+function TessellationSVG({ spec }: { spec: any }) {
+  const title = spec.title ?? "Tessellation";
+  // Tile can be:
+  //   - "triangle" / "square" / "hexagon" (predefined)
+  //   - {vertices: [[x,y],...]} (custom polygon)
+  const tileShape: string = typeof spec.tile === "string" ? spec.tile : "custom";
+  const tileVertices: Array<[number, number]> | undefined = spec.tileVertices;
+  const cols: number = spec.cols ?? 6;
+  const rows: number = spec.rows ?? 5;
+  const tileSize: number = spec.tileSize ?? 50;
+  const colors: string[] = Array.isArray(spec.colors) ? spec.colors : PALETTE;
+  const showLabels: boolean = spec.showLabels !== false;
+
+  // Generate base tile vertices
+  let baseVertices: Array<[number, number]> = [];
+  if (tileShape === "triangle") {
+    baseVertices = [[0, 0], [tileSize, 0], [tileSize / 2, tileSize * 0.866]];
+  } else if (tileShape === "square") {
+    baseVertices = [[0, 0], [tileSize, 0], [tileSize, tileSize], [0, tileSize]];
+  } else if (tileShape === "hexagon") {
+    const r = tileSize / 2;
+    baseVertices = Array.from({ length: 6 }, (_, i) => {
+      const a = (Math.PI / 3) * i;
+      return [r + r * Math.cos(a), r + r * Math.sin(a)] as [number, number];
+    });
+  } else if (Array.isArray(tileVertices)) {
+    baseVertices = tileVertices;
+  } else {
+    baseVertices = [[0, 0], [tileSize, 0], [tileSize, tileSize], [0, tileSize]]; // square default
+  }
+
+  // Hexagons need offset rows; squares/triangles need simple grid
+  const isHexagon = tileShape === "hexagon";
+  const tileWidth = tileSize;
+  const tileHeight = isHexagon ? tileSize * 0.866 : tileSize;
+  const xSpacing = isHexagon ? tileWidth * 0.75 : tileWidth;
+  const ySpacing = tileHeight;
+
+  const width = cols * xSpacing + 40;
+  const height = rows * ySpacing + 40;
+
+  const tiles: Array<{ x: number; y: number; color: string; vertices: Array<[number, number]> }> = [];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const offsetX = isHexagon && r % 2 === 1 ? xSpacing / 2 : 0;
+      const x = 20 + c * xSpacing + offsetX;
+      const y = 20 + r * ySpacing;
+      const colorIdx = (r * cols + c) % colors.length;
+      tiles.push({ x, y, color: colors[colorIdx], vertices: baseVertices });
+    }
+  }
+
+  return (
+    <div>
+      <p className="text-xs font-semibold text-gray-700 mb-1">{title}</p>
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto bg-gray-50 rounded-lg">
+        {tiles.map((t, i) => {
+          const points = t.vertices.map((v) => `${(t.x + v[0]).toFixed(2)},${(t.y + v[1]).toFixed(2)}`).join(" ");
+          return (
+            <polygon
+              key={`tile-${i}`}
+              points={points}
+              fill={t.color}
+              fillOpacity={0.7}
+              stroke={t.color}
+              strokeWidth={1}
+            />
+          );
+        })}
+        {showLabels && (
+          <text x={width / 2} y={height - 4} fontSize={10} fill="#6B7280" textAnchor="middle">
+            {tileShape} tessellation · {cols}×{rows} tiles
+          </text>
+        )}
+      </svg>
+    </div>
+  );
+}
+
+// =====================================================================
+// 21. Knot diagram — trefoil, figure-eight, or custom knot using cubic
+//     Bézier curves with over/under crossings rendered as gaps in the strand.
+// =====================================================================
+function KnotSVG({ spec }: { spec: any }) {
+  const title = spec.title ?? "Knot Diagram";
+  const knotType: string = spec.knotType ?? "trefoil";
+  const width = 420;
+  const height = 360;
+  const cx = width / 2;
+  const cy = height / 2;
+
+  // Generate Bézier path for the knot based on type
+  // Trefoil: 3-fold symmetric loop with 3 crossings
+  // Figure-eight: 4-fold loop with 4 crossings (knot 4_1)
+  let strands: Array<{ path: string; color?: string }> = [];
+  let crossings: Array<{ x: number; y: number; overIndex: number }> = [];
+
+  if (knotType === "trefoil") {
+    // Three-lobe symmetric trefoil using cubic Béziers
+    // We use 3 arcs that interweave. Each arc is a closed loop segment.
+    const r = 100;
+    // Main strand (closed loop with 3 lobes)
+    const path = `M ${cx + r} ${cy} ` +
+      `C ${cx + r * 1.5} ${cy - r * 0.5}, ${cx + r * 0.5} ${cy - r * 1.3}, ${cx} ${cy - r} ` +
+      `C ${cx - r * 0.5} ${cy - r * 1.3}, ${cx - r * 1.5} ${cy - r * 0.5}, ${cx - r} ${cy} ` +
+      `C ${cx - r * 1.5} ${cy + r * 0.5}, ${cx - r * 0.5} ${cy + r * 1.3}, ${cx} ${cy + r} ` +
+      `C ${cx + r * 0.5} ${cy + r * 1.3}, ${cx + r * 1.5} ${cy + r * 0.5}, ${cx + r} ${cy} Z`;
+    strands.push({ path, color: "#4F46E5" });
+    // 3 crossings (over/under) at 3 symmetric points around center
+    crossings = [
+      { x: cx + r * 0.7, y: cy - r * 0.7, overIndex: 0 },
+      { x: cx - r * 0.7, y: cy - r * 0.7, overIndex: 0 },
+      { x: cx, y: cy + r * 1.0, overIndex: 0 },
+    ];
+  } else if (knotType === "figure8") {
+    // Figure-eight knot (4_1) — more complex Bézier path
+    const r = 80;
+    const path = `M ${cx - r} ${cy} ` +
+      `C ${cx - r * 1.5} ${cy - r}, ${cx - r * 0.5} ${cy - r * 1.5}, ${cx} ${cy - r} ` +
+      `C ${cx + r * 0.5} ${cy - r * 0.5}, ${cx + r * 0.5} ${cy + r * 0.5}, ${cx} ${cy + r} ` +
+      `C ${cx - r * 0.5} ${cy + r * 1.5}, ${cx + r * 1.5} ${cy + r}, ${cx + r} ${cy} ` +
+      `C ${cx + r * 0.5} ${cy - r * 0.5}, ${cx - r * 0.5} ${cy + r * 0.5}, ${cx - r} ${cy} Z`;
+    strands.push({ path, color: "#10B981" });
+    crossings = [
+      { x: cx - r * 0.3, y: cy - r * 0.5, overIndex: 0 },
+      { x: cx + r * 0.3, y: cy + r * 0.5, overIndex: 0 },
+      { x: cx, y: cy, overIndex: 0 },
+      { x: cx - r * 0.7, y: cy + r * 0.3, overIndex: 0 },
+    ];
+  } else if (Array.isArray(spec.strands)) {
+    // Custom knot with user-provided Bézier paths
+    strands = spec.strands;
+    crossings = Array.isArray(spec.crossings) ? spec.crossings : [];
+  }
+
+  return (
+    <div>
+      <p className="text-xs font-semibold text-gray-700 mb-1">{title}</p>
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto bg-gray-50 rounded-lg">
+        {/* Strand (background, full color) */}
+        {strands.map((s, i) => (
+          <path
+            key={`strand-${i}`}
+            d={s.path}
+            fill="none"
+            stroke={s.color ?? "#4F46E5"}
+            strokeWidth={4}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        ))}
+        {/* Over/under crossings — draw white gaps to make strand appear to cross over/under */}
+        {crossings.map((c, i) => (
+          <g key={`crossing-${i}`}>
+            {/* White "gap" rectangle to break the strand visually */}
+            <circle cx={c.x} cy={c.y} r={10} fill="white" />
+            {/* Re-draw the strand segments around the gap to simulate over/under */}
+            <circle cx={c.x} cy={c.y} r={2} fill={strands[0]?.color ?? "#4F46E5"} />
+          </g>
+        ))}
+        {/* Crossings labels */}
+        {crossings.length > 0 && (
+          <text x={width / 2} y={height - 6} fontSize={10} fill="#6B7280" textAnchor="middle">
+            {knotType} knot · {crossings.length} crossings
+          </text>
+        )}
+      </svg>
     </div>
   );
 }

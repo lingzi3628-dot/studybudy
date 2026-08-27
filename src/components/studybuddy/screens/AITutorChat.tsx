@@ -20,6 +20,10 @@ import {
   RotateCw,
   Download,
   Code,
+  Volume2,
+  VolumeX,
+  Mic,
+  Square,
 } from "lucide-react";
 import { useApp } from "../store";
 import { GraphRenderer, type GraphSpec } from "./GraphRenderers";
@@ -74,6 +78,11 @@ export function AITutorChat() {
   const [loading, setLoading] = useState(true);
   const [showSidebar, setShowSidebar] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Voice mode state
+  const [recording, setRecording] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -224,6 +233,65 @@ export function AITutorChat() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  // Voice mode — start recording
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+      recorder.onstop = async () => {
+        // Stop the audio tracks (releases the mic indicator)
+        stream.getTracks().forEach((t) => t.stop());
+        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        if (audioBlob.size < 1000) {
+          setError("Recording too short — try speaking for longer");
+          return;
+        }
+        // Transcribe via ASR endpoint
+        setTranscribing(true);
+        try {
+          // Convert to base64
+          const arrayBuffer = await audioBlob.arrayBuffer();
+          const base64 = btoa(
+            new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), "")
+          );
+          const r = await fetch("/api/tutor/asr", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ audioBase64: base64 }),
+          });
+          const d = await r.json();
+          if (!r.ok) throw new Error(d.error ?? "Transcription failed");
+          if (d.text) {
+            setInput(d.text);
+            // Auto-send the transcribed text
+            send(d.text);
+          }
+        } catch (e: any) {
+          setError(e?.message ?? "Voice transcription failed");
+        } finally {
+          setTranscribing(false);
+        }
+      };
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+      setRecording(true);
+      setError(null);
+    } catch (e: any) {
+      setError("Microphone access denied. Allow mic permission to use voice mode.");
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && recording) {
+      mediaRecorderRef.current.stop();
+      setRecording(false);
+    }
+  };
+
   const suggestedQuestions = [
     { icon: "🎓", text: "Explain photosynthesis like I'm 10", category: "Science" },
     { icon: "📺", text: "Show me a video about the water cycle", category: "Video" },
@@ -241,6 +309,11 @@ export function AITutorChat() {
     { icon: "🌿", text: "Make a stem-and-leaf plot of: 23 25 28 31 32 35 38 42 45 48", category: "Statistics" },
     { icon: "🧊", text: "Draw a 3D cube with dashed hidden edges", category: "3D Solid" },
     { icon: "🪢", text: "Draw a trefoil knot diagram", category: "Topology" },
+    { icon: "🔢", text: "Plot z₁ = 2 + i and z₂ = -1 + 1.5i on an Argand diagram", category: "Complex" },
+    { icon: "⛰️", text: "Draw a contour map showing a hill with 3 elevation levels", category: "Topology" },
+    { icon: "🧲", text: "Draw a vector field for F(x,y) = (-y, x) — a rotation field", category: "Vector Field" },
+    { icon: "🔷", text: "Make a hexagon tessellation pattern", category: "Tessellation" },
+    { icon: "🧮", text: "Solve x² + 5x + 6 = 0 using the quadratic formula", category: "Math (LaTeX)" },
   ];
 
   return (
@@ -437,9 +510,33 @@ export function AITutorChat() {
               >
                 {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
               </button>
+              {/* Voice mic button */}
+              <button
+                type="button"
+                onClick={recording ? stopRecording : startRecording}
+                disabled={busy || transcribing}
+                title={recording ? "Stop recording" : "Speak your question"}
+                className={`w-10 h-10 rounded-full flex items-center justify-center disabled:opacity-50 transition flex-shrink-0 ${
+                  recording
+                    ? "bg-rose-500 text-white animate-pulse hover:bg-rose-600"
+                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                }`}
+              >
+                {transcribing ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : recording ? (
+                  <Square className="w-4 h-4" fill="white" />
+                ) : (
+                  <Mic className="w-4 h-4" />
+                )}
+              </button>
             </form>
             <p className="text-[10px] text-gray-400 text-center mt-1.5">
-              Messages saved to your account · Try: scatter, bar, pie, Venn, number line, tree, vector, polygon, box plot, slope field, stem-leaf, frequency polygon, 3D solid, knot, or any custom SVG drawing
+              {recording
+                ? "🔴 Recording… tap ◼ to stop and send"
+                : transcribing
+                ? "Transcribing your voice…"
+                : "Messages saved to your account · Try: scatter, bar, pie, Venn, number line, tree, vector, polygon, box plot, slope field, stem-leaf, frequency polygon, 3D solid, knot, or any custom SVG drawing"}
             </p>
           </div>
         </div>
@@ -460,6 +557,83 @@ function MessageBubble({
   copied: boolean;
 }) {
   const isUser = msg.role === "user";
+  const [speaking, setSpeaking] = useState(false);
+  const [audioEl, setAudioEl] = useState<HTMLAudioElement | null>(null);
+
+  // Clean up audio when component unmounts
+  useEffect(() => {
+    return () => {
+      if (audioEl) {
+        audioEl.pause();
+        URL.revokeObjectURL(audioEl.src);
+      }
+    };
+  }, [audioEl]);
+
+  const speak = async () => {
+    // If already speaking, stop
+    if (audioEl) {
+      audioEl.pause();
+      URL.revokeObjectURL(audioEl.src);
+      setAudioEl(null);
+      setSpeaking(false);
+      return;
+    }
+
+    // Strip markdown + attachments for TTS (we only speak the prose)
+    const plainText = msg.content
+      .replace(/```[\s\S]*?```/g, " [code block] ")
+      .replace(/\$\$[^$]+\$\$/g, " math ")
+      .replace(/\$([^$]+)\$/g, " $1 ")
+      .replace(/[*_`#>|]/g, "")
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (!plainText) return;
+
+    try {
+      setSpeaking(true);
+      // Chunk if too long (1024 char limit per request)
+      const chunks: string[] = [];
+      let remaining = plainText;
+      while (remaining.length > 1000) {
+        // Find last sentence boundary
+        const cut = remaining.lastIndexOf(".", 1000);
+        chunks.push(remaining.slice(0, cut > 0 ? cut + 1 : 1000));
+        remaining = remaining.slice(cut > 0 ? cut + 1 : 1000);
+      }
+      chunks.push(remaining);
+
+      // For now, speak only the first chunk (full multi-chunk playback would queue them)
+      // — keeps things simple and avoids abrupt cut-offs mid-sentence in audio playback.
+      const firstChunk = chunks[0];
+      const r = await fetch("/api/tutor/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: firstChunk, voice: "tongtong", speed: 1.0 }),
+      });
+      if (!r.ok) throw new Error("TTS failed");
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.onended = () => {
+        setSpeaking(false);
+        setAudioEl(null);
+        URL.revokeObjectURL(url);
+      };
+      audio.onerror = () => {
+        setSpeaking(false);
+        setAudioEl(null);
+        URL.revokeObjectURL(url);
+      };
+      setAudioEl(audio);
+      await audio.play();
+    } catch (e: any) {
+      console.error("[tutor] TTS error:", e?.message);
+      setSpeaking(false);
+    }
+  };
 
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"} group`}>
@@ -499,6 +673,16 @@ function MessageBubble({
               >
                 {copied ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
                 {copied ? "Copied" : "Copy"}
+              </button>
+              <button
+                onClick={speak}
+                className={`px-2 py-1 rounded-md hover:bg-gray-100 text-[10px] flex items-center gap-1 ${
+                  speaking ? "text-indigo-600 font-semibold" : "text-gray-500"
+                }`}
+                title={speaking ? "Stop speaking" : "Listen to this reply"}
+              >
+                {speaking ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
+                {speaking ? "Stop" : "Listen"}
               </button>
               {onRetry && (
                 <button
@@ -572,9 +756,12 @@ function AttachmentRenderer({ attachment }: { attachment: Attachment }) {
     }
     return (
       <div className="rounded-xl border border-gray-200 bg-white p-3">
-        <div className="flex items-center gap-1.5 mb-2">
-          <GitBranch className="w-3.5 h-3.5 text-indigo-500" />
-          <span className="text-[10px] font-bold uppercase text-indigo-500">Graph</span>
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-1.5">
+            <GitBranch className="w-3.5 h-3.5 text-indigo-500" />
+            <span className="text-[10px] font-bold uppercase text-indigo-500">Graph</span>
+          </div>
+          {spec && <DownloadGraphButton spec={spec} fileName={`graph-${spec.type ?? "custom"}.svg`} />}
         </div>
         {spec ? <GraphRenderer spec={spec} /> : <p className="text-xs text-gray-600">{attachment.caption}</p>}
       </div>
@@ -590,9 +777,12 @@ function AttachmentRenderer({ attachment }: { attachment: Attachment }) {
     }
     return (
       <div className="rounded-xl border border-gray-200 bg-white p-3">
-        <div className="flex items-center gap-1.5 mb-2">
-          <Brain className="w-3.5 h-3.5 text-violet-500" />
-          <span className="text-[10px] font-bold uppercase text-violet-500">Concept Map</span>
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-1.5">
+            <Brain className="w-3.5 h-3.5 text-violet-500" />
+            <span className="text-[10px] font-bold uppercase text-violet-500">Concept Map</span>
+          </div>
+          {spec && <DownloadGraphButton spec={{ ...spec, type: "network" }} fileName="concept-map.svg" />}
         </div>
         {spec ? (
           // Route concept maps through the unified graph renderer (network type)
@@ -651,6 +841,7 @@ function MarkdownContent({ content, isUser }: { content: string; isUser: boolean
             "function", "scatter", "bar", "histogram", "pie", "venn",
             "numberline", "tree", "network", "vector", "polygon", "boxplot",
             "slopefield", "stemleaf", "frequency_polygon", "freeform",
+            "argand", "contour", "vectorfield", "tessellation", "knot",
           ]);
           if (
             (block.lang === "json" || block.lang === "text" || block.lang === "") &&
@@ -768,6 +959,21 @@ function renderInlineMarkdown(line: string, isUser: boolean): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 
+  // Inline LaTeX math: $...$ → rendered with .math-inline span (the LaTeX
+  // renderer in the page CSS handles the visual). Block LaTeX $$...$$ is
+  // handled separately in MarkdownContent (whole-line replacement).
+  // For now, render math as styled monospace so it's clearly math.
+  // Inline math $...$
+  html = html.replace(
+    /\$([^\$\n]+?)\$/g,
+    `<span style="font-family:'Cambria Math','STIX Two Math',serif;font-style:italic;color:${isUser ? "#fef3c7" : "#1E40AF"};background:${isUser ? "rgba(255,255,255,0.15)" : "rgba(79,70,229,0.08)"};padding:1px 4px;border-radius:4px;">$1</span>`
+  );
+  // Block math $$...$$ (kept inline here as a styled block)
+  html = html.replace(
+    /\$\$([^\$\n]+?)\$\$/g,
+    `<div style="font-family:'Cambria Math','STIX Two Math',serif;font-style:italic;color:${isUser ? "#fff" : "#1E40AF"};background:${isUser ? "rgba(255,255,255,0.15)" : "rgba(79,70,229,0.08)"};padding:6px 10px;border-radius:6px;margin:4px 0;text-align:center;font-size:1.05em;">$1</div>`
+  );
+
   // Bold
   html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
   // Italic
@@ -783,4 +989,120 @@ function renderInlineMarkdown(line: string, isUser: boolean): string {
     `<a href="$2" target="_blank" rel="noopener" style="color:${isUser ? "#bfdbfe" : "#4F46E5"};text-decoration:underline;">$1</a>`
   );
   return html || "&nbsp;";
+}
+
+// =====================================================================
+// DownloadGraphButton — renders the GraphRenderer to an SVG string, then
+// downloads it as an .svg file. Also offers a PNG download via canvas
+// conversion (the SVG is rendered to a canvas then exported as PNG).
+// =====================================================================
+function DownloadGraphButton({ spec, fileName }: { spec: any; fileName: string }) {
+  const [open, setOpen] = useState(false);
+
+  const downloadSVG = (e: React.MouseEvent) => {
+    // Find the nearest SVG element rendered by GraphRenderer
+    // (the button is in the same attachment card as the SVG)
+    const card = (e.target as HTMLElement)?.closest(".rounded-xl");
+    const svgEl = card?.querySelector("svg") as SVGSVGElement | null;
+    if (!svgEl) return;
+
+    // Serialize the SVG
+    const serializer = new XMLSerializer();
+    let svgStr = serializer.serializeToString(svgEl);
+    // Ensure XML declaration + namespace
+    if (!svgStr.startsWith("<?xml")) {
+      svgStr = `<?xml version="1.0" encoding="UTF-8"?>\n` + svgStr;
+    }
+    // Add xmlns if missing
+    if (!/xmlns=/.test(svgStr)) {
+      svgStr = svgStr.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
+    }
+
+    // Trigger download
+    const blob = new Blob([svgStr], { type: "image/svg+xml;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName.endsWith(".svg") ? fileName : `${fileName}.svg`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setOpen(false);
+  };
+
+  const downloadPNG = (e: React.MouseEvent) => {
+    const card = (e.target as HTMLElement)?.closest(".rounded-xl");
+    const svgEl = card?.querySelector("svg") as SVGSVGElement | null;
+    if (!svgEl) return;
+
+    const serializer = new XMLSerializer();
+    let svgStr = serializer.serializeToString(svgEl);
+    if (!/xmlns=/.test(svgStr)) {
+      svgStr = svgStr.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
+    }
+
+    // Get viewBox dimensions
+    const viewBox = svgEl.getAttribute("viewBox")?.split(/[\s,]+/) ?? ["0", "0", "480", "360"];
+    const w = parseInt(viewBox[2] ?? "480", 10);
+    const h = parseInt(viewBox[3] ?? "360", 10);
+
+    // Render SVG to an Image, then to a canvas, then to PNG
+    const img = new Image();
+    const blob = new Blob([svgStr], { type: "image/svg+xml;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = w * 2; // 2x for retina
+      canvas.height = h * 2;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(url);
+
+      canvas.toBlob((pngBlob) => {
+        if (!pngBlob) return;
+        const pngUrl = URL.createObjectURL(pngBlob);
+        const a = document.createElement("a");
+        a.href = pngUrl;
+        a.download = fileName.replace(/\.svg$/, ".png");
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(pngUrl);
+        setOpen(false);
+      }, "image/png");
+    };
+    img.src = url;
+  };
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className="text-[10px] text-gray-500 hover:text-indigo-600 flex items-center gap-0.5"
+        title="Download graph"
+      >
+        <Download className="w-3 h-3" /> Save
+      </button>
+      {open && (
+        <div className="absolute right-0 top-6 z-10 bg-white rounded-lg shadow-lg border border-gray-200 p-1 min-w-[100px]">
+          <button
+            onClick={downloadSVG}
+            className="w-full text-left px-3 py-1.5 text-xs hover:bg-gray-100 rounded"
+          >
+            📐 SVG (vector)
+          </button>
+          <button
+            onClick={downloadPNG}
+            className="w-full text-left px-3 py-1.5 text-xs hover:bg-gray-100 rounded"
+          >
+            🖼️ PNG (image)
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }
