@@ -170,10 +170,16 @@ export async function callAI(
     }
   }
 
-  // 1.5) Phase 22g — Model-specific provider
+  // 1.5) Phase 22g + Phase 36 — Model-specific provider
   // If the user has a currentModel set (e.g. "study_buddy_pro"), look up
   // the ModelMapping to find the linked providerId + modelIdentifier.
   // This makes switching StudyBuddies actually change which AI model is used.
+  //
+  // IMPORTANT: If the ModelMapping exists but has NO providerId (the buddy is
+  // disconnected from any API in the Visual API Studio), we STOP here and
+  // throw an error — we do NOT silently fall through to the platform AI.
+  // This ensures the user knows their selected buddy isn't connected, rather
+  // than getting a reply from a random default provider.
   if (userId && userId !== "system") {
     try {
       const user = await db.user.findUnique({
@@ -184,6 +190,17 @@ export async function callAI(
         const mapping = await db.modelMapping.findUnique({
           where: { modelName: user.currentModel },
         });
+
+        if (mapping && !mapping.providerId) {
+          // The buddy exists but is NOT connected to any API.
+          // Don't fall through to platform AI — tell the user to connect it.
+          throw new Error(
+            `🥲 ${mapping.displayName} ${mapping.emoji} is not connected to an API yet. ` +
+            `Ask an admin to connect it in the AI Studio (Admin → AI Providers), ` +
+            `or switch to a different Study Buddy in the Profile menu.`
+          );
+        }
+
         if (mapping?.providerId) {
           // Load the specific provider
           const provider = await db.aiProvider.findUnique({
@@ -204,15 +221,45 @@ export async function callAI(
                 if (result.content) {
                   return result.content;
                 }
-                console.warn("Model-specific provider returned empty, falling through");
+                // Provider returned empty — this is a real failure, don't silently fall through
+                throw new Error(
+                  `${mapping.displayName} ${mapping.emoji} connected to ${provider.name} but got an empty response. ` +
+                  `The API may be down or misconfigured. Try another Study Buddy.`
+                );
               } catch (e: any) {
-                console.warn("Model-specific provider failed, falling through:", e?.message);
+                // If it's our custom error (disconnected or empty response), re-throw it
+                if (e?.message?.includes("not connected") || e?.message?.includes("empty response")) {
+                  throw e;
+                }
+                // Provider call failed (network, auth, etc.) — don't silently fall through
+                console.warn("Model-specific provider failed:", e?.message);
+                throw new Error(
+                  `${mapping.displayName} ${mapping.emoji} → ${provider.name} API call failed: ${e?.message ?? "unknown error"}. ` +
+                  `Try another Study Buddy or ask an admin to check the API key.`
+                );
               }
+            } else {
+              // Provider has no API key and is not keyless
+              throw new Error(
+                `${mapping.displayName} ${mapping.emoji} is connected to ${provider.name} but that API has no key set. ` +
+                `Ask an admin to add an API key in the AI Studio.`
+              );
             }
+          } else if (provider && !provider.enabled) {
+            // Provider is disabled
+            throw new Error(
+              `${mapping.displayName} ${mapping.emoji} is connected to ${provider.name} but that API is disabled. ` +
+              `Ask an admin to enable it in the AI Studio.`
+            );
           }
         }
       }
     } catch (e: any) {
+      // Re-throw our custom "not connected" / "empty response" / "disabled" errors
+      if (e?.message?.includes("not connected") || e?.message?.includes("empty response") || e?.message?.includes("API has no key") || e?.message?.includes("API is disabled") || e?.message?.includes("API call failed")) {
+        throw e;
+      }
+      // Other errors (DB lookup failed, etc.) — fall through to default resolution
       console.warn("Model lookup failed, using default resolution:", e?.message);
     }
   }

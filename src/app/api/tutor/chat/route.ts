@@ -540,8 +540,10 @@ CRITICAL RULES — NO MARKDOWN TABLES WHEN A GRAPH IS REQUESTED:
       }
     } catch (e: any) {
       await refundTokens(user.id, "tutor", deduct.costTokens);
+      // Pass through the actual error message (e.g. "not connected to an API")
+      // instead of a generic "AI couldn't respond" — so the user knows what's wrong.
       return NextResponse.json(
-        { error: "AI couldn't respond right now. Please try again." },
+        { error: e?.message ?? "AI couldn't respond right now. Please try again." },
         { status: 500 }
       );
     }
