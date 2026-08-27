@@ -33,9 +33,12 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const conversationId = (body?.conversationId ?? "").toString().trim() || null;
   const userMessage = (body?.message ?? "").toString().trim();
+  // Optional image attachment — base64 data URL (e.g. "data:image/jpeg;base64,...")
+  // When present, the AI calls the vision model to analyze the image.
+  const imageDataUrl = (body?.image ?? "").toString().trim() || null;
 
-  if (!userMessage) {
-    return NextResponse.json({ error: "Message is required" }, { status: 400 });
+  if (!userMessage && !imageDataUrl) {
+    return NextResponse.json({ error: "Message or image is required" }, { status: 400 });
   }
 
   // Deduct tokens
@@ -67,13 +70,14 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 2. Save the user's message
+    // 2. Save the user's message (with optional image attachment)
     await db.chatMessage.create({
       data: {
         conversationId: conversation.id,
         userId: user.id,
         role: "user",
-        content: userMessage,
+        content: userMessage || "(Image attached — please analyze)",
+        attachments: imageDataUrl ? [{ type: "image", url: imageDataUrl, caption: "Uploaded image" }] as any : null,
       },
     });
 
@@ -126,6 +130,9 @@ export async function POST(req: NextRequest) {
     // Phase 32 — spreadsheet + database
     const wantsCSV = /\bexcel sheet\b|\bspreadsheet\b|\bworksheet\b|\bbuild a sheet\b|make a (food capacity|payment|attendance|inventory|grade book|budget) (sheet|worksheet|spreadsheet)/i.test(userMessage);
     const wantsERDiagram = /\b(er diagram|entity.?relationship|database schema|database design|access table|ms access|simple database|build a database|design a database)/i.test(userMessage);
+    // Phase 33 — step-by-step solver
+    const wantsSteps = /\bstep by step\b|\bstep[- ]by[- ]step\b|\bshow your work\b|\bhow to solve\b|\bwork it out\b|\bworking for\b/i.test(userMessage) ||
+                       (/\bsolve\b/i.test(userMessage) && /=/i.test(userMessage));
     const wantsSearch = /\bfind\b|\bsearch\b|\blook up\b|\bwhat is\b|\bwho is\b|\bwhen did\b|\bhow does\b/i.test(userMessage) && !wantsVideo &&
                        !wantsScatter && !wantsBar && !wantsHistogram && !wantsPie && !wantsVenn &&
                        !wantsNumberLine && !wantsTree && !wantsBoxPlot && !wantsVector && !wantsPolygon;
@@ -137,7 +144,7 @@ export async function POST(req: NextRequest) {
                        wantsVectorField || wantsTessellation || wantsKnot ||
                        wantsPictogram || wantsTally || wantsCarroll || wantsOgive || wantsUnitCircle ||
                        wantsTransform || wantsAxes3D || wantsTwoWay ||
-                       wantsCSV || wantsERDiagram;
+                       wantsCSV || wantsERDiagram || wantsSteps;
 
     let attachments: Array<{ type: string; url: string | null; caption: string }> = [];
     let searchContext = "";
@@ -425,8 +432,14 @@ covering Grade 1 through university math:
     Renders an HTML table with a "Download CSV" button (opens in Excel/Google Sheets).
     JSON spec: {"type":"csv", "title":"Food Capacity Worksheet", "downloadName":"food-capacity.csv", "headers":["Item","Quantity","Unit","Cost per unit","Total"], "rows":[["Maize flour","50","kg","120","6000"],["Beans","20","kg","200","4000"],["Rice","15","kg","250","3750"],["Cooking oil","5","litres","300","1500"]]}
 
+32. "steps" — step-by-step solution (for algebra, calculus, physics, multi-step
+    reasoning problems). Renders each step as a numbered expandable block. Use
+    this when the user asks to "solve step by step", "show your work", "explain
+    how to solve", or when working through any problem with multiple steps.
+    JSON spec: {"type":"steps", "title":"Solve 2x + 5 = 15", "steps":[{"title":"Start with the equation","expression":"2x + 5 = 15","explanation":"We want to isolate x."},{"title":"Subtract 5 from both sides","expression":"2x = 15 - 5 = 10","explanation":"Inverse operation: subtract the same value from both sides."},{"title":"Divide both sides by 2","expression":"x = 10 / 2 = 5","explanation":"Divide to isolate x."},{"title":"Final answer","expression":"x = 5","explanation":"The solution is x = 5."}]}
+
 GENERAL RULES — GENERIC DRAWING PRINCIPLE:
-- ALWAYS pick the MOST APPROPRIATE graph type from the 31 types above. Match by the user's question:
+- ALWAYS pick the MOST APPROPRIATE graph type from the 32 types above. Match by the user's question:
   * "show 5 apples in pictogram" → pictogram
   * "tally the votes: A=4, B=7" → tally
   * "sort shapes by red AND square" → carroll
@@ -441,13 +454,28 @@ GENERAL RULES — GENERIC DRAWING PRINCIPLE:
   * "hexagon tessellation" → tessellation
   * "build me an Excel sheet / spreadsheet / worksheet for [topic]" → csv (with proper headers + rows + a download button)
   * "draw a database schema / ER diagram / Access-style tables" → erdiagram (with tables + PKs/FKs + relationships)
+  * "solve ... step by step" / "show your work" / "explain how to solve" → steps (with title, expression, explanation per step)
   * "phase portrait for spiral" → freeform (no dedicated renderer yet)
   * "compass-and-straightedge construction" → freeform
-- When the user asks for something you can't express with the 31 specific types,
+- When the user asks for something you can't express with the 32 specific types,
   use "freeform" with raw SVG. Be creative — you can draw 3D cubes (with
   dashed hidden edges), compass constructions (arcs + lines), phase portraits
   (spiral/saddle/node shapes), contour maps, knot diagrams, tessellations,
   Möbius strips, etc. Just write the SVG markup directly.
+
+CRITICAL RULES — NO MARKDOWN TABLES WHEN A GRAPH IS REQUESTED:
+- When the user asks for a database, ER diagram, spreadsheet, worksheet, or
+  any structured-data visual, you MUST include a fenced \`\`\`mathgraph ...\`\`\`
+  code block with the appropriate JSON spec ("erdiagram" or "csv"). DO NOT
+  instead show plain markdown tables in your reply prose.
+- Markdown tables (| col1 | col2 |) are FORBIDDEN in database/spreadsheet
+  replies — the rendered ER diagram or CSV preview IS the table. Only the
+  JSON spec inside the mathgraph block contains the data.
+- Your prose should only briefly describe the design (e.g. "Here's a school
+  database with Students, Classes, Teachers plus relationships. Tap a table
+  to edit fields, or use the Edit button to add tables."). Do NOT echo the
+  data in markdown form.
+
 - For spreadsheet/Excel/worksheet requests, ALWAYS use "csv" type with realistic
   rows matching the user's scenario (food capacity, payment schedule, budget,
   attendance, inventory, grade book, etc.). Include the column headers
@@ -455,6 +483,11 @@ GENERAL RULES — GENERIC DRAWING PRINCIPLE:
 - For database requests, ALWAYS use "erdiagram" type with sensible tables
   (primary keys, foreign keys, types) matching the user's domain (library,
   school, store, hospital, etc.). Include relationships between FKs and PKs.
+- When the user asks to EDIT an existing database/table/spreadsheet (e.g.
+  "add a column to the Students table" or "remove the Orders table"),
+  include the FULL UPDATED JSON spec in the mathgraph block — not just the
+  change. The frontend replaces the previous graph with the updated one,
+  it does not stack a second graph. Always include the COMPLETE spec.
 - Always include meaningful titles, axis labels, and category labels in the
   spec — these are shown on the rendered diagram.
 - Be encouraging and clear. Reply in the same language the user used (English / Kiswahili / French).
@@ -470,10 +503,41 @@ GENERAL RULES — GENERIC DRAWING PRINCIPLE:
         .map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
     ];
 
-    // 7. Call AI
+    // 7. Call AI — if an image was attached, use the vision API; otherwise the standard chat.
     let reply = "";
     try {
-      reply = await callAI(aiMessages, null, { userId: user.id, route: "/api/tutor/chat" });
+      if (imageDataUrl) {
+        // Vision path — use the z-ai SDK's createVision endpoint directly.
+        // The image is passed as a multimodal content item in the user message.
+        const ZAI = (await import("z-ai-web-dev-sdk")).default;
+        const client = await ZAI.create();
+        const visionMessages: any = [
+          { role: "system", content: systemContent },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: userMessage || "Analyze this image. What is it? Help me understand." },
+              { type: "image_url", image_url: { url: imageDataUrl } },
+            ],
+          },
+          // Include the chat history before this message
+          ...allMessages
+            .slice(0, -1) // exclude the just-saved user message (it's the vision one above)
+            .filter((m) => m.role === "user" || m.role === "assistant")
+            .map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
+        ];
+        const completion: any = await client.chat.completions.createVision({
+          model: "glm-4v",
+          messages: visionMessages,
+        });
+        reply =
+          completion?.choices?.[0]?.message?.content ??
+          completion?.choices?.[0]?.delta?.content ??
+          "";
+        if (!reply) throw new Error("Vision AI returned empty response");
+      } else {
+        reply = await callAI(aiMessages, null, { userId: user.id, route: "/api/tutor/chat" });
+      }
     } catch (e: any) {
       await refundTokens(user.id, "tutor", deduct.costTokens);
       return NextResponse.json(
@@ -495,7 +559,7 @@ GENERAL RULES — GENERIC DRAWING PRINCIPLE:
         "slopefield", "stemleaf", "frequency_polygon", "freeform",
         "argand", "contour", "vectorfield", "tessellation", "knot",
         "pictogram", "tally", "carroll", "ogive", "unitcircle",
-        "transform", "axes3d", "twoway", "erdiagram", "csv",
+        "transform", "axes3d", "twoway", "erdiagram", "csv", "steps",
       ]);
 
       // Helper: try to parse a string as JSON and check if it has a known graph type
@@ -1302,6 +1366,22 @@ GENERAL RULES — GENERIC DRAWING PRINCIPLE:
           }
 
           synthesized = { type: "erdiagram", title, tables, relationships };
+        } else if (wantsSteps) {
+          // Fallback for step-by-step requests — synthesize a generic 3-step solution
+          // The AI will usually include a better spec, but this catches the case where it forgets.
+          // Try to extract the equation from the user's message
+          const eqMatch = userMessage.match(/solve[:\s]+([^?]+)/i) ?? userMessage.match(/([^?]+)=([^?]+)/);
+          const equation = (eqMatch?.[1] ?? userMessage)?.trim().slice(0, 80);
+          synthesized = {
+            type: "steps",
+            title: `Solve: ${equation}`,
+            steps: [
+              { title: "Step 1: Identify the equation", expression: equation, explanation: "Read the equation carefully and identify what variable to solve for." },
+              { title: "Step 2: Isolate the variable", expression: "", explanation: "Use inverse operations to move everything except the variable to one side of the equals sign." },
+              { title: "Step 3: Solve for the variable", expression: "", explanation: "Perform the final operation to find the value of the variable." },
+              { title: "Step 4: Verify your answer", expression: "", explanation: "Substitute your answer back into the original equation to check it works." },
+            ],
+          };
         }
 
         if (synthesized) {

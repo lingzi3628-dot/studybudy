@@ -141,7 +141,7 @@ const PALETTE = [
 // =====================================================================
 // Main dispatcher
 // =====================================================================
-export function GraphRenderer({ spec }: { spec: GraphSpec }) {
+export function GraphRenderer({ spec, onSpecChange }: { spec: GraphSpec; onSpecChange?: (newSpec: any) => void }) {
   const type = (spec?.type ?? "function").toString();
   switch (type) {
     case "function":
@@ -203,9 +203,11 @@ export function GraphRenderer({ spec }: { spec: GraphSpec }) {
     case "twoway":
       return <TwoWayTableSVG spec={spec} />;
     case "erdiagram":
-      return <ERDiagramSVG spec={spec} />;
+      return <ERDiagramSVG spec={spec} onSpecChange={onSpecChange} />;
     case "csv":
-      return <CSVPreviewSVG spec={spec} />;
+      return <CSVPreviewSVG spec={spec} onSpecChange={onSpecChange} />;
+    case "steps":
+      return <StepByStepSVG spec={spec} />;
     default:
       return (
         <div className="text-xs text-rose-600 p-3">
@@ -214,7 +216,7 @@ export function GraphRenderer({ spec }: { spec: GraphSpec }) {
           vector, polygon, boxplot, slopefield, stemleaf, frequency_polygon,
           freeform, argand, contour, vectorfield, tessellation, knot,
           pictogram, tally, carroll, ogive, unitcircle, transform, axes3d,
-          twoway, erdiagram, csv.
+          twoway, erdiagram, csv, steps.
         </div>
       );
   }
@@ -2760,7 +2762,7 @@ function TwoWayTableSVG({ spec }: { spec: any }) {
 //      Shows tables as boxes with field lists, primary keys (🔑),
 //      foreign keys (🔗), and relationship lines between FKs and PKs
 // =====================================================================
-function ERDiagramSVG({ spec }: { spec: any }) {
+function ERDiagramSVG({ spec, onSpecChange }: { spec: any; onSpecChange?: (newSpec: any) => void }) {
   const title = spec.title ?? "Database Schema (ER Diagram)";
   type Field = { name: string; type: string; pk?: boolean; fk?: string };
   type Table = {
@@ -2768,20 +2770,91 @@ function ERDiagramSVG({ spec }: { spec: any }) {
     fields: Field[];
     color?: string;
   };
-  const tables: Table[] = Array.isArray(spec.tables) ? spec.tables : [];
-  // Optional relationships: [{from: "table1.field", to: "table2.field", label?: "..."}]
-  const relationships: Array<{ from: string; to: string; label?: string }> = Array.isArray(spec.relationships) ? spec.relationships : [];
 
-  // Layout: arrange tables in a grid (3 per row)
+  // Editable local state — initialize from spec, sync back via onSpecChange
+  const [tables, setTables] = useState<Table[]>(Array.isArray(spec.tables) ? spec.tables : []);
+  const [relationships, setRelationships] = useState<Array<{ from: string; to: string; label?: string }>>(
+    Array.isArray(spec.relationships) ? spec.relationships : []
+  );
+  const [editMode, setEditMode] = useState(false);
+
+  // Push changes up so the parent can persist them
+  const updateSpec = (newTables: Table[], newRelationships?: any[]) => {
+    setTables(newTables);
+    if (newRelationships !== undefined) setRelationships(newRelationships);
+    onSpecChange?.({ ...spec, tables: newTables, relationships: newRelationships ?? relationships });
+  };
+
+  const addTable = () => {
+    const newTable: Table = {
+      name: `Table${tables.length + 1}`,
+      fields: [{ name: "id", type: "INT", pk: true }],
+      color: PALETTE[tables.length % PALETTE.length],
+    };
+    updateSpec([...tables, newTable]);
+  };
+
+  const renameTable = (i: number, newName: string) => {
+    const newTables = tables.map((t, idx) => idx === i ? { ...t, name: newName } : t);
+    updateSpec(newTables);
+  };
+
+  const removeTable = (i: number) => {
+    const removedName = tables[i].name;
+    const newTables = tables.filter((_, idx) => idx !== i);
+    // Remove relationships that referenced this table
+    const newRelationships = relationships.filter((r) => !r.from.startsWith(`${removedName}.`) && !r.to.startsWith(`${removedName}.`));
+    updateSpec(newTables, newRelationships);
+  };
+
+  const addField = (ti: number) => {
+    const newTables = tables.map((t, idx) =>
+      idx === ti ? { ...t, fields: [...t.fields, { name: `field${t.fields.length + 1}`, type: "VARCHAR(50)" }] } : t
+    );
+    updateSpec(newTables);
+  };
+
+  const renameField = (ti: number, fi: number, newName: string) => {
+    const newTables = tables.map((t, idx) =>
+      idx === ti ? { ...t, fields: t.fields.map((f, fidx) => fidx === fi ? { ...f, name: newName } : f) } : t
+    );
+    updateSpec(newTables);
+  };
+
+  const changeFieldType = (ti: number, fi: number, newType: string) => {
+    const newTables = tables.map((t, idx) =>
+      idx === ti ? { ...t, fields: t.fields.map((f, fidx) => fidx === fi ? { ...f, type: newType } : f) } : t
+    );
+    updateSpec(newTables);
+  };
+
+  const togglePK = (ti: number, fi: number) => {
+    const newTables = tables.map((t, idx) =>
+      idx === ti ? { ...t, fields: t.fields.map((f, fidx) => fidx === fi ? { ...f, pk: !f.pk, fk: !f.pk ? undefined : f.fk } : f) } : t
+    );
+    updateSpec(newTables);
+  };
+
+  const removeField = (ti: number, fi: number) => {
+    const fieldName = tables[ti].fields[fi].name;
+    const tableName = tables[ti].name;
+    const newTables = tables.map((t, idx) =>
+      idx === ti ? { ...t, fields: t.fields.filter((_, fidx) => fidx !== fi) } : t
+    );
+    // Remove relationships that referenced this field
+    const newRelationships = relationships.filter((r) => r.from !== `${tableName}.${fieldName}` && r.to !== `${tableName}.${fieldName}`);
+    updateSpec(newTables, newRelationships);
+  };
+
+  // Layout
   const tablesPerRow = Math.min(3, Math.ceil(Math.sqrt(tables.length)));
   const tableWidth = 220;
-  const tableHeight = (table: Table) => 36 + table.fields.length * 22 + 8;
+  const tableHeight = (table: Table) => 36 + table.fields.length * 22 + 8 + (editMode ? 24 : 0);
   const tableGap = 30;
   const rows = Math.ceil(tables.length / tablesPerRow);
   const width = Math.max(420, tablesPerRow * (tableWidth + tableGap) + 20);
   const height = Math.max(300, rows * (Math.max(...tables.map((t) => tableHeight(t))) + tableGap) + 60);
 
-  // Position tables in a grid
   const positions = tables.map((_, i) => {
     const row = Math.floor(i / tablesPerRow);
     const col = i % tablesPerRow;
@@ -2791,7 +2864,6 @@ function ERDiagramSVG({ spec }: { spec: any }) {
     };
   });
 
-  // Helper: find table + field coordinates for relationships
   const findFieldCoords = (ref: string): { x: number; y: number; tableIdx: number } | null => {
     const [tableName, fieldName] = ref.split(".");
     const tableIdx = tables.findIndex((t) => t.name === tableName);
@@ -2808,17 +2880,39 @@ function ERDiagramSVG({ spec }: { spec: any }) {
 
   return (
     <div>
-      <p className="text-xs font-semibold text-gray-700 mb-1">{title}</p>
-      <p className="text-[10px] text-gray-500 mb-2">🔑 Primary key · 🔗 Foreign key (refers to another table)</p>
+      <div className="flex items-center justify-between mb-1">
+        <p className="text-xs font-semibold text-gray-700">{title}</p>
+        {onSpecChange && (
+          <button
+            onClick={() => setEditMode(!editMode)}
+            className={`text-[10px] px-2 py-0.5 rounded-md font-semibold ${
+              editMode ? "bg-indigo-600 text-white" : "bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+            }`}
+            title="Toggle edit mode"
+          >
+            {editMode ? "✓ Done" : "✏️ Edit"}
+          </button>
+        )}
+      </div>
+      {!editMode && <p className="text-[10px] text-gray-500 mb-2">🔑 Primary key · 🔗 Foreign key (refers to another table) · tap ✏️ Edit to modify</p>}
+      {editMode && (
+        <div className="mb-2 flex flex-wrap gap-2">
+          <button
+            onClick={addTable}
+            className="text-[10px] px-2 py-1 rounded-md bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-semibold"
+          >
+            ＋ Add Table
+          </button>
+          <span className="text-[10px] text-gray-500">Tap ✕ next to fields/tables to remove. Click names/types to edit. 🔑 toggles PK.</span>
+        </div>
+      )}
       <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto bg-gray-50 rounded-lg">
-        {/* Relationships (lines) drawn first so they're behind tables */}
         {relationships.map((rel, i) => {
           const from = findFieldCoords(rel.from);
           const to = findFieldCoords(rel.to);
           if (!from || !to) return null;
           const fromLeft = { x: from.x - tableWidth, y: from.y };
           const toLeft = { x: to.x - tableWidth, y: to.y };
-          // Connect from left side of one to right side of other (whichever side is closer)
           const fromX = Math.abs(from.x - to.x) > Math.abs(fromLeft.x - toLeft.x) ? fromLeft.x : from.x;
           const toX = fromX === from.x ? toLeft.x : to.x;
           const midX = (fromX + toX) / 2;
@@ -2826,10 +2920,8 @@ function ERDiagramSVG({ spec }: { spec: any }) {
           return (
             <g key={`rel-${i}`}>
               <path d={path} fill="none" stroke="#9CA3AF" strokeWidth={1.5} strokeDasharray="4 2" />
-              {/* Endpoint dots */}
               <circle cx={fromX} cy={from.y} r={3} fill="#4F46E5" />
               <circle cx={toX} cy={to.y} r={3} fill="#EF4444" />
-              {/* Label */}
               {rel.label && (
                 <text x={midX} y={(from.y + to.y) / 2 - 4} fontSize={9} fill="#6B7280" textAnchor="middle" fontWeight={600}>
                   {rel.label}
@@ -2838,38 +2930,85 @@ function ERDiagramSVG({ spec }: { spec: any }) {
             </g>
           );
         })}
-        {/* Tables */}
         {tables.map((table, ti) => {
           const pos = positions[ti];
           const h = tableHeight(table);
           const color = table.color ?? PALETTE[ti % PALETTE.length];
           return (
-            <g key={`table-${ti}`}>
-              {/* Header */}
-              <rect x={pos.x} y={pos.y} width={tableWidth} height={36} rx={6} fill={color} opacity={0.95} />
-              <text x={pos.x + 10} y={pos.y + 22} fontSize={13} fill="white" fontWeight={700}>
-                {table.name}
-              </text>
-              {/* Body */}
-              <rect x={pos.x} y={pos.y + 36} width={tableWidth} height={h - 36} rx={0} fill="white" stroke={color} strokeWidth={1.5} />
-              {/* Field rows */}
-              {table.fields.map((f, fi) => {
-                const y = pos.y + 36 + fi * 22 + 14;
-                return (
-                  <g key={`field-${ti}-${fi}`}>
-                    <text x={pos.x + 6} y={y + 4} fontSize={10} fill="#1F2937" fontWeight={f.pk ? 700 : 400}>
-                      {f.pk ? "🔑 " : f.fk ? "🔗 " : "   "}{f.name}
-                    </text>
-                    <text x={pos.x + tableWidth - 6} y={y + 4} fontSize={9} fill="#6B7280" textAnchor="end" fontFamily="monospace">
-                      {f.type}
-                    </text>
-                    {fi < table.fields.length - 1 && (
-                      <line x1={pos.x + 6} y1={y + 11} x2={pos.x + tableWidth - 6} y2={y + 11} stroke="#F3F4F6" strokeWidth={1} />
-                    )}
-                  </g>
-                );
-              })}
-            </g>
+            <foreignObject
+              key={`table-${ti}`}
+              x={pos.x}
+              y={pos.y}
+              width={tableWidth}
+              height={h}
+            >
+              <div style={{ border: `1.5px solid ${color}`, borderRadius: 6, overflow: "hidden", background: "white" }}>
+                <div style={{ background: color, color: "white", padding: "6px 10px", fontSize: 13, fontWeight: 700, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  {editMode ? (
+                    <input
+                      type="text"
+                      value={table.name}
+                      onChange={(e) => renameTable(ti, e.target.value)}
+                      style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "white", fontWeight: 700, fontSize: 13, width: "70%", outline: "none", padding: "2px 4px", borderRadius: 3 }}
+                    />
+                  ) : (
+                    <span>{table.name}</span>
+                  )}
+                  {editMode && (
+                    <button
+                      onClick={() => removeTable(ti)}
+                      style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "white", cursor: "pointer", fontSize: 11, padding: "0 6px", borderRadius: 3 }}
+                      title={`Remove ${table.name}`}
+                    >✕</button>
+                  )}
+                </div>
+                <div style={{ padding: "0" }}>
+                  {table.fields.map((f, fi) => (
+                    <div key={fi} style={{ display: "flex", alignItems: "center", padding: "4px 6px", borderBottom: fi < table.fields.length - 1 ? "1px solid #F3F4F6" : "none", fontSize: 10 }}>
+                      <span
+                        style={{ cursor: editMode ? "pointer" : "default", marginRight: 4, flexShrink: 0 }}
+                        onClick={() => editMode && togglePK(ti, fi)}
+                        title={editMode ? "Toggle primary key" : f.pk ? "Primary key" : f.fk ? "Foreign key" : ""}
+                      >
+                        {f.pk ? "🔑" : f.fk ? "🔗" : "  "}
+                      </span>
+                      {editMode ? (
+                        <>
+                          <input
+                            type="text"
+                            value={f.name}
+                            onChange={(e) => renameField(ti, fi, e.target.value)}
+                            style={{ flex: 1, border: "none", outline: "none", fontSize: 10, fontWeight: f.pk ? 700 : 400, color: "#1F2937", padding: "1px 2px", background: "rgba(79,70,229,0.05)", borderRadius: 2 }}
+                          />
+                          <input
+                            type="text"
+                            value={f.type}
+                            onChange={(e) => changeFieldType(ti, fi, e.target.value)}
+                            style={{ width: 70, border: "none", outline: "none", fontSize: 9, color: "#6B7280", fontFamily: "monospace", padding: "1px 2px", background: "rgba(0,0,0,0.04)", borderRadius: 2, textAlign: "right" }}
+                          />
+                          <button
+                            onClick={() => removeField(ti, fi)}
+                            style={{ border: "none", background: "transparent", cursor: "pointer", color: "#EF4444", fontSize: 11, padding: "0 4px" }}
+                            title="Remove field"
+                          >✕</button>
+                        </>
+                      ) : (
+                        <>
+                          <span style={{ flex: 1, fontWeight: f.pk ? 700 : 400, color: "#1F2937" }}>{f.name}</span>
+                          <span style={{ color: "#6B7280", fontFamily: "monospace", fontSize: 9, textAlign: "right" }}>{f.type}</span>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                  {editMode && (
+                    <button
+                      onClick={() => addField(ti)}
+                      style={{ display: "block", width: "100%", padding: "4px 6px", background: "transparent", border: "none", cursor: "pointer", color: "#10B981", fontSize: 10, fontWeight: 600, textAlign: "left" }}
+                    >＋ Add field</button>
+                  )}
+                </div>
+              </div>
+            </foreignObject>
           );
         })}
       </svg>
@@ -2882,11 +3021,19 @@ function ERDiagramSVG({ spec }: { spec: any }) {
 // 31. CSV Preview — preview a CSV table (rendered as a styled HTML table)
 //      Also offers a download link for the CSV file
 // =====================================================================
-function CSVPreviewSVG({ spec }: { spec: any }) {
+function CSVPreviewSVG({ spec, onSpecChange }: { spec: any; onSpecChange?: (newSpec: any) => void }) {
   const title = spec.title ?? "CSV Table";
-  const headers: string[] = Array.isArray(spec.headers) ? spec.headers : [];
-  const rows: string[][] = Array.isArray(spec.rows) ? spec.rows : [];
   const downloadName: string = (spec.downloadName ?? "table.csv").toString();
+  const [headers, setHeaders] = useState<string[]>(Array.isArray(spec.headers) ? spec.headers : []);
+  const [rows, setRows] = useState<string[][]>(Array.isArray(spec.rows) ? spec.rows : []);
+  const [editMode, setEditMode] = useState(false);
+
+  // Push updates back to parent (so the conversation preserves the edits)
+  const updateSpec = (newHeaders: string[], newRows: string[][]) => {
+    setHeaders(newHeaders);
+    setRows(newRows);
+    onSpecChange?.({ ...spec, headers: newHeaders, rows: newRows });
+  };
 
   // Build the CSV text for download
   const escapeCSV = (val: string) => {
@@ -2909,17 +3056,54 @@ function CSVPreviewSVG({ spec }: { spec: any }) {
     URL.revokeObjectURL(url);
   };
 
+  // Edit handlers
+  const editCell = (ri: number, ci: number, val: string) => {
+    const newRows = rows.map((r, idx) => idx === ri ? r.map((c, cidx) => cidx === ci ? val : c) : r);
+    updateSpec(headers, newRows);
+  };
+  const editHeader = (ci: number, val: string) => {
+    const newHeaders = headers.map((h, idx) => idx === ci ? val : h);
+    updateSpec(newHeaders, rows);
+  };
+  const addRow = () => {
+    updateSpec(headers, [...rows, headers.map(() => "")]);
+  };
+  const addColumn = () => {
+    const newHeaders = [...headers, `Column${headers.length + 1}`];
+    const newRows = rows.map((r) => [...r, ""]);
+    updateSpec(newHeaders, newRows);
+  };
+  const removeRow = (ri: number) => {
+    updateSpec(headers, rows.filter((_, idx) => idx !== ri));
+  };
+  const removeColumn = (ci: number) => {
+    updateSpec(headers.filter((_, idx) => idx !== ci), rows.map((r) => r.filter((_, cidx) => cidx !== ci)));
+  };
+
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
         <p className="text-xs font-semibold text-gray-700">{title}</p>
-        <button
-          onClick={downloadCSV}
-          className="px-2 py-1 rounded-md bg-emerald-50 text-emerald-700 text-[10px] font-semibold hover:bg-emerald-100 flex items-center gap-1"
-          title="Download as CSV (opens in Excel)"
-        >
-          📄 Download CSV
-        </button>
+        <div className="flex gap-1">
+          {onSpecChange && (
+            <button
+              onClick={() => setEditMode(!editMode)}
+              className={`px-2 py-1 rounded-md text-[10px] font-semibold ${
+                editMode ? "bg-indigo-600 text-white" : "bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+              }`}
+              title="Toggle edit mode"
+            >
+              {editMode ? "✓ Done" : "✏️ Edit"}
+            </button>
+          )}
+          <button
+            onClick={downloadCSV}
+            className="px-2 py-1 rounded-md bg-emerald-50 text-emerald-700 text-[10px] font-semibold hover:bg-emerald-100 flex items-center gap-1"
+            title="Download as CSV (opens in Excel)"
+          >
+            📄 CSV
+          </button>
+        </div>
       </div>
       <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
         <div className="overflow-x-auto max-h-72">
@@ -2927,23 +3111,77 @@ function CSVPreviewSVG({ spec }: { spec: any }) {
             <thead className="sticky top-0 bg-gray-100">
               <tr>
                 {headers.map((h, hi) => (
-                  <th key={hi} className="px-2 py-1.5 text-left text-gray-700 font-semibold border-b border-gray-200">
-                    {h}
+                  <th key={hi} className="px-2 py-1.5 text-left text-gray-700 font-semibold border-b border-gray-200 relative">
+                    {editMode ? (
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="text"
+                          value={h}
+                          onChange={(e) => editHeader(hi, e.target.value)}
+                          className="w-full bg-white border border-gray-200 rounded px-1 py-0.5 text-xs outline-none focus:border-indigo-400"
+                        />
+                        <button
+                          onClick={() => removeColumn(hi)}
+                          className="text-rose-500 hover:text-rose-700 text-[10px] font-bold"
+                          title="Remove column"
+                        >✕</button>
+                      </div>
+                    ) : (
+                      h
+                    )}
                   </th>
                 ))}
+                {editMode && (
+                  <th className="px-2 py-1.5 border-b border-gray-200">
+                    <button
+                      onClick={addColumn}
+                      className="text-emerald-600 hover:text-emerald-800 text-[10px] font-bold"
+                      title="Add column"
+                    >＋</button>
+                  </th>
+                )}
               </tr>
             </thead>
             <tbody>
               {rows.map((row, ri) => (
                 <tr key={ri} className="hover:bg-indigo-50/30">
                   {row.map((cell, ci) => (
-                    <td key={ci} className="px-2 py-1 text-gray-800 border-b border-gray-50">
-                      {cell}
+                    <td key={ci} className="px-1 py-0.5 text-gray-800 border-b border-gray-50">
+                      {editMode ? (
+                        <input
+                          type="text"
+                          value={cell ?? ""}
+                          onChange={(e) => editCell(ri, ci, e.target.value)}
+                          className="w-full bg-white border border-gray-100 rounded px-1 py-0.5 text-xs outline-none focus:border-indigo-400 focus:bg-indigo-50/30"
+                        />
+                      ) : (
+                        <span className="px-1">{cell}</span>
+                      )}
                     </td>
                   ))}
+                  {editMode && (
+                    <td className="px-1 border-b border-gray-50">
+                      <button
+                        onClick={() => removeRow(ri)}
+                        className="text-rose-500 hover:text-rose-700 text-[10px] font-bold"
+                        title="Remove row"
+                      >✕</button>
+                    </td>
+                  )}
                 </tr>
               ))}
-              {rows.length === 0 && (
+              {editMode && (
+                <tr>
+                  <td colSpan={headers.length + 1} className="px-2 py-1 text-center">
+                    <button
+                      onClick={addRow}
+                      className="text-emerald-600 hover:text-emerald-800 text-[10px] font-bold"
+                      title="Add row"
+                    >＋ Add row</button>
+                  </td>
+                </tr>
+              )}
+              {rows.length === 0 && !editMode && (
                 <tr><td colSpan={headers.length} className="px-2 py-3 text-center text-gray-400 italic">(no rows)</td></tr>
               )}
             </tbody>
@@ -2953,6 +3191,104 @@ function CSVPreviewSVG({ spec }: { spec: any }) {
       <p className="text-[10px] text-gray-500 mt-1">
         {headers.length} columns · {rows.length} rows · opens in Excel, Google Sheets, LibreOffice
       </p>
+    </div>
+  );
+}
+
+// =====================================================================
+// 32. Step-by-step solver — shows each step as a numbered expandable
+//      block. Used for math problems where showing the work matters
+//      (algebra, calculus, physics, multi-step reasoning).
+//      Each step can have a title, an expression (LaTeX), and an
+//      explanation in plain text.
+// =====================================================================
+function StepByStepSVG({ spec }: { spec: any }) {
+  const title = spec.title ?? "Step-by-Step Solution";
+  type Step = {
+    title?: string;
+    expression?: string; // LaTeX (rendered with katex via dangerouslySetInnerHTML on the client)
+    explanation?: string;
+  };
+  const steps: Step[] = Array.isArray(spec.steps) ? spec.steps : [];
+  const [openStep, setOpenStep] = useState<number | null>(steps.length > 0 ? 0 : null);
+
+  // Lazy-load KaTeX on the client (same approach as AITutorChat)
+  const renderLatex = (latex: string, displayMode: boolean): string => {
+    try {
+      // We can't import katex at top of this file (it's a generic renderer
+      // and we want to avoid bundling katex into every graph). So we use a
+      // simpler approach: render as styled <span> that the parent component's
+      // KaTeX rendering pipeline will pick up via dangerouslySetInnerHTML.
+      // For now, just return the raw LaTeX in a styled span — the parent's
+      // renderInlineMarkdown will see $...$ patterns in the explanation but
+      // we can't easily round-trip that here. Best approach: include the
+      // LaTeX directly in a span with serif italic styling.
+      return `<span style="font-family:'Cambria Math',serif;font-style:italic;color:#1E40AF;background:rgba(79,70,229,0.08);padding:2px 6px;border-radius:4px;">${latex}</span>`;
+    } catch {
+      return latex;
+    }
+  };
+
+  return (
+    <div>
+      <p className="text-xs font-semibold text-gray-700 mb-1">{title}</p>
+      <div className="space-y-1.5">
+        {steps.map((step, i) => {
+          const isOpen = openStep === i;
+          return (
+            <div key={i} className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+              {/* Step header — clickable to expand/collapse */}
+              <button
+                onClick={() => setOpenStep(isOpen ? null : i)}
+                className="w-full p-3 flex items-start gap-3 text-left hover:bg-gray-50 transition"
+              >
+                <span className="flex-shrink-0 w-6 h-6 rounded-full bg-indigo-600 text-white text-[11px] font-bold flex items-center justify-center">
+                  {i + 1}
+                </span>
+                <div className="flex-1 min-w-0">
+                  {step.title && (
+                    <p className="text-xs font-semibold text-gray-900">{step.title}</p>
+                  )}
+                  {step.expression && !isOpen && (
+                    <p
+                      className="text-xs text-gray-600 mt-0.5 truncate"
+                      dangerouslySetInnerHTML={{ __html: renderLatex(step.expression, false) }}
+                    />
+                  )}
+                  {!step.title && !step.expression && (
+                    <p className="text-xs text-gray-500 italic">Step {i + 1}</p>
+                  )}
+                </div>
+                <span className="text-gray-400 text-xs flex-shrink-0">
+                  {isOpen ? "▲" : "▼"}
+                </span>
+              </button>
+              {/* Expanded detail */}
+              {isOpen && (step.expression || step.explanation) && (
+                <div className="px-3 pb-3 pt-1 border-t border-gray-100">
+                  {step.expression && (
+                    <div
+                      className="text-sm text-gray-900 my-2 text-center"
+                      dangerouslySetInnerHTML={{ __html: renderLatex(step.expression, true) }}
+                    />
+                  )}
+                  {step.explanation && (
+                    <p className="text-xs text-gray-600 leading-relaxed">{step.explanation}</p>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {steps.length === 0 && (
+        <p className="text-xs text-gray-500 italic">No steps provided.</p>
+      )}
+      {steps.length > 0 && (
+        <p className="text-[10px] text-gray-500 mt-2">
+          {steps.length} step{steps.length !== 1 ? "s" : ""} · tap a step to expand
+        </p>
+      )}
     </div>
   );
 }

@@ -11,6 +11,7 @@ import {
   X,
   Video,
   Image as ImageIcon,
+  Paperclip,
   GitBranch,
   Brain,
   Bot,
@@ -24,6 +25,7 @@ import {
   VolumeX,
   Mic,
   Square,
+  Sparkles,
 } from "lucide-react";
 import { useApp } from "../store";
 import { GraphRenderer, type GraphSpec } from "./GraphRenderers";
@@ -83,6 +85,13 @@ export function AITutorChat() {
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [pendingImage, setPendingImage] = useState<string | null>(null); // base64 data URL for vision
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // Continuous voice conversation mode (like ChatGPT voice mode)
+  const [voiceMode, setVoiceMode] = useState(false);
+  const voiceModeRef = useRef(false); // ref version for use inside callbacks
+  const [voiceModeState, setVoiceModeState] = useState<"idle" | "listening" | "speaking">("idle");
+  const voiceListenerRef = useRef<ReturnType<typeof startBrowserListening> | null>(null);
   const [loading, setLoading] = useState(true);
   const [showSidebar, setShowSidebar] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -160,8 +169,10 @@ export function AITutorChat() {
   // Send a message
   const send = async (text?: string) => {
     const q = (text ?? input).trim();
-    if (!q || busy) return;
+    const img = pendingImage;
+    if ((!q && !img) || busy) return;
     setInput("");
+    setPendingImage(null);
     setBusy(true);
     setError(null);
     setShowUpgrade(false);
@@ -169,7 +180,8 @@ export function AITutorChat() {
     const tempUserMsg: ChatMsg = {
       id: `temp-${Date.now()}`,
       role: "user",
-      content: q,
+      content: q || "(Image attached)",
+      attachments: img ? [{ type: "image", url: img, caption: "Uploaded image" }] : undefined,
       createdAt: new Date().toISOString(),
     };
     setMessages((m) => [...m, tempUserMsg]);
@@ -181,6 +193,7 @@ export function AITutorChat() {
         body: JSON.stringify({
           conversationId: activeConversation?.id ?? null,
           message: q,
+          image: img,
         }),
       });
       const d = await r.json();
@@ -234,6 +247,169 @@ export function AITutorChat() {
     });
     send(lastUser.content);
   };
+
+  // =====================================================================
+  // Continuous voice conversation mode (like ChatGPT voice mode)
+  // =====================================================================
+  // When voiceMode is ON:
+  //   1. We auto-start listening for the user's question
+  //   2. When the user stops, we transcribe and auto-send
+  //   3. When the AI replies, we speak it back via browser TTS
+  //   4. When TTS finishes, we automatically start listening again
+  // The cycle continues until the user toggles voiceMode off.
+
+  // Start the voice mode cycle — listen for user's question
+  const startVoiceListening = useCallback(() => {
+    if (!isBrowserASRSupported()) {
+      setError("Voice mode needs Chrome, Edge, or Safari (Firefox doesn't support speech recognition).");
+      setVoiceMode(false);
+      voiceModeRef.current = false;
+      return;
+    }
+    setVoiceModeState("listening");
+    try {
+      // Stop any existing listener
+      if (voiceListenerRef.current) {
+        voiceListenerRef.current.stop();
+        voiceListenerRef.current = null;
+      }
+      const listener = startBrowserListening({
+        lang: "en-US",
+        continuous: false,
+        interimResults: false,
+        maxDurationSec: 30,
+      });
+      voiceListenerRef.current = listener;
+
+      listener.onResult((r) => {
+        if (r.isFinal && r.text.trim()) {
+          // Stop listener, then send the text via the regular send path
+          // which will trigger the AI reply → onReplyFinished → startSpeaking cycle
+          setVoiceModeState("speaking");
+          setInput(r.text);
+          send(r.text);
+        }
+      });
+      listener.onError((e: any) => {
+        console.error("[voice mode] ASR error:", e?.error ?? e);
+        const err = e?.error;
+        if (err === "not-allowed" || err === "service-not-allowed") {
+          setError("Microphone access denied. Allow mic permission for voice mode.");
+          setVoiceMode(false);
+          voiceModeRef.current = false;
+        } else if (err === "no-speech") {
+          // User didn't speak — just restart listening if voiceMode is still on
+          if (voiceModeRef.current) {
+            setTimeout(() => startVoiceListening(), 300);
+          }
+        } else {
+          setError("Voice error: " + (err ?? "unknown"));
+        }
+      });
+      listener.onEnd(() => {
+        voiceListenerRef.current = null;
+        // If voice mode is still on but we haven't transitioned to speaking,
+        // restart listening (handles the "no-speech" silent restart path)
+        if (voiceModeRef.current && voiceModeState !== "speaking") {
+          setTimeout(() => startVoiceListening(), 200);
+        }
+      });
+    } catch (e: any) {
+      console.error("[voice mode] startListening failed:", e?.message);
+      setVoiceMode(false);
+      voiceModeRef.current = false;
+    }
+  }, [send, voiceModeState]);
+
+  // Speak the AI reply, then start listening again
+  const speakReplyAndContinue = useCallback((text: string) => {
+    if (!isBrowserTTSSupported()) {
+      console.warn("[voice mode] TTS not supported — skipping speak, going back to listening");
+      setTimeout(() => startVoiceListening(), 300);
+      return;
+    }
+    setVoiceModeState("speaking");
+    const plainText = text
+      .replace(/```[\s\S]*?```/g, " [code block] ")
+      .replace(/\$\$[^$]+\$\$/g, " math equation ")
+      .replace(/\$([^$]+)\$/g, " $1 ")
+      .replace(/[*_`#>|]/g, "")
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!plainText) {
+      // Empty reply — go straight back to listening
+      setTimeout(() => startVoiceListening(), 200);
+      return;
+    }
+    try {
+      const { promise } = browserSpeak(plainText, { rate: 1.0, lang: "en-US" });
+      promise.then(() => {
+        // TTS finished — start listening again if voice mode is still on
+        if (voiceModeRef.current) {
+          setTimeout(() => startVoiceListening(), 300);
+        }
+      }).catch((e: any) => {
+        console.warn("[voice mode] TTS error:", e?.message);
+        // Go back to listening even on TTS error
+        if (voiceModeRef.current) {
+          setTimeout(() => startVoiceListening(), 300);
+        }
+      });
+    } catch (e: any) {
+      console.warn("[voice mode] browserSpeak failed:", e?.message);
+      if (voiceModeRef.current) {
+        setTimeout(() => startVoiceListening(), 300);
+      }
+    }
+  }, [startVoiceListening]);
+
+  // Watch for new AI replies while in voice mode → speak them
+  useEffect(() => {
+    if (!voiceMode) return;
+    if (busy) return; // wait for the AI to finish
+    if (messages.length === 0) return;
+    const lastMsg = messages[messages.length - 1];
+    if (lastMsg.role !== "assistant") return;
+    // Only speak if we haven't already spoken this message
+    // (use a data attribute on the message via a ref check)
+    // For simplicity, we use a ref to track the last spoken message id
+    if (lastSpokenRef.current === lastMsg.id) return;
+    lastSpokenRef.current = lastMsg.id;
+    speakReplyAndContinue(lastMsg.content);
+  }, [messages, voiceMode, busy, speakReplyAndContinue]);
+
+  const lastSpokenRef = useRef<string | null>(null);
+
+  const toggleVoiceMode = () => {
+    if (voiceMode) {
+      // Turn off — stop listening + stop speaking
+      if (voiceListenerRef.current) {
+        voiceListenerRef.current.stop();
+        voiceListenerRef.current = null;
+      }
+      stopBrowserSpeech();
+      setVoiceMode(false);
+      voiceModeRef.current = false;
+      setVoiceModeState("idle");
+    } else {
+      // Turn on — start listening
+      setVoiceMode(true);
+      voiceModeRef.current = true;
+      lastSpokenRef.current = null;
+      setTimeout(() => startVoiceListening(), 100);
+    }
+  };
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (voiceListenerRef.current) {
+        voiceListenerRef.current.stop();
+      }
+      stopBrowserSpeech();
+    };
+  }, []);
 
   const copyMessage = (msg: ChatMsg) => {
     navigator.clipboard.writeText(msg.content);
@@ -379,6 +555,9 @@ export function AITutorChat() {
     { icon: "⭕", text: "Show me sin and cos on the unit circle for angle 60°", category: "Form 1-4" },
     { icon: "📈", text: "Cumulative frequency (ogive) from bins: 0-10 (3), 10-20 (7), 20-30 (12), 30-40 (5)", category: "Form 1-4" },
     { icon: "🧮", text: "Solve x² + 5x + 6 = 0 using the quadratic formula", category: "Form 1-4" },
+    { icon: "📝", text: "Solve 2x + 5 = 15 step by step, showing your work", category: "Step-by-Step" },
+    { icon: "📝", text: "Show me how to solve 3x - 7 = 14 step by step", category: "Step-by-Step" },
+    { icon: "📷", text: "Upload a photo of my homework using the 📎 button and ask 'help me solve this'", category: "Vision" },
     // Spreadsheet + database
     { icon: "📊", text: "Build me an Excel worksheet for food capacity: maize flour 50kg, beans 20kg, rice 15kg, cooking oil 5L", category: "Spreadsheets" },
     { icon: "💰", text: "Build a payment schedule spreadsheet for 3 employees with hours, rate, gross, tax, net", category: "Spreadsheets" },
@@ -425,6 +604,20 @@ export function AITutorChat() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {/* Voice mode toggle (continuous conversation mode like ChatGPT voice) */}
+            <button
+              onClick={toggleVoiceMode}
+              className={`w-8 h-8 rounded-full flex items-center justify-center transition ${
+                voiceMode
+                  ? voiceModeState === "listening"
+                    ? "bg-rose-500 text-white animate-pulse"
+                    : "bg-emerald-500 text-white"
+                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              }`}
+              title={voiceMode ? "Voice mode is ON — tap to turn off" : "Start voice conversation (speak + listen)"}
+            >
+              <Mic className="w-4 h-4" />
+            </button>
             <button
               onClick={newConversation}
               className="w-8 h-8 rounded-full bg-indigo-50 text-indigo-600 hover:bg-indigo-100 flex items-center justify-center"
@@ -534,6 +727,21 @@ export function AITutorChat() {
                   onCopy={() => copyMessage(msg)}
                   onRetry={msg.role === "user" && i === messages.length - 1 ? retry : undefined}
                   copied={copiedId === msg.id}
+                  onAttachmentChange={(attIdx, newCaption) => {
+                    // Update the attachment's caption (which contains the JSON spec)
+                    setMessages((prev) =>
+                      prev.map((m, idx) => {
+                        if (idx !== i) return m;
+                        if (!m.attachments) return m;
+                        return {
+                          ...m,
+                          attachments: m.attachments.map((a, ai) =>
+                            ai === attIdx ? { ...a, caption: newCaption } : a
+                          ),
+                        };
+                      })
+                    );
+                  }}
                 />
               ))
             )}
@@ -566,8 +774,50 @@ export function AITutorChat() {
             )}
           </div>
 
+          {/* Voice mode banner — shown when voiceMode is ON */}
+          {voiceMode && (
+            <div className="flex-shrink-0 px-3 py-2 bg-gradient-to-r from-violet-50 to-indigo-50 border-t border-violet-200 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className={`w-2 h-2 rounded-full ${
+                  voiceModeState === "listening" ? "bg-rose-500 animate-pulse" :
+                  voiceModeState === "speaking" ? "bg-emerald-500 animate-pulse" :
+                  "bg-gray-400"
+                }`} />
+                <p className="text-xs font-semibold text-violet-700">
+                  {voiceModeState === "listening" ? "🔴 Listening… speak your question" :
+                   voiceModeState === "speaking" ? "🟢 AI is speaking…" :
+                   "Voice conversation mode — tap mic to turn off"}
+                </p>
+              </div>
+              <button
+                onClick={toggleVoiceMode}
+                className="text-xs px-3 py-1 rounded-full bg-violet-600 text-white font-semibold hover:bg-violet-700"
+              >
+                Stop voice mode
+              </button>
+            </div>
+          )}
+
           {/* Input bar */}
           <div className="flex-shrink-0 border-t border-gray-200 bg-white p-3 pb-safe">
+            {/* Pending image preview */}
+            {pendingImage && (
+              <div className="mb-2 flex items-center gap-2 p-2 bg-emerald-50 border border-emerald-200 rounded-xl">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={pendingImage} alt="Pending upload" className="w-12 h-12 rounded object-cover" />
+                <div className="flex-1">
+                  <p className="text-xs font-semibold text-emerald-700">Image ready to send</p>
+                  <p className="text-[10px] text-emerald-600">Vision AI will analyze this with your question</p>
+                </div>
+                <button
+                  onClick={() => setPendingImage(null)}
+                  className="text-emerald-700 hover:text-rose-600"
+                  title="Remove image"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
             <form
               onSubmit={(e) => {
                 e.preventDefault();
@@ -584,13 +834,46 @@ export function AITutorChat() {
                     send();
                   }
                 }}
-                placeholder="Ask anything… (try 'plot (0,0) (1,5) (2,10)' or 'draw a 3D cube' or 'draw a trefoil knot')"
+                placeholder="Ask anything… (try 'plot (0,0) (1,5) (2,10)' or '📷 upload a photo of your homework' or 'draw a 3D cube')"
                 className="flex-1 px-4 py-2.5 rounded-full bg-gray-100 text-sm outline-none focus:bg-white focus:ring-2 focus:ring-indigo-200"
                 disabled={busy}
               />
+              {/* Image upload button (vision) */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (!f) return;
+                  if (f.size > 4 * 1024 * 1024) {
+                    setError("Image too large (max 4MB)");
+                    return;
+                  }
+                  const reader = new FileReader();
+                  reader.onload = () => setPendingImage(reader.result as string);
+                  reader.readAsDataURL(f);
+                  // Reset input so the same file can be uploaded again later
+                  e.target.value = "";
+                }}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={busy}
+                title="Upload an image (photo of homework, textbook page, diagram)"
+                className={`w-10 h-10 rounded-full flex items-center justify-center disabled:opacity-50 transition flex-shrink-0 ${
+                  pendingImage
+                    ? "bg-emerald-500 text-white hover:bg-emerald-600"
+                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                }`}
+              >
+                <Paperclip className="w-4 h-4" />
+              </button>
               <button
                 type="submit"
-                disabled={busy || !input.trim()}
+                disabled={busy || (!input.trim() && !pendingImage)}
                 className="w-10 h-10 rounded-full bg-indigo-600 text-white flex items-center justify-center disabled:opacity-50 hover:bg-indigo-700 transition flex-shrink-0"
               >
                 {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
@@ -635,11 +918,13 @@ function MessageBubble({
   onCopy,
   onRetry,
   copied,
+  onAttachmentChange,
 }: {
   msg: ChatMsg;
   onCopy: () => void;
   onRetry?: () => void;
   copied: boolean;
+  onAttachmentChange?: (attIdx: number, newCaption: string) => void;
 }) {
   const isUser = msg.role === "user";
   const [speaking, setSpeaking] = useState(false);
@@ -754,7 +1039,11 @@ function MessageBubble({
           {msg.attachments && msg.attachments.length > 0 && (
             <div className="mt-2 space-y-3">
               {msg.attachments.map((att, i) => (
-                <AttachmentRenderer key={i} attachment={att} />
+                <AttachmentRenderer
+                  key={i}
+                  attachment={att}
+                  onSpecChange={onAttachmentChange ? (newSpec: any) => onAttachmentChange(i, JSON.stringify(newSpec)) : undefined}
+                />
               ))}
             </div>
           )}
@@ -797,7 +1086,7 @@ function MessageBubble({
   );
 }
 
-function AttachmentRenderer({ attachment }: { attachment: Attachment }) {
+function AttachmentRenderer({ attachment, onSpecChange }: { attachment: Attachment; onSpecChange?: (newSpec: any) => void }) {
   if (attachment.type === "video" && attachment.url) {
     const ytMatch = attachment.url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]+)/);
     const videoId = ytMatch?.[1];
@@ -859,7 +1148,7 @@ function AttachmentRenderer({ attachment }: { attachment: Attachment }) {
           </div>
           {spec && <DownloadGraphButton spec={spec} fileName={`graph-${spec.type ?? "custom"}.svg`} />}
         </div>
-        {spec ? <GraphRenderer spec={spec} /> : <p className="text-xs text-gray-600">{attachment.caption}</p>}
+        {spec ? <GraphRenderer spec={spec} onSpecChange={onSpecChange} /> : <p className="text-xs text-gray-600">{attachment.caption}</p>}
       </div>
     );
   }
@@ -878,11 +1167,14 @@ function AttachmentRenderer({ attachment }: { attachment: Attachment }) {
             <Brain className="w-3.5 h-3.5 text-violet-500" />
             <span className="text-[10px] font-bold uppercase text-violet-500">Concept Map</span>
           </div>
-          {spec && <DownloadGraphButton spec={{ ...spec, type: "network" }} fileName="concept-map.svg" />}
+          <div className="flex gap-2">
+            {spec && <FlashcardsFromConceptMapButton spec={spec} />}
+            {spec && <DownloadGraphButton spec={{ ...spec, type: "network" }} fileName="concept-map.svg" />}
+          </div>
         </div>
         {spec ? (
           // Route concept maps through the unified graph renderer (network type)
-          <GraphRenderer spec={{ ...spec, type: "network" }} />
+          <GraphRenderer spec={{ ...spec, type: "network" }} onSpecChange={onSpecChange} />
         ) : (
           <p className="text-xs text-gray-600">{attachment.caption}</p>
         )}
@@ -939,7 +1231,7 @@ function MarkdownContent({ content, isUser }: { content: string; isUser: boolean
             "slopefield", "stemleaf", "frequency_polygon", "freeform",
             "argand", "contour", "vectorfield", "tessellation", "knot",
             "pictogram", "tally", "carroll", "ogive", "unitcircle",
-            "transform", "axes3d", "twoway", "erdiagram", "csv",
+            "transform", "axes3d", "twoway", "erdiagram", "csv", "steps",
           ]);
           if (
             (block.lang === "json" || block.lang === "text" || block.lang === "") &&
@@ -1221,5 +1513,62 @@ function DownloadGraphButton({ spec, fileName }: { spec: any; fileName: string }
         </div>
       )}
     </div>
+  );
+}
+
+// =====================================================================
+// FlashcardsFromConceptMapButton — appears on concept map attachments.
+// Calls /api/study-sets/from-concept-map to generate a study set of
+// flashcards + MCQs directly from the concept map's nodes/edges.
+// =====================================================================
+function FlashcardsFromConceptMapButton({ spec }: { spec: any }) {
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const { setScreen } = useApp();
+
+  const generate = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await fetch("/api/study-sets/from-concept-map", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conceptMapSpec: spec }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Failed");
+      setDone(true);
+      setTimeout(() => {
+        // Take the user to the flashcards screen to start studying immediately
+        setScreen("flashcards");
+      }, 1200);
+    } catch (e: any) {
+      setError(e?.message ?? "Failed");
+      setTimeout(() => setError(null), 4000);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (done) {
+    return (
+      <span className="text-[10px] text-emerald-700 font-semibold flex items-center gap-1">
+        <Check className="w-3 h-3" /> Saved!
+      </span>
+    );
+  }
+
+  return (
+    <button
+      onClick={generate}
+      disabled={busy}
+      className="text-[10px] text-violet-700 hover:text-violet-900 flex items-center gap-0.5 disabled:opacity-50"
+      title="Generate flashcards + MCQs from this concept map"
+    >
+      {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+      {busy ? "Making…" : "Flashcards"}
+      {error && <span className="text-rose-500 ml-1">✗</span>}
+    </button>
   );
 }
