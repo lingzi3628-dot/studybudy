@@ -38,6 +38,7 @@ import {
 import { useApp } from "../store";
 import { api } from "../api";
 import { CurriculumTab } from "./admin/CurriculumTab";
+import { VisualApiEditor } from "./VisualApiEditor";
 
 type Tab = "dashboard" | "users" | "providers" | "content" | "logs" | "account" | "monetization" | "search" | "conceptMap" | "pathTemplates" | "badges" | "curriculum";
 
@@ -840,6 +841,9 @@ function ProvidersTab() {
 
   return (
     <div className="space-y-3">
+      {/* NEW: Visual API editor (drag-and-drop Study Buddy ↔ API connections) */}
+      <VisualApiEditor mode="admin" />
+
       <div className="flex items-center justify-between">
         <p className="text-xs text-gray-500">
           App AI calls use these in priority order. BYOK (user-set keys) always take precedence.

@@ -1,36 +1,16 @@
 /**
- * StudyBuddy AI Service Worker v34 — Offline Mode
+ * StudyBuddy AI Service Worker v35 — Offline Mode
  *
- * v23-v33 — prior upgrades (graphs, voice, KaTeX, free Web Speech API, ER, CSV).
- * v34 — Phase 33 mega-upgrade:
- *   1. Bug fix: AI now forbids markdown tables for database/spreadsheet
- *      requests — only the mathgraph JSON spec is used. Added explicit
- *      "CRITICAL RULES — NO MARKDOWN TABLES WHEN A GRAPH IS REQUESTED"
- *      section to system prompt.
- *   2. E + B: ER diagrams + CSV tables are now EDITABLE inline. Tap the
- *      ✏️ Edit button to add/remove tables, fields, rows, columns, rename
- *      them, toggle primary keys, etc. Edits persist in the conversation
- *      (the attachment's JSON spec is updated in place — no duplicate
- *      graph is created).
- *   3. C: Image input (vision) — tap the 📎 paperclip button in the input
- *      bar to upload a photo of homework, textbook page, or diagram. The
- *      AI uses the GLM-4 vision model to analyze the image and answer.
- *   4. F: Continuous voice conversation mode — tap the mic in the header
- *      to start a back-and-forth conversation. The AI listens for your
- *      question, sends it, then speaks the reply, then listens again
- *      automatically. Tap again to stop. Uses free browser Web Speech API.
- *   5. H: Step-by-step math solver — new "steps" graph type renders each
- *      step as a numbered expandable block. Use when the user says
- *      "solve step by step", "show your work", "explain how to solve".
- *   6. I: Concept map → flashcards — every concept map attachment now
- *      has a "Flashcards" button. Tap it to generate a study set of
- *      flashcards + MCQs from the concept map nodes, then automatically
- *      navigate to the flashcards screen to start studying.
- *
- *   Total graph types: 32. SW cache bumped v33 → v34.
+ * v23-v34 — prior upgrades.
+ * v35 — Phase 34: Visual API Studio — drag-and-drop API editor for both
+ *        admin and user panels. Admin can drop API keys into nodes, create
+ *        Study Buddy nodes, and connect them by dragging. Users can do the
+ *        same in their Profile (BYOK). Test button verifies each API.
+ *        11 provider templates: OpenAI, Anthropic, Gemini, OpenRouter,
+ *        Hugging Face, Groq, Together, DeepSeek, Mistral, Ollama, Pollinations.
  */
 
-const CACHE_VERSION = "studybuddy-v34-offline";
+const CACHE_VERSION = "studybuddy-v35-offline";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const CONTENT_CACHE = `${CACHE_VERSION}-content`;
 const IMAGE_CACHE = `${CACHE_VERSION}-images`;

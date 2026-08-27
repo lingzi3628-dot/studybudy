@@ -24,6 +24,7 @@ import { useApp } from "../store";
 import { api } from "../api";
 import { getUILang, setUILang, type Lang } from "@/lib/i18n";
 import { useI18n } from "@/lib/useI18n";
+import { VisualApiEditor } from "./VisualApiEditor";
 
 const languages = ["English", "Kiswahili", "Chinese", "French", "Spanish", "Arabic"];
 
@@ -228,6 +229,14 @@ export function Profile() {
             </div>
           </div>
         </section>
+        )}
+
+        {/* NEW: Visual API Editor — users can drop an API key into a node + connect a Study Buddy */}
+        {!isFamilyChild && (
+          <section className="mt-6">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Visual API Studio (BYOK)</h2>
+            <VisualApiEditor mode="user" />
+          </section>
         )}
 
         {/* preferences */}
