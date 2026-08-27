@@ -108,15 +108,40 @@ export async function callProvider(
     const apiKey = rotationKeys[keyIdx] ?? "";
 
     try {
-      // Pollinations uses a different API format — GET request
       let res: Response;
       if (provider.providerType === "pollinations") {
+        // Pollinations: GET request, keyless
         const url = `${baseUrl}/openai?model=${model}&messages=${encodeURIComponent(JSON.stringify(messages))}`;
         res = await fetch(url, {
           method: "GET",
           headers: { "Content-Type": "application/json" },
         });
+      } else if (provider.providerType === "gemini") {
+        // Gemini: different URL format + auth via query param (NOT Bearer)
+        const geminiUrl = `${baseUrl}/models/${model}:generateContent?key=${apiKey}`;
+        // Convert OpenAI-style messages to Gemini format
+        const systemMsg = messages.find((m) => m.role === "system");
+        const userMsgs = messages.filter((m) => m.role !== "system");
+        const geminiBody: any = {
+          contents: userMsgs.map((m) => ({
+            role: m.role === "assistant" ? "model" : "user",
+            parts: [{ text: m.content }],
+          })),
+          generationConfig: {
+            maxOutputTokens: provider.maxTokens,
+            temperature: 0.7,
+          },
+        };
+        if (systemMsg) {
+          geminiBody.systemInstruction = { parts: [{ text: systemMsg.content }] };
+        }
+        res = await fetch(geminiUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(geminiBody),
+        });
       } else {
+        // Standard OpenAI-compatible providers
         res = await fetch(`${baseUrl}/chat/completions`, {
           method: "POST",
           headers: {
@@ -164,17 +189,31 @@ export async function callProvider(
         };
       }
 
-      const data = provider.providerType === "pollinations"
-        ? { choices: [{ message: { content: await res.text() } }] }
-        : await res.json();
-      const content: string =
-        data?.choices?.[0]?.message?.content ??
-        data?.choices?.[0]?.delta?.content ??
-        "";
-      const usage = data?.usage;
-      const promptTokens = usage?.prompt_tokens ?? null;
-      const completionTokens = usage?.completion_tokens ?? null;
-      const totalTokens = usage?.total_tokens ?? null;
+      // Parse response — different formats per provider
+      let content: string = "";
+      let promptTokens: number | null = null;
+      let completionTokens: number | null = null;
+      let totalTokens: number | null = null;
+
+      if (provider.providerType === "pollinations") {
+        content = await res.text();
+      } else if (provider.providerType === "gemini") {
+        const geminiData = await res.json();
+        content = geminiData?.candidates?.[0]?.content?.parts?.map((p: any) => p.text).join("") ?? "";
+        promptTokens = geminiData?.usageMetadata?.promptTokenCount ?? null;
+        completionTokens = geminiData?.usageMetadata?.candidatesTokenCount ?? null;
+        totalTokens = geminiData?.usageMetadata?.totalTokenCount ?? null;
+      } else {
+        const data = await res.json();
+        content =
+          data?.choices?.[0]?.message?.content ??
+          data?.choices?.[0]?.delta?.content ??
+          "";
+        const usage = data?.usage;
+        promptTokens = usage?.prompt_tokens ?? null;
+        completionTokens = usage?.completion_tokens ?? null;
+        totalTokens = usage?.total_tokens ?? null;
+      }
       const cost = totalTokens ? (totalTokens / 1000) * provider.costPer1kTokens : 0;
 
       // Persist the working rotation index so future calls start with the good key

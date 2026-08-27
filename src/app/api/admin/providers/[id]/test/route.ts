@@ -47,7 +47,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
 
   const start = Date.now();
   try {
-    // Pollinations uses a different API format — GET request with prompt as query param
+    // Pollinations: keyless, GET request
     if (isKeyless) {
       const prompt = encodeURIComponent("Reply with the single word 'ok'.");
       const pollinationsUrl = `${baseUrl}/openai?model=${model}&messages=${JSON.stringify(testMessages)}`;
@@ -73,6 +73,40 @@ export async function POST(_req: NextRequest, { params }: Params) {
       });
     }
 
+    // Gemini: different URL + auth via query param (NOT Bearer)
+    if (provider.providerType === "gemini") {
+      const geminiUrl = `${baseUrl}/models/${model}:generateContent?key=${apiKey}`;
+      const geminiBody = {
+        contents: [{ role: "user", parts: [{ text: "Reply with the single word 'ok'." }] }],
+        systemInstruction: { parts: [{ text: "You are a test endpoint. Reply with the single word 'ok'." }] },
+        generationConfig: { maxOutputTokens: 10, temperature: 0 },
+      };
+      const res = await fetch(geminiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(geminiBody),
+      });
+      const latencyMs = Date.now() - start;
+      if (!res.ok) {
+        const txt = await res.text().catch(() => "");
+        refundRateLimit(admin.adminId);
+        return NextResponse.json(
+          { status: "error", httpStatus: res.status, error: txt.slice(0, 300), latencyMs },
+          { status: 200 }
+        );
+      }
+      const data = await res.json();
+      const reply = data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text).join("") ?? "";
+      return NextResponse.json({
+        status: "success",
+        reply: reply.slice(0, 50),
+        model,
+        latencyMs,
+        usage: data?.usageMetadata,
+      });
+    }
+
+    // Standard OpenAI-compatible providers
     const res = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: {

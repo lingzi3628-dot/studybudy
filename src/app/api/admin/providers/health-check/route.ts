@@ -55,9 +55,10 @@ export async function POST(req: NextRequest) {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 15000);
 
-        // Pollinations uses a different API format
+        // Different API formats per provider type
         let res: Response;
         if (isKeyless) {
+          // Pollinations: keyless, GET request
           const messages = [
             { role: "system", content: "Reply with the single word 'ok'." },
             { role: "user", content: "ok" },
@@ -67,7 +68,21 @@ export async function POST(req: NextRequest) {
             headers: { "Content-Type": "application/json" },
             signal: controller.signal,
           });
+        } else if (p.providerType === "gemini") {
+          // Gemini: different URL + auth via query param
+          const geminiUrl = `${baseUrl}/models/${model}:generateContent?key=${apiKey}`;
+          res = await fetch(geminiUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ role: "user", parts: [{ text: "ok" }] }],
+              systemInstruction: { parts: [{ text: "Reply with the single word 'ok'." }] },
+              generationConfig: { maxOutputTokens: 5, temperature: 0 },
+            }),
+            signal: controller.signal,
+          });
         } else {
+          // Standard OpenAI-compatible providers
           res = await fetch(`${baseUrl}/chat/completions`, {
             method: "POST",
             headers: {
@@ -101,10 +116,16 @@ export async function POST(req: NextRequest) {
           });
           return { providerId: p.id, name: p.name, status, latencyMs, error: `HTTP ${res.status}` };
         }
-        const data = p.providerType === "pollinations"
-          ? { choices: [{ message: { content: await res.text() } }] }
-          : await res.json();
-        const reply = (data?.choices?.[0]?.message?.content ?? "").trim();
+        let reply = "";
+        if (p.providerType === "pollinations") {
+          reply = (await res.text()).trim();
+        } else if (p.providerType === "gemini") {
+          const geminiData = await res.json();
+          reply = (geminiData?.candidates?.[0]?.content?.parts?.map((part: any) => part.text).join("") ?? "").trim();
+        } else {
+          const data = await res.json();
+          reply = (data?.choices?.[0]?.message?.content ?? "").trim();
+        }
         const status = latencyMs > 5000 ? "slow" : "ok";
         await db.apiHealthCheck.create({
           data: { providerId: p.id, status, latencyMs, errorMessage: null },
