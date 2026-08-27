@@ -5,7 +5,10 @@ import { encryptApiKey, maskApiKey } from "@/lib/crypto";
 
 export const runtime = "nodejs";
 
-const VALID_TYPES = ["openai", "glm", "gemini", "openrouter", "huggingface", "pollinations"];
+const VALID_TYPES = [
+  "openai", "glm", "gemini", "openrouter", "huggingface", "pollinations",
+  "anthropic", "groq", "together", "deepseek", "mistral", "ollama",
+];
 
 /**
  * GET /api/admin/providers — list all providers with masked API keys.

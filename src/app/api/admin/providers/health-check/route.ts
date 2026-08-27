@@ -81,6 +81,23 @@ export async function POST(req: NextRequest) {
             }),
             signal: controller.signal,
           });
+        } else if (p.providerType === "anthropic") {
+          // Anthropic Claude: different URL + headers
+          res = await fetch(`${baseUrl}/messages`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-api-key": apiKey,
+              "anthropic-version": "2023-06-01",
+            },
+            body: JSON.stringify({
+              model,
+              max_tokens: 5,
+              system: "Reply with the single word 'ok'.",
+              messages: [{ role: "user", content: "ok" }],
+            }),
+            signal: controller.signal,
+          });
         } else {
           // Standard OpenAI-compatible providers
           res = await fetch(`${baseUrl}/chat/completions`, {
@@ -122,6 +139,9 @@ export async function POST(req: NextRequest) {
         } else if (p.providerType === "gemini") {
           const geminiData = await res.json();
           reply = (geminiData?.candidates?.[0]?.content?.parts?.map((part: any) => part.text).join("") ?? "").trim();
+        } else if (p.providerType === "anthropic") {
+          const anthropicData = await res.json();
+          reply = (anthropicData?.content?.map((c: any) => c.text).join("") ?? "").trim();
         } else {
           const data = await res.json();
           reply = (data?.choices?.[0]?.message?.content ?? "").trim();

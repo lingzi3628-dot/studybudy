@@ -140,6 +140,31 @@ export async function callProvider(
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(geminiBody),
         });
+      } else if (provider.providerType === "anthropic") {
+        // Anthropic Claude: different URL (/messages not /chat/completions),
+        // auth via x-api-key header (not Bearer), different body format.
+        const systemMsg = messages.find((m) => m.role === "system");
+        const userMsgs = messages.filter((m) => m.role !== "system");
+        const anthropicBody: any = {
+          model,
+          max_tokens: provider.maxTokens,
+          messages: userMsgs.map((m) => ({
+            role: m.role === "assistant" ? "assistant" : "user",
+            content: m.content,
+          })),
+        };
+        if (systemMsg) {
+          anthropicBody.system = systemMsg.content;
+        }
+        res = await fetch(`${baseUrl}/messages`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": apiKey,
+            "anthropic-version": "2023-06-01",
+          },
+          body: JSON.stringify(anthropicBody),
+        });
       } else {
         // Standard OpenAI-compatible providers
         res = await fetch(`${baseUrl}/chat/completions`, {
@@ -203,6 +228,12 @@ export async function callProvider(
         promptTokens = geminiData?.usageMetadata?.promptTokenCount ?? null;
         completionTokens = geminiData?.usageMetadata?.candidatesTokenCount ?? null;
         totalTokens = geminiData?.usageMetadata?.totalTokenCount ?? null;
+      } else if (provider.providerType === "anthropic") {
+        const anthropicData = await res.json();
+        content = anthropicData?.content?.map((c: any) => c.text).join("") ?? "";
+        promptTokens = anthropicData?.usage?.input_tokens ?? null;
+        completionTokens = anthropicData?.usage?.output_tokens ?? null;
+        totalTokens = promptTokens !== null && completionTokens !== null ? promptTokens + completionTokens : null;
       } else {
         const data = await res.json();
         content =

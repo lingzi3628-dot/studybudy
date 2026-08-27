@@ -106,6 +106,43 @@ export async function POST(_req: NextRequest, { params }: Params) {
       });
     }
 
+    // Anthropic Claude: different URL + headers
+    if (provider.providerType === "anthropic") {
+      const anthropicUrl = `${baseUrl}/messages`;
+      const res = await fetch(anthropicUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 10,
+          system: "You are a test endpoint. Reply with the single word 'ok'.",
+          messages: [{ role: "user", content: "Reply with ok." }],
+        }),
+      });
+      const latencyMs = Date.now() - start;
+      if (!res.ok) {
+        const txt = await res.text().catch(() => "");
+        refundRateLimit(admin.adminId);
+        return NextResponse.json(
+          { status: "error", httpStatus: res.status, error: txt.slice(0, 300), latencyMs },
+          { status: 200 }
+        );
+      }
+      const data = await res.json();
+      const reply = (data?.content?.map((c: any) => c.text).join("") ?? "").trim();
+      return NextResponse.json({
+        status: "success",
+        reply: reply.slice(0, 50),
+        model,
+        latencyMs,
+        usage: data?.usage,
+      });
+    }
+
     // Standard OpenAI-compatible providers
     const res = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",

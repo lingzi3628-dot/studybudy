@@ -14,7 +14,7 @@
  *   + Per-conversation model switcher (dropdown in AI Tutor header)
  */
 
-const CACHE_VERSION = "studybuddy-v39-offline";
+const CACHE_VERSION = "studybuddy-v40-offline";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const CONTENT_CACHE = `${CACHE_VERSION}-content`;
 const IMAGE_CACHE = `${CACHE_VERSION}-images`;
@@ -116,11 +116,10 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       fetch(req)
         .then((res) => {
-          try {
-            caches.open(SHELL_CACHE).then((cache) => cache.put(req, res.clone()));
-          } catch (e) {
-            console.warn("[SW] nav cache.put failed:", e?.message);
-          }
+          // Cache the response asynchronously — errors are caught in the .catch()
+          caches.open(SHELL_CACHE)
+            .then((cache) => cache.put(req, res.clone()))
+            .catch((e) => console.warn("[SW] nav cache.put failed:", e?.message));
           return res;
         })
         .catch(() => caches.match(req).then((c) => c || caches.match("/")))
