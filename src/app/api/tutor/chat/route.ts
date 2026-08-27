@@ -275,8 +275,18 @@ The "type" field tells the frontend which renderer to use. Available types:
 8. "tree" — probability tree diagram (branching outcomes).
    JSON spec: {"type":"tree", "title":"Coin Flips", "root":{"label":"Start","children":[{"label":"H","probability":"1/2","children":[{"label":"HH","probability":"1/2"},{"label":"HT","probability":"1/2"}]},{"label":"T","probability":"1/2","children":[{"label":"TH","probability":"1/2"},{"label":"TT","probability":"1/2"}]}]}}
 
-9. "network" — graph theory: nodes connected by edges (also used for concept maps).
+9. "network" — graph theory: nodes connected by edges. ALSO USED FOR CONCEPT MAPS.
+   For graph theory:
    JSON spec: {"type":"network", "title":"Friend Network", "nodes":[{"id":"a","label":"Alice","color":"#4F46E5"},{"id":"b","label":"Bob","color":"#10B981"}], "edges":[{"from":"a","to":"b","label":"friends","directed":false}]}
+   For CONCEPT MAPS: use a hub-and-spoke structure. The first node is the central topic (id="n0"),
+   other nodes are subtopics. The frontend auto-detects this layout and places the central node
+   in the middle with subtopics radiating out.
+   Example concept map of "human digestive system":
+   \`\`\`mathgraph
+   {"type":"network","title":"Concept Map: Human Digestive System","nodes":[{"id":"n0","label":"Digestive System","color":"#1E40AF"},{"id":"n1","label":"Mouth","color":"#4F46E5"},{"id":"n2","label":"Esophagus","color":"#10B981"},{"id":"n3","label":"Stomach","color":"#F59E0B"},{"id":"n4","label":"Small Intestine","color":"#EF4444"},{"id":"n5","label":"Large Intestine","color":"#8B5CF6"},{"id":"n6","label":"Anus","color":"#06B6D4"}],"edges":[{"from":"n0","to":"n1","label":"starts with"},{"from":"n0","to":"n2","label":"then"},{"from":"n0","to":"n3","label":"then"},{"from":"n0","to":"n4","label":"then"},{"from":"n0","to":"n5","label":"then"},{"from":"n0","to":"n6","label":"ends at"}]}
+   \`\`\`
+   Use the topic from the user's question as the central node's label (short, 1-3 words).
+   Limit to 5-9 subtopic nodes (8 max) so the diagram stays readable.
 
 10. "vector" — directed arrows on a coordinate plane (force / displacement vectors).
     JSON spec: {"type":"vector", "title":"Force Vectors", "xLabel":"x (N)", "yLabel":"y (N)", "vectors":[{"from":[0,0],"to":[3,4],"label":"F1","color":"#4F46E5"},{"from":[0,0],"to":[-2,1],"label":"F2","color":"#EF4444"}], "xRange":[-5,5], "yRange":[-5,5]}
@@ -608,19 +618,101 @@ GENERAL RULES:
             ],
           };
         } else if (wantsConceptMap) {
-          // Build a simple concept map from the AI reply (extract bolded terms)
-          const terms = (reply.match(/\*\*([A-Z][^*]+)\*\*/g) ?? []).slice(0, 5).map((s) => s.slice(2, -2));
-          const nodes = terms.map((t, i) => ({ id: `n${i}`, label: t, color: ["#4F46E5", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6"][i % 5] }));
+          // Build a concept map from the AI reply.
+          // Strategy: extract **bolded** terms, then ### headers, then key
+          // phrases from the user's question. Use the user's topic as the
+          // central node and branch out to the extracted subtopics.
+          const PALETTE = ["#4F46E5", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#06B6D4", "#EC4899"];
+
+          // 1) Bolded terms (highest priority)
+          let terms: string[] = (reply.match(/\*\*([A-Z][^*]+)\*\*/g) ?? [])
+            .slice(0, 8)
+            .map((s) => s.slice(2, -2).trim());
+
+          // 2) Markdown headers — ### 1.1 Mouth / ## Mouth / # Mouth
+          if (terms.length < 3) {
+            const headerMatches = reply.match(/^#{1,6}\s+(?:\d+\.\d+\s+)?([A-Z][^\n]+)/gm) ?? [];
+            const headerTerms = headerMatches
+              .map((h) => h.replace(/^#{1,6}\s+(?:\d+\.\d+\s+)?/, "").trim())
+              .filter((t) => t.length >= 3 && t.length <= 30)
+              .slice(0, 8);
+            // Merge, dedupe (case-insensitive), preserve order
+            const seen = new Set(terms.map((t) => t.toLowerCase()));
+            for (const ht of headerTerms) {
+              if (!seen.has(ht.toLowerCase())) {
+                terms.push(ht);
+                seen.add(ht.toLowerCase());
+              }
+            }
+          }
+
+          // 3) Topic words from the user's question (e.g. "concept map of the
+          // human digestive system" → central node "Human Digestive System")
+          let topicName = "Topic";
+          const topicMatch = userMessage.match(/(?:concept\s+map|mind\s+map)\s+(?:of\s+)?(.+)/i);
+          if (topicMatch) {
+            topicName = topicMatch[1]
+              .trim()
+              .replace(/[.?!]+$/, "")
+              .replace(/\bthe\b/gi, "")
+              .trim();
+            // Title-case each word
+            topicName = topicName
+              .split(/\s+/)
+              .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+              .join(" ");
+            // Limit length
+            if (topicName.length > 30) topicName = topicName.slice(0, 30) + "…";
+          }
+
+          // If still no terms extracted, generate sensible defaults based on topic
+          if (terms.length === 0) {
+            const fallbackTerms = topicName !== "Topic"
+              ? ["Definition", "Components", "Process", "Examples", "Importance"]
+              : ["Concept A", "Concept B", "Concept C", "Concept D"];
+            terms = fallbackTerms;
+          }
+
+          // Build the concept map: central topic node + subtopic nodes radiating out
+          const nodes: any[] = [];
+          nodes.push({ id: "n0", label: topicName, color: "#1E40AF" }); // darker color for the central node
+          terms.slice(0, 8).forEach((t, i) => {
+            nodes.push({
+              id: `n${i + 1}`,
+              label: t.length > 30 ? t.slice(0, 30) + "…" : t,
+              color: PALETTE[(i + 1) % PALETTE.length],
+            });
+          });
+          // Connect each subtopic to the central node
           const edges: any[] = [];
           for (let i = 1; i < nodes.length; i++) {
-            edges.push({ from: nodes[0].id, to: nodes[i].id, label: "→" });
+            edges.push({ from: "n0", to: `n${i}`, label: "part of" });
           }
-          synthesized = { title: "Concept Map", nodes, edges };
+
+          synthesized = {
+            type: "network",
+            title: `Concept Map: ${topicName}`,
+            nodes,
+            edges,
+          };
         }
 
         if (synthesized) {
+          // Determine attachment type: concept maps should be tagged as "conceptmap"
+          // so the UI shows the Brain icon. Graph specs (function/scatter/bar/etc)
+          // are tagged as "graph".
+          let attachmentType = "graph";
+          if (
+            synthesized.type === "network" ||
+            (synthesized.nodes && synthesized.edges && !synthesized.type)
+          ) {
+            attachmentType = "conceptmap";
+            // Make sure the synthesized spec has type: "network" so GraphRenderer
+            // routes to NetworkSVG (not FunctionSVG).
+            if (!synthesized.type) synthesized.type = "network";
+          }
           attachments.push({
-            type: synthesized.type === "network" || (synthesized.nodes && !synthesized.type) ? "graph" : "graph",
+            type: attachmentType,
             url: null,
             caption: JSON.stringify(synthesized),
           });

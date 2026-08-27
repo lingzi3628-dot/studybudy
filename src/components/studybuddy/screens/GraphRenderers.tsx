@@ -800,15 +800,62 @@ function NetworkSVG({ spec }: { spec: any }) {
   const height = 360;
   const cx = width / 2;
   const cy = height / 2;
-  const radius = Math.min(width, height) / 2 - 60;
+  const radius = Math.min(width, height) / 2 - 70;
 
-  const positions = nodes.map((_, i) => {
-    const angle = (2 * Math.PI * i) / Math.max(nodes.length, 1) - Math.PI / 2;
-    return {
-      x: cx + radius * Math.cos(angle),
-      y: cy + radius * Math.sin(angle),
-    };
-  });
+  // Detect hub-and-spoke layout: if one node is connected to MANY others (degree >= 3)
+  // and all other nodes only connect to it, treat that node as the central hub.
+  // This is the typical concept-map structure (central topic + subtopics radiating out).
+  const nodeDegree = new Map<string, number>();
+  for (const e of edges) {
+    nodeDegree.set(e.from, (nodeDegree.get(e.from) ?? 0) + 1);
+    nodeDegree.set(e.to, (nodeDegree.get(e.to) ?? 0) + 1);
+  }
+  let hubId: string | null = null;
+  if (nodes.length >= 4) {
+    const sortedByDegree = [...nodeDegree.entries()].sort((a, b) => b[1] - a[1]);
+    if (sortedByDegree.length > 0 && sortedByDegree[0][1] >= 3) {
+      const topDegree = sortedByDegree[0][1];
+      const secondDegree = sortedByDegree[1]?.[1] ?? 0;
+      // The hub should have significantly higher degree than others
+      if (topDegree >= secondDegree * 2) {
+        hubId = sortedByDegree[0][0];
+      }
+    }
+  }
+
+  let positions: Array<{ x: number; y: number }>;
+  if (hubId) {
+    // Hub-and-spoke: hub in center, others around the circle
+    const hubIdx = nodes.findIndex((n) => n.id === hubId);
+    const otherNodes = nodes.filter((n) => n.id !== hubId);
+    const otherCount = otherNodes.length;
+    const angleStep = (2 * Math.PI) / Math.max(otherCount, 1);
+    const startAngle = -Math.PI / 2;
+    // Build positions array aligned with node index
+    positions = nodes.map((n) => ({ x: cx, y: cy }));
+    let otherIdx = 0;
+    for (let i = 0; i < nodes.length; i++) {
+      if (i === hubIdx) {
+        positions[i] = { x: cx, y: cy };
+      } else {
+        const angle = startAngle + otherIdx * angleStep;
+        positions[i] = {
+          x: cx + radius * Math.cos(angle),
+          y: cy + radius * Math.sin(angle),
+        };
+        otherIdx++;
+      }
+    }
+  } else {
+    // Standard circular layout
+    positions = nodes.map((_, i) => {
+      const angle = (2 * Math.PI * i) / Math.max(nodes.length, 1) - Math.PI / 2;
+      return {
+        x: cx + radius * Math.cos(angle),
+        y: cy + radius * Math.sin(angle),
+      };
+    });
+  }
 
   return (
     <div>
@@ -843,13 +890,46 @@ function NetworkSVG({ spec }: { spec: any }) {
         {/* Nodes */}
         {nodes.map((n, i) => {
           const pos = positions[i];
+          const isHub = n.id === hubId;
           const color = n.color ?? PALETTE[i % PALETTE.length];
-          const labelWidth = Math.max(60, n.label.length * 7 + 16);
+          const fontSize = isHub ? 12 : 11;
+          const padding = isHub ? 12 : 8;
+          const rectHeight = isHub ? 36 : 32;
+          const labelWidth = Math.max(isHub ? 100 : 60, n.label.length * 7 + padding);
           return (
             <g key={n.id}>
-              <rect x={pos.x - labelWidth / 2} y={pos.y - 16} width={labelWidth} height={32} rx={16} fill={color} opacity={0.9} />
-              <text x={pos.x} y={pos.y + 4} fontSize={11} fill="white" textAnchor="middle" fontWeight={600}>
-                {n.label.length > 22 ? n.label.slice(0, 22) + "…" : n.label}
+              {isHub && (
+                // Glow / highlight ring around the hub
+                <rect
+                  x={pos.x - labelWidth / 2 - 3}
+                  y={pos.y - rectHeight / 2 - 3}
+                  width={labelWidth + 6}
+                  height={rectHeight + 6}
+                  rx={(rectHeight + 6) / 2}
+                  fill="none"
+                  stroke={color}
+                  strokeWidth={1.5}
+                  strokeOpacity={0.4}
+                />
+              )}
+              <rect
+                x={pos.x - labelWidth / 2}
+                y={pos.y - rectHeight / 2}
+                width={labelWidth}
+                height={rectHeight}
+                rx={rectHeight / 2}
+                fill={color}
+                opacity={0.95}
+              />
+              <text
+                x={pos.x}
+                y={pos.y + 4}
+                fontSize={fontSize}
+                fill="white"
+                textAnchor="middle"
+                fontWeight={isHub ? 700 : 600}
+              >
+                {n.label.length > (isHub ? 28 : 22) ? n.label.slice(0, isHub ? 28 : 22) + "…" : n.label}
               </text>
             </g>
           );
