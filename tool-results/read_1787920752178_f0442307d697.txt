@@ -1,0 +1,2002 @@
+     1→"use client";
+     2→
+     3→import { useEffect, useState, useRef, useCallback, type ReactElement } from "react";
+     4→import {
+     5→  ChevronLeft,
+     6→  Send,
+     7→  Loader2,
+     8→  Trash2,
+     9→  Plus,
+    10→  MessageSquare,
+    11→  X,
+    12→  Video,
+    13→  Image as ImageIcon,
+    14→  Paperclip,
+    15→  GitBranch,
+    16→  Brain,
+    17→  Bot,
+    18→  User as UserIcon,
+    19→  Copy,
+    20→  Check,
+    21→  RotateCw,
+    22→  Download,
+    23→  Code,
+    24→  Volume2,
+    25→  VolumeX,
+    26→  Mic,
+    27→  Square,
+    28→  Sparkles,
+    29→  FileText,
+    30→} from "lucide-react";
+    31→import { useApp } from "../store";
+    32→import { GraphRenderer, type GraphSpec } from "./GraphRenderers";
+    33→import katex from "katex";
+    34→import {
+    35→  isBrowserTTSSupported,
+    36→  isBrowserASRSupported,
+    37→  browserSpeak,
+    38→  stopBrowserSpeech,
+    39→  startBrowserListening,
+    40→} from "./voice-mode";
+    41→
+    42→type Attachment = {
+    43→  type: "video" | "image" | "graph" | "conceptmap" | string;
+    44→  url: string | null;
+    45→  caption: string;
+    46→};
+    47→
+    48→type ChatMsg = {
+    49→  id: string;
+    50→  role: "user" | "assistant";
+    51→  content: string;
+    52→  attachments?: Attachment[];
+    53→  thinking?: string[]; // Proof Data Engine thinking steps
+    54→  proof?: { passed: boolean; curriculumMatch: boolean; readabilityScore: number; factualConfidence: number };
+    55→  createdAt: string;
+    56→};
+    57→
+    58→type Conversation = {
+    59→  id: string;
+    60→  title: string;
+    61→  updatedAt: string;
+    62→  messages?: ChatMsg[];
+    63→};
+    64→
+    65→type ConceptMapSpec = {
+    66→  title?: string;
+    67→  nodes: Array<{ id: string; label: string; color?: string }>;
+    68→  edges: Array<{ from: string; to: string; label?: string }>;
+    69→};
+    70→
+    71→/**
+    72→ * AITutorChat — Phase 28+
+    73→ *
+    74→ * ChatGPT-style persistent AI Tutor:
+    75→ * - Conversations saved to DB (never lost on refresh)
+    76→ * - Scroll back through past messages
+    77→ * - Multiple conversations (like ChatGPT sidebar)
+    78→ * - AI can fetch YouTube videos, images, graphs, concept maps
+    79→ * - Curriculum context injected per grade level
+    80→ * - Markdown rendering (code blocks, lists, tables, links)
+    81→ * - SVG-rendered graphs (function plotters) and concept maps (node/edge diagrams)
+    82→ * - Copy / retry buttons on AI messages
+    83→ */
+    84→export function AITutorChat() {
+    85→  const { setScreen } = useApp();
+    86→  const [conversations, setConversations] = useState<Conversation[]>([]);
+    87→  const [activeConversation, setActiveConversation] = useState<Conversation | null>(null);
+    88→  const [messages, setMessages] = useState<ChatMsg[]>([]);
+    89→  const [input, setInput] = useState("");
+    90→  const [busy, setBusy] = useState(false);
+    91→  const [pendingImage, setPendingImage] = useState<string | null>(null); // base64 data URL for vision
+    92→  const [pendingDocument, setPendingDocument] = useState<{ text: string; fileName: string; fileType: string; preview: string } | null>(null);
+    93→  const fileInputRef = useRef<HTMLInputElement | null>(null);
+    94→  const docInputRef = useRef<HTMLInputElement | null>(null);
+    95→  const [uploadingDoc, setUploadingDoc] = useState(false);
+    96→  // Continuous voice conversation mode (like ChatGPT voice mode)
+    97→  const [voiceMode, setVoiceMode] = useState(false);
+    98→  const voiceModeRef = useRef(false); // ref version for use inside callbacks
+    99→  const [voiceModeState, setVoiceModeState] = useState<"idle" | "listening" | "speaking">("idle");
+   100→  const voiceListenerRef = useRef<ReturnType<typeof startBrowserListening> | null>(null);
+   101→  // Per-conversation model switcher (Feature #7) + model comparison (Feature #1)
+   102→  const [availableBuddies, setAvailableBuddies] = useState<Array<{ modelName: string; displayName: string; emoji: string; canUse: boolean }>>([]);
+   103→  const [currentModel, setCurrentModel] = useState<string>("");
+   104→  const [showModelPicker, setShowModelPicker] = useState(false);
+   105→  const [showCompare, setShowCompare] = useState(false);
+   106→  const [compareBuddies, setCompareBuddies] = useState<string[]>([]);
+   107→  const [compareResults, setCompareResults] = useState<any[]>([]);
+   108→  const [comparing, setComparing] = useState(false);
+   109→  const [preferredIndex, setPreferredIndex] = useState<number | null>(null);
+   110→  // Exam generator state
+   111→  const [showExamForm, setShowExamForm] = useState(false);
+   112→  const [examConfig, setExamConfig] = useState({ topic: "", numQuestions: "10", numPages: "2", gradeLevel: "", examType: "kcse_style", difficulty: "medium" });
+   113→  const [generatingExam, setGeneratingExam] = useState(false);
+   114→  const [examProgress, setExamProgress] = useState(0);
+   115→  const [examResult, setExamResult] = useState<{ html: string; summary: any } | null>(null);
+   116→  const [viewingExam, setViewingExam] = useState<string | null>(null); // HTML of exam being viewed
+   117→
+   118→  // Auto-generate exam from chat (triggered by examgen block in AI reply)
+   119→  const autoGenerateExam = async (config: any) => {
+   120→    setGeneratingExam(true);
+   121→    setExamProgress(0);
+   122→    // Show a progress message in chat
+   123→    const progressMsg: ChatMsg = {
+   124→      id: `exam-progress-${Date.now()}`,
+   125→      role: "assistant",
+   126→      content: `📝 Generating your exam on **${config.topic}**… Please wait while I create ${config.numQuestions} questions.`,
+   127→      createdAt: new Date().toISOString(),
+   128→    };
+   129→    setMessages((m) => [...m, progressMsg]);
+   130→
+   131→    // Simulate progress (the actual generation happens server-side)
+   132→    const progressInterval = setInterval(() => {
+   133→      setExamProgress((p) => Math.min(90, p + Math.random() * 15));
+   134→    }, 2000);
+   135→
+   136→    try {
+   137→      const r = await fetch("/api/tutor/generate-exam", {
+   138→        method: "POST",
+   139→        headers: { "Content-Type": "application/json" },
+   140→        body: JSON.stringify(config),
+   141→      });
+   142→      const d = await r.json();
+   143→      clearInterval(progressInterval);
+   144→      setExamProgress(100);
+   145→
+   146→      if (!r.ok) throw new Error(d.error ?? "Generation failed");
+   147→
+   148→      // Auto-publish to Exam Hub
+   149→      let examHubId: string | null = null;
+   150→      try {
+   151→        const pubRes = await fetch("/api/admin/exam-papers", {
+   152→          method: "POST",
+   153→          headers: { "Content-Type": "application/json" },
+   154→          body: JSON.stringify({
+   155→            examType: "ai_template",
+   156→            title: `${config.topic} — ${config.gradeLevel} Exam (${d.summary.questionCount}Q, ${d.summary.totalMarks}M)`,
+   157→            description: `AI-generated exam on ${config.topic} for ${config.gradeLevel}. ${d.summary.questionCount} questions, ${d.summary.totalMarks} marks. Difficulty: ${d.summary.difficulty}.`,
+   158→            category: "studybuddy_ai",
+   159→            gradeLevel: config.gradeLevel,
+   160→            subjectName: config.topic,
+   161→            questions: d.exam.questions,
+   162→            totalMarks: d.summary.totalMarks,
+   163→            durationMin: Math.ceil(d.summary.totalMarks * 1.5),
+   164→            isPublished: true,
+   165→          }),
+   166→        });
+   167→        if (pubRes.ok) {
+   168→          const pubData = await pubRes.json();
+   169→          examHubId = pubData.paper?.id ?? null;
+   170→        }
+   171→      } catch (pubErr: any) {
+   172→        console.error("[autoGenerateExam] publish failed:", pubErr?.message);
+   173→      }
+   174→
+   175→      // Show success message with link
+   176→      const successMsg: ChatMsg = {
+   177→        id: `exam-done-${Date.now()}`,
+   178→        role: "assistant",
+   179→        content: `✅ Your exam on **${config.topic}** is ready!\n\n📊 **${d.summary.questionCount} questions · ${d.summary.totalMarks} marks · ${config.gradeLevel} · ${config.difficulty}**\n\n🔗 Tap the exam card below to view and download it as a PDF.\n\n📢 I've also published this exam to the **Exam Hub** so other students can try it too!`,
+   180→        createdAt: new Date().toISOString(),
+   181→      };
+   182→      setMessages((m) => [...m, successMsg]);
+   183→
+   184→      setExamResult({ html: d.html, summary: { ...d.summary, examHubId } });
+   185→    } catch (e: any) {
+   186→      clearInterval(progressInterval);
+   187→      setExamProgress(0);
+   188→      const errMsg: ChatMsg = {
+   189→        id: `exam-err-${Date.now()}`,
+   190→        role: "assistant",
+   191→        content: `❌ Couldn't generate the exam: ${e?.message ?? "unknown error"}. Try with fewer questions.`,
+   192→        createdAt: new Date().toISOString(),
+   193→      };
+   194→      setMessages((m) => [...m, errMsg]);
+   195→    } finally {
+   196→      setGeneratingExam(false);
+   197→      setTimeout(() => setExamProgress(0), 1000);
+   198→    }
+   199→  };
+   200→  const [loading, setLoading] = useState(true);
+   201→  const [showSidebar, setShowSidebar] = useState(false);
+   202→  const [error, setError] = useState<string | null>(null);
+   203→  // Voice mode state
+   204→  const [recording, setRecording] = useState(false);
+   205→  const [transcribing, setTranscribing] = useState(false);
+   206→  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+   207→  const audioChunksRef = useRef<Blob[]>([]);
+   208→  const [showUpgrade, setShowUpgrade] = useState(false);
+   209→  const [copiedId, setCopiedId] = useState<string | null>(null);
+   210→  const scrollRef = useRef<HTMLDivElement>(null);
+   211→
+   212→  // Load conversation list
+   213→  const loadConversations = useCallback(async () => {
+   214→    try {
+   215→      const r = await fetch("/api/tutor/conversations");
+   216→      const d = await r.json();
+   217→      setConversations(d.conversations ?? []);
+   218→    } catch {}
+   219→    setLoading(false);
+   220→  }, []);
+   221→
+   222→  useEffect(() => {
+   223→    loadConversations();
+   224→  }, [loadConversations]);
+   225→
+   226→  // Auto-scroll to bottom on new messages
+   227→  useEffect(() => {
+   228→    if (scrollRef.current) {
+   229→      scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+   230→    }
+   231→  }, [messages, busy]);
+   232→
+   233→  // Load a conversation's messages
+   234→  const openConversation = async (id: string) => {
+   235→    try {
+   236→      const r = await fetch(`/api/tutor/conversations?id=${id}`);
+   237→      const d = await r.json();
+   238→      if (d.conversation) {
+   239→        setActiveConversation(d.conversation);
+   240→        // Map DB messages to client ChatMsg shape
+   241→        const convMessages: ChatMsg[] = (d.conversation.messages ?? []).map((m: any) => ({
+   242→          id: m.id,
+   243→          role: m.role,
+   244→          content: m.content,
+   245→          attachments: Array.isArray(m.attachments) ? m.attachments : undefined,
+   246→          createdAt: m.createdAt,
+   247→        }));
+   248→        setMessages(convMessages);
+   249→      }
+   250→    } catch {}
+   251→    setShowSidebar(false);
+   252→  };
+   253→
+   254→  // Start a new conversation
+   255→  const newConversation = () => {
+   256→    setActiveConversation(null);
+   257→    setMessages([]);
+   258→    setError(null);
+   259→    setShowUpgrade(false);
+   260→    setShowSidebar(false);
+   261→  };
+   262→
+   263→  // Delete a conversation
+   264→  const deleteConversation = async (id: string) => {
+   265→    if (!confirm("Delete this conversation?")) return;
+   266→    await fetch(`/api/tutor/conversations?id=${id}`, { method: "DELETE" });
+   267→    if (activeConversation?.id === id) {
+   268→      setActiveConversation(null);
+   269→      setMessages([]);
+   270→    }
+   271→    await loadConversations();
+   272→  };
+   273→
+   274→  // Send a message
+   275→  const send = async (text?: string) => {
+   276→    const q = (text ?? input).trim();
+   277→    const img = pendingImage;
+   278→    const doc = pendingDocument;
+   279→    if ((!q && !img && !doc) || busy) return;
+   280→    setInput("");
+   281→    setPendingImage(null);
+   282→    setPendingDocument(null);
+   283→    setBusy(true);
+   284→    setError(null);
+   285→    setShowUpgrade(false);
+   286→
+   287→    // Build the message — if a document is attached, include its text as context
+   288→    let messageText = q;
+   289→    if (doc) {
+   290→      messageText = q || "Please analyze this document and help me understand it.";
+   291→      messageText += `\n\n--- DOCUMENT: ${doc.fileName} (${doc.fileType.toUpperCase()}) ---\n${doc.text}\n--- END DOCUMENT ---\n`;
+   292→    }
+   293→
+   294→    const tempUserMsg: ChatMsg = {
+   295→      id: `temp-${Date.now()}`,
+   296→      role: "user",
+   297→      content: q || (doc ? `📄 ${doc.fileName}` : "(Image attached)"),
+   298→      attachments: img ? [{ type: "image", url: img, caption: "Uploaded image" }] : undefined,
+   299→      createdAt: new Date().toISOString(),
+   300→    };
+   301→    setMessages((m) => [...m, tempUserMsg]);
+   302→
+   303→    try {
+   304→      const r = await fetch("/api/tutor/chat", {
+   305→        method: "POST",
+   306→        headers: { "Content-Type": "application/json" },
+   307→        body: JSON.stringify({
+   308→          conversationId: activeConversation?.id ?? null,
+   309→          message: messageText,
+   310→          image: img,
+   311→        }),
+   312→      });
+   313→      const d = await r.json();
+   314→      if (!r.ok) {
+   315→        if (d.needsUpgrade || r.status === 402) {
+   316→          setError(d.error ?? "Limit reached");
+   317→          setShowUpgrade(true);
+   318→        } else {
+   319→          throw new Error(d.error ?? "Failed");
+   320→        }
+   321→        return;
+   322→      }
+   323→
+   324→      // Handle graceful errors returned as 200 with ok:false (e.g. disconnected Study Buddy)
+   325→      if (d.ok === false) {
+   326→        // Show the error as an AI message in the chat (not a red banner)
+   327→        const errorMsg: ChatMsg = {
+   328→          id: `error-${Date.now()}`,
+   329→          role: "assistant",
+   330→          content: d.error ?? "AI couldn't respond. Please try another Study Buddy.",
+   331→          createdAt: new Date().toISOString(),
+   332→        };
+   333→        setMessages((m) => [...m, errorMsg]);
+   334→        return;
+   335→      }
+   336→
+   337→      const aiMsg: ChatMsg = {
+   338→        id: `ai-${Date.now()}`,
+   339→        role: "assistant",
+   340→        content: d.reply,
+   341→        attachments: d.attachments,
+   342→        thinking: d.thinking,
+   343→        proof: d.proof,
+   344→        createdAt: new Date().toISOString(),
+   345→      };
+   346→      setMessages((m) => [...m, aiMsg]);
+   347→
+   348→      // If the AI included an examgen block, auto-generate the exam
+   349→      if (d.examGen) {
+   350→        autoGenerateExam(d.examGen);
+   351→      }
+   352→
+   353→      if (!activeConversation) {
+   354→        setActiveConversation({ id: d.conversationId, title: q.slice(0, 50), updatedAt: new Date().toISOString() });
+   355→        await loadConversations();
+   356→      } else {
+   357→        // Update the conversation list to refresh last message preview
+   358→        await loadConversations();
+   359→      }
+   360→    } catch (e: any) {
+   361→      setError(e?.message ?? "Failed to send message");
+   362→      setMessages((m) => m.filter((msg) => msg.id !== tempUserMsg.id));
+   363→    } finally {
+   364→      setBusy(false);
+   365→    }
+   366→  };
+   367→
+   368→  // Retry last failed message
+   369→  const retry = () => {
+   370→    // Find last user message
+   371→    const lastUser = [...messages].reverse().find((m) => m.role === "user");
+   372→    if (!lastUser) return;
+   373→    // Remove last AI message (if any)
+   374→    setMessages((m) => {
+   375→      const copy = [...m];
+   376→      // If the last message is from the assistant with no content / error, drop it
+   377→      if (copy[copy.length - 1]?.role === "assistant" && !copy[copy.length - 1]?.content) {
+   378→        copy.pop();
+   379→      }
+   380→      return copy;
+   381→    });
+   382→    send(lastUser.content);
+   383→  };
+   384→
+   385→  // =====================================================================
+   386→  // Continuous voice conversation mode (like ChatGPT voice mode)
+   387→  // =====================================================================
+   388→  // When voiceMode is ON:
+   389→  //   1. We auto-start listening for the user's question
+   390→  //   2. When the user stops, we transcribe and auto-send
+   391→  //   3. When the AI replies, we speak it back via browser TTS
+   392→  //   4. When TTS finishes, we automatically start listening again
+   393→  // The cycle continues until the user toggles voiceMode off.
+   394→
+   395→  // Start the voice mode cycle — listen for user's question
+   396→  const startVoiceListening = useCallback(() => {
+   397→    if (!isBrowserASRSupported()) {
+   398→      setError("Voice mode needs Chrome, Edge, or Safari (Firefox doesn't support speech recognition).");
+   399→      setVoiceMode(false);
+   400→      voiceModeRef.current = false;
+   401→      return;
+   402→    }
+   403→    setVoiceModeState("listening");
+   404→    try {
+   405→      // Stop any existing listener
+   406→      if (voiceListenerRef.current) {
+   407→        voiceListenerRef.current.stop();
+   408→        voiceListenerRef.current = null;
+   409→      }
+   410→      const listener = startBrowserListening({
+   411→        lang: "en-US",
+   412→        continuous: false,
+   413→        interimResults: false,
+   414→        maxDurationSec: 30,
+   415→      });
+   416→      voiceListenerRef.current = listener;
+   417→
+   418→      listener.onResult((r) => {
+   419→        if (r.isFinal && r.text.trim()) {
+   420→          // Stop listener, then send the text via the regular send path
+   421→          // which will trigger the AI reply → onReplyFinished → startSpeaking cycle
+   422→          setVoiceModeState("speaking");
+   423→          setInput(r.text);
+   424→          send(r.text);
+   425→        }
+   426→      });
+   427→      listener.onError((e: any) => {
+   428→        const err = e?.error;
+   429→        if (err === "not-allowed" || err === "service-not-allowed") {
+   430→          setError("Microphone access denied. Allow mic permission for voice mode.");
+   431→          setVoiceMode(false);
+   432→          voiceModeRef.current = false;
+   433→        } else if (err === "no-speech") {
+   434→          // User didn't speak — just restart listening if voiceMode is still on
+   435→          if (voiceModeRef.current) {
+   436→            setTimeout(() => startVoiceListening(), 300);
+   437→          }
+   438→        } else if (err === "aborted" || err === "interrupted") {
+   439→          // Normal events in voice mode — ASR gets aborted when user stops,
+   440→          // TTS gets interrupted when user starts speaking. Don't show errors.
+   441→          // Just restart listening if voice mode is still on.
+   442→          if (voiceModeRef.current) {
+   443→            setTimeout(() => startVoiceListening(), 200);
+   444→          }
+   445→        } else {
+   446→          console.warn("[voice mode] ASR error:", err ?? "unknown");
+   447→          // Don't show error banner for minor voice mode issues — just restart
+   448→          if (voiceModeRef.current) {
+   449→            setTimeout(() => startVoiceListening(), 500);
+   450→          }
+   451→        }
+   452→      });
+   453→      listener.onEnd(() => {
+   454→        voiceListenerRef.current = null;
+   455→        // If voice mode is still on but we haven't transitioned to speaking,
+   456→        // restart listening (handles the "no-speech" silent restart path)
+   457→        if (voiceModeRef.current && voiceModeState !== "speaking") {
+   458→          setTimeout(() => startVoiceListening(), 200);
+   459→        }
+   460→      });
+   461→    } catch (e: any) {
+   462→      console.error("[voice mode] startListening failed:", e?.message);
+   463→      setVoiceMode(false);
+   464→      voiceModeRef.current = false;
+   465→    }
+   466→  }, [send, voiceModeState]);
+   467→
+   468→  // Speak the AI reply, then start listening again
+   469→  const speakReplyAndContinue = useCallback((text: string) => {
+   470→    if (!isBrowserTTSSupported()) {
+   471→      console.warn("[voice mode] TTS not supported — skipping speak, going back to listening");
+   472→      setTimeout(() => startVoiceListening(), 300);
+   473→      return;
+   474→    }
+   475→    setVoiceModeState("speaking");
+   476→    const plainText = text
+   477→      .replace(/```[\s\S]*?```/g, " [code block] ")
+   478→      .replace(/\$\$[^$]+\$\$/g, " math equation ")
+   479→      .replace(/\$([^$]+)\$/g, " $1 ")
+   480→      .replace(/[*_`#>|]/g, "")
+   481→      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+   482→      .replace(/\s+/g, " ")
+   483→      .trim();
+   484→    if (!plainText) {
+   485→      // Empty reply — go straight back to listening
+   486→      setTimeout(() => startVoiceListening(), 200);
+   487→      return;
+   488→    }
+   489→    try {
+   490→      const { promise } = browserSpeak(plainText, { rate: 1.0, lang: "en-US" });
+   491→      promise.then(() => {
+   492→        // TTS finished — start listening again if voice mode is still on
+   493→        if (voiceModeRef.current) {
+   494→          setTimeout(() => startVoiceListening(), 300);
+   495→        }
+   496→      }).catch((e: any) => {
+   497→        // "interrupted" is normal — happens when TTS is cancelled (e.g. user taps stop)
+   498→        if (e?.message !== "interrupted" && e?.message !== "aborted") {
+   499→          console.warn("[voice mode] TTS error:", e?.message);
+   500→        }
+   501→        // Go back to listening even on TTS error
+   502→        if (voiceModeRef.current) {
+   503→          setTimeout(() => startVoiceListening(), 300);
+   504→        }
+   505→      });
+   506→    } catch (e: any) {
+   507→      console.warn("[voice mode] browserSpeak failed:", e?.message);
+   508→      if (voiceModeRef.current) {
+   509→        setTimeout(() => startVoiceListening(), 300);
+   510→      }
+   511→    }
+   512→  }, [startVoiceListening]);
+   513→
+   514→  // Watch for new AI replies while in voice mode → speak them
+   515→  useEffect(() => {
+   516→    if (!voiceMode) return;
+   517→    if (busy) return; // wait for the AI to finish
+   518→    if (messages.length === 0) return;
+   519→    const lastMsg = messages[messages.length - 1];
+   520→    if (lastMsg.role !== "assistant") return;
+   521→    // Only speak if we haven't already spoken this message
+   522→    // (use a data attribute on the message via a ref check)
+   523→    // For simplicity, we use a ref to track the last spoken message id
+   524→    if (lastSpokenRef.current === lastMsg.id) return;
+   525→    lastSpokenRef.current = lastMsg.id;
+   526→    speakReplyAndContinue(lastMsg.content);
+   527→  }, [messages, voiceMode, busy, speakReplyAndContinue]);
+   528→
+   529→  const lastSpokenRef = useRef<string | null>(null);
+   530→
+   531→  const toggleVoiceMode = () => {
+   532→    if (voiceMode) {
+   533→      // Turn off — stop listening + stop speaking
+   534→      if (voiceListenerRef.current) {
+   535→        voiceListenerRef.current.stop();
+   536→        voiceListenerRef.current = null;
+   537→      }
+   538→      stopBrowserSpeech();
+   539→      setVoiceMode(false);
+   540→      voiceModeRef.current = false;
+   541→      setVoiceModeState("idle");
+   542→    } else {
+   543→      // Turn on — start listening
+   544→      setVoiceMode(true);
+   545→      voiceModeRef.current = true;
+   546→      lastSpokenRef.current = null;
+   547→      setTimeout(() => startVoiceListening(), 100);
+   548→    }
+   549→  };
+   550→
+   551→  // Cleanup on unmount
+   552→  useEffect(() => {
+   553→    return () => {
+   554→      if (voiceListenerRef.current) {
+   555→        voiceListenerRef.current.stop();
+   556→      }
+   557→      stopBrowserSpeech();
+   558→    };
+   559→  }, []);
+   560→
+   561→  const copyMessage = (msg: ChatMsg) => {
+   562→    navigator.clipboard.writeText(msg.content);
+   563→    setCopiedId(msg.id);
+   564→    setTimeout(() => setCopiedId(null), 2000);
+   565→  };
+   566→
+   567→  // Document upload — extract text from PDF/DOC/DOCX/XLSX/CSV/TXT
+   568→  const handleDocumentUpload = async (file: File) => {
+   569→    if (!file) return;
+   570→    if (file.size > 10 * 1024 * 1024) {
+   571→      setError("Document too large (max 10MB)");
+   572→      return;
+   573→    }
+   574→    setUploadingDoc(true);
+   575→    try {
+   576→      const formData = new FormData();
+   577→      formData.append("file", file);
+   578→      const r = await fetch("/api/tutor/upload-document", {
+   579→        method: "POST",
+   580→        body: formData,
+   581→      });
+   582→      const d = await r.json();
+   583→      if (!r.ok) throw new Error(d.error ?? "Upload failed");
+   584→      setPendingDocument({
+   585→        text: d.text,
+   586→        fileName: d.fileName,
+   587→        fileType: d.fileType,
+   588→        preview: d.preview,
+   589→      });
+   590→    } catch (e: any) {
+   591→      setError(e?.message ?? "Document upload failed");
+   592→    } finally {
+   593→      setUploadingDoc(false);
+   594→    }
+   595→  };
+   596→
+   597→  // Load available buddies for per-conversation switching + comparison
+   598→  useEffect(() => {
+   599→    Promise.all([fetch("/api/user/models"), fetch("/api/auth/me")])
+   600→      .then(async ([mRes, meRes]) => {
+   601→        if (mRes.ok) {
+   602→          const d = await mRes.json();
+   603→          setAvailableBuddies(d.models ?? []);
+   604→        }
+   605→        if (meRes.ok) {
+   606→          const me = await meRes.json();
+   607→          if (me.authed) setCurrentModel(me.user?.currentModel ?? "study_buddy_free");
+   608→        }
+   609→      })
+   610→      .catch(() => {});
+   611→  }, []);
+   612→
+   613→  // Switch model mid-conversation (Feature #7)
+   614→  const switchModel = async (modelName: string) => {
+   615→    if (modelName === currentModel) return;
+   616→    try {
+   617→      const r = await fetch("/api/user/model", {
+   618→        method: "POST",
+   619→        headers: { "Content-Type": "application/json" },
+   620→        body: JSON.stringify({ modelName }),
+   621→      });
+   622→      if (r.ok) {
+   623→        setCurrentModel(modelName);
+   624→        setShowModelPicker(false);
+   625→      }
+   626→    } catch {}
+   627→  };
+   628→
+   629→  // Compare models (Feature #1) — send same prompt to 2-5 buddies in parallel
+   630→  const runComparison = async () => {
+   631→    if (compareBuddies.length < 2 || !input.trim()) return;
+   632→    setComparing(true);
+   633→    setCompareResults([]);
+   634→    setPreferredIndex(null);
+   635→    try {
+   636→      const r = await fetch("/api/tutor/compare", {
+   637→        method: "POST",
+   638→        headers: { "Content-Type": "application/json" },
+   639→        body: JSON.stringify({
+   640→          message: input.trim(),
+   641→          modelNames: compareBuddies,
+   642→        }),
+   643→      });
+   644→      const d = await r.json();
+   645→      if (!r.ok) throw new Error(d.error ?? "Comparison failed");
+   646→      setCompareResults(d.results ?? []);
+   647→    } catch (e: any) {
+   648→      setError(e?.message ?? "Comparison failed");
+   649→    } finally {
+   650→      setComparing(false);
+   651→    }
+   652→  };
+   653→
+   654→  // Handle user preference — saves the winning model as currentModel
+   655→  const handlePrefer = async (index: number) => {
+   656→    setPreferredIndex(index);
+   657→    const winner = compareResults[index];
+   658→    if (winner?.modelName && winner.modelName !== currentModel) {
+   659→      try {
+   660→        await fetch("/api/user/model", {
+   661→          method: "POST",
+   662→          headers: { "Content-Type": "application/json" },
+   663→          body: JSON.stringify({ modelName: winner.modelName }),
+   664→        });
+   665→        setCurrentModel(winner.modelName);
+   666→      } catch {}
+   667→    }
+   668→  };
+   669→
+   670→  // Generate an exam/test via AI
+   671→  const generateExam = async () => {
+   672→    if (!examConfig.topic.trim() || generatingExam) return;
+   673→    setGeneratingExam(true);
+   674→    setShowExamForm(false);
+   675→    try {
+   676→      const r = await fetch("/api/tutor/generate-exam", {
+   677→        method: "POST",
+   678→        headers: { "Content-Type": "application/json" },
+   679→        body: JSON.stringify({
+   680→          topic: examConfig.topic.trim(),
+   681→          numQuestions: Number(examConfig.numQuestions),
+   682→          numPages: Number(examConfig.numPages),
+   683→          gradeLevel: examConfig.gradeLevel || "General",
+   684→          examType: examConfig.examType,
+   685→          difficulty: examConfig.difficulty,
+   686→        }),
+   687→      });
+   688→      const d = await r.json();
+   689→      if (!r.ok) throw new Error(d.error ?? "Generation failed");
+   690→      setExamResult({ html: d.html, summary: d.summary });
+   691→      // Also show a chat message about the exam
+   692→      const aiMsg: ChatMsg = {
+   693→        id: `exam-${Date.now()}`,
+   694→        role: "assistant",
+   695→        content: `📝 I've created an exam on **${d.summary.topic}** with ${d.summary.questionCount} questions (${d.summary.totalMarks} marks) for ${d.summary.gradeLevel} students. Click the exam card below to view, download, or print it!`,
+   696→        createdAt: new Date().toISOString(),
+   697→      };
+   698→      setMessages((m) => [...m, aiMsg]);
+   699→    } catch (e: any) {
+   700→      // Show the error as a chat message (not a red banner)
+   701→      const errMsg: ChatMsg = {
+   702→        id: `exam-err-${Date.now()}`,
+   703→        role: "assistant",
+   704→        content: `❌ Couldn't generate the exam: ${e?.message ?? "unknown error"}. Try with fewer questions (e.g. 10) or a simpler topic.`,
+   705→        createdAt: new Date().toISOString(),
+   706→      };
+   707→      setMessages((m) => [...m, errMsg]);
+   708→    } finally {
+   709→      setGeneratingExam(false);
+   710→    }
+   711→  };
+   712→
+   713→  const currentBuddy = availableBuddies.find((b) => b.modelName === currentModel);
+   714→
+   715→  // Voice mode — start recording
+   716→  // Uses browser Web Speech API (webkitSpeechRecognition) as primary path
+   717→  // — completely free, no API key, no network call.
+   718→  // Falls back to MediaRecorder + /api/tutor/asr (server-side) if the
+   719→  // browser doesn't support SpeechRecognition (e.g. Firefox).
+   720→  const browserASRRef = useRef<ReturnType<typeof startBrowserListening> | null>(null);
+   721→
+   722→  const startRecording = async () => {
+   723→    setError(null);
+   724→
+   725→    // PRIORITY 1: Browser-based ASR (Web Speech API — completely free)
+   726→    if (isBrowserASRSupported()) {
+   727→      try {
+   728→        const listener = startBrowserListening({
+   729→          lang: "en-US",
+   730→          continuous: false,
+   731→          interimResults: false,
+   732→          maxDurationSec: 30,
+   733→        });
+   734→        browserASRRef.current = listener;
+   735→        setRecording(true);
+   736→
+   737→        listener.onResult((r) => {
+   738→          if (r.isFinal && r.text.trim()) {
+   739→            setInput(r.text);
+   740→            // Auto-send the transcribed text
+   741→            send(r.text);
+   742→          }
+   743→        });
+   744→        listener.onError((e: any) => {
+   745→          console.error("[tutor] browser ASR error:", e?.error ?? e);
+   746→          const err = e?.error;
+   747→          if (err === "not-allowed" || err === "service-not-allowed") {
+   748→            setError("Microphone access denied. Allow mic permission to use voice mode.");
+   749→          } else if (err === "no-speech") {
+   750→            setError("Didn't hear anything — try speaking louder or closer to the mic");
+   751→          } else {
+   752→            setError("Voice recognition error: " + (err ?? "unknown"));
+   753→          }
+   754→          setRecording(false);
+   755→          browserASRRef.current = null;
+   756→        });
+   757→        listener.onEnd(() => {
+   758→          setRecording(false);
+   759→          browserASRRef.current = null;
+   760→        });
+   761→        return;
+   762→      } catch (e: any) {
+   763→        console.warn("[tutor] browser ASR setup failed, falling back to server:", e?.message);
+   764→        // Fall through to MediaRecorder fallback below
+   765→      }
+   766→    }
+   767→
+   768→    // FALLBACK: Server-side ASR via MediaRecorder + /api/tutor/asr
+   769→    // (Used on Firefox and browsers without SpeechRecognition)
+   770→    try {
+   771→      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+   772→      const recorder = new MediaRecorder(stream);
+   773→      audioChunksRef.current = [];
+   774→      recorder.ondataavailable = (e) => {
+   775→        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+   776→      };
+   777→      recorder.onstop = async () => {
+   778→        // Stop the audio tracks (releases the mic indicator)
+   779→        stream.getTracks().forEach((t) => t.stop());
+   780→        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+   781→        if (audioBlob.size < 1000) {
+   782→          setError("Recording too short — try speaking for longer");
+   783→          return;
+   784→        }
+   785→        // Transcribe via ASR endpoint
+   786→        setTranscribing(true);
+   787→        try {
+   788→          // Convert to base64
+   789→          const arrayBuffer = await audioBlob.arrayBuffer();
+   790→          const base64 = btoa(
+   791→            new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), "")
+   792→          );
+   793→          const r = await fetch("/api/tutor/asr", {
+   794→            method: "POST",
+   795→            headers: { "Content-Type": "application/json" },
+   796→            body: JSON.stringify({ audioBase64: base64 }),
+   797→          });
+   798→          const d = await r.json();
+   799→          if (!r.ok) throw new Error(d.error ?? "Transcription failed");
+   800→          if (d.text) {
+   801→            setInput(d.text);
+   802→            // Auto-send the transcribed text
+   803→            send(d.text);
+   804→          }
+   805→        } catch (e: any) {
+   806→          setError(e?.message ?? "Voice transcription failed");
+   807→        } finally {
+   808→          setTranscribing(false);
+   809→        }
+   810→      };
+   811→      mediaRecorderRef.current = recorder;
+   812→      recorder.start();
+   813→      setRecording(true);
+   814→    } catch (e: any) {
+   815→      setError("Microphone access denied. Allow mic permission to use voice mode.");
+   816→    }
+   817→  };
+   818→
+   819→  const stopRecording = () => {
+   820→    // Stop browser ASR listener if active
+   821→    if (browserASRRef.current) {
+   822→      browserASRRef.current.stop();
+   823→      browserASRRef.current = null;
+   824→    }
+   825→    // Stop MediaRecorder if active
+   826→    if (mediaRecorderRef.current && recording) {
+   827→      mediaRecorderRef.current.stop();
+   828→    }
+   829→    setRecording(false);
+   830→  };
+   831→
+   832→  const suggestedQuestions = [
+   833→    // Grade 1-3 — early years
+   834→    { icon: "🍎", text: "Make a pictogram: 8 apples, 5 bananas, 10 oranges (🍎 = 2 fruits each)", category: "Grade 1-3" },
+   835→    { icon: "✋", text: "Tally the votes: Red 8, Blue 12, Green 5, Yellow 3", category: "Grade 1-3" },
+   836→    // Grade 4-6 — upper junior
+   837→    { icon: "🟦", text: "Sort shapes: Carroll diagram (is red? is square?)", category: "Grade 4-6" },
+   838→    { icon: "⭕", text: "Show a Venn diagram of sets A, B, and C with their intersection", category: "Grade 4-6" },
+   839→    { icon: "📊", text: "Make a bar chart of class scores: Math 85, English 72, Science 90, History 68", category: "Grade 4-6" },
+   840→    // Grade 7-9 — lower secondary
+   841→    { icon: "📈", text: "Plot these data points: (0,0) (1,5) (2,10) (3,15) and draw a line of best fit", category: "Grade 7-9" },
+   842→    { icon: "🌿", text: "Make a stem-and-leaf plot of: 23 25 28 31 32 35 38 42 45 48", category: "Grade 7-9" },
+   843→    { icon: "📦", text: "Draw a box plot comparing class A and class B test scores", category: "Grade 7-9" },
+   844→    { icon: "📋", text: "Two-way table: gender × sport preference (15M/3F football, 5M/18F netball, 8M/6F tennis)", category: "Grade 7-9" },
+   845→    // Form 1-4 — high school
+   846→    { icon: "➖", text: "Draw -2 ≤ x ≤ 3 on a number line", category: "Form 1-4" },
+   847→    { icon: "🌳", text: "Make a probability tree diagram for two coin flips", category: "Form 1-4" },
+   848→    { icon: "📐", text: "Draw triangle ABC with vertices at (0,0), (4,0), (2,3) — label sides", category: "Form 1-4" },
+   849→    { icon: "🔁", text: "Reflect triangle ABC with vertices (1,1), (3,1), (2,3) across the y-axis", category: "Form 1-4" },
+   850→    { icon: "⭕", text: "Show me sin and cos on the unit circle for angle 60°", category: "Form 1-4" },
+   851→    { icon: "📈", text: "Cumulative frequency (ogive) from bins: 0-10 (3), 10-20 (7), 20-30 (12), 30-40 (5)", category: "Form 1-4" },
+   852→    { icon: "🧮", text: "Solve x² + 5x + 6 = 0 using the quadratic formula", category: "Form 1-4" },
+   853→    { icon: "📝", text: "Solve 2x + 5 = 15 step by step, showing your work", category: "Step-by-Step" },
+   854→    { icon: "📝", text: "Show me how to solve 3x - 7 = 14 step by step", category: "Step-by-Step" },
+   855→    { icon: "📷", text: "Upload a photo of my homework using the 📎 button and ask 'help me solve this'", category: "Vision" },
+   856→    // Spreadsheet + database
+   857→    { icon: "📊", text: "Build me an Excel worksheet for food capacity: maize flour 50kg, beans 20kg, rice 15kg, cooking oil 5L", category: "Spreadsheets" },
+   858→    { icon: "💰", text: "Build a payment schedule spreadsheet for 3 employees with hours, rate, gross, tax, net", category: "Spreadsheets" },
+   859→    { icon: "📅", text: "Build a class attendance register spreadsheet for 5 students Mon-Fri", category: "Spreadsheets" },
+   860→    { icon: "🎒", text: "Build a grade book spreadsheet for 3 students in Math, English, Science with averages", category: "Spreadsheets" },
+   861→    { icon: "🏦", text: "Build a simple database schema for a school with Students, Classes, Teachers", category: "Database" },
+   862→    { icon: "📚", text: "Design a database schema for a library: Books, Authors, Borrowers, Loans", category: "Database" },
+   863→    { icon: "🛒", text: "Design a store database schema: Customers, Products, Orders, Order Items", category: "Database" },
+   864→    // University
+   865→    { icon: "🌀", text: "Draw a slope field for dy/dx = x - y", category: "University" },
+   866→    { icon: "🧲", text: "Draw a vector field for F(x,y) = (-y, x) — a rotation field", category: "University" },
+   867→    { icon: "🔢", text: "Plot z₁ = 2 + i and z₂ = -1 + 1.5i on an Argand diagram", category: "University" },
+   868→    { icon: "🧊", text: "Plot point P(2, 1, 3) in 3D coordinate space", category: "University" },
+   869→    { icon: "🪢", text: "Draw a trefoil knot diagram", category: "University" },
+   870→    // General
+   871→    { icon: "🥧", text: "Draw a pie chart of budget: Rent 40%, Food 25%, Transport 15%, Savings 20%", category: "General" },
+   872→    { icon: "➡️", text: "Draw vectors F1 = (3,4) and F2 = (-2,1) on a coordinate plane", category: "General" },
+   873→    { icon: "🧠", text: "Make a concept map of the human digestive system", category: "General" },
+   874→    { icon: "🔷", text: "Make a hexagon tessellation pattern", category: "General" },
+   875→    { icon: "⛰️", text: "Draw a contour map showing a hill with 3 elevation levels", category: "General" },
+   876→  ];
+   877→
+   878→  // Exam viewer panel — full screen, shows the generated exam HTML
+   879→  if (viewingExam) {
+   880→    return (
+   881→      <div className="fixed inset-0 z-[100] bg-white flex flex-col">
+   882→        <header className="sticky top-0 z-30 bg-white border-b border-gray-200 flex-shrink-0 no-print">
+   883→          <div className="flex items-center justify-between h-14 px-4">
+   884→            <div className="flex items-center gap-2">
+   885→              <button
+   886→                onClick={() => setViewingExam(null)}
+   887→                className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-500"
+   888→              >
+   889→                <ChevronLeft className="w-5 h-5" />
+   890→              </button>
+   891→              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center">
+   892→                <FileText className="w-4 h-4 text-white" />
+   893→              </div>
+   894→              <div>
+   895→                <p className="text-sm font-bold text-gray-900 leading-tight">StudyBuddy Exam</p>
+   896→                <p className="text-[10px] text-gray-500 leading-tight">View · Download PDF</p>
+   897→              </div>
+   898→            </div>
+   899→            <div className="flex items-center gap-2">
+   900→              <button
+   901→                onClick={() => {
+   902→                  // Open the exam HTML in a new tab — user can print/save as PDF there
+   903→                  // This ensures the full multi-page content prints correctly (not just the iframe)
+   904→                  const blob = new Blob([viewingExam], { type: "text/html;charset=utf-8" });
+   905→                  const url = URL.createObjectURL(blob);
+   906→                  window.open(url, "_blank");
+   907→                  // Clean up after 10 seconds
+   908→                  setTimeout(() => URL.revokeObjectURL(url), 10000);
+   909→                }}
+   910→                className="px-3 h-8 rounded-full bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 flex items-center gap-1"
+   911→              >
+   912→                📄 Download PDF
+   913→              </button>
+   914→              <a
+   915→                href="https://studybuddy.ai"
+   916→                target="_blank"
+   917→                rel="noopener noreferrer"
+   918→                className="px-3 h-8 rounded-full bg-violet-50 text-violet-700 text-xs font-semibold hover:bg-violet-100 flex items-center gap-1"
+   919→              >
+   920→                StudyBuddy ↗
+   921→              </a>
+   922→            </div>
+   923→          </div>
+   924→        </header>
+   925→        <div className="flex-1 overflow-y-auto bg-gray-100">
+   926→          <div className="max-w-[800px] mx-auto bg-white shadow-lg my-4 min-h-[600px]">
+   927→            <iframe
+   928→              srcDoc={viewingExam}
+   929→              className="w-full border-none"
+   930→              title="StudyBuddy Exam"
+   931→              style={{ minHeight: "80vh", height: "100%" }}
+   932→            />
+   933→          </div>
+   934→        </div>
+   935→        <div className="flex-shrink-0 bg-white border-t border-gray-200 p-3">
+   936→          <div className="max-w-[800px] mx-auto flex items-center justify-between">
+   937→            <p className="text-xs text-gray-500">
+   938→              📖 Read the exam · Tap "📄 Download PDF" to open it in a new tab → Ctrl+P → "Save as PDF"
+   939→            </p>
+   940→            <button
+   941→              onClick={() => setViewingExam(null)}
+   942→              className="px-4 h-8 rounded-full bg-gray-100 text-gray-600 text-xs font-semibold hover:bg-gray-200"
+   943→            >
+   944→              ← Back to Chat
+   945→            </button>
+   946→          </div>
+   947→        </div>
+   948→      </div>
+   949→    );
+   950→  }
+   951→
+   952→  return (
+   953→    <div className="min-h-screen bg-gray-50 flex flex-col">
+   954→      {/* Header */}
+   955→      <header className="sticky top-0 z-30 bg-white border-b border-gray-200 flex-shrink-0">
+   956→        <div className="flex items-center justify-between h-14 px-4">
+   957→          <div className="flex items-center gap-2">
+   958→            <button
+   959→              onClick={() => setScreen("home")}
+   960→              aria-label="Back"
+   961→              className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-500"
+   962→            >
+   963→              <ChevronLeft className="w-5 h-5" />
+   964→            </button>
+   965→            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center">
+   966→              <Bot className="w-4 h-4 text-white" />
+   967→            </div>
+   968→            <div>
+   969→              <p className="text-sm font-bold text-gray-900 leading-tight">AI Tutor</p>
+   970→              <p className="text-[10px] text-gray-500 leading-tight">
+   971→                {activeConversation ? activeConversation.title : "New chat"}
+   972→              </p>
+   973→            </div>
+   974→          </div>
+   975→          <div className="flex items-center gap-2">
+   976→            {/* Per-conversation model switcher (Feature #7) */}
+   977→            <div className="relative">
+   978→              <button
+   979→                onClick={() => setShowModelPicker(!showModelPicker)}
+   980→                className="h-8 px-2 rounded-full bg-indigo-50 text-indigo-700 text-xs font-semibold flex items-center gap-1 hover:bg-indigo-100"
+   981→                title="Switch Study Buddy model"
+   982→              >
+   983→                {currentBuddy?.emoji ?? "🤖"} <span className="hidden sm:inline">{currentBuddy?.displayName ?? "AI"}</span>
+   984→                <ChevronLeft className="w-3 h-3 rotate-90" />
+   985→              </button>
+   986→              {showModelPicker && (
+   987→                <div className="absolute right-0 top-10 z-50 bg-white rounded-xl shadow-lg border border-gray-200 p-1 min-w-[180px] max-h-72 overflow-y-auto">
+   988→                  {availableBuddies.filter(b => b.canUse).map((buddy) => (
+   989→                    <button
+   990→                      key={buddy.modelName}
+   991→                      onClick={() => switchModel(buddy.modelName)}
+   992→                      className={`w-full px-3 py-2 text-left text-xs rounded-lg flex items-center gap-2 hover:bg-indigo-50 ${
+   993→                        buddy.modelName === currentModel ? "bg-indigo-50 font-bold text-indigo-700" : "text-gray-700"
+   994→                      }`}
+   995→                    >
+   996→                      <span className="text-lg">{buddy.emoji}</span>
+   997→                      <span className="flex-1">{buddy.displayName}</span>
+   998→                      {buddy.modelName === currentModel && <Check className="w-3 h-3 text-indigo-600" />}
+   999→                    </button>
+  1000→                  ))}
+  1001→                </div>
+  1002→              )}
+  1003→            </div>
+  1004→            {/* Model comparison button (Feature #1) */}
+  1005→            <button
+  1006→              onClick={() => setShowCompare(!showCompare)}
+  1007→              className={`w-8 h-8 rounded-full flex items-center justify-center transition ${
+  1008→                showCompare ? "bg-violet-600 text-white" : "bg-violet-50 text-violet-700 hover:bg-violet-100"
+  1009→              }`}
+  1010→              title="Compare multiple Study Buddies side-by-side"
+  1011→            >
+  1012→              <GitBranch className="w-4 h-4" />
+  1013→            </button>
+  1014→            {/* Exam generator button */}
+  1015→            <button
+  1016→              onClick={() => setShowExamForm(!showExamForm)}
+  1017→              className={`w-8 h-8 rounded-full flex items-center justify-center transition ${
+  1018→                showExamForm ? "bg-amber-500 text-white" : "bg-amber-50 text-amber-700 hover:bg-amber-100"
+  1019→              }`}
+  1020→              title="Generate a printable exam/test"
+  1021→            >
+  1022→              <FileText className="w-4 h-4" />
+  1023→            </button>
+  1024→            {/* Voice mode toggle */}
+  1025→            <button
+  1026→              onClick={toggleVoiceMode}
+  1027→              className={`w-8 h-8 rounded-full flex items-center justify-center transition ${
+  1028→                voiceMode
+  1029→                  ? voiceModeState === "listening"
+  1030→                    ? "bg-rose-500 text-white animate-pulse"
+  1031→                    : "bg-emerald-500 text-white"
+  1032→                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+  1033→              }`}
+  1034→              title={voiceMode ? "Voice mode is ON — tap to turn off" : "Start voice conversation (speak + listen)"}
+  1035→            >
+  1036→              <Mic className="w-4 h-4" />
+  1037→            </button>
+  1038→            <button
+  1039→              onClick={newConversation}
+  1040→              className="w-8 h-8 rounded-full bg-indigo-50 text-indigo-600 hover:bg-indigo-100 flex items-center justify-center"
+  1041→              title="New chat"
+  1042→            >
+  1043→              <Plus className="w-4 h-4" />
+  1044→            </button>
+  1045→            <button
+  1046→              onClick={() => setShowSidebar(!showSidebar)}
+  1047→              className="w-8 h-8 rounded-full bg-gray-100 text-gray-600 hover:bg-gray-200 flex items-center justify-center"
+  1048→              title="Chat history"
+  1049→            >
+  1050→              <MessageSquare className="w-4 h-4" />
+  1051→            </button>
+  1052→          </div>
+  1053→        </div>
+  1054→      </header>
+  1055→
+  1056→      <div className="flex flex-1 relative">
+  1057→        {/* Sidebar — conversation history */}
+  1058→        {showSidebar && (
+  1059→          <>
+  1060→            <div className="fixed inset-0 z-40 bg-black/30" onClick={() => setShowSidebar(false)} />
+  1061→            <div className="absolute left-0 top-0 bottom-0 w-72 bg-white border-r border-gray-200 z-50 overflow-y-auto">
+  1062→              <div className="p-3 flex items-center justify-between border-b border-gray-100">
+  1063→                <p className="text-xs font-bold uppercase text-gray-500">Chat History</p>
+  1064→                <button onClick={() => setShowSidebar(false)} className="text-gray-400">
+  1065→                  <X className="w-4 h-4" />
+  1066→                </button>
+  1067→              </div>
+  1068→              <button
+  1069→                onClick={newConversation}
+  1070→                className="w-full p-3 flex items-center gap-2 hover:bg-indigo-50 text-indigo-600 text-sm font-semibold border-b border-gray-100"
+  1071→              >
+  1072→                <Plus className="w-4 h-4" /> New chat
+  1073→              </button>
+  1074→              {loading ? (
+  1075→                <div className="p-4 flex justify-center">
+  1076→                  <Loader2 className="w-5 h-5 animate-spin text-indigo-500" />
+  1077→                </div>
+  1078→              ) : conversations.length === 0 ? (
+  1079→                <p className="p-4 text-xs text-gray-400 text-center">No conversations yet.</p>
+  1080→              ) : (
+  1081→                conversations.map((conv) => (
+  1082→                  <div key={conv.id} className="flex items-center group border-b border-gray-50">
+  1083→                    <button
+  1084→                      onClick={() => openConversation(conv.id)}
+  1085→                      className={`flex-1 p-3 text-left text-xs hover:bg-gray-50 transition ${
+  1086→                        activeConversation?.id === conv.id ? "bg-indigo-50 text-indigo-700 font-semibold" : "text-gray-700"
+  1087→                      }`}
+  1088→                    >
+  1089→                      <p className="truncate">{conv.title}</p>
+  1090→                      <p className="text-[10px] text-gray-400 mt-0.5">
+  1091→                        {new Date(conv.updatedAt).toLocaleDateString()}
+  1092→                      </p>
+  1093→                    </button>
+  1094→                    <button
+  1095→                      onClick={() => deleteConversation(conv.id)}
+  1096→                      className="p-2 text-gray-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition"
+  1097→                    >
+  1098→                      <Trash2 className="w-3.5 h-3.5" />
+  1099→                    </button>
+  1100→                  </div>
+  1101→                ))
+  1102→              )}
+  1103→            </div>
+  1104→          </>
+  1105→        )}
+  1106→
+  1107→        {/* Chat area */}
+  1108→        <div className="flex-1 flex flex-col max-w-3xl mx-auto w-full">
+  1109→          {/* Messages */}
+  1110→          <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+  1111→            {messages.length === 0 && !busy ? (
+  1112→              <div className="text-center py-12">
+  1113→                <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center mb-4">
+  1114→                  <Bot className="w-8 h-8 text-white" />
+  1115→                </div>
+  1116→                <h2 className="text-lg font-bold text-gray-900">AI Tutor</h2>
+  1117→                <p className="text-sm text-gray-500 mt-1 max-w-md mx-auto">
+  1118→                  Ask anything — I can <span className="text-indigo-600 font-medium">fetch videos</span>,{" "}
+  1119→                  <span className="text-emerald-600 font-medium">draw 16 kinds of graphs</span> (scatter, bar, pie, Venn, slope fields, stem-leaf, 3D solids, knots & more),{" "}
+  1120→                  <span className="text-violet-600 font-medium">build concept maps</span>, and{" "}
+  1121→                  <span className="text-amber-600 font-medium">render any custom SVG drawing</span>. Your chat history is saved automatically.
+  1122→                </p>
+  1123→                <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-xl mx-auto">
+  1124→                  {suggestedQuestions.map((q) => (
+  1125→                    <button
+  1126→                      key={q.text}
+  1127→                      onClick={() => send(q.text)}
+  1128→                      className="px-3 py-2.5 rounded-xl bg-white border border-gray-200 text-left hover:border-indigo-300 hover:bg-indigo-50/40 transition flex items-start gap-2"
+  1129→                    >
+  1130→                      <span className="text-lg">{q.icon}</span>
+  1131→                      <div className="flex-1">
+  1132→                        <p className="text-xs font-semibold text-gray-700">{q.text}</p>
+  1133→                        <p className="text-[10px] text-gray-400 mt-0.5">{q.category}</p>
+  1134→                      </div>
+  1135→                    </button>
+  1136→                  ))}
+  1137→                </div>
+  1138→              </div>
+  1139→            ) : (
+  1140→              messages.map((msg, i) => (
+  1141→                <MessageBubble
+  1142→                  key={msg.id || i}
+  1143→                  msg={msg}
+  1144→                  onCopy={() => copyMessage(msg)}
+  1145→                  onRetry={msg.role === "user" && i === messages.length - 1 ? retry : undefined}
+  1146→                  copied={copiedId === msg.id}
+  1147→                  onAttachmentChange={(attIdx, newCaption) => {
+  1148→                    // Update the attachment's caption (which contains the JSON spec)
+  1149→                    setMessages((prev) =>
+  1150→                      prev.map((m, idx) => {
+  1151→                        if (idx !== i) return m;
+  1152→                        if (!m.attachments) return m;
+  1153→                        return {
+  1154→                          ...m,
+  1155→                          attachments: m.attachments.map((a, ai) =>
+  1156→                            ai === attIdx ? { ...a, caption: newCaption } : a
+  1157→                          ),
+  1158→                        };
+  1159→                      })
+  1160→                    );
+  1161→                  }}
+  1162→                />
+  1163→              ))
+  1164→            )}
+  1165→            {busy && (
+  1166→              <div className="flex justify-start">
+  1167→                <div className="flex gap-2">
+  1168→                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center flex-shrink-0">
+  1169→                    <Bot className="w-4 h-4 text-white" />
+  1170→                  </div>
+  1171→                  <div className="bg-white border border-gray-200 rounded-2xl rounded-bl-sm px-4 py-3 text-sm">
+  1172→                    <div className="flex items-center gap-2 text-gray-500">
+  1173→                      <Loader2 className="w-4 h-4 animate-spin" /> Thinking…
+  1174→                    </div>
+  1175→                    <p className="text-[10px] text-gray-400 mt-1">Analyzing your question against the curriculum…</p>
+  1176→                  </div>
+  1177→                </div>
+  1178→              </div>
+  1179→            )}
+  1180→            {error && !showUpgrade && (
+  1181→              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center justify-between">
+  1182→                <span>{error}</span>
+  1183→                <button onClick={retry} className="text-rose-600 hover:text-rose-800 underline font-semibold">
+  1184→                  Retry
+  1185→                </button>
+  1186→              </div>
+  1187→            )}
+  1188→            {showUpgrade && (
+  1189→              <div className="rounded-2xl bg-gradient-to-br from-amber-50 to-orange-50 border-2 border-amber-200 p-4 text-center">
+  1190→                <span className="text-3xl">🥲</span>
+  1191→                <p className="mt-2 text-sm font-semibold text-gray-900">{error}</p>
+  1192→                <button
+  1193→                  onClick={() => setScreen("premium")}
+  1194→                  className="mt-3 px-6 h-10 rounded-full bg-indigo-600 text-white font-semibold text-sm shadow-md hover:bg-indigo-700"
+  1195→                >
+  1196→                  Upgrade Now →
+  1197→                </button>
+  1198→              </div>
+  1199→            )}
+  1200→          </div>
+  1201→
+  1202→          {/* Exam generator form — shown when showExamForm is true */}
+  1203→          {showExamForm && (
+  1204→            <div className="flex-shrink-0 px-3 py-3 bg-gradient-to-r from-amber-50 to-orange-50 border-t border-amber-200 space-y-2">
+  1205→              <div className="flex items-center gap-2">
+  1206→                <FileText className="w-4 h-4 text-amber-600" />
+  1207→                <p className="text-xs font-bold text-amber-700">📝 Exam Generator — create a printable test on any topic</p>
+  1208→              </div>
+  1209→              <input
+  1210→                type="text"
+  1211→                value={examConfig.topic}
+  1212→                onChange={(e) => setExamConfig({ ...examConfig, topic: e.target.value })}
+  1213→                placeholder="What topic? (e.g. Photosynthesis, Algebra, Kenyan History)"
+  1214→                className="w-full px-3 py-1.5 rounded-lg border border-amber-200 text-sm outline-none focus:border-amber-400 bg-white"
+  1215→              />
+  1216→              <div className="grid grid-cols-3 gap-2">
+  1217→                <div>
+  1218→                  <label className="text-[10px] font-semibold text-gray-600">Questions</label>
+  1219→                  <input type="number" min={5} max={40} value={examConfig.numQuestions}
+  1220→                    onChange={(e) => setExamConfig({ ...examConfig, numQuestions: e.target.value })}
+  1221→                    className="w-full px-2 py-1 rounded-lg border border-amber-200 text-sm bg-white" />
+  1222→                </div>
+  1223→                <div>
+  1224→                  <label className="text-[10px] font-semibold text-gray-600">Pages</label>
+  1225→                  <input type="number" min={1} max={10} value={examConfig.numPages}
+  1226→                    onChange={(e) => setExamConfig({ ...examConfig, numPages: e.target.value })}
+  1227→                    className="w-full px-2 py-1 rounded-lg border border-amber-200 text-sm bg-white" />
+  1228→                </div>
+  1229→                <div>
+  1230→                  <label className="text-[10px] font-semibold text-gray-600">Grade</label>
+  1231→                  <input type="text" value={examConfig.gradeLevel}
+  1232→                    onChange={(e) => setExamConfig({ ...examConfig, gradeLevel: e.target.value })}
+  1233→                    placeholder="Form 4"
+  1234→                    className="w-full px-2 py-1 rounded-lg border border-amber-200 text-sm bg-white" />
+  1235→                </div>
+  1236→              </div>
+  1237→              <div className="flex gap-2">
+  1238→                <select value={examConfig.examType}
+  1239→                  onChange={(e) => setExamConfig({ ...examConfig, examType: e.target.value })}
+  1240→                  className="px-2 py-1 rounded-lg border border-amber-200 text-xs bg-white">
+  1241→                  <option value="kcse_style">KCSE Style (Section A + B)</option>
+  1242→                  <option value="mixed">Mixed (MCQ + Short Answer)</option>
+  1243→                  <option value="mcq">MCQ only</option>
+  1244→                  <option value="short_answer">Short Answer only</option>
+  1245→                </select>
+  1246→                <select value={examConfig.difficulty}
+  1247→                  onChange={(e) => setExamConfig({ ...examConfig, difficulty: e.target.value })}
+  1248→                  className="px-2 py-1 rounded-lg border border-amber-200 text-xs bg-white">
+  1249→                  <option value="easy">Easy</option>
+  1250→                  <option value="medium">Medium</option>
+  1251→                  <option value="hard">Hard</option>
+  1252→                </select>
+  1253→              </div>
+  1254→              <button
+  1255→                onClick={generateExam}
+  1256→                disabled={generatingExam || !examConfig.topic.trim()}
+  1257→                className="w-full h-9 rounded-full bg-amber-600 text-white text-xs font-semibold hover:bg-amber-700 disabled:opacity-50 flex items-center justify-center gap-1.5"
+  1258→              >
+  1259→                {generatingExam ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Generating exam…</> : <>📝 Generate Exam</>}
+  1260→              </button>
+  1261→            </div>
+  1262→          )}
+  1263→
+  1264→          {/* Exam generation progress bar */}
+  1265→          {generatingExam && (
+  1266→            <div className="flex-shrink-0 px-3 py-3 bg-gradient-to-r from-amber-50 to-orange-50 border-t border-amber-200">
+  1267→              <div className="flex items-center gap-2 mb-1.5">
+  1268→                <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-600" />
+  1269→                <p className="text-xs font-semibold text-amber-700">📝 Generating exam… {Math.round(examProgress)}%</p>
+  1270→              </div>
+  1271→              <div className="h-2 bg-amber-100 rounded-full overflow-hidden">
+  1272→                <div className="h-full bg-amber-500 rounded-full transition-all" style={{ width: `${examProgress}%` }} />
+  1273→              </div>
+  1274→            </div>
+  1275→          )}
+  1276→
+  1277→          {/* Exam result card — shown when examResult is set */}
+  1278→          {examResult && (
+  1279→            <div className="flex-shrink-0 px-3 py-3 bg-gradient-to-r from-emerald-50 to-teal-50 border-t border-emerald-200">
+  1280→              <div className="rounded-xl bg-white border-2 border-emerald-300 p-4 shadow-md">
+  1281→                <div className="flex items-center gap-3 mb-2">
+  1282→                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center">
+  1283→                    <FileText className="w-5 h-5 text-white" />
+  1284→                  </div>
+  1285→                  <div className="flex-1">
+  1286→                    <p className="text-sm font-bold text-gray-900">📝 Exam Ready!</p>
+  1287→                    <p className="text-[11px] text-gray-500">
+  1288→                      {examResult.summary?.questionCount} questions · {examResult.summary?.totalMarks} marks · {examResult.summary?.gradeLevel} · {examResult.summary?.difficulty}
+  1289→                    </p>
+  1290→                  </div>
+  1291→                </div>
+  1292→                <p className="text-xs text-gray-600 mb-3">
+  1293→                  Topic: <strong>{examResult.summary?.topic}</strong> — Click below to view, print, or download the exam. You can print it at the nearest cyber café.
+  1294→                </p>
+  1295→                <div className="flex gap-2">
+  1296→                  <button
+  1297→                    onClick={() => setViewingExam(examResult.html)}
+  1298→                    className="flex-1 h-9 rounded-full bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 flex items-center justify-center gap-1"
+  1299→                  >
+  1300→                    <FileText className="w-3.5 h-3.5" /> Open Exam
+  1301→                  </button>
+  1302→                  <button
+  1303→                    onClick={() => setExamResult(null)}
+  1304→                    className="px-3 h-9 rounded-full bg-gray-100 text-gray-600 text-xs font-semibold hover:bg-gray-200"
+  1305→                  >
+  1306→                    Dismiss
+  1307→                  </button>
+  1308→                </div>
+  1309→              </div>
+  1310→            </div>
+  1311→          )}
+  1312→
+  1313→          {/* Model comparison panel — shown when showCompare is true */}
+  1314→          {showCompare && (
+  1315→            <div className="flex-shrink-0 px-3 py-3 bg-gradient-to-r from-violet-50 to-indigo-50 border-t border-violet-200 space-y-2">
+  1316→              <div className="flex items-center gap-2">
+  1317→                <GitBranch className="w-4 h-4 text-violet-600" />
+  1318→                <p className="text-xs font-bold text-violet-700">Model Comparison — pick 2-5 buddies, ask a question, see all answers side-by-side</p>
+  1319→              </div>
+  1320→              <div className="flex flex-wrap gap-1.5">
+  1321→                {availableBuddies.filter(b => b.canUse).map((buddy) => {
+  1322→                  const selected = compareBuddies.includes(buddy.modelName);
+  1323→                  return (
+  1324→                    <button
+  1325→                      key={buddy.modelName}
+  1326→                      onClick={() => {
+  1327→                        if (selected) {
+  1328→                          setCompareBuddies(compareBuddies.filter(b => b !== buddy.modelName));
+  1329→                        } else if (compareBuddies.length < 5) {
+  1330→                          setCompareBuddies([...compareBuddies, buddy.modelName]);
+  1331→                        }
+  1332→                      }}
+  1333→                      className={`px-2.5 py-1 rounded-full text-xs font-semibold transition ${
+  1334→                        selected ? "bg-violet-600 text-white" : "bg-white text-gray-600 hover:bg-violet-100"
+  1335→                      }`}
+  1336→                    >
+  1337→                      {buddy.emoji} {buddy.displayName} {selected && "✓"}
+  1338→                    </button>
+  1339→                  );
+  1340→                })}
+  1341→              </div>
+  1342→              {compareBuddies.length >= 2 && (
+  1343→                <button
+  1344→                  onClick={runComparison}
+  1345→                  disabled={comparing || !input.trim()}
+  1346→                  className="w-full h-9 rounded-full bg-violet-600 text-white text-xs font-semibold hover:bg-violet-700 disabled:opacity-50 flex items-center justify-center gap-1.5"
+  1347→                >
+  1348→                  {comparing ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Comparing {compareBuddies.length} models…</> : <>⚡ Compare {compareBuddies.length} models with: "{input.slice(0, 40)}{input.length > 40 ? "…" : ""}"</>}
+  1349→                </button>
+  1350→              )}
+  1351→              {compareResults.length > 0 && (
+  1352→                <div className="mt-2 space-y-2">
+  1353→                  {/* Two-column side-by-side layout for exactly 2 results */}
+  1354→                  {compareResults.length === 2 && (
+  1355→                    <div className="grid grid-cols-2 gap-2">
+  1356→                      {compareResults.map((r, i) => (
+  1357→                        <CompareCard key={i} result={r} onPrefer={() => handlePrefer(i)} />
+  1358→                      ))}
+  1359→                    </div>
+  1360→                  )}
+  1361→                  {/* Stacked layout for 3-5 results */}
+  1362→                  {compareResults.length > 2 && (
+  1363→                    <div className="space-y-2 max-h-80 overflow-y-auto">
+  1364→                      {compareResults.map((r, i) => (
+  1365→                        <CompareCard key={i} result={r} onPrefer={() => handlePrefer(i)} />
+  1366→                      ))}
+  1367→                    </div>
+  1368→                  )}
+  1369→                  {preferredIndex !== null && (
+  1370→                    <div className="text-center text-xs text-emerald-600 font-semibold py-1">
+  1371→                      ✓ You preferred {compareResults[preferredIndex]?.displayName} {compareResults[preferredIndex]?.emoji} — we'll remember this for future questions!
+  1372→                    </div>
+  1373→                  )}
+  1374→                </div>
+  1375→              )}
+  1376→            </div>
+  1377→          )}
+  1378→
+  1379→          {/* Voice mode banner — shown when voiceMode is ON */}
+  1380→          {voiceMode && (
+  1381→            <div className="flex-shrink-0 px-3 py-2 bg-gradient-to-r from-violet-50 to-indigo-50 border-t border-violet-200 flex items-center justify-between">
+  1382→              <div className="flex items-center gap-2">
+  1383→                <div className={`w-2 h-2 rounded-full ${
+  1384→                  voiceModeState === "listening" ? "bg-rose-500 animate-pulse" :
+  1385→                  voiceModeState === "speaking" ? "bg-emerald-500 animate-pulse" :
+  1386→                  "bg-gray-400"
+  1387→                }`} />
+  1388→                <p className="text-xs font-semibold text-violet-700">
+  1389→                  {voiceModeState === "listening" ? "🔴 Listening… speak your question" :
+  1390→                   voiceModeState === "speaking" ? "🟢 AI is speaking…" :
+  1391→                   "Voice conversation mode — tap mic to turn off"}
+  1392→                </p>
+  1393→              </div>
+  1394→              <button
+  1395→                onClick={toggleVoiceMode}
+  1396→                className="text-xs px-3 py-1 rounded-full bg-violet-600 text-white font-semibold hover:bg-violet-700"
+  1397→              >
+  1398→                Stop voice mode
+  1399→              </button>
+  1400→            </div>
+  1401→          )}
+  1402→
+  1403→          {/* Input bar */}
+  1404→          <div className="flex-shrink-0 border-t border-gray-200 bg-white p-3 pb-safe">
+  1405→            {/* Pending image preview */}
+  1406→            {pendingImage && (
+  1407→              <div className="mb-2 flex items-center gap-2 p-2 bg-emerald-50 border border-emerald-200 rounded-xl">
+  1408→                {/* eslint-disable-next-line @next/next/no-img-element */}
+  1409→                <img src={pendingImage} alt="Pending upload" className="w-12 h-12 rounded object-cover" />
+  1410→                <div className="flex-1">
+  1411→                  <p className="text-xs font-semibold text-emerald-700">Image ready to send</p>
+  1412→                  <p className="text-[10px] text-emerald-600">Vision AI will analyze this with your question</p>
+  1413→                </div>
+  1414→                <button onClick={() => setPendingImage(null)} className="text-emerald-700 hover:text-rose-600" title="Remove image">
+  1415→                  <X className="w-4 h-4" />
+  1416→                </button>
+  1417→              </div>
+  1418→            )}
+  1419→            {/* Pending document preview */}
+  1420→            {(pendingDocument || uploadingDoc) && (
+  1421→              <div className="mb-2 flex items-center gap-2 p-2 bg-amber-50 border border-amber-200 rounded-xl">
+  1422→                <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center text-xl flex-shrink-0">
+  1423→                  {uploadingDoc ? <Loader2 className="w-5 h-5 animate-spin text-amber-600" /> : "📄"}
+  1424→                </div>
+  1425→                <div className="flex-1 min-w-0">
+  1426→                  {uploadingDoc ? (
+  1427→                    <>
+  1428→                      <p className="text-xs font-semibold text-amber-700">Extracting text…</p>
+  1429→                      <p className="text-[10px] text-amber-600">Reading document contents</p>
+  1430→                    </>
+  1431→                  ) : (
+  1432→                    <>
+  1433→                      <p className="text-xs font-semibold text-amber-800 truncate">{pendingDocument?.fileName}</p>
+  1434→                      <p className="text-[10px] text-amber-600 truncate">
+  1435→                        {pendingDocument?.fileType.toUpperCase()} · {pendingDocument?.text.length.toLocaleString()} chars extracted
+  1436→                      </p>
+  1437→                    </>
+  1438→                  )}
+  1439→                </div>
+  1440→                {pendingDocument && (
+  1441→                  <button onClick={() => setPendingDocument(null)} className="text-amber-700 hover:text-rose-600" title="Remove document">
+  1442→                    <X className="w-4 h-4" />
+  1443→                  </button>
+  1444→                )}
+  1445→              </div>
+  1446→            )}
+  1447→            <form
+  1448→              onSubmit={(e) => {
+  1449→                e.preventDefault();
+  1450→                send();
+  1451→              }}
+  1452→              className="flex items-center gap-2 max-w-3xl mx-auto"
+  1453→            >
+  1454→              <input
+  1455→                value={input}
+  1456→                onChange={(e) => setInput(e.target.value)}
+  1457→                onKeyDown={(e) => {
+  1458→                  if (e.key === "Enter" && !e.shiftKey) {
+  1459→                    e.preventDefault();
+  1460→                    send();
+  1461→                  }
+  1462→                }}
+  1463→                placeholder="Ask anything… (try 'plot (0,0) (1,5) (2,10)' or '📷 upload a photo of your homework' or 'draw a 3D cube')"
+  1464→                className="flex-1 px-4 py-2.5 rounded-full bg-gray-100 text-sm outline-none focus:bg-white focus:ring-2 focus:ring-indigo-200"
+  1465→                disabled={busy}
+  1466→              />
+  1467→              {/* Image upload button (vision) */}
+  1468→              <input
+  1469→                ref={fileInputRef}
+  1470→                type="file"
+  1471→                accept="image/*"
+  1472→                onChange={(e) => {
+  1473→                  const f = e.target.files?.[0];
+  1474→                  if (!f) return;
+  1475→                  if (f.size > 4 * 1024 * 1024) {
+  1476→                    setError("Image too large (max 4MB)");
+  1477→                    return;
+  1478→                  }
+  1479→                  const reader = new FileReader();
+  1480→                  reader.onload = () => setPendingImage(reader.result as string);
+  1481→                  reader.readAsDataURL(f);
+  1482→                  // Reset input so the same file can be uploaded again later
+  1483→                  e.target.value = "";
+  1484→                }}
+  1485→                className="hidden"
+  1486→              />
+  1487→              <button
+  1488→                type="button"
+  1489→                onClick={() => fileInputRef.current?.click()}
+  1490→                disabled={busy}
+  1491→                title="Upload an image (photo of homework, textbook page, diagram)"
+  1492→                className={`w-10 h-10 rounded-full flex items-center justify-center disabled:opacity-50 transition flex-shrink-0 ${
+  1493→                  pendingImage
+  1494→                    ? "bg-emerald-500 text-white hover:bg-emerald-600"
+  1495→                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+  1496→                }`}
+  1497→              >
+  1498→                <Paperclip className="w-4 h-4" />
+  1499→              </button>
+  1500→              {/* Document upload button (PDF/DOC/DOCX/XLSX/CSV) */}
+  1501→              <input
+  1502→                ref={docInputRef}
+  1503→                type="file"
+  1504→                accept=".pdf,.doc,.docx,.xlsx,.xls,.csv,.txt,.md"
+  1505→                onChange={(e) => {
+  1506→                  const f = e.target.files?.[0];
+  1507→                  if (f) handleDocumentUpload(f);
+  1508→                  e.target.value = "";
+  1509→                }}
+  1510→                className="hidden"
+  1511→              />
+  1512→              <button
+  1513→                type="button"
+  1514→                onClick={() => docInputRef.current?.click()}
+  1515→                disabled={busy || uploadingDoc}
+  1516→                title="Upload a document (PDF, DOC, DOCX, XLSX, CSV, TXT)"
+  1517→                className={`w-10 h-10 rounded-full flex items-center justify-center disabled:opacity-50 transition flex-shrink-0 ${
+  1518→                  pendingDocument
+  1519→                    ? "bg-amber-500 text-white hover:bg-amber-600"
+  1520→                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+  1521→                }`}
+  1522→              >
+  1523→                {uploadingDoc ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+  1524→              </button>
+  1525→              <button
+  1526→                type="submit"
+  1527→                disabled={busy || (!input.trim() && !pendingImage && !pendingDocument)}
+  1528→                className="w-10 h-10 rounded-full bg-indigo-600 text-white flex items-center justify-center disabled:opacity-50 hover:bg-indigo-700 transition flex-shrink-0"
+  1529→              >
+  1530→                {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+  1531→              </button>
+  1532→              {/* Voice mic button */}
+  1533→              <button
+  1534→                type="button"
+  1535→                onClick={recording ? stopRecording : startRecording}
+  1536→                disabled={busy || transcribing}
+  1537→                title={recording ? "Stop recording" : "Speak your question"}
+  1538→                className={`w-10 h-10 rounded-full flex items-center justify-center disabled:opacity-50 transition flex-shrink-0 ${
+  1539→                  recording
+  1540→                    ? "bg-rose-500 text-white animate-pulse hover:bg-rose-600"
+  1541→                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+  1542→                }`}
+  1543→              >
+  1544→                {transcribing ? (
+  1545→                  <Loader2 className="w-4 h-4 animate-spin" />
+  1546→                ) : recording ? (
+  1547→                  <Square className="w-4 h-4" fill="white" />
+  1548→                ) : (
+  1549→                  <Mic className="w-4 h-4" />
+  1550→                )}
+  1551→              </button>
+  1552→            </form>
+  1553→            <p className="text-[10px] text-gray-400 text-center mt-1.5">
+  1554→              {recording
+  1555→                ? "🔴 Listening… tap ◼ to stop and send"
+  1556→                : transcribing
+  1557→                ? "Transcribing your voice…"
+  1558→                : "🎤 Voice mode is free (browser-based, no API key) · 📊 21 graph types · 🔢 LaTeX math · ✋ draggable concept maps"}
+  1559→            </p>
+  1560→          </div>
+  1561→        </div>
+  1562→      </div>
+  1563→    </div>
+  1564→  );
+  1565→}
+  1566→
+  1567→function MessageBubble({
+  1568→  msg,
+  1569→  onCopy,
+  1570→  onRetry,
+  1571→  copied,
+  1572→  onAttachmentChange,
+  1573→}: {
+  1574→  msg: ChatMsg;
+  1575→  onCopy: () => void;
+  1576→  onRetry?: () => void;
+  1577→  copied: boolean;
+  1578→  onAttachmentChange?: (attIdx: number, newCaption: string) => void;
+  1579→}) {
+  1580→  const isUser = msg.role === "user";
+  1581→  const [speaking, setSpeaking] = useState(false);
+  1582→
+  1583→  // Clean up browser speech when component unmounts
+  1584→  useEffect(() => {
+  1585→    return () => {
+  1586→      if (speaking) stopBrowserSpeech();
+  1587→    };
+  1588→  }, [speaking]);
+  1589→
+  1590→  const speak = async () => {
+  1591→    // If already speaking, stop
+  1592→    if (speaking) {
+  1593→      stopBrowserSpeech();
+  1594→      setSpeaking(false);
+  1595→      return;
+  1596→    }
+  1597→
+  1598→    // Strip markdown + LaTeX + attachments for TTS (we only speak the prose)
+  1599→    const plainText = msg.content
+  1600→      .replace(/```[\s\S]*?```/g, " [code block] ")
+  1601→      .replace(/\$\$[^$]+\$\$/g, " math equation ")
+  1602→      .replace(/\$([^$]+)\$/g, " $1 ")
+  1603→      .replace(/[*_`#>|]/g, "")
+  1604→      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+  1605→      .replace(/\s+/g, " ")
+  1606→      .trim();
+  1607→
+  1608→    if (!plainText) return;
+  1609→
+  1610→    setSpeaking(true);
+  1611→
+  1612→    // PRIORITY 1: Browser-based TTS (completely free, no API key, no server)
+  1613→    if (isBrowserTTSSupported()) {
+  1614→      try {
+  1615→        const { promise } = browserSpeak(plainText, { rate: 1.0, lang: "en-US" });
+  1616→        await promise;
+  1617→        setSpeaking(false);
+  1618→        return;
+  1619→      } catch (e: any) {
+  1620→        console.warn("[tutor] browser TTS failed, falling back to server:", e?.message);
+  1621→        setSpeaking(false);
+  1622→        // Fall through to server fallback below
+  1623→      }
+  1624→    }
+  1625→
+  1626→    // FALLBACK: Server-side TTS via z-ai-web-dev-sdk
+  1627→    // (only used if browser doesn't support speechSynthesis — very rare)
+  1628→    try {
+  1629→      const chunks: string[] = [];
+  1630→      let remaining = plainText;
+  1631→      while (remaining.length > 1000) {
+  1632→        const cut = remaining.lastIndexOf(".", 1000);
+  1633→        chunks.push(remaining.slice(0, cut > 0 ? cut + 1 : 1000));
+  1634→        remaining = remaining.slice(cut > 0 ? cut + 1 : 1000);
+  1635→      }
+  1636→      chunks.push(remaining);
+  1637→
+  1638→      const firstChunk = chunks[0];
+  1639→      const r = await fetch("/api/tutor/tts", {
+  1640→        method: "POST",
+  1641→        headers: { "Content-Type": "application/json" },
+  1642→        body: JSON.stringify({ text: firstChunk, voice: "tongtong", speed: 1.0 }),
+  1643→      });
+  1644→      if (!r.ok) {
+  1645→        const d = await r.json().catch(() => ({}));
+  1646→        throw new Error(d.error ?? "TTS failed");
+  1647→      }
+  1648→      const blob = await r.blob();
+  1649→      const url = URL.createObjectURL(blob);
+  1650→      const audio = new Audio(url);
+  1651→      audio.onended = () => {
+  1652→        setSpeaking(false);
+  1653→        URL.revokeObjectURL(url);
+  1654→      };
+  1655→      audio.onerror = () => {
+  1656→        setSpeaking(false);
+  1657→        URL.revokeObjectURL(url);
+  1658→      };
+  1659→      await audio.play();
+  1660→    } catch (e: any) {
+  1661→      console.error("[tutor] TTS error:", e?.message);
+  1662→      // Can't setError here — MessageBubble is a child component.
+  1663→      // The browser TTS path is the primary; this only runs if browser
+  1664→      // doesn't support speechSynthesis (rare) AND server is also broken.
+  1665→      alert(e?.message ?? "Voice playback failed");
+  1666→      setSpeaking(false);
+  1667→    }
+  1668→  };
+  1669→
+  1670→  return (
+  1671→    <div className={`flex ${isUser ? "justify-end" : "justify-start"} group`}>
+  1672→      <div className={`max-w-[85%] ${isUser ? "" : "flex gap-2 w-full sm:max-w-[85%]"}`}>
+  1673→        {!isUser && (
+  1674→          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center flex-shrink-0">
+  1675→            <Bot className="w-4 h-4 text-white" />
+  1676→          </div>
+  1677→        )}
+  1678→        <div className="flex-1 min-w-0">
+  1679→          <div
+  1680→            className={`rounded-2xl px-4 py-3 text-sm ${
+  1681→              isUser
+  1682→                ? "bg-indigo-600 text-white rounded-br-sm"
+  1683→                : "bg-white border border-gray-200 text-gray-800 rounded-bl-sm"
+  1684→            }`}
+  1685→          >
+  1686→            <MarkdownContent content={msg.content} isUser={isUser} />
+  1687→          </div>
+  1688→
+  1689→          {/* Attachments */}
+  1690→          {msg.attachments && msg.attachments.length > 0 && (
+  1691→            <div className="mt-2 space-y-3">
+  1692→              {msg.attachments.map((att, i) => (
+  1693→                <AttachmentRenderer
+  1694→                  key={i}
+  1695→                  attachment={att}
+  1696→                  onSpecChange={onAttachmentChange ? (newSpec: any) => onAttachmentChange(i, JSON.stringify(newSpec)) : undefined}
+  1697→                />
+  1698→              ))}
+  1699→            </div>
+  1700→          )}
+  1701→
+  1702→          {/* Thinking dropdown + proof badges (Phase 42) */}
+  1703→          {!isUser && msg.thinking && msg.thinking.length > 0 && (
+  1704→            <ThinkingDropdown thinking={msg.thinking} proof={msg.proof} />
+  1705→          )}
+  1706→          {!isUser && msg.proof && !msg.thinking && (
+  1707→            <ProofBadges proof={msg.proof} />
+  1708→          )}
+  1709→
+  1710→          {/* Action buttons on AI messages */}
+  1711→          {!isUser && (
+  1712→            <div className="flex items-center gap-1 mt-1.5 opacity-0 group-hover:opacity-100 transition">
+  1713→              <button
+  1714→                onClick={onCopy}
+  1715→                className="px-2 py-1 rounded-md hover:bg-gray-100 text-gray-500 text-[10px] flex items-center gap-1"
+  1716→                title="Copy"
+  1717→              >
+  1718→                {copied ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+  1719→                {copied ? "Copied" : "Copy"}
+  1720→              </button>
+  1721→              <button
+  1722→                onClick={speak}
+  1723→                className={`px-2 py-1 rounded-md hover:bg-gray-100 text-[10px] flex items-center gap-1 ${
+  1724→                  speaking ? "text-indigo-600 font-semibold" : "text-gray-500"
+  1725→                }`}
+  1726→                title={speaking ? "Stop speaking" : "Listen to this reply"}
+  1727→              >
+  1728→                {speaking ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
+  1729→                {speaking ? "Stop" : "Listen"}
+  1730→              </button>
+  1731→              {onRetry && (
+  1732→                <button
+  1733→                  onClick={onRetry}
+  1734→                  className="px-2 py-1 rounded-md hover:bg-gray-100 text-gray-500 text-[10px] flex items-center gap-1"
+  1735→                  title="Regenerate"
+  1736→                >
+  1737→                  <RotateCw className="w-3 h-3" /> Retry
+  1738→                </button>
+  1739→              )}
+  1740→            </div>
+  1741→          )}
+  1742→        </div>
+  1743→      </div>
+  1744→    </div>
+  1745→  );
+  1746→}
+  1747→
+  1748→function AttachmentRenderer({ attachment, onSpecChange }: { attachment: Attachment; onSpecChange?: (newSpec: any) => void }) {
+  1749→  if (attachment.type === "video" && attachment.url) {
+  1750→    const ytMatch = attachment.url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]+)/);
+  1751→    const videoId = ytMatch?.[1];
+  1752→    return (
+  1753→      <div className="rounded-xl overflow-hidden border border-gray-200 bg-white">
+  1754→        <div className="px-3 pt-2 pb-1 flex items-center gap-1.5">
+  1755→          <Video className="w-3.5 h-3.5 text-rose-500" />
+  1756→          <span className="text-[10px] font-bold uppercase text-rose-500">Video</span>
+  1757→        </div>
+  1758→        {videoId ? (
+  1759→          <div className="aspect-video bg-black">
+  1760→            <iframe
+  1761→              src={`https://www.youtube.com/embed/${videoId}`}
+  1762→              className="w-full h-full"
+  1763→              allowFullScreen
+  1764→              title={attachment.caption}
+  1765→              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+  1766→            />
+  1767→          </div>
+  1768→        ) : (
+  1769→          <div className="p-3">
+  1770→            <a href={attachment.url} target="_blank" rel="noopener noreferrer" className="text-xs text-indigo-600 hover:underline">
+  1771→              {attachment.caption} →
+  1772→            </a>
+  1773→          </div>
+  1774→        )}
+  1775→        <p className="text-[11px] text-gray-600 px-3 pb-2 pt-1">{attachment.caption}</p>
+  1776→      </div>
+  1777→    );
+  1778→  }
+  1779→
+  1780→  if (attachment.type === "image" && attachment.url) {
+  1781→    return (
+  1782→      <div className="rounded-xl overflow-hidden border border-gray-200 bg-white">
+  1783→        <div className="px-3 pt-2 pb-1 flex items-center gap-1.5">
+  1784→          <ImageIcon className="w-3.5 h-3.5 text-emerald-500" />
+  1785→          <span className="text-[10px] font-bold uppercase text-emerald-500">Image</span>
+  1786→        </div>
+  1787→        {/* eslint-disable-next-line @next/next/no-img-element */}
+  1788→        <img src={attachment.url} alt={attachment.caption} className="w-full max-h-80 object-contain bg-gray-50" />
+  1789→        <p className="text-[11px] text-gray-600 px-3 py-2">{attachment.caption}</p>
+  1790→      </div>
+  1791→    );
+  1792→  }
+  1793→
+  1794→  if (attachment.type === "graph") {
+  1795→    let spec: GraphSpec | null = null;
+  1796→    try {
+  1797→      spec = JSON.parse(attachment.caption);
+  1798→    } catch {
+  1799→      spec = null;
+  1800→    }
+  1801→    return (
+  1802→      <div className="rounded-xl border border-gray-200 bg-white p-3">
+  1803→        <div className="flex items-center justify-between mb-2">
+  1804→          <div className="flex items-center gap-1.5">
+  1805→            <GitBranch className="w-3.5 h-3.5 text-indigo-500" />
+  1806→            <span className="text-[10px] font-bold uppercase text-indigo-500">Graph</span>
+  1807→          </div>
+  1808→          {spec && <DownloadGraphButton spec={spec} fileName={`graph-${spec.type ?? "custom"}.svg`} />}
+  1809→        </div>
+  1810→        {spec ? <GraphRenderer spec={spec} onSpecChange={onSpecChange} /> : <p className="text-xs text-gray-600">{attachment.caption}</p>}
+  1811→      </div>
+  1812→    );
+  1813→  }
+  1814→
+  1815→  if (attachment.type === "conceptmap") {
+  1816→    let spec: ConceptMapSpec | null = null;
+  1817→    try {
+  1818→      spec = JSON.parse(attachment.caption);
+  1819→    } catch {
+  1820→      spec = null;
+  1821→    }
+  1822→    return (
+  1823→      <div className="rounded-xl border border-gray-200 bg-white p-3">
+  1824→        <div className="flex items-center justify-between mb-2">
+  1825→          <div className="flex items-center gap-1.5">
+  1826→            <Brain className="w-3.5 h-3.5 text-violet-500" />
+  1827→            <span className="text-[10px] font-bold uppercase text-violet-500">Concept Map</span>
+  1828→          </div>
+  1829→          <div className="flex gap-2">
+  1830→            {spec && <FlashcardsFromConceptMapButton spec={spec} />}
+  1831→            {spec && <DownloadGraphButton spec={{ ...spec, type: "network" }} fileName="concept-map.svg" />}
+  1832→          </div>
+  1833→        </div>
+  1834→        {spec ? (
+  1835→          // Route concept maps through the unified graph renderer (network type)
+  1836→          <GraphRenderer spec={{ ...spec, type: "network" }} onSpecChange={onSpecChange} />
+  1837→        ) : (
+  1838→          <p className="text-xs text-gray-600">{attachment.caption}</p>
+  1839→        )}
+  1840→      </div>
+  1841→    );
+  1842→  }
+  1843→
+  1844→  return null;
+  1845→}
+  1846→
+  1847→// =====================================================================
+  1848→// Markdown Renderer — handles code blocks, lists, bold/italic, links
+  1849→// =====================================================================
+  1850→function MarkdownContent({ content, isUser }: { content: string; isUser: boolean }) {
+  1851→  // Split content into blocks: code blocks vs. inline content
+  1852→  const blocks: Array<{ type: "code" | "text"; lang?: string; content: string }> = [];
+  1853→  const codeBlockRegex = /```(\w+)?\n?([\s\S]*?)```/g;
+  1854→  let lastIndex = 0;
+  1855→  let match: RegExpExecArray | null;
+  1856→
+  1857→  while ((match = codeBlockRegex.exec(content)) !== null) {
+  1858→    if (match.index > lastIndex) {
+  1859→      blocks.push({ type: "text", content: content.slice(lastIndex, match.index) });
+  1860→    }
+  1861→    blocks.push({
+  1862→      type: "code",
+  1863→      lang: match[1] || "text",
+  1864→      content: match[2].trim(),
+  1865→    });
+  1866→    lastIndex = match.index + match[0].length;
+  1867→  }
+  1868→  if (lastIndex < content.length) {
+  1869→    blocks.push({ type: "text", content: content.slice(lastIndex) });
+  1870→  }
+  1871→  // If no blocks were created (no code blocks), use the entire content as text
+  1872→  if (blocks.length === 0) {
+  1873→    blocks.push({ type: "text", content });
+  1874→  }
+  1875→
+  1876→  return (
+  1877→    <div className="space-y-2">
+  1878→      {blocks.map((block, i) => {
+  1879→        if (block.type === "code") {
+  1880→          // Skip mathgraph/conceptmap code blocks — they are rendered as attachments
+  1881→          if (block.lang === "mathgraph" || block.lang === "conceptmap" || block.lang === "examgen") return null;
+  1882→          // Also skip JSON / text blocks that look like graph specs (since the
+  1883→          // server has parsed them into attachments already). Check if the
+  1884→          // block content starts with `{"type": "..."` where type is one of
+  1885→          // our known graph types.
+  1886→          const graphTypeMatch = block.content.match(/^\{\s*"type"\s*:\s*"(\w+)"/);
+  1887→          const KNOWN_GRAPH_TYPES = new Set([
+  1888→            "function", "scatter", "bar", "histogram", "pie", "venn",
+  1889→            "numberline", "tree", "network", "vector", "polygon", "boxplot",
+  1890→            "slopefield", "stemleaf", "frequency_polygon", "freeform",
+  1891→            "argand", "contour", "vectorfield", "tessellation", "knot",
+  1892→            "pictogram", "tally", "carroll", "ogive", "unitcircle",
+  1893→            "transform", "axes3d", "twoway", "erdiagram", "csv", "steps",
+  1894→          ]);
+  1895→          if (
+  1896→            (block.lang === "json" || block.lang === "text" || block.lang === "") &&
+  1897→            graphTypeMatch && KNOWN_GRAPH_TYPES.has(graphTypeMatch[1])
+  1898→          ) {
+  1899→            return null;
+  1900→          }
+  1901→          return <CodeBlock key={i} code={block.content} lang={block.lang} />;
+  1902→        }
+  1903→        return <TextBlock key={i} content={block.content} isUser={isUser} />;
+  1904→      })}
+  1905→    </div>
+  1906→  );
+  1907→}
+  1908→
+  1909→function CodeBlock({ code, lang }: { code: string; lang?: string }) {
+  1910→  const [copied, setCopied] = useState(false);
+  1911→  const copy = () => {
+  1912→    navigator.clipboard.writeText(code);
+  1913→    setCopied(true);
+  1914→    setTimeout(() => setCopied(false), 2000);
+  1915→  };
+  1916→  return (
+  1917→    <div className="relative rounded-lg bg-gray-900 text-gray-100 p-3 my-2 overflow-x-auto">
+  1918→      <div className="flex items-center justify-between mb-1">
+  1919→        <span className="text-[10px] uppercase text-gray-400 font-mono">{lang}</span>
+  1920→        <button onClick={copy} className="text-gray-400 hover:text-white">
+  1921→          {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+  1922→        </button>
+  1923→      </div>
+  1924→      <pre className="text-xs font-mono whitespace-pre-wrap break-words leading-relaxed">{code}</pre>
+  1925→    </div>
+  1926→  );
+  1927→}
+  1928→
+  1929→function TextBlock({ content, isUser }: { content: string; isUser: boolean }) {
+  1930→  // Render line-by-line with markdown inline formatting
+  1931→  const lines = content.split("\n");
+  1932→  const elements: ReactElement[] = [];
+  1933→  let listBuffer: Array<{ type: "ul" | "ol"; items: string[] }> = [];
+  1934→  let currentList: { type: "ul" | "ol"; items: string[] } | null = null;
+  1935→
+  1936→  const flushList = () => {
+  1937→    if (listBuffer.length > 0) {
+  1938→      // Combine all consecutive lists of same type
+  1939→      const ulItems: string[] = [];
+  1940→      const olItems: string[] = [];
+  1941→      for (const l of listBuffer) {
+  1942→        if (l.type === "ul") ulItems.push(...l.items);
+  1943→        else olItems.push(...l.items);
+  1944→      }
+  1945→      if (ulItems.length > 0) {
+  1946→        elements.push(
+  1947→          <ul key={`ul-${elements.length}`} className="list-disc pl-5 my-1 space-y-0.5">
+  1948→            {ulItems.map((it, i) => (
+  1949→              <li key={i} dangerouslySetInnerHTML={{ __html: renderInlineMarkdown(it, isUser) }} />
+  1950→            ))}
+  1951→          </ul>
+  1952→        );
+  1953→      }
+  1954→      if (olItems.length > 0) {
+  1955→        elements.push(
+  1956→          <ol key={`ol-${elements.length}`} className="list-decimal pl-5 my-1 space-y-0.5">
+  1957→            {olItems.map((it, i) => (
+  1958→              <li key={i} dangerouslySetInnerHTML={{ __html: renderInlineMarkdown(it, isUser) }} />
+  1959→            ))}
+  1960→          </ol>
+  1961→        );
+  1962→      }
+  1963→      listBuffer = [];
+  1964→    }
+  1965→    currentList = null;
+  1966→  };
+  1967→
+  1968→  for (let i = 0; i < lines.length; i++) {
+  1969→    const line = lines[i];
+  1970→    // Unordered list item: "- " or "* "
+  1971→    const ulMatch = line.match(/^\s*[-*]\s+(.*)/);
+  1972→    if (ulMatch) {
+  1973→      currentList = { type: "ul", items: [ulMatch[1]] };
+  1974→      listBuffer.push(currentList);
+  1975→      continue;
+  1976→    }
+  1977→    // Ordered list item: "1. "
+  1978→    const olMatch = line.match(/^\s*\d+\.\s+(.*)/);
+  1979→    if (olMatch) {
+  1980→      currentList = { type: "ol", items: [olMatch[1]] };
+  1981→      listBuffer.push(currentList);
+  1982→      continue;
+  1983→    }
+  1984→    // Empty line — flush list
+  1985→    if (line.trim() === "") {
+  1986→      flushList();
+  1987→      continue;
+  1988→    }
+  1989→    // Regular paragraph
+  1990→    flushList();
+  1991→    elements.push(
+  1992→      <p
+  1993→        key={`p-${i}`}
+  1994→        className="leading-relaxed"
+  1995→        dangerouslySetInnerHTML={{ __html: renderInlineMarkdown(line, isUser) }}
+  1996→      />
+  1997→    );
+  1998→  }
+  1999→  flushList();
+  2000→
+
+[showing lines 1-2000 of 2347; use offset=2001 with limit to continue reading]

@@ -119,3 +119,34 @@ Stage Summary:
 - src/app/api/admin/exam-papers/upload/route.ts — restored (was deleted between sessions)
 - Commit d4a58d8 pushed to git; user needs to push to deploy target (Vercel) for the changes to go live.
 - After deployment, users should hard-reload once (Ctrl+Shift+R or Cmd+Shift+R) to bypass any browser HTTP cache and trigger the SW to activate the new cache version.
+
+---
+Task ID: grade-recommendations-1
+Agent: main
+Task: Clear all recommendations in AI Tutor that don't match the user's current grade — e.g. Grade 1 should only see Grade 1-3 suggestions, Grade 2 only Grade 1-3, Form 2 only Form 1-4, etc.
+
+Work Log:
+- Explored /home/z/my-project/src/components/studybuddy/screens/AITutorChat.tsx — found the hardcoded `suggestedQuestions` array (lines 832–876) with 36 entries across 10 category bands.
+- Found that the empty-state grid (lines 1123–1137) renders ALL suggestions regardless of the user's grade.
+- Found that the component already calls /api/auth/me in a useEffect (line 599) but only reads `currentModel` from the response.
+- Confirmed the user's grade is stored in DB as `User.grade` (e.g. "Grade 1", "Form 2", "Grade 10"), but the recommendation categories use band strings ("Grade 1-3", "Grade 4-6", "Grade 7-9", "Form 1-4", "University", "General", "Step-by-Step", "Vision", "Spreadsheets", "Database").
+- Added `const [userGrade, setUserGrade] = useState<string>("")` next to `currentModel` state.
+- Extended the existing /api/auth/me fetch to also read `me.user?.grade` and store it in `userGrade`.
+- Added `gradeToRecommendationBands(grade)` helper that maps a stored grade string to its allowed category bands:
+    * PP1/PP2/Grade 1-3 → ["Grade 1-3", "General", "Vision"]
+    * Grade 4-6         → ["Grade 4-6", "General", "Step-by-Step", "Vision"]
+    * Grade 7-9         → ["Grade 7-9", "General", "Step-by-Step", "Vision", "Spreadsheets"]
+    * Form 1-4 / Grade 10-13 → ["Form 1-4", "General", "Step-by-Step", "Vision", "Spreadsheets", "Database"]
+    * University       → ["University", "General", "Step-by-Step", "Vision", "Spreadsheets", "Database"]
+    * Unknown/null     → ["General", "Step-by-Step", "Vision"]
+- Renamed the original array to `allSuggestedQuestions` and derived `suggestedQuestions = allSuggestedQuestions.filter(q => allowedBands.includes(q.category))`.
+- Updated the rendering block (around line 1165) to:
+    * Show a "Showing suggestions for {userGrade}" header above the grid.
+    * Render the filtered list (now correctly scoped to the user's grade band).
+    * Add an empty fallback message ("Set your grade in Profile to see tailored suggestions.") when no band matches.
+- Ran `npx tsc --noEmit` — no new errors in AITutorChat.tsx (the only errors remaining are pre-existing in other files).
+- Ran `npx next build` — production build succeeded, all routes compiled.
+
+Stage Summary:
+- Recommendation grid in AI Tutor is now grade-aware. Switching grade in Profile (which triggers a page reload) automatically re-runs the filter and shows only the prompts appropriate for the new grade band.
+- File changed: src/components/studybuddy/screens/AITutorChat.tsx

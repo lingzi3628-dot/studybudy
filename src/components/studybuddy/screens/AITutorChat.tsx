@@ -101,6 +101,7 @@ export function AITutorChat() {
   // Per-conversation model switcher (Feature #7) + model comparison (Feature #1)
   const [availableBuddies, setAvailableBuddies] = useState<Array<{ modelName: string; displayName: string; emoji: string; canUse: boolean }>>([]);
   const [currentModel, setCurrentModel] = useState<string>("");
+  const [userGrade, setUserGrade] = useState<string>("");
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [showCompare, setShowCompare] = useState(false);
   const [compareBuddies, setCompareBuddies] = useState<string[]>([]);
@@ -605,6 +606,7 @@ export function AITutorChat() {
         if (meRes.ok) {
           const me = await meRes.json();
           if (me.authed) setCurrentModel(me.user?.currentModel ?? "study_buddy_free");
+          if (me.user?.grade) setUserGrade(me.user.grade);
         }
       })
       .catch(() => {});
@@ -829,7 +831,40 @@ export function AITutorChat() {
     setRecording(false);
   };
 
-  const suggestedQuestions = [
+  // Map the user's stored grade (e.g. "Grade 1", "Form 2", "Grade 10") to the
+  // recommendation category bands shown in the empty-state grid. Each grade only
+  // sees its own band + a small set of grade-agnostic "tool" categories.
+  const gradeToRecommendationBands = (grade: string): string[] => {
+    const g = (grade || "").trim();
+    if (!g) return ["General", "Step-by-Step", "Vision"];
+    const lower = g.toLowerCase();
+    const numMatch = lower.match(/(?:grade|form|pp)\s*(\d+)/i);
+    const num = numMatch ? parseInt(numMatch[1], 10) : NaN;
+    // Pre-primary / lower primary (PP1, PP2, Grade 1–3)
+    if (/^pp[12]/i.test(g) || (/^grade\s*[1-3]$/i.test(g))) {
+      return ["Grade 1-3", "General", "Vision"];
+    }
+    // Upper primary (Grade 4–6)
+    if (/^grade\s*[4-6]$/i.test(g)) {
+      return ["Grade 4-6", "General", "Step-by-Step", "Vision"];
+    }
+    // Junior school (Grade 7–9)
+    if (/^grade\s*[7-9]$/i.test(g)) {
+      return ["Grade 7-9", "General", "Step-by-Step", "Vision", "Spreadsheets"];
+    }
+    // Senior school — Form 1-4 or CBE aliases Grade 10-13
+    if (/^form\s*[1-4]$/i.test(g) || /^grade\s*1[0-3]$/i.test(g)) {
+      return ["Form 1-4", "General", "Step-by-Step", "Vision", "Spreadsheets", "Database"];
+    }
+    // University
+    if (/university|college|undergrad|grad/i.test(g) || (!Number.isNaN(num) && num >= 14)) {
+      return ["University", "General", "Step-by-Step", "Vision", "Spreadsheets", "Database"];
+    }
+    // Unknown — fallback to safe universal set
+    return ["General", "Step-by-Step", "Vision"];
+  };
+
+  const allSuggestedQuestions = [
     // Grade 1-3 — early years
     { icon: "🍎", text: "Make a pictogram: 8 apples, 5 bananas, 10 oranges (🍎 = 2 fruits each)", category: "Grade 1-3" },
     { icon: "✋", text: "Tally the votes: Red 8, Blue 12, Green 5, Yellow 3", category: "Grade 1-3" },
@@ -850,14 +885,17 @@ export function AITutorChat() {
     { icon: "⭕", text: "Show me sin and cos on the unit circle for angle 60°", category: "Form 1-4" },
     { icon: "📈", text: "Cumulative frequency (ogive) from bins: 0-10 (3), 10-20 (7), 20-30 (12), 30-40 (5)", category: "Form 1-4" },
     { icon: "🧮", text: "Solve x² + 5x + 6 = 0 using the quadratic formula", category: "Form 1-4" },
+    // Step-by-Step
     { icon: "📝", text: "Solve 2x + 5 = 15 step by step, showing your work", category: "Step-by-Step" },
     { icon: "📝", text: "Show me how to solve 3x - 7 = 14 step by step", category: "Step-by-Step" },
+    // Vision
     { icon: "📷", text: "Upload a photo of my homework using the 📎 button and ask 'help me solve this'", category: "Vision" },
-    // Spreadsheet + database
+    // Spreadsheets
     { icon: "📊", text: "Build me an Excel worksheet for food capacity: maize flour 50kg, beans 20kg, rice 15kg, cooking oil 5L", category: "Spreadsheets" },
     { icon: "💰", text: "Build a payment schedule spreadsheet for 3 employees with hours, rate, gross, tax, net", category: "Spreadsheets" },
     { icon: "📅", text: "Build a class attendance register spreadsheet for 5 students Mon-Fri", category: "Spreadsheets" },
     { icon: "🎒", text: "Build a grade book spreadsheet for 3 students in Math, English, Science with averages", category: "Spreadsheets" },
+    // Database
     { icon: "🏦", text: "Build a simple database schema for a school with Students, Classes, Teachers", category: "Database" },
     { icon: "📚", text: "Design a database schema for a library: Books, Authors, Borrowers, Loans", category: "Database" },
     { icon: "🛒", text: "Design a store database schema: Customers, Products, Orders, Order Items", category: "Database" },
@@ -874,6 +912,10 @@ export function AITutorChat() {
     { icon: "🔷", text: "Make a hexagon tessellation pattern", category: "General" },
     { icon: "⛰️", text: "Draw a contour map showing a hill with 3 elevation levels", category: "General" },
   ];
+
+  // Only show recommendations that match the user's current grade band.
+  const allowedBands = gradeToRecommendationBands(userGrade);
+  const suggestedQuestions = allSuggestedQuestions.filter((q) => allowedBands.includes(q.category));
 
   // Exam viewer panel — full screen, shows the generated exam HTML
   if (viewingExam) {
@@ -1120,20 +1162,33 @@ export function AITutorChat() {
                   <span className="text-violet-600 font-medium">build concept maps</span>, and{" "}
                   <span className="text-amber-600 font-medium">render any custom SVG drawing</span>. Your chat history is saved automatically.
                 </p>
-                <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-xl mx-auto">
-                  {suggestedQuestions.map((q) => (
-                    <button
-                      key={q.text}
-                      onClick={() => send(q.text)}
-                      className="px-3 py-2.5 rounded-xl bg-white border border-gray-200 text-left hover:border-indigo-300 hover:bg-indigo-50/40 transition flex items-start gap-2"
-                    >
-                      <span className="text-lg">{q.icon}</span>
-                      <div className="flex-1">
-                        <p className="text-xs font-semibold text-gray-700">{q.text}</p>
-                        <p className="text-[10px] text-gray-400 mt-0.5">{q.category}</p>
-                      </div>
-                    </button>
-                  ))}
+                <div className="mt-6 max-w-xl mx-auto">
+                  {userGrade ? (
+                    <p className="text-[11px] font-medium text-indigo-600 mb-2 text-center">
+                      Showing suggestions for {userGrade}
+                    </p>
+                  ) : null}
+                  {suggestedQuestions.length > 0 ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {suggestedQuestions.map((q) => (
+                        <button
+                          key={q.text}
+                          onClick={() => send(q.text)}
+                          className="px-3 py-2.5 rounded-xl bg-white border border-gray-200 text-left hover:border-indigo-300 hover:bg-indigo-50/40 transition flex items-start gap-2"
+                        >
+                          <span className="text-lg">{q.icon}</span>
+                          <div className="flex-1">
+                            <p className="text-xs font-semibold text-gray-700">{q.text}</p>
+                            <p className="text-[10px] text-gray-400 mt-0.5">{q.category}</p>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-gray-400 text-center">
+                      Set your grade in Profile to see tailored suggestions.
+                    </p>
+                  )}
                 </div>
               </div>
             ) : (
