@@ -805,10 +805,27 @@ export function AITutorChat() {
             </div>
             <div className="flex items-center gap-2">
               <button
+                onClick={() => {
+                  // Download as HTML file (user can open in browser → print to PDF)
+                  const blob = new Blob([viewingExam], { type: "text/html;charset=utf-8" });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = `studybuddy-exam-${Date.now()}.html`;
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                  URL.revokeObjectURL(url);
+                }}
+                className="px-3 h-8 rounded-full bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 flex items-center gap-1"
+              >
+                💾 Download
+              </button>
+              <button
                 onClick={() => window.print()}
                 className="px-3 h-8 rounded-full bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 flex items-center gap-1"
               >
-                🖨️ Print
+                🖨️ Print / Save PDF
               </button>
               <a
                 href="https://studybuddy.ai"
@@ -834,7 +851,7 @@ export function AITutorChat() {
         <div className="flex-shrink-0 bg-white border-t border-gray-200 p-3">
           <div className="max-w-[800px] mx-auto flex items-center justify-between">
             <p className="text-xs text-gray-500">
-              📖 Read the exam, then tap "Print" to save as PDF or print at a cyber café
+              📖 Read the exam · 💾 Download the HTML file · 🖨️ Print to save as PDF at a cyber café
             </p>
             <button
               onClick={() => setViewingExam(null)}
@@ -1107,7 +1124,7 @@ export function AITutorChat() {
               <div className="grid grid-cols-3 gap-2">
                 <div>
                   <label className="text-[10px] font-semibold text-gray-600">Questions</label>
-                  <input type="number" min={5} max={50} value={examConfig.numQuestions}
+                  <input type="number" min={5} max={40} value={examConfig.numQuestions}
                     onChange={(e) => setExamConfig({ ...examConfig, numQuestions: e.target.value })}
                     className="w-full px-2 py-1 rounded-lg border border-amber-200 text-sm bg-white" />
                 </div>
@@ -1129,6 +1146,7 @@ export function AITutorChat() {
                 <select value={examConfig.examType}
                   onChange={(e) => setExamConfig({ ...examConfig, examType: e.target.value })}
                   className="px-2 py-1 rounded-lg border border-amber-200 text-xs bg-white">
+                  <option value="kcse_style">KCSE Style (Section A + B)</option>
                   <option value="mixed">Mixed (MCQ + Short Answer)</option>
                   <option value="mcq">MCQ only</option>
                   <option value="short_answer">Short Answer only</option>
