@@ -1,0 +1,2002 @@
+     1→"use client";
+     2→
+     3→import { type ReactElement, useState, useRef, useEffect, useCallback } from "react";
+     4→
+     5→// =====================================================================
+     6→// Shared interactivity hooks
+     7→// =====================================================================
+     8→
+     9→// Zoom/pan state for coordinate plots
+    10→function useZoomPan(initialRange: [number, number]) {
+    11→  const [range, setRange] = useState<[number, number]>(initialRange);
+    12→  const [zoom, setZoom] = useState(1);
+    13→  return { range, zoom, setRange, setZoom };
+    14→}
+    15→
+    16→// Hover tooltip for scatter points
+    17→function HoverPoint({
+    18→  cx,
+    19→  cy,
+    20→  label,
+    21→  color,
+    22→}: {
+    23→  cx: number;
+    24→  cy: number;
+    25→  label: string;
+    26→  color: string;
+    27→}) {
+    28→  const [hovered, setHovered] = useState(false);
+    29→  return (
+    30→    <g
+    31→      onMouseEnter={() => setHovered(true)}
+    32→      onMouseLeave={() => setHovered(false)}
+    33→      style={{ cursor: "pointer" }}
+    34→    >
+    35→      <circle
+    36→        cx={cx}
+    37→        cy={cy}
+    38→        r={hovered ? 7 : 5}
+    39→        fill={color}
+    40→        stroke="white"
+    41→        strokeWidth={hovered ? 2 : 1.5}
+    42→        style={{ transition: "r 0.1s" }}
+    43→      />
+    44→      {hovered && (
+    45→        <g>
+    46→          <rect
+    47→            x={cx + 10}
+    48→            y={cy - 22}
+    49→            width={label.length * 6 + 12}
+    50→            height={20}
+    51→            rx={4}
+    52→            fill="rgba(17, 24, 39, 0.92)"
+    53→          />
+    54→          <text
+    55→            x={cx + 16}
+    56→            y={cy - 8}
+    57→            fontSize={11}
+    58→            fill="white"
+    59→            fontWeight={600}
+    60→          >
+    61→            {label}
+    62→          </text>
+    63→        </g>
+    64→      )}
+    65→    </g>
+    66→  );
+    67→}
+    68→
+    69→// CSVDownloadButton — small button that downloads rows as a CSV file
+    70→// (opens in Excel, Google Sheets, LibreOffice)
+    71→function CSVDownloadButton({
+    72→  headers,
+    73→  rows,
+    74→  downloadName = "table.csv",
+    75→}: {
+    76→  headers: string[];
+    77→  rows: (string | number)[][];
+    78→  downloadName?: string;
+    79→}) {
+    80→  const escapeCSV = (val: string | number) => {
+    81→    const s = String(val ?? "");
+    82→    if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+    83→    return s;
+    84→  };
+    85→  const csvText = [headers, ...rows].map((r) => r.map(escapeCSV).join(",")).join("\n");
+    86→
+    87→  const download = () => {
+    88→    const blob = new Blob([csvText], { type: "text/csv;charset=utf-8" });
+    89→    const url = URL.createObjectURL(blob);
+    90→    const a = document.createElement("a");
+    91→    a.href = url;
+    92→    a.download = downloadName.endsWith(".csv") ? downloadName : `${downloadName}.csv`;
+    93→    document.body.appendChild(a);
+    94→    a.click();
+    95→    document.body.removeChild(a);
+    96→    URL.revokeObjectURL(url);
+    97→  };
+    98→
+    99→  return (
+   100→    <button
+   101→      onClick={download}
+   102→      className="text-[10px] text-gray-500 hover:text-emerald-700 flex items-center gap-0.5"
+   103→      title="Download as CSV (opens in Excel)"
+   104→    >
+   105→      📄 CSV
+   106→    </button>
+   107→  );
+   108→}
+   109→
+   110→// =====================================================================
+   111→// GraphRenderers — Phase 28+
+   112→//
+   113→// A modular dispatcher that renders many different kinds of graphs as
+   114→// inline SVG, based on a JSON spec produced by the AI Tutor.
+   115→//
+   116→// Supported types:
+   117→//   1. function       — y = f(x) line plot (math)
+   118→//   2. scatter        — data points + optional line of best fit (physics/data)
+   119→//   3. bar            — vertical bar chart with categories
+   120→//   4. histogram      — like bar but no gaps, for frequency distributions
+   121→//   5. pie            — pie chart with labeled slices
+   122→//   6. venn           — 2 or 3-set Venn diagram (probability/sets)
+   123→//   7. numberline     — number line with shaded ranges (inequalities)
+   124→//   8. tree           — probability tree diagram
+   125→//   9. network        — node/edge graph (graph theory, social networks)
+   126→//  10. vector         — vector arrows on a coordinate plane
+   127→//  11. polygon        — 2D geometric figure with labeled vertices/angles
+   128→//  12. boxplot        — box-and-whisker plot (statistics)
+   129→//
+   130→// Each renderer takes a `spec: any` prop (the parsed JSON from the AI).
+   131→// All are pure SVG so they work in any modern browser, no external deps.
+   132→// =====================================================================
+   133→
+   134→export type GraphSpec = Record<string, any> & { type?: string };
+   135→
+   136→const PALETTE = [
+   137→  "#4F46E5", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6",
+   138→  "#06B6D4", "#EC4899", "#84CC16", "#F97316", "#6366F1",
+   139→];
+   140→
+   141→// =====================================================================
+   142→// Main dispatcher
+   143→// =====================================================================
+   144→export function GraphRenderer({ spec, onSpecChange }: { spec: GraphSpec; onSpecChange?: (newSpec: any) => void }) {
+   145→  const type = (spec?.type ?? "function").toString();
+   146→  switch (type) {
+   147→    case "function":
+   148→      return <FunctionSVG spec={spec} />;
+   149→    case "scatter":
+   150→      return <ScatterSVG spec={spec} />;
+   151→    case "bar":
+   152→      return <BarChartSVG spec={spec} />;
+   153→    case "histogram":
+   154→      return <HistogramSVG spec={spec} />;
+   155→    case "pie":
+   156→      return <PieChartSVG spec={spec} />;
+   157→    case "venn":
+   158→      return <VennSVG spec={spec} />;
+   159→    case "numberline":
+   160→      return <NumberLineSVG spec={spec} />;
+   161→    case "tree":
+   162→      return <TreeSVG spec={spec} />;
+   163→    case "network":
+   164→      return <NetworkSVG spec={spec} />;
+   165→    case "vector":
+   166→      return <VectorSVG spec={spec} />;
+   167→    case "polygon":
+   168→      return <PolygonSVG spec={spec} />;
+   169→    case "boxplot":
+   170→      return <BoxPlotSVG spec={spec} />;
+   171→    case "slopefield":
+   172→      return <SlopeFieldSVG spec={spec} />;
+   173→    case "stemleaf":
+   174→      return <StemLeafSVG spec={spec} />;
+   175→    case "frequency_polygon":
+   176→      return <FrequencyPolygonSVG spec={spec} />;
+   177→    case "freeform":
+   178→      return <FreeformSVG spec={spec} />;
+   179→    case "argand":
+   180→      return <ArgandSVG spec={spec} />;
+   181→    case "contour":
+   182→      return <ContourSVG spec={spec} />;
+   183→    case "vectorfield":
+   184→      return <VectorFieldSVG spec={spec} />;
+   185→    case "tessellation":
+   186→      return <TessellationSVG spec={spec} />;
+   187→    case "knot":
+   188→      return <KnotSVG spec={spec} />;
+   189→    case "pictogram":
+   190→      return <PictogramSVG spec={spec} />;
+   191→    case "tally":
+   192→      return <TallySVG spec={spec} />;
+   193→    case "carroll":
+   194→      return <CarrollSVG spec={spec} />;
+   195→    case "ogive":
+   196→      return <OgiveSVG spec={spec} />;
+   197→    case "unitcircle":
+   198→      return <UnitCircleSVG spec={spec} />;
+   199→    case "transform":
+   200→      return <GeometricTransformSVG spec={spec} />;
+   201→    case "axes3d":
+   202→      return <Axes3DSVG spec={spec} />;
+   203→    case "twoway":
+   204→      return <TwoWayTableSVG spec={spec} />;
+   205→    case "erdiagram":
+   206→      return <ERDiagramSVG spec={spec} onSpecChange={onSpecChange} />;
+   207→    case "csv":
+   208→      return <CSVPreviewSVG spec={spec} onSpecChange={onSpecChange} />;
+   209→    case "steps":
+   210→      return <StepByStepSVG spec={spec} />;
+   211→    default:
+   212→      return (
+   213→        <div className="text-xs text-rose-600 p-3">
+   214→          Unknown graph type: <code>{type}</code>. Available types: function,
+   215→          scatter, bar, histogram, pie, venn, numberline, tree, network,
+   216→          vector, polygon, boxplot, slopefield, stemleaf, frequency_polygon,
+   217→          freeform, argand, contour, vectorfield, tessellation, knot,
+   218→          pictogram, tally, carroll, ogive, unitcircle, transform, axes3d,
+   219→          twoway, erdiagram, csv, steps.
+   220→        </div>
+   221→      );
+   222→  }
+   223→}
+   224→
+   225→// =====================================================================
+   226→// 1. Function plot (y = f(x))
+   227→// =====================================================================
+   228→function FunctionSVG({ spec }: { spec: any }) {
+   229→  const expr = spec.expr || "x^2";
+   230→  const xRange: [number, number] = spec.xRange ?? [-5, 5];
+   231→  const yRange: [number, number] = spec.yRange ?? [-25, 25];
+   232→  const title = spec.title || `y = ${expr}`;
+   233→  const xLabel = spec.xLabel ?? "x";
+   234→  const yLabel = spec.yLabel ?? "y";
+   235→  const width = 480;
+   236→  const height = 320;
+   237→  const padding = 40;
+   238→
+   239→  const evaluate = (x: number): number | null => {
+   240→    try {
+   241→      let safeExpr = expr
+   242→        .replace(/\^/g, "**")
+   243→        .replace(/\bpi\b/gi, "Math.PI")
+   244→        .replace(/\be\b/g, "Math.E")
+   245→        .replace(/\bsin\(/g, "Math.sin(")
+   246→        .replace(/\bcos\(/g, "Math.cos(")
+   247→        .replace(/\btan\(/g, "Math.tan(")
+   248→        .replace(/\bsqrt\(/g, "Math.sqrt(")
+   249→        .replace(/\blog\(/g, "Math.log(")
+   250→        .replace(/\bexp\(/g, "Math.exp(")
+   251→        .replace(/\babs\(/g, "Math.abs(")
+   252→        .replace(/\bx\b/g, String(x));
+   253→      // eslint-disable-next-line no-new-func
+   254→      const fn = new Function("Math", `"use strict"; return (${safeExpr});`);
+   255→      const result = fn(Math);
+   256→      return typeof result === "number" && isFinite(result) ? result : null;
+   257→    } catch {
+   258→      return null;
+   259→    }
+   260→  };
+   261→
+   262→  const points: Array<{ x: number; y: number }> = [];
+   263→  const samples = 100;
+   264→  for (let i = 0; i <= samples; i++) {
+   265→    const x = xRange[0] + ((xRange[1] - xRange[0]) * i) / samples;
+   266→    const y = evaluate(x);
+   267→    if (y !== null) points.push({ x, y });
+   268→  }
+   269→
+   270→  const toSvgX = (x: number) => padding + ((x - xRange[0]) / (xRange[1] - xRange[0])) * (width - 2 * padding);
+   271→  const toSvgY = (y: number) =>
+   272→    height - padding - ((y - yRange[0]) / (yRange[1] - yRange[0])) * (height - 2 * padding);
+   273→
+   274→  const path = points
+   275→    .filter((p) => p.y >= yRange[0] && p.y <= yRange[1])
+   276→    .map((p, i) => `${i === 0 ? "M" : "L"} ${toSvgX(p.x).toFixed(2)} ${toSvgY(p.y).toFixed(2)}`)
+   277→    .join(" ");
+   278→
+   279→  const xAxisY = yRange[0] <= 0 && yRange[1] >= 0 ? toSvgY(0) : height - padding;
+   280→  const yAxisX = xRange[0] <= 0 && xRange[1] >= 0 ? toSvgX(0) : padding;
+   281→
+   282→  const xTicks: ReactElement[] = [];
+   283→  const tickCount = 5;
+   284→  for (let i = 0; i <= tickCount; i++) {
+   285→    const xv = xRange[0] + ((xRange[1] - xRange[0]) * i) / tickCount;
+   286→    xTicks.push(
+   287→      <g key={`xt-${i}`}>
+   288→        <line x1={toSvgX(xv)} y1={xAxisY - 4} x2={toSvgX(xv)} y2={xAxisY + 4} stroke="#9CA3AF" strokeWidth={1} />
+   289→        <text x={toSvgX(xv)} y={xAxisY + 16} fontSize={10} fill="#6B7280" textAnchor="middle">
+   290→          {xv.toFixed(1)}
+   291→        </text>
+   292→      </g>
+   293→    );
+   294→  }
+   295→
+   296→  const yTicks: ReactElement[] = [];
+   297→  for (let i = 0; i <= tickCount; i++) {
+   298→    const yv = yRange[0] + ((yRange[1] - yRange[0]) * i) / tickCount;
+   299→    yTicks.push(
+   300→      <g key={`yt-${i}`}>
+   301→        <line x1={yAxisX - 4} y1={toSvgY(yv)} x2={yAxisX + 4} y2={toSvgY(yv)} stroke="#9CA3AF" strokeWidth={1} />
+   302→        <text x={yAxisX - 8} y={toSvgY(yv) + 3} fontSize={10} fill="#6B7280" textAnchor="end">
+   303→          {yv.toFixed(0)}
+   304→        </text>
+   305→      </g>
+   306→    );
+   307→  }
+   308→
+   309→  return (
+   310→    <div>
+   311→      <p className="text-xs font-semibold text-gray-700 mb-1">{title}</p>
+   312→      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto bg-gray-50 rounded-lg">
+   313→        {xTicks}
+   314→        {yTicks}
+   315→        <line x1={padding} y1={xAxisY} x2={width - padding} y2={xAxisY} stroke="#374151" strokeWidth={1.5} />
+   316→        <line x1={yAxisX} y1={padding} x2={yAxisX} y2={height - padding} stroke="#374151" strokeWidth={1.5} />
+   317→        {path && <path d={path} fill="none" stroke="#4F46E5" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />}
+   318→        <text x={width / 2} y={height - 5} fontSize={11} fill="#374151" textAnchor="middle" fontWeight={600}>{xLabel}</text>
+   319→        <text x={12} y={height / 2} fontSize={11} fill="#374151" textAnchor="middle" fontWeight={600} transform={`rotate(-90, 12, ${height / 2})`}>{yLabel}</text>
+   320→      </svg>
+   321→    </div>
+   322→  );
+   323→}
+   324→
+   325→// =====================================================================
+   326→// 2. Scatter plot + optional line of best fit (DATA POINTS)
+   327→// This directly addresses the user's physics velocity-time request.
+   328→// =====================================================================
+   329→function ScatterSVG({ spec }: { spec: any }) {
+   330→  const title = spec.title ?? "Scatter Plot";
+   331→  const xLabel = spec.xLabel ?? "x";
+   332→  const yLabel = spec.yLabel ?? "y";
+   333→  const points: Array<[number, number]> = Array.isArray(spec.points) ? spec.points : [];
+   334→  const showBestFit = spec.lineOfBestFit !== false;
+   335→
+   336→  // Compute ranges from data (with optional override)
+   337→  const allX = points.map((p) => p[0]);
+   338→  const allY = points.map((p) => p[1]);
+   339→  let xMin = spec.xRange?.[0] ?? Math.min(...allX);
+   340→  let xMax = spec.xRange?.[1] ?? Math.max(...allX);
+   341→  let yMin = spec.yRange?.[0] ?? Math.min(...allY);
+   342→  let yMax = spec.yRange?.[1] ?? Math.max(...allY);
+   343→  // Padding
+   344→  const xPad = (xMax - xMin) * 0.1 || 1;
+   345→  const yPad = (yMax - yMin) * 0.1 || 1;
+   346→  if (!spec.xRange) { xMin -= xPad; xMax += xPad; }
+   347→  if (!spec.yRange) { yMin -= yPad; yMax += yPad; }
+   348→  if (yMin > 0 && spec.yRange?.[0] === undefined) yMin = 0;
+   349→  if (xMin > 0 && spec.xRange?.[0] === undefined) xMin = 0;
+   350→
+   351→  const width = 480;
+   352→  const height = 320;
+   353→  const padding = 50;
+   354→
+   355→  const toSvgX = (x: number) => padding + ((x - xMin) / (xMax - xMin)) * (width - 2 * padding);
+   356→  const toSvgY = (y: number) =>
+   357→    height - padding - ((y - yMin) / (yMax - yMin)) * (height - 2 * padding);
+   358→
+   359→  // Linear regression for best fit line: y = mx + b
+   360→  let bestFitPath: string | null = null;
+   361→  let slope = 0;
+   362→  let intercept = 0;
+   363→  if (showBestFit && points.length >= 2) {
+   364→    const n = points.length;
+   365→    const sumX = allX.reduce((a, b) => a + b, 0);
+   366→    const sumY = allY.reduce((a, b) => a + b, 0);
+   367→    const sumXY = points.reduce((s, p) => s + p[0] * p[1], 0);
+   368→    const sumXX = allX.reduce((s, x) => s + x * x, 0);
+   369→    const denom = n * sumXX - sumX * sumX;
+   370→    if (denom !== 0) {
+   371→      slope = (n * sumXY - sumX * sumY) / denom;
+   372→      intercept = (sumY - slope * sumX) / n;
+   373→      const yAtXMin = slope * xMin + intercept;
+   374→      const yAtXMax = slope * xMax + intercept;
+   375→      bestFitPath = `M ${toSvgX(xMin).toFixed(2)} ${toSvgY(yAtXMin).toFixed(2)} L ${toSvgX(xMax).toFixed(2)} ${toSvgY(yAtXMax).toFixed(2)}`;
+   376→    }
+   377→  }
+   378→
+   379→  // Ticks
+   380→  const xTicks: ReactElement[] = [];
+   381→  const yTicks: ReactElement[] = [];
+   382→  const tickCount = 5;
+   383→  for (let i = 0; i <= tickCount; i++) {
+   384→    const xv = xMin + ((xMax - xMin) * i) / tickCount;
+   385→    xTicks.push(
+   386→      <g key={`xt-${i}`}>
+   387→        <line x1={toSvgX(xv)} y1={toSvgY(yMin) - 4} x2={toSvgX(xv)} y2={toSvgY(yMin) + 4} stroke="#9CA3AF" strokeWidth={1} />
+   388→        <text x={toSvgX(xv)} y={toSvgY(yMin) + 18} fontSize={10} fill="#6B7280" textAnchor="middle">
+   389→          {Number.isInteger(xv) ? xv : xv.toFixed(1)}
+   390→        </text>
+   391→      </g>
+   392→    );
+   393→  }
+   394→  for (let i = 0; i <= tickCount; i++) {
+   395→    const yv = yMin + ((yMax - yMin) * i) / tickCount;
+   396→    yTicks.push(
+   397→      <g key={`yt-${i}`}>
+   398→        <line x1={toSvgX(xMin) - 4} y1={toSvgY(yv)} x2={toSvgX(xMin) + 4} y2={toSvgY(yv)} stroke="#9CA3AF" strokeWidth={1} />
+   399→        <text x={toSvgX(xMin) - 8} y={toSvgY(yv) + 3} fontSize={10} fill="#6B7280" textAnchor="end">
+   400→          {Number.isInteger(yv) ? yv : yv.toFixed(0)}
+   401→        </text>
+   402→      </g>
+   403→    );
+   404→  }
+   405→
+   406→  return (
+   407→    <div>
+   408→      <p className="text-xs font-semibold text-gray-700 mb-1">{title}</p>
+   409→      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto bg-gray-50 rounded-lg">
+   410→        {/* Grid lines */}
+   411→        {xTicks}
+   412→        {yTicks}
+   413→        {/* Axes */}
+   414→        <line x1={toSvgX(xMin)} y1={toSvgY(yMin)} x2={toSvgX(xMax)} y2={toSvgY(yMin)} stroke="#374151" strokeWidth={1.5} />
+   415→        <line x1={toSvgX(xMin)} y1={toSvgY(yMin)} x2={toSvgX(xMin)} y2={toSvgY(yMax)} stroke="#374151" strokeWidth={1.5} />
+   416→        {/* Best fit line */}
+   417→        {bestFitPath && <path d={bestFitPath} fill="none" stroke="#EF4444" strokeWidth={2} strokeDasharray="6 4" opacity={0.85} />}
+   418→        {/* Data points */}
+   419→        {/* Data points — interactive (hover for tooltip with values) */}
+   420→        {points.map((p, i) => (
+   421→          <HoverPoint
+   422→            key={`pt-${i}`}
+   423→            cx={toSvgX(p[0])}
+   424→            cy={toSvgY(p[1])}
+   425→            label={`(${p[0]}, ${p[1]})`}
+   426→            color="#4F46E5"
+   427→          />
+   428→        ))}
+   429→        {/* Labels */}
+   430→        <text x={width / 2} y={height - 8} fontSize={11} fill="#374151" textAnchor="middle" fontWeight={600}>{xLabel}</text>
+   431→        <text x={14} y={height / 2} fontSize={11} fill="#374151" textAnchor="middle" fontWeight={600} transform={`rotate(-90, 14, ${height / 2})`}>{yLabel}</text>
+   432→      </svg>
+   433→      {showBestFit && bestFitPath && (
+   434→        <p className="text-[10px] text-gray-500 mt-1">
+   435→          Line of best fit: <span className="font-mono font-semibold">y = {slope.toFixed(3)}x {intercept >= 0 ? "+" : "−"} {Math.abs(intercept).toFixed(3)}</span>
+   436→        </p>
+   437→      )}
+   438→    </div>
+   439→  );
+   440→}
+   441→
+   442→// =====================================================================
+   443→// 3. Bar chart (vertical bars with categories)
+   444→// =====================================================================
+   445→function BarChartSVG({ spec }: { spec: any }) {
+   446→  const title = spec.title ?? "Bar Chart";
+   447→  const xLabel = spec.xLabel ?? "";
+   448→  const yLabel = spec.yLabel ?? "";
+   449→  const categories: string[] = Array.isArray(spec.categories) ? spec.categories : [];
+   450→  const values: number[] = Array.isArray(spec.values) ? spec.values : [];
+   451→  const colors: string[] = Array.isArray(spec.colors) ? spec.colors : [];
+   452→
+   453→  const width = 480;
+   454→  const height = 320;
+   455→  const padding = { left: 50, right: 20, top: 30, bottom: 50 };
+   456→  const plotW = width - padding.left - padding.right;
+   457→  const plotH = height - padding.top - padding.bottom;
+   458→
+   459→  const yMax = Math.max(...values, 0) * 1.1 || 10;
+   460→  const yMin = Math.min(...values, 0);
+   461→  const yRange = yMax - yMin || 1;
+   462→
+   463→  const toSvgY = (v: number) => padding.top + plotH - ((v - yMin) / yRange) * plotH;
+   464→
+   465→  const barWidth = plotW / Math.max(categories.length, 1);
+   466→  const barInnerWidth = barWidth * 0.65;
+   467→
+   468→  // Y ticks
+   469→  const yTicks: ReactElement[] = [];
+   470→  const tickCount = 5;
+   471→  for (let i = 0; i <= tickCount; i++) {
+   472→    const yv = yMin + (yRange * i) / tickCount;
+   473→    yTicks.push(
+   474→      <g key={`yt-${i}`}>
+   475→        <line x1={padding.left - 4} y1={toSvgY(yv)} x2={padding.left + plotW} y2={toSvgY(yv)} stroke="#E5E7EB" strokeWidth={1} />
+   476→        <text x={padding.left - 8} y={toSvgY(yv) + 3} fontSize={10} fill="#6B7280" textAnchor="end">
+   477→          {yv.toFixed(0)}
+   478→        </text>
+   479→      </g>
+   480→    );
+   481→  }
+   482→
+   483→  return (
+   484→    <div>
+   485→      <p className="text-xs font-semibold text-gray-700 mb-1">{title}</p>
+   486→      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto bg-gray-50 rounded-lg">
+   487→        {yTicks}
+   488→        {/* Bars */}
+   489→        {categories.map((cat, i) => {
+   490→          const v = values[i] ?? 0;
+   491→          const barH = ((v - yMin) / yRange) * plotH;
+   492→          const x = padding.left + i * barWidth + (barWidth - barInnerWidth) / 2;
+   493→          const y = padding.top + plotH - barH;
+   494→          const color = colors[i] ?? PALETTE[i % PALETTE.length];
+   495→          return (
+   496→            <g key={`bar-${i}`}>
+   497→              <rect x={x} y={y} width={barInnerWidth} height={Math.max(0, barH)} fill={color} rx={3} opacity={0.9} />
+   498→              <text x={x + barInnerWidth / 2} y={y - 4} fontSize={10} fill="#374151" textAnchor="middle" fontWeight={600}>
+   499→                {v}
+   500→              </text>
+   501→              <text x={x + barInnerWidth / 2} y={padding.top + plotH + 14} fontSize={10} fill="#374151" textAnchor="middle">
+   502→                {cat.length > 10 ? cat.slice(0, 10) + "…" : cat}
+   503→              </text>
+   504→            </g>
+   505→          );
+   506→        })}
+   507→        {/* Axes */}
+   508→        <line x1={padding.left} y1={padding.top} x2={padding.left} y2={padding.top + plotH} stroke="#374151" strokeWidth={1.5} />
+   509→        <line x1={padding.left} y1={padding.top + plotH} x2={padding.left + plotW} y2={padding.top + plotH} stroke="#374151" strokeWidth={1.5} />
+   510→        {xLabel && <text x={width / 2} y={height - 8} fontSize={11} fill="#374151" textAnchor="middle" fontWeight={600}>{xLabel}</text>}
+   511→        {yLabel && <text x={14} y={height / 2} fontSize={11} fill="#374151" textAnchor="middle" fontWeight={600} transform={`rotate(-90, 14, ${height / 2})`}>{yLabel}</text>}
+   512→      </svg>
+   513→    </div>
+   514→  );
+   515→}
+   516→
+   517→// =====================================================================
+   518→// 4. Histogram (like bar but no gaps)
+   519→// =====================================================================
+   520→function HistogramSVG({ spec }: { spec: any }) {
+   521→  const title = spec.title ?? "Histogram";
+   522→  const xLabel = spec.xLabel ?? "";
+   523→  const yLabel = spec.yLabel ?? "Frequency";
+   524→  const bins: Array<{ start: number; end: number; count: number }> = Array.isArray(spec.bins)
+   525→    ? spec.bins
+   526→    : [];
+   527→  const width = 480;
+   528→  const height = 320;
+   529→  const padding = { left: 50, right: 20, top: 30, bottom: 50 };
+   530→  const plotW = width - padding.left - padding.right;
+   531→  const plotH = height - padding.top - padding.bottom;
+   532→
+   533→  if (bins.length === 0) {
+   534→    return <p className="text-xs text-gray-500">No bins provided for histogram.</p>;
+   535→  }
+   536→  const xMin = Math.min(...bins.map((b) => b.start));
+   537→  const xMax = Math.max(...bins.map((b) => b.end));
+   538→  const yMax = Math.max(...bins.map((b) => b.count)) * 1.1 || 10;
+   539→  const xRange = xMax - xMin || 1;
+   540→
+   541→  const toSvgX = (x: number) => padding.left + ((x - xMin) / xRange) * plotW;
+   542→  const toSvgY = (v: number) => padding.top + plotH - (v / yMax) * plotH;
+   543→
+   544→  const yTicks: ReactElement[] = [];
+   545→  const tickCount = 5;
+   546→  for (let i = 0; i <= tickCount; i++) {
+   547→    const yv = (yMax * i) / tickCount;
+   548→    yTicks.push(
+   549→      <g key={`yt-${i}`}>
+   550→        <line x1={padding.left - 4} y1={toSvgY(yv)} x2={padding.left + plotW} y2={toSvgY(yv)} stroke="#E5E7EB" strokeWidth={1} />
+   551→        <text x={padding.left - 8} y={toSvgY(yv) + 3} fontSize={10} fill="#6B7280" textAnchor="end">
+   552→          {yv.toFixed(0)}
+   553→        </text>
+   554→      </g>
+   555→    );
+   556→  }
+   557→
+   558→  return (
+   559→    <div>
+   560→      <p className="text-xs font-semibold text-gray-700 mb-1">{title}</p>
+   561→      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto bg-gray-50 rounded-lg">
+   562→        {yTicks}
+   563→        {bins.map((b, i) => {
+   564→          const x = toSvgX(b.start);
+   565→          const w = toSvgX(b.end) - toSvgX(b.start);
+   566→          const y = toSvgY(b.count);
+   567→          const h = padding.top + plotH - y;
+   568→          return (
+   569→            <g key={`bin-${i}`}>
+   570→              <rect x={x} y={y} width={w} height={Math.max(0, h)} fill={PALETTE[i % PALETTE.length]} opacity={0.85} stroke="white" strokeWidth={1} />
+   571→              <text x={x + w / 2} y={y - 4} fontSize={10} fill="#374151" textAnchor="middle" fontWeight={600}>
+   572→                {b.count}
+   573→              </text>
+   574→              <text x={x + w / 2} y={padding.top + plotH + 14} fontSize={9} fill="#6B7280" textAnchor="middle">
+   575→                {b.start}-{b.end}
+   576→              </text>
+   577→            </g>
+   578→          );
+   579→        })}
+   580→        <line x1={padding.left} y1={padding.top} x2={padding.left} y2={padding.top + plotH} stroke="#374151" strokeWidth={1.5} />
+   581→        <line x1={padding.left} y1={padding.top + plotH} x2={padding.left + plotW} y2={padding.top + plotH} stroke="#374151" strokeWidth={1.5} />
+   582→        {xLabel && <text x={width / 2} y={height - 8} fontSize={11} fill="#374151" textAnchor="middle" fontWeight={600}>{xLabel}</text>}
+   583→        {yLabel && <text x={14} y={height / 2} fontSize={11} fill="#374151" textAnchor="middle" fontWeight={600} transform={`rotate(-90, 14, ${height / 2})`}>{yLabel}</text>}
+   584→      </svg>
+   585→    </div>
+   586→  );
+   587→}
+   588→
+   589→// =====================================================================
+   590→// 5. Pie chart (with labeled slices)
+   591→// =====================================================================
+   592→function PieChartSVG({ spec }: { spec: any }) {
+   593→  const title = spec.title ?? "Pie Chart";
+   594→  const slices: Array<{ label: string; value: number; color?: string }> = Array.isArray(spec.slices)
+   595→    ? spec.slices
+   596→    : [];
+   597→  const total = slices.reduce((s, sl) => s + (sl.value ?? 0), 0) || 1;
+   598→  const width = 420;
+   599→  const height = 320;
+   600→  const cx = 160;
+   601→  const cy = 160;
+   602→  const r = 110;
+   603→
+   604→  let cumulativeAngle = -Math.PI / 2; // start at 12 o'clock
+   605→  const arcs: ReactElement[] = [];
+   606→  const legend: ReactElement[] = [];
+   607→  slices.forEach((sl, i) => {
+   608→    const angle = (sl.value / total) * 2 * Math.PI;
+   609→    const x1 = cx + r * Math.cos(cumulativeAngle);
+   610→    const y1 = cy + r * Math.sin(cumulativeAngle);
+   611→    const x2 = cx + r * Math.cos(cumulativeAngle + angle);
+   612→    const y2 = cy + r * Math.sin(cumulativeAngle + angle);
+   613→    const largeArc = angle > Math.PI ? 1 : 0;
+   614→    const color = sl.color ?? PALETTE[i % PALETTE.length];
+   615→    const path = `M ${cx} ${cy} L ${x1.toFixed(2)} ${y1.toFixed(2)} A ${r} ${r} 0 ${largeArc} 1 ${x2.toFixed(2)} ${y2.toFixed(2)} Z`;
+   616→    arcs.push(
+   617→      <path key={`arc-${i}`} d={path} fill={color} stroke="white" strokeWidth={2} opacity={0.9} />
+   618→    );
+   619→    // Percentage label at slice center
+   620→    const midAngle = cumulativeAngle + angle / 2;
+   621→    const labelX = cx + (r * 0.65) * Math.cos(midAngle);
+   622→    const labelY = cy + (r * 0.65) * Math.sin(midAngle);
+   623→    const pct = ((sl.value / total) * 100).toFixed(1);
+   624→    arcs.push(
+   625→      <text key={`pct-${i}`} x={labelX} y={labelY + 4} fontSize={11} fill="white" textAnchor="middle" fontWeight={700}>
+   626→        {pct}%
+   627→      </text>
+   628→    );
+   629→    // Legend
+   630→    legend.push(
+   631→      <div key={`leg-${i}`} className="flex items-center gap-1.5 text-[10px]">
+   632→        <span style={{ background: color, width: 10, height: 10, borderRadius: 2, display: "inline-block" }} />
+   633→        <span className="text-gray-700">{sl.label} ({pct}%)</span>
+   634→      </div>
+   635→    );
+   636→    cumulativeAngle += angle;
+   637→  });
+   638→
+   639→  return (
+   640→    <div>
+   641→      <p className="text-xs font-semibold text-gray-700 mb-1">{title}</p>
+   642→      <div className="flex flex-col sm:flex-row gap-2">
+   643→        <svg viewBox={`0 0 ${width} ${height}`} className="w-full sm:w-1/2 h-auto bg-gray-50 rounded-lg">
+   644→          {arcs}
+   645→          <text x={cx} y={cy + 4} fontSize={11} fill="#374151" textAnchor="middle" fontWeight={700}>Total: {total}</text>
+   646→        </svg>
+   647→        <div className="flex-1 space-y-1">{legend}</div>
+   648→      </div>
+   649→    </div>
+   650→  );
+   651→}
+   652→
+   653→// =====================================================================
+   654→// 6. Venn diagram (2 or 3 sets)
+   655→// =====================================================================
+   656→function VennSVG({ spec }: { spec: any }) {
+   657→  const title = spec.title ?? "Venn Diagram";
+   658→  const sets: Array<{ label: string; color?: string; value?: number }> = Array.isArray(spec.sets) ? spec.sets : [];
+   659→  const width = 380;
+   660→  const height = 280;
+   661→  const cx = 190;
+   662→  const cy = 140;
+   663→  const r = 90;
+   664→  const overlap = 35;
+   665→
+   666→  // 2 sets: side by side, 3 sets: triangle
+   667→  const positions: Array<{ x: number; y: number }> = sets.length === 3
+   668→    ? [
+   669→        { x: cx - 35, y: cy - 30 },
+   670→        { x: cx + 35, y: cy - 30 },
+   671→        { x: cx, y: cy + 30 },
+   672→      ]
+   673→    : [
+   674→        { x: cx - overlap, y: cy },
+   675→        { x: cx + overlap, y: cy },
+   676→      ];
+   677→
+   678→  return (
+   679→    <div>
+   680→      <p className="text-xs font-semibold text-gray-700 mb-1">{title}</p>
+   681→      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto bg-gray-50 rounded-lg">
+   682→        {sets.map((s, i) => {
+   683→          const color = s.color ?? PALETTE[i % PALETTE.length];
+   684→          const pos = positions[i] ?? { x: cx, y: cy };
+   685→          return (
+   686→            <g key={`set-${i}`}>
+   687→              <circle
+   688→                cx={pos.x}
+   689→                cy={pos.y}
+   690→                r={r}
+   691→                fill={color}
+   692→                fillOpacity={0.35}
+   693→                stroke={color}
+   694→                strokeWidth={2}
+   695→              />
+   696→              <text
+   697→                x={pos.x + (i === 0 ? -r * 0.55 : i === 1 ? r * 0.55 : 0)}
+   698→                y={pos.y + (i === 2 ? r * 0.55 : -r * 0.55)}
+   699→                fontSize={14}
+   700→                fill={color}
+   701→                fontWeight={700}
+   702→                textAnchor="middle"
+   703→              >
+   704→                {s.label}
+   705→              </text>
+   706→              {s.value !== undefined && (
+   707→                <text
+   708→                  x={pos.x + (i === 0 ? -r * 0.55 : i === 1 ? r * 0.55 : 0)}
+   709→                  y={pos.y + (i === 2 ? r * 0.55 + 14 : -r * 0.55 + 14)}
+   710→                  fontSize={10}
+   711→                  fill={color}
+   712→                  textAnchor="middle"
+   713→                >
+   714→                  n={s.value}
+   715→                </text>
+   716→              )}
+   717→            </g>
+   718→          );
+   719→        })}
+   720→      </svg>
+   721→    </div>
+   722→  );
+   723→}
+   724→
+   725→// =====================================================================
+   726→// 7. Number line (with shaded ranges for inequalities)
+   727→// =====================================================================
+   728→function NumberLineSVG({ spec }: { spec: any }) {
+   729→  const title = spec.title ?? "Number Line";
+   730→  const range: [number, number] = spec.range ?? [-10, 10];
+   731→  const markers: Array<{
+   732→    value: number;
+   733→    label?: string;
+   734→    color?: string;
+   735→    open?: boolean; // open circle (excluded) vs closed circle (included)
+   736→  }> = Array.isArray(spec.markers) ? spec.markers : [];
+   737→  const shadedRange: [number, number] | null = Array.isArray(spec.shadedRange) ? spec.shadedRange : null;
+   738→  const width = 480;
+   739→  const height = 100;
+   740→  const padding = 30;
+   741→  const lineY = 50;
+   742→
+   743→  const toSvgX = (x: number) =>
+   744→    padding + ((x - range[0]) / (range[1] - range[0])) * (width - 2 * padding);
+   745→
+   746→  const ticks: ReactElement[] = [];
+   747→  const tickStep = Math.max(1, Math.floor((range[1] - range[0]) / 10));
+   748→  for (let x = Math.ceil(range[0]); x <= range[1]; x += tickStep) {
+   749→    ticks.push(
+   750→      <g key={`tick-${x}`}>
+   751→        <line x1={toSvgX(x)} y1={lineY - 6} x2={toSvgX(x)} y2={lineY + 6} stroke="#374151" strokeWidth={1} />
+   752→        <text x={toSvgX(x)} y={lineY + 22} fontSize={10} fill="#6B7280" textAnchor="middle">{x}</text>
+   753→      </g>
+   754→    );
+   755→  }
+   756→
+   757→  return (
+   758→    <div>
+   759→      <p className="text-xs font-semibold text-gray-700 mb-1">{title}</p>
+   760→      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto bg-gray-50 rounded-lg">
+   761→        {/* Shaded range */}
+   762→        {shadedRange && (
+   763→          <rect
+   764→            x={toSvgX(shadedRange[0])}
+   765→            y={lineY - 4}
+   766→            width={toSvgX(shadedRange[1]) - toSvgX(shadedRange[0])}
+   767→            height={8}
+   768→            fill="#4F46E5"
+   769→            fillOpacity={0.35}
+   770→          />
+   771→        )}
+   772→        {/* Main axis */}
+   773→        <line x1={padding} y1={lineY} x2={width - padding} y2={lineY} stroke="#374151" strokeWidth={2} />
+   774→        {/* Arrow */}
+   775→        <polygon points={`${width - padding},${lineY} ${width - padding - 8},${lineY - 4} ${width - padding - 8},${lineY + 4}`} fill="#374151" />
+   776→        {/* Ticks */}
+   777→        {ticks}
+   778→        {/* Markers */}
+   779→        {markers.map((m, i) => {
+   780→          const x = toSvgX(m.value);
+   781→          const color = m.color ?? "#4F46E5";
+   782→          return (
+   783→            <g key={`m-${i}`}>
+   784→              {m.open ? (
+   785→                <circle cx={x} cy={lineY} r={6} fill="white" stroke={color} strokeWidth={2.5} />
+   786→              ) : (
+   787→                <circle cx={x} cy={lineY} r={6} fill={color} />
+   788→              )}
+   789→              {m.label && (
+   790→                <text x={x} y={lineY - 12} fontSize={11} fill={color} textAnchor="middle" fontWeight={700}>
+   791→                  {m.label}
+   792→                </text>
+   793→              )}
+   794→            </g>
+   795→          );
+   796→        })}
+   797→      </svg>
+   798→    </div>
+   799→  );
+   800→}
+   801→
+   802→// =====================================================================
+   803→// 8. Tree diagram (probability)
+   804→// =====================================================================
+   805→type TreeNode = {
+   806→  label: string;
+   807→  probability?: string;
+   808→  children?: TreeNode[];
+   809→};
+   810→
+   811→function TreeSVG({ spec }: { spec: any }) {
+   812→  const title = spec.title ?? "Tree Diagram";
+   813→  const root: TreeNode = spec.root ?? { label: "Start" };
+   814→
+   815→  const width = 600;
+   816→  const height = 380;
+   817→  const padding = 30;
+   818→
+   819→  // Layout: BFS to assign positions
+   820→  // depth 0 = root at left
+   821→  // each level adds more nodes to the right
+   822→  type LayoutNode = {
+   823→    node: TreeNode;
+   824→    x: number;
+   825→    y: number;
+   826→    depth: number;
+   827→    parent?: { x: number; y: number; probability?: string };
+   828→  };
+   829→
+   830→  const layoutNodes: LayoutNode[] = [];
+   831→  let yCounter = 0;
+   832→  const maxDepth = 3;
+   833→
+   834→  function place(node: TreeNode, depth: number, parent?: { x: number; y: number; probability?: string }) {
+   835→    if (depth > maxDepth) return;
+   836→    const x = padding + depth * 180;
+   837→    if (!node.children || node.children.length === 0) {
+   838→      const y = padding + yCounter * 36;
+   839→      yCounter++;
+   840→      layoutNodes.push({ node, x, y, depth, parent });
+   841→    } else {
+   842→      // first compute children positions to find midpoint
+   843→      const childYs: number[] = [];
+   844→      for (const child of node.children) {
+   845→        const before = yCounter;
+   846→        place(child, depth + 1, { x, y: 0, probability: child.probability });
+   847→        // after recursive call, find child y — it's the last leaf pushed
+   848→        // Take the average of new leaves
+   849→        const after = yCounter;
+   850→        const midY = (before + after - 1) / 2;
+   851→        childYs.push(padding + midY * 36);
+   852→      }
+   853→      const midY = childYs.reduce((a, b) => a + b, 0) / childYs.length;
+   854→      layoutNodes.push({ node, x, y: midY, depth, parent });
+   855→    }
+   856→  }
+   857→
+   858→  // Simpler approach: do it iteratively for ≤3 levels
+   859→  // Layout children of a node vertically centered around parent.y
+   860→  function layout(node: TreeNode, depth: number, parentY: number, parentX: number, probability?: string) {
+   861→    if (depth > maxDepth) return;
+   862→    const x = padding + depth * 170;
+   863→    if (!node.children || node.children.length === 0) {
+   864→      layoutNodes.push({ node, x, y: parentY, depth, parent: parentX > 0 ? { x: parentX, y: parentY, probability } : undefined });
+   865→      return;
+   866→    }
+   867→    const childCount = node.children.length;
+   868→    const totalHeight = childCount * 50;
+   869→    const startY = parentY - totalHeight / 2 + 25;
+   870→    const childYs: number[] = [];
+   871→    node.children.forEach((child, i) => {
+   872→      const cy = startY + i * 50;
+   873→      childYs.push(cy);
+   874→    });
+   875→    const myY = childYs.reduce((a, b) => a + b, 0) / childYs.length;
+   876→    layoutNodes.push({ node, x, y: myY, depth, parent: parentX > 0 ? { x: parentX, y: parentY, probability } : undefined });
+   877→    node.children.forEach((child, i) => {
+   878→      layout(child, depth + 1, childYs[i], x, child.probability);
+   879→    });
+   880→  }
+   881→
+   882→  layout(root, 0, height / 2, 0);
+   883→
+   884→  return (
+   885→    <div>
+   886→      <p className="text-xs font-semibold text-gray-700 mb-1">{title}</p>
+   887→      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto bg-gray-50 rounded-lg">
+   888→        {/* Edges */}
+   889→        {layoutNodes.map((ln, i) => {
+   890→          if (!ln.parent) return null;
+   891→          return (
+   892→            <g key={`edge-${i}`}>
+   893→              <line
+   894→                x1={ln.parent.x}
+   895→                y1={ln.parent.y}
+   896→                x2={ln.x}
+   897→                y2={ln.y}
+   898→                stroke="#9CA3AF"
+   899→                strokeWidth={1.5}
+   900→              />
+   901→              {ln.parent.probability && (
+   902→                <text
+   903→                  x={(ln.parent.x + ln.x) / 2}
+   904→                  y={(ln.parent.y + ln.y) / 2 - 4}
+   905→                  fontSize={10}
+   906→                  fill="#6B7280"
+   907→                  textAnchor="middle"
+   908→                  fontWeight={600}
+   909→                >
+   910→                  {ln.parent.probability}
+   911→                </text>
+   912→              )}
+   913→            </g>
+   914→          );
+   915→        })}
+   916→        {/* Nodes */}
+   917→        {layoutNodes.map((ln, i) => (
+   918→          <g key={`node-${i}`}>
+   919→            <rect
+   920→              x={ln.x - 30}
+   921→              y={ln.y - 12}
+   922→              width={60}
+   923→              height={24}
+   924→              rx={12}
+   925→              fill={PALETTE[ln.depth % PALETTE.length]}
+   926→              opacity={0.9}
+   927→            />
+   928→            <text x={ln.x} y={ln.y + 4} fontSize={11} fill="white" textAnchor="middle" fontWeight={700}>
+   929→              {ln.node.label}
+   930→            </text>
+   931→          </g>
+   932→        ))}
+   933→      </svg>
+   934→    </div>
+   935→  );
+   936→}
+   937→
+   938→// =====================================================================
+   939→// 9. Network graph (also useful for graph theory / social networks)
+   940→// =====================================================================
+   941→function NetworkSVG({ spec }: { spec: any }) {
+   942→  const title = spec.title ?? "Network Graph";
+   943→  const nodes: Array<{ id: string; label: string; color?: string }> = Array.isArray(spec.nodes) ? spec.nodes : [];
+   944→  const edges: Array<{ from: string; to: string; label?: string; directed?: boolean }> = Array.isArray(spec.edges) ? spec.edges : [];
+   945→
+   946→  const width = 480;
+   947→  const height = 360;
+   948→  const cx = width / 2;
+   949→  const cy = height / 2;
+   950→  const radius = Math.min(width, height) / 2 - 70;
+   951→
+   952→  // Detect hub-and-spoke layout
+   953→  const nodeDegree = new Map<string, number>();
+   954→  for (const e of edges) {
+   955→    nodeDegree.set(e.from, (nodeDegree.get(e.from) ?? 0) + 1);
+   956→    nodeDegree.set(e.to, (nodeDegree.get(e.to) ?? 0) + 1);
+   957→  }
+   958→  let hubId: string | null = null;
+   959→  if (nodes.length >= 4) {
+   960→    const sortedByDegree = [...nodeDegree.entries()].sort((a, b) => b[1] - a[1]);
+   961→    if (sortedByDegree.length > 0 && sortedByDegree[0][1] >= 3) {
+   962→      const topDegree = sortedByDegree[0][1];
+   963→      const secondDegree = sortedByDegree[1]?.[1] ?? 0;
+   964→      if (topDegree >= secondDegree * 2) {
+   965→        hubId = sortedByDegree[0][0];
+   966→      }
+   967→    }
+   968→  }
+   969→
+   970→  // Compute INITIAL positions (auto-layout) — stored in state so user can drag
+   971→  const computeInitial = useCallback(() => {
+   972→    let pos: Array<{ x: number; y: number }>;
+   973→    if (hubId) {
+   974→      const hubIdx = nodes.findIndex((n) => n.id === hubId);
+   975→      const otherCount = nodes.length - 1;
+   976→      const angleStep = (2 * Math.PI) / Math.max(otherCount, 1);
+   977→      const startAngle = -Math.PI / 2;
+   978→      pos = nodes.map((n) => ({ x: cx, y: cy }));
+   979→      let otherIdx = 0;
+   980→      for (let i = 0; i < nodes.length; i++) {
+   981→        if (i === hubIdx) {
+   982→          pos[i] = { x: cx, y: cy };
+   983→        } else {
+   984→          const angle = startAngle + otherIdx * angleStep;
+   985→          pos[i] = {
+   986→            x: cx + radius * Math.cos(angle),
+   987→            y: cy + radius * Math.sin(angle),
+   988→          };
+   989→          otherIdx++;
+   990→        }
+   991→      }
+   992→    } else {
+   993→      pos = nodes.map((_, i) => {
+   994→        const angle = (2 * Math.PI * i) / Math.max(nodes.length, 1) - Math.PI / 2;
+   995→        return {
+   996→          x: cx + radius * Math.cos(angle),
+   997→          y: cy + radius * Math.sin(angle),
+   998→        };
+   999→      });
+  1000→    }
+  1001→    return pos;
+  1002→  }, [hubId, nodes, cx, cy, radius]);
+  1003→
+  1004→  const [positions, setPositions] = useState<Array<{ x: number; y: number }>>(computeInitial);
+  1005→  // Reset positions when spec changes (new conversation)
+  1006→  useEffect(() => {
+  1007→    setPositions(computeInitial());
+  1008→  }, [computeInitial]);
+  1009→
+  1010→  // Drag state
+  1011→  const [dragging, setDragging] = useState<string | null>(null);
+  1012→  const svgRef = useRef<SVGSVGElement | null>(null);
+  1013→
+  1014→  const onNodeMouseDown = (id: string, e: React.MouseEvent) => {
+  1015→    e.preventDefault();
+  1016→    setDragging(id);
+  1017→  };
+  1018→
+  1019→  const onMouseMove = (e: React.MouseEvent) => {
+  1020→    if (!dragging || !svgRef.current) return;
+  1021→    const rect = svgRef.current.getBoundingClientRect();
+  1022→    // Convert mouse coords to SVG viewBox coords
+  1023→    const scale = width / rect.width;
+  1024→    const svgX = (e.clientX - rect.left) * scale;
+  1025→    const svgY = (e.clientY - rect.top) * (height / rect.height);
+  1026→    setPositions((prev) =>
+  1027→      prev.map((p, i) => (nodes[i]?.id === dragging ? { x: svgX, y: svgY } : p))
+  1028→    );
+  1029→  };
+  1030→
+  1031→  const onMouseUp = () => setDragging(null);
+  1032→
+  1033→  return (
+  1034→    <div>
+  1035→      {title && <p className="text-xs font-semibold text-gray-700 mb-1">{title}</p>}
+  1036→      <svg
+  1037→        viewBox={`0 0 ${width} ${height}`}
+  1038→        className="w-full h-auto bg-gray-50 rounded-lg select-none"
+  1039→        ref={svgRef}
+  1040→        onMouseMove={onMouseMove}
+  1041→        onMouseUp={onMouseUp}
+  1042→        onMouseLeave={onMouseUp}
+  1043→        style={{ touchAction: "none" }}
+  1044→      >
+  1045→        {/* Edges */}
+  1046→        {edges.map((edge, i) => {
+  1047→          const fromIdx = nodes.findIndex((n) => n.id === edge.from);
+  1048→          const toIdx = nodes.findIndex((n) => n.id === edge.to);
+  1049→          if (fromIdx < 0 || toIdx < 0) return null;
+  1050→          const from = positions[fromIdx];
+  1051→          const to = positions[toIdx];
+  1052→          const midX = (from.x + to.x) / 2;
+  1053→          const midY = (from.y + to.y) / 2;
+  1054→          return (
+  1055→            <g key={`edge-${i}`}>
+  1056→              <line x1={from.x} y1={from.y} x2={to.x} y2={to.y} stroke="#9CA3AF" strokeWidth={1.5} />
+  1057→              {edge.directed && (
+  1058→                <polygon
+  1059→                  points={arrowPoints(from.x, from.y, to.x, to.y, 8)}
+  1060→                  fill="#9CA3AF"
+  1061→                />
+  1062→              )}
+  1063→              {edge.label && (
+  1064→                <text x={midX} y={midY - 4} fontSize={10} fill="#6B7280" textAnchor="middle" fontWeight={600}>
+  1065→                  {edge.label}
+  1066→                </text>
+  1067→              )}
+  1068→            </g>
+  1069→          );
+  1070→        })}
+  1071→        {/* Nodes (draggable) */}
+  1072→        {nodes.map((n, i) => {
+  1073→          const pos = positions[i];
+  1074→          const isHub = n.id === hubId;
+  1075→          const isDragging = dragging === n.id;
+  1076→          const color = n.color ?? PALETTE[i % PALETTE.length];
+  1077→          const fontSize = isHub ? 12 : 11;
+  1078→          const padding = isHub ? 12 : 8;
+  1079→          const rectHeight = isHub ? 36 : 32;
+  1080→          const labelWidth = Math.max(isHub ? 100 : 60, n.label.length * 7 + padding);
+  1081→          return (
+  1082→            <g
+  1083→              key={n.id}
+  1084→              onMouseDown={(e) => onNodeMouseDown(n.id, e)}
+  1085→              style={{ cursor: isDragging ? "grabbing" : "grab" }}
+  1086→            >
+  1087→              {isHub && (
+  1088→                // Glow / highlight ring around the hub
+  1089→                <rect
+  1090→                  x={pos.x - labelWidth / 2 - 3}
+  1091→                  y={pos.y - rectHeight / 2 - 3}
+  1092→                  width={labelWidth + 6}
+  1093→                  height={rectHeight + 6}
+  1094→                  rx={(rectHeight + 6) / 2}
+  1095→                  fill="none"
+  1096→                  stroke={color}
+  1097→                  strokeWidth={1.5}
+  1098→                  strokeOpacity={0.4}
+  1099→                />
+  1100→              )}
+  1101→              <rect
+  1102→                x={pos.x - labelWidth / 2}
+  1103→                y={pos.y - rectHeight / 2}
+  1104→                width={labelWidth}
+  1105→                height={rectHeight}
+  1106→                rx={rectHeight / 2}
+  1107→                fill={color}
+  1108→                opacity={0.95}
+  1109→              />
+  1110→              <text
+  1111→                x={pos.x}
+  1112→                y={pos.y + 4}
+  1113→                fontSize={fontSize}
+  1114→                fill="white"
+  1115→                textAnchor="middle"
+  1116→                fontWeight={isHub ? 700 : 600}
+  1117→                style={{ pointerEvents: "none" }}
+  1118→              >
+  1119→                {n.label.length > (isHub ? 28 : 22) ? n.label.slice(0, isHub ? 28 : 22) + "…" : n.label}
+  1120→              </text>
+  1121→            </g>
+  1122→          );
+  1123→        })}
+  1124→      </svg>
+  1125→      <p className="text-[10px] text-gray-400 mt-1 flex items-center gap-1">
+  1126→        <span className="cursor-grab">✋</span> Drag nodes to rearrange
+  1127→      </p>
+  1128→    </div>
+  1129→  );
+  1130→}
+  1131→
+  1132→function arrowPoints(fromX: number, fromY: number, toX: number, toY: number, size: number): string {
+  1133→  // shorten endpoint to node radius
+  1134→  const dx = toX - fromX;
+  1135→  const dy = toY - fromY;
+  1136→  const len = Math.sqrt(dx * dx + dy * dy) || 1;
+  1137→  const nx = dx / len;
+  1138→  const ny = dy / len;
+  1139→  const tipX = toX - nx * 18;
+  1140→  const tipY = toY - ny * 18;
+  1141→  const baseX = tipX - nx * size;
+  1142→  const baseY = tipY - ny * size;
+  1143→  const perpX = -ny * size * 0.5;
+  1144→  const perpY = nx * size * 0.5;
+  1145→  return `${tipX},${tipY} ${baseX + perpX},${baseY + perpY} ${baseX - perpX},${baseY - perpY}`;
+  1146→}
+  1147→
+  1148→// =====================================================================
+  1149→// 10. Vector (arrow) plot
+  1150→// =====================================================================
+  1151→function VectorSVG({ spec }: { spec: any }) {
+  1152→  const title = spec.title ?? "Vector Diagram";
+  1153→  const xLabel = spec.xLabel ?? "x";
+  1154→  const yLabel = spec.yLabel ?? "y";
+  1155→  const vectors: Array<{
+  1156→    from?: [number, number];
+  1157→    to: [number, number];
+  1158→    label?: string;
+  1159→    color?: string;
+  1160→  }> = Array.isArray(spec.vectors) ? spec.vectors : [];
+  1161→  const xRange: [number, number] = spec.xRange ?? [-5, 5];
+  1162→  const yRange: [number, number] = spec.yRange ?? [-5, 5];
+  1163→
+  1164→  const width = 480;
+  1165→  const height = 360;
+  1166→  const padding = 40;
+  1167→
+  1168→  const toSvgX = (x: number) => padding + ((x - xRange[0]) / (xRange[1] - xRange[0])) * (width - 2 * padding);
+  1169→  const toSvgY = (y: number) =>
+  1170→    height - padding - ((y - yRange[0]) / (yRange[1] - yRange[0])) * (height - 2 * padding);
+  1171→
+  1172→  const xAxisY = yRange[0] <= 0 && yRange[1] >= 0 ? toSvgY(0) : height - padding;
+  1173→  const yAxisX = xRange[0] <= 0 && xRange[1] >= 0 ? toSvgX(0) : padding;
+  1174→
+  1175→  return (
+  1176→    <div>
+  1177→      <p className="text-xs font-semibold text-gray-700 mb-1">{title}</p>
+  1178→      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto bg-gray-50 rounded-lg">
+  1179→        {/* Grid */}
+  1180→        <line x1={padding} y1={xAxisY} x2={width - padding} y2={xAxisY} stroke="#374151" strokeWidth={1.5} />
+  1181→        <line x1={yAxisX} y1={padding} x2={yAxisX} y2={height - padding} stroke="#374151" strokeWidth={1.5} />
+  1182→        {/* Vectors */}
+  1183→        {vectors.map((v, i) => {
+  1184→          const from = v.from ?? [0, 0];
+  1185→          const color = v.color ?? PALETTE[i % PALETTE.length];
+  1186→          return (
+  1187→            <g key={`vec-${i}`}>
+  1188→              <line
+  1189→                x1={toSvgX(from[0])}
+  1190→                y1={toSvgY(from[1])}
+  1191→                x2={toSvgX(v.to[0])}
+  1192→                y2={toSvgY(v.to[1])}
+  1193→                stroke={color}
+  1194→                strokeWidth={2.5}
+  1195→              />
+  1196→              <polygon
+  1197→                points={arrowPoints(toSvgX(from[0]), toSvgY(from[1]), toSvgX(v.to[0]), toSvgY(v.to[1]), 10)}
+  1198→                fill={color}
+  1199→              />
+  1200→              {v.label && (
+  1201→                <text
+  1202→                  x={toSvgX(v.to[0]) + 6}
+  1203→                  y={toSvgY(v.to[1]) - 4}
+  1204→                  fontSize={11}
+  1205→                  fill={color}
+  1206→                  fontWeight={700}
+  1207→                >
+  1208→                  {v.label}
+  1209→                </text>
+  1210→              )}
+  1211→            </g>
+  1212→          );
+  1213→        })}
+  1214→        <text x={width / 2} y={height - 8} fontSize={11} fill="#374151" textAnchor="middle" fontWeight={600}>{xLabel}</text>
+  1215→        <text x={12} y={height / 2} fontSize={11} fill="#374151" textAnchor="middle" fontWeight={600} transform={`rotate(-90, 12, ${height / 2})`}>{yLabel}</text>
+  1216→      </svg>
+  1217→    </div>
+  1218→  );
+  1219→}
+  1220→
+  1221→// =====================================================================
+  1222→// 11. Polygon (2D geometric figure with labeled vertices and sides)
+  1223→// =====================================================================
+  1224→function PolygonSVG({ spec }: { spec: any }) {
+  1225→  const title = spec.title ?? "Polygon";
+  1226→  const vertices: Array<[number, number]> = Array.isArray(spec.vertices) ? spec.vertices : [];
+  1227→  const labels: string[] = Array.isArray(spec.labels) ? spec.labels : [];
+  1228→  const showAngles = spec.showAngles !== false;
+  1229→  const showSides = spec.showSides !== false;
+  1230→
+  1231→  // Compute bounds
+  1232→  const allX = vertices.map((v) => v[0]);
+  1233→  const allY = vertices.map((v) => v[1]);
+  1234→  let xMin = Math.min(...allX);
+  1235→  let xMax = Math.max(...allX);
+  1236→  let yMin = Math.min(...allY);
+  1237→  let yMax = Math.max(...allY);
+  1238→  const xPad = (xMax - xMin) * 0.2 || 1;
+  1239→  const yPad = (yMax - yMin) * 0.2 || 1;
+  1240→  xMin -= xPad; xMax += xPad; yMin -= yPad; yMax += yPad;
+  1241→
+  1242→  const width = 380;
+  1243→  const height = 320;
+  1244→  const padding = 30;
+  1245→
+  1246→  const toSvgX = (x: number) => padding + ((x - xMin) / (xMax - xMin)) * (width - 2 * padding);
+  1247→  const toSvgY = (y: number) =>
+  1248→    height - padding - ((y - yMin) / (yMax - yMin)) * (height - 2 * padding);
+  1249→
+  1250→  const path = vertices.map((v, i) => `${i === 0 ? "M" : "L"} ${toSvgX(v[0]).toFixed(2)} ${toSvgY(v[1]).toFixed(2)}`).join(" ") + " Z";
+  1251→
+  1252→  // Side lengths
+  1253→  const sides: Array<{ length: number; midX: number; midY: number }> = [];
+  1254→  for (let i = 0; i < vertices.length; i++) {
+  1255→    const a = vertices[i];
+  1256→    const b = vertices[(i + 1) % vertices.length];
+  1257→    const len = Math.sqrt((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2);
+  1258→    sides.push({
+  1259→      length: len,
+  1260→      midX: toSvgX((a[0] + b[0]) / 2),
+  1261→      midY: toSvgY((a[1] + b[1]) / 2),
+  1262→    });
+  1263→  }
+  1264→
+  1265→  return (
+  1266→    <div>
+  1267→      <p className="text-xs font-semibold text-gray-700 mb-1">{title}</p>
+  1268→      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto bg-gray-50 rounded-lg">
+  1269→        {/* Polygon */}
+  1270→        <path d={path} fill="#4F46E5" fillOpacity={0.15} stroke="#4F46E5" strokeWidth={2.5} />
+  1271→        {/* Vertices + labels */}
+  1272→        {vertices.map((v, i) => {
+  1273→          const label = labels[i] ?? String.fromCharCode(65 + i);
+  1274→          // Offset label outward (from centroid)
+  1275→          const cx = vertices.reduce((s, p) => s + p[0], 0) / vertices.length;
+  1276→          const cy = vertices.reduce((s, p) => s + p[1], 0) / vertices.length;
+  1277→          const dx = v[0] - cx;
+  1278→          const dy = v[1] - cy;
+  1279→          const len = Math.sqrt(dx * dx + dy * dy) || 1;
+  1280→          const labelOffset = 16;
+  1281→          const labelX = toSvgX(v[0]) + (dx / len) * labelOffset;
+  1282→          const labelY = toSvgY(v[1]) + (dy / len) * labelOffset;
+  1283→          return (
+  1284→            <g key={`v-${i}`}>
+  1285→              <circle cx={toSvgX(v[0])} cy={toSvgY(v[1])} r={3.5} fill="#4F46E5" />
+  1286→              <text x={labelX} y={labelY + 4} fontSize={13} fill="#374151" textAnchor="middle" fontWeight={700}>
+  1287→                {label}
+  1288→              </text>
+  1289→            </g>
+  1290→          );
+  1291→        })}
+  1292→        {/* Side length labels */}
+  1293→        {showSides && sides.map((s, i) => (
+  1294→          <text key={`s-${i}`} x={s.midX} y={s.midY - 4} fontSize={10} fill="#10B981" textAnchor="middle" fontWeight={600}>
+  1295→            {s.length.toFixed(2)}
+  1296→          </text>
+  1297→        ))}
+  1298→      </svg>
+  1299→    </div>
+  1300→  );
+  1301→}
+  1302→
+  1303→// =====================================================================
+  1304→// 12. Box-and-whisker plot
+  1305→// =====================================================================
+  1306→function BoxPlotSVG({ spec }: { spec: any }) {
+  1307→  const title = spec.title ?? "Box Plot";
+  1308→  const yLabel = spec.yLabel ?? "";
+  1309→  const datasets: Array<{
+  1310→    label: string;
+  1311→    min: number;
+  1312→    q1: number;
+  1313→    median: number;
+  1314→    q3: number;
+  1315→    max: number;
+  1316→    outliers?: number[];
+  1317→  }> = Array.isArray(spec.datasets) ? spec.datasets : [];
+  1318→
+  1319→  const width = 480;
+  1320→  const height = Math.max(180, datasets.length * 80 + 40);
+  1321→  const padding = { left: 80, right: 30, top: 30, bottom: 40 };
+  1322→  const plotW = width - padding.left - padding.right;
+  1323→
+  1324→  if (datasets.length === 0) return <p className="text-xs text-gray-500">No datasets provided.</p>;
+  1325→
+  1326→  // Compute global range
+  1327→  const allValues = datasets.flatMap((d) => [d.min, d.max, ...(d.outliers ?? [])]);
+  1328→  const yMin = Math.min(...allValues);
+  1329→  const yMax = Math.max(...allValues);
+  1330→  const yRange = yMax - yMin || 1;
+  1331→  const yPad = yRange * 0.1;
+  1332→  const yMinPadded = yMin - yPad;
+  1333→  const yMaxPadded = yMax + yPad;
+  1334→
+  1335→  const toSvgX = (v: number) => padding.left + ((v - yMinPadded) / (yMaxPadded - yMinPadded)) * plotW;
+  1336→  const boxWidth = 50;
+  1337→
+  1338→  // X ticks
+  1339→  const xTicks: ReactElement[] = [];
+  1340→  const tickCount = 6;
+  1341→  for (let i = 0; i <= tickCount; i++) {
+  1342→    const xv = yMinPadded + ((yMaxPadded - yMinPadded) * i) / tickCount;
+  1343→    xTicks.push(
+  1344→      <g key={`xt-${i}`}>
+  1345→        <line x1={toSvgX(xv)} y1={padding.top} x2={toSvgX(xv)} y2={height - padding.bottom} stroke="#E5E7EB" strokeWidth={1} />
+  1346→        <text x={toSvgX(xv)} y={height - padding.bottom + 14} fontSize={10} fill="#6B7280" textAnchor="middle">
+  1347→          {xv.toFixed(0)}
+  1348→        </text>
+  1349→      </g>
+  1350→    );
+  1351→  }
+  1352→
+  1353→  return (
+  1354→    <div>
+  1355→      <p className="text-xs font-semibold text-gray-700 mb-1">{title}</p>
+  1356→      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto bg-gray-50 rounded-lg">
+  1357→        {xTicks}
+  1358→        {/* Baseline */}
+  1359→        <line x1={padding.left} y1={height - padding.bottom} x2={width - padding.right} y2={height - padding.bottom} stroke="#374151" strokeWidth={1.5} />
+  1360→        {/* Each dataset */}
+  1361→        {datasets.map((d, i) => {
+  1362→          const cy = padding.top + 20 + i * 70;
+  1363→          const xMin = toSvgX(d.min);
+  1364→          const xQ1 = toSvgX(d.q1);
+  1365→          const xMed = toSvgX(d.median);
+  1366→          const xQ3 = toSvgX(d.q3);
+  1367→          const xMax = toSvgX(d.max);
+  1368→          return (
+  1369→            <g key={`ds-${i}`}>
+  1370→              {/* Label */}
+  1371→              <text x={padding.left - 10} y={cy + 4} fontSize={11} fill="#374151" textAnchor="end" fontWeight={600}>
+  1372→                {d.label}
+  1373→              </text>
+  1374→              {/* Whiskers */}
+  1375→              <line x1={xMin} y1={cy} x2={xQ1} y2={cy} stroke="#374151" strokeWidth={1.5} strokeDasharray="4 3" />
+  1376→              <line x1={xQ3} y1={cy} x2={xMax} y2={cy} stroke="#374151" strokeWidth={1.5} strokeDasharray="4 3" />
+  1377→              <line x1={xMin} y1={cy - 8} x2={xMin} y2={cy + 8} stroke="#374151" strokeWidth={2} />
+  1378→              <line x1={xMax} y1={cy - 8} x2={xMax} y2={cy + 8} stroke="#374151" strokeWidth={2} />
+  1379→              {/* Box */}
+  1380→              <rect x={xQ1} y={cy - boxWidth / 2} width={xQ3 - xQ1} height={boxWidth} fill="#4F46E5" fillOpacity={0.35} stroke="#4F46E5" strokeWidth={2} />
+  1381→              {/* Median */}
+  1382→              <line x1={xMed} y1={cy - boxWidth / 2} x2={xMed} y2={cy + boxWidth / 2} stroke="#EF4444" strokeWidth={2.5} />
+  1383→              {/* Outliers */}
+  1384→              {(d.outliers ?? []).map((o, j) => (
+  1385→                <circle key={`o-${i}-${j}`} cx={toSvgX(o)} cy={cy} r={4} fill="white" stroke="#EF4444" strokeWidth={2} />
+  1386→              ))}
+  1387→              {/* Quartile labels */}
+  1388→              <text x={xQ1} y={cy - boxWidth / 2 - 4} fontSize={9} fill="#4F46E5" textAnchor="middle">Q1={d.q1}</text>
+  1389→              <text x={xMed} y={cy + boxWidth / 2 + 12} fontSize={9} fill="#EF4444" textAnchor="middle">Med={d.median}</text>
+  1390→              <text x={xQ3} y={cy - boxWidth / 2 - 4} fontSize={9} fill="#4F46E5" textAnchor="middle">Q3={d.q3}</text>
+  1391→            </g>
+  1392→          );
+  1393→        })}
+  1394→        {yLabel && <text x={width / 2} y={height - 6} fontSize={11} fill="#374151" textAnchor="middle" fontWeight={600}>{yLabel}</text>}
+  1395→      </svg>
+  1396→    </div>
+  1397→  );
+  1398→}
+  1399→
+  1400→// =====================================================================
+  1401→// 13. Slope field (direction field) for differential equations
+  1402→//     Draws small tick marks showing the slope of y' = f(x, y) at grid points.
+  1403→// =====================================================================
+  1404→function SlopeFieldSVG({ spec }: { spec: any }) {
+  1405→  const title = spec.title ?? "Slope Field";
+  1406→  const expr = spec.expr ?? "x"; // dy/dx = expr (function of x and y)
+  1407→  const xRange: [number, number] = spec.xRange ?? [-5, 5];
+  1408→  const yRange: [number, number] = spec.yRange ?? [-5, 5];
+  1409→  const gridSize: number = spec.gridSize ?? 10; // grid points per axis
+  1410→  const xLabel = spec.xLabel ?? "x";
+  1411→  const yLabel = spec.yLabel ?? "y";
+  1412→  const width = 480;
+  1413→  const height = 360;
+  1414→  const padding = 40;
+  1415→
+  1416→  // Safe expression evaluator — supports Math.* + x + y
+  1417→  const evaluate = (x: number, y: number): number | null => {
+  1418→    try {
+  1419→      let safeExpr = expr
+  1420→        .replace(/\^/g, "**")
+  1421→        .replace(/\bpi\b/gi, "Math.PI")
+  1422→        .replace(/\be\b/g, "Math.E")
+  1423→        .replace(/\bsin\(/g, "Math.sin(")
+  1424→        .replace(/\bcos\(/g, "Math.cos(")
+  1425→        .replace(/\btan\(/g, "Math.tan(")
+  1426→        .replace(/\bsqrt\(/g, "Math.sqrt(")
+  1427→        .replace(/\blog\(/g, "Math.log(")
+  1428→        .replace(/\bexp\(/g, "Math.exp(")
+  1429→        .replace(/\babs\(/g, "Math.abs(")
+  1430→        .replace(/\bx\b/g, String(x))
+  1431→        .replace(/\by\b/g, String(y));
+  1432→      // eslint-disable-next-line no-new-func
+  1433→      const fn = new Function("Math", `"use strict"; return (${safeExpr});`);
+  1434→      const result = fn(Math);
+  1435→      return typeof result === "number" && isFinite(result) ? result : null;
+  1436→    } catch {
+  1437→      return null;
+  1438→    }
+  1439→  };
+  1440→
+  1441→  const toSvgX = (x: number) => padding + ((x - xRange[0]) / (xRange[1] - xRange[0])) * (width - 2 * padding);
+  1442→  const toSvgY = (y: number) =>
+  1443→    height - padding - ((y - yRange[0]) / (yRange[1] - yRange[0])) * (height - 2 * padding);
+  1444→
+  1445→  // Generate slope tick marks
+  1446→  const ticks: ReactElement[] = [];
+  1447→  const tickLength = 8;
+  1448→  for (let i = 0; i <= gridSize; i++) {
+  1449→    for (let j = 0; j <= gridSize; j++) {
+  1450→      const x = xRange[0] + ((xRange[1] - xRange[0]) * i) / gridSize;
+  1451→      const y = yRange[0] + ((yRange[1] - yRange[0]) * j) / gridSize;
+  1452→      const slope = evaluate(x, y);
+  1453→      if (slope === null) continue;
+  1454→      // Normalize direction
+  1455→      const dx = 1 / Math.sqrt(1 + slope * slope);
+  1456→      const dy = slope / Math.sqrt(1 + slope * slope);
+  1457→      const cx = toSvgX(x);
+  1458→      const cy = toSvgY(y);
+  1459→      const x1 = cx - (tickLength / 2) * dx;
+  1460→      const y1 = cy + (tickLength / 2) * dy; // SVG y inverted
+  1461→      const x2 = cx + (tickLength / 2) * dx;
+  1462→      const y2 = cy - (tickLength / 2) * dy;
+  1463→      ticks.push(
+  1464→        <line
+  1465→          key={`tick-${i}-${j}`}
+  1466→          x1={x1.toFixed(2)}
+  1467→          y1={y1.toFixed(2)}
+  1468→          x2={x2.toFixed(2)}
+  1469→          y2={y2.toFixed(2)}
+  1470→          stroke="#4F46E5"
+  1471→          strokeWidth={1.5}
+  1472→          opacity={0.7}
+  1473→        />
+  1474→      );
+  1475→    }
+  1476→  }
+  1477→
+  1478→  // Axes
+  1479→  const xAxisY = yRange[0] <= 0 && yRange[1] >= 0 ? toSvgY(0) : height - padding;
+  1480→  const yAxisX = xRange[0] <= 0 && xRange[1] >= 0 ? toSvgX(0) : padding;
+  1481→
+  1482→  return (
+  1483→    <div>
+  1484→      <p className="text-xs font-semibold text-gray-700 mb-1">{title}</p>
+  1485→      <p className="text-[10px] text-gray-500 mb-1">dy/dx = <span className="font-mono">{expr}</span></p>
+  1486→      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto bg-gray-50 rounded-lg">
+  1487→        {ticks}
+  1488→        <line x1={padding} y1={xAxisY} x2={width - padding} y2={xAxisY} stroke="#374151" strokeWidth={1.5} />
+  1489→        <line x1={yAxisX} y1={padding} x2={yAxisX} y2={height - padding} stroke="#374151" strokeWidth={1.5} />
+  1490→        <text x={width / 2} y={height - 8} fontSize={11} fill="#374151" textAnchor="middle" fontWeight={600}>{xLabel}</text>
+  1491→        <text x={12} y={height / 2} fontSize={11} fill="#374151" textAnchor="middle" fontWeight={600} transform={`rotate(-90, 12, ${height / 2})`}>{yLabel}</text>
+  1492→      </svg>
+  1493→    </div>
+  1494→  );
+  1495→}
+  1496→
+  1497→// =====================================================================
+  1498→// 14. Stem-and-leaf plot (statistical data display)
+  1499→// =====================================================================
+  1500→function StemLeafSVG({ spec }: { spec: any }) {
+  1501→  const title = spec.title ?? "Stem-and-Leaf Plot";
+  1502→  const data: number[] = Array.isArray(spec.data) ? spec.data : [];
+  1503→  const stemUnit: number = spec.stemUnit ?? 10; // e.g. 10 means stem = tens digit
+  1504→  const leafUnit: number = spec.leafUnit ?? 1; // e.g. 1 means leaf = ones digit
+  1505→
+  1506→  if (data.length === 0) {
+  1507→    return <p className="text-xs text-gray-500">No data provided for stem-and-leaf plot.</p>;
+  1508→  }
+  1509→
+  1510→  // Group by stem
+  1511→  const groups = new Map<number, number[]>();
+  1512→  for (const v of data) {
+  1513→    const stem = Math.floor(v / stemUnit);
+  1514→    const leaf = Math.floor((v - stem * stemUnit) / leafUnit);
+  1515→    if (!groups.has(stem)) groups.set(stem, []);
+  1516→    groups.get(stem)!.push(leaf);
+  1517→  }
+  1518→  // Sort stems
+  1519→  const sortedStems = [...groups.keys()].sort((a, b) => a - b);
+  1520→
+  1521→  return (
+  1522→    <div>
+  1523→      <p className="text-xs font-semibold text-gray-700 mb-1">{title}</p>
+  1524→      <p className="text-[10px] text-gray-500 mb-2">Stem = {stemUnit}s, Leaf = {leafUnit}s</p>
+  1525→      <div className="bg-white border border-gray-200 rounded-lg p-3 font-mono text-xs">
+  1526→        <table className="w-full">
+  1527→          <thead>
+  1528→            <tr className="border-b border-gray-200 text-gray-600">
+  1529→              <th className="text-left py-1 px-2">Stem</th>
+  1530→              <th className="text-left py-1 px-2">Leaves</th>
+  1531→              <th className="text-right py-1 px-2 text-gray-400">Count</th>
+  1532→            </tr>
+  1533→          </thead>
+  1534→          <tbody>
+  1535→            {sortedStems.map((stem) => {
+  1536→              const leaves = (groups.get(stem) ?? []).sort((a, b) => a - b);
+  1537→              return (
+  1538→                <tr key={stem} className="border-b border-gray-50">
+  1539→                  <td className="py-1 px-2 font-bold text-indigo-600">{stem} |</td>
+  1540→                  <td className="py-1 px-2 tracking-wide text-gray-800">{leaves.join(" ")}</td>
+  1541→                  <td className="py-1 px-2 text-right text-gray-400">{leaves.length}</td>
+  1542→                </tr>
+  1543→              );
+  1544→            })}
+  1545→          </tbody>
+  1546→        </table>
+  1547→      </div>
+  1548→      <p className="text-[10px] text-gray-500 mt-1">n = {data.length} · Key: {sortedStems[0] ?? 0}|{(groups.get(sortedStems[0]) ?? [0])[0]} = {(sortedStems[0] ?? 0) * stemUnit + (groups.get(sortedStems[0]) ?? [0])[0] * leafUnit}</p>
+  1549→    </div>
+  1550→  );
+  1551→}
+  1552→
+  1553→// =====================================================================
+  1554→// 15. Frequency polygon (line graph connecting midpoints of class intervals)
+  1555→// =====================================================================
+  1556→function FrequencyPolygonSVG({ spec }: { spec: any }) {
+  1557→  const title = spec.title ?? "Frequency Polygon";
+  1558→  const xLabel = spec.xLabel ?? "Class Midpoint";
+  1559→  const yLabel = spec.yLabel ?? "Frequency";
+  1560→  const points: Array<{ midpoint: number; frequency: number }> = Array.isArray(spec.points)
+  1561→    ? spec.points
+  1562→    : Array.isArray(spec.bins)
+  1563→      ? spec.bins.map((b: any) => ({ midpoint: (b.start + b.end) / 2, frequency: b.count }))
+  1564→      : [];
+  1565→
+  1566→  const width = 480;
+  1567→  const height = 320;
+  1568→  const padding = { left: 50, right: 20, top: 30, bottom: 50 };
+  1569→  const plotW = width - padding.left - padding.right;
+  1570→  const plotH = height - padding.top - padding.bottom;
+  1571→
+  1572→  if (points.length === 0) {
+  1573→    return <p className="text-xs text-gray-500">No data for frequency polygon.</p>;
+  1574→  }
+  1575→
+  1576→  const allX = points.map((p) => p.midpoint);
+  1577→  const allY = points.map((p) => p.frequency);
+  1578→  const xMin = Math.min(...allX);
+  1579→  const xMax = Math.max(...allX);
+  1580→  const yMax = Math.max(...allY) * 1.1 || 10;
+  1581→  const xPad = (xMax - xMin) * 0.1 || 1;
+  1582→  const xMinP = xMin - xPad;
+  1583→  const xMaxP = xMax + xPad;
+  1584→
+  1585→  const toSvgX = (x: number) => padding.left + ((x - xMinP) / (xMaxP - xMinP)) * plotW;
+  1586→  const toSvgY = (v: number) => padding.top + plotH - (v / yMax) * plotH;
+  1587→
+  1588→  const path = points
+  1589→    .map((p, i) => `${i === 0 ? "M" : "L"} ${toSvgX(p.midpoint).toFixed(2)} ${toSvgY(p.frequency).toFixed(2)}`)
+  1590→    .join(" ");
+  1591→
+  1592→  return (
+  1593→    <div>
+  1594→      <p className="text-xs font-semibold text-gray-700 mb-1">{title}</p>
+  1595→      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto bg-gray-50 rounded-lg">
+  1596→        {/* Y grid */}
+  1597→        {Array.from({ length: 6 }, (_, i) => {
+  1598→          const yv = (yMax * i) / 5;
+  1599→          return (
+  1600→            <g key={`yg-${i}`}>
+  1601→              <line x1={padding.left} y1={toSvgY(yv)} x2={padding.left + plotW} y2={toSvgY(yv)} stroke="#E5E7EB" strokeWidth={1} />
+  1602→              <text x={padding.left - 8} y={toSvgY(yv) + 3} fontSize={10} fill="#6B7280" textAnchor="end">{yv.toFixed(0)}</text>
+  1603→            </g>
+  1604→          );
+  1605→        })}
+  1606→        {/* X axis labels */}
+  1607→        {points.map((p, i) => (
+  1608→          <text key={`xl-${i}`} x={toSvgX(p.midpoint)} y={padding.top + plotH + 14} fontSize={10} fill="#6B7280" textAnchor="middle">
+  1609→            {p.midpoint.toFixed(1)}
+  1610→          </text>
+  1611→        ))}
+  1612→        {/* Line */}
+  1613→        <path d={path} fill="none" stroke="#4F46E5" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
+  1614→        {/* Points */}
+  1615→        {points.map((p, i) => (
+  1616→          <circle key={`pt-${i}`} cx={toSvgX(p.midpoint)} cy={toSvgY(p.frequency)} r={4} fill="#4F46E5" stroke="white" strokeWidth={1.5} />
+  1617→        ))}
+  1618→        {/* Axes */}
+  1619→        <line x1={padding.left} y1={padding.top} x2={padding.left} y2={padding.top + plotH} stroke="#374151" strokeWidth={1.5} />
+  1620→        <line x1={padding.left} y1={padding.top + plotH} x2={padding.left + plotW} y2={padding.top + plotH} stroke="#374151" strokeWidth={1.5} />
+  1621→        <text x={width / 2} y={height - 8} fontSize={11} fill="#374151" textAnchor="middle" fontWeight={600}>{xLabel}</text>
+  1622→        <text x={14} y={height / 2} fontSize={11} fill="#374151" textAnchor="middle" fontWeight={600} transform={`rotate(-90, 14, ${height / 2})`}>{yLabel}</text>
+  1623→      </svg>
+  1624→    </div>
+  1625→  );
+  1626→}
+  1627→
+  1628→// =====================================================================
+  1629→// 16. Freeform SVG — AI can output raw SVG markup for any custom drawing
+  1630→//     The "svg" field in the spec contains the raw SVG body (without the
+  1631→//     outer <svg> tag). We wrap it in a viewBox and render it inline.
+  1632→//     DANGEROUS: this executes AI-generated SVG, so we sanitize by stripping
+  1633→//     <script> tags, on* event handlers, and external resource references.
+  1634→// =====================================================================
+  1635→function FreeformSVG({ spec }: { spec: any }) {
+  1636→  const title = spec.title ?? "Custom Drawing";
+  1637→  const rawSvg: string = typeof spec.svg === "string" ? spec.svg : "";
+  1638→  let width: number = spec.width ?? 480;
+  1639→  let height: number = spec.height ?? 360;
+  1640→
+  1641→  if (!rawSvg) {
+  1642→    return (
+  1643→      <div className="text-xs text-rose-600 p-3">
+  1644→        Freeform graph type requires an "svg" field containing raw SVG markup.
+  1645→      </div>
+  1646→    );
+  1647→  }
+  1648→
+  1649→  // If the AI wrapped its content in an outer <svg>...</svg> tag, extract the
+  1650→  // INNER content (we'll wrap it in our own <svg> below). This avoids the
+  1651→  // nested-<svg> rendering issue where browsers don't reliably render an
+  1652→  // inner SVG element placed via dangerouslySetInnerHTML.
+  1653→  // Also extract the viewBox/width/height attributes from the AI's <svg> tag
+  1654→  // so we can use the AI's intended dimensions.
+  1655→  let svgContent = rawSvg;
+  1656→  const outerSvgMatch = rawSvg.match(/<svg\b([^>]*)>([\s\S]*?)<\/svg>/i);
+  1657→  if (outerSvgMatch) {
+  1658→    const outerAttrs = outerSvgMatch[1] ?? "";
+  1659→    svgContent = outerSvgMatch[2] ?? "";
+  1660→
+  1661→    // Try to extract viewBox / width / height from the AI's <svg> tag
+  1662→    const viewBoxMatch = outerAttrs.match(/viewBox\s*=\s*["']([^"']+)["']/i);
+  1663→    if (viewBoxMatch) {
+  1664→      const parts = viewBoxMatch[1].split(/[\s,]+/).map(Number);
+  1665→      if (parts.length === 4 && parts.every((p) => !isNaN(p))) {
+  1666→        width = parts[2];
+  1667→        height = parts[3];
+  1668→      }
+  1669→    }
+  1670→    const widthMatch = outerAttrs.match(/\bwidth\s*=\s*["'](\d+)["']/i);
+  1671→    const heightMatch = outerAttrs.match(/\bheight\s*=\s*["'](\d+)["']/i);
+  1672→    if (widthMatch) width = parseInt(widthMatch[1], 10);
+  1673→    if (heightMatch) height = parseInt(heightMatch[1], 10);
+  1674→  } else if (spec.width && spec.height) {
+  1675→    // No outer svg tag — use spec dimensions
+  1676→    width = spec.width;
+  1677→    height = spec.height;
+  1678→  }
+  1679→
+  1680→  // Sanitize: strip <script>...</script>, on* handlers, javascript: URLs,
+  1681→  // external image refs, and data: URLs (to prevent XSS and data exfiltration).
+  1682→  let sanitized = svgContent;
+  1683→  // Remove <script>...</script> blocks
+  1684→  sanitized = sanitized.replace(/<script[\s\S]*?<\/script>/gi, "");
+  1685→  // Remove on* event handlers (onclick, onload, onerror, etc.)
+  1686→  sanitized = sanitized.replace(/\son\w+\s*=\s*"[^"]*"/gi, "");
+  1687→  sanitized = sanitized.replace(/\son\w+\s*=\s*'[^']*'/gi, "");
+  1688→  // Remove javascript: URLs
+  1689→  sanitized = sanitized.replace(/href\s*=\s*"javascript:[^"]*"/gi, 'href="#"');
+  1690→  sanitized = sanitized.replace(/href\s*=\s*'javascript:[^']*'/gi, "href='#'");
+  1691→  // Remove external image references (prevent data exfiltration via image URLs)
+  1692→  sanitized = sanitized.replace(/href\s*=\s*"https?:\/\/[^"]*"/gi, 'href="#"');
+  1693→  sanitized = sanitized.replace(/href\s*=\s*'https?:\/\/[^']*'/gi, "href='#'");
+  1694→  // Remove xlink:href external references too
+  1695→  sanitized = sanitized.replace(/xlink:href\s*=\s*"https?:\/\/[^"]*"/gi, 'xlink:href="#"');
+  1696→
+  1697→  return (
+  1698→    <div>
+  1699→      {title && <p className="text-xs font-semibold text-gray-700 mb-1">{title}</p>}
+  1700→      <svg
+  1701→        viewBox={`0 0 ${width} ${height}`}
+  1702→        className="w-full h-auto bg-gray-50 rounded-lg"
+  1703→        xmlns="http://www.w3.org/2000/svg"
+  1704→        dangerouslySetInnerHTML={{ __html: sanitized }}
+  1705→      />
+  1706→    </div>
+  1707→  );
+  1708→}
+  1709→
+  1710→// =====================================================================
+  1711→// 17. Argand diagram — plot complex numbers on the complex plane
+  1712→//     (real axis + imaginary axis)
+  1713→// =====================================================================
+  1714→function ArgandSVG({ spec }: { spec: any }) {
+  1715→  const title = spec.title ?? "Argand Diagram";
+  1716→  const points: Array<{ re: number; im: number; label?: string; color?: string }> = Array.isArray(spec.points)
+  1717→    ? spec.points
+  1718→    : [];
+  1719→  const range: [number, number] = spec.range ?? [-5, 5];
+  1720→  const width = 420;
+  1721→  const height = 360;
+  1722→  const padding = 40;
+  1723→
+  1724→  const toSvgX = (x: number) => padding + ((x - range[0]) / (range[1] - range[0])) * (width - 2 * padding);
+  1725→  const toSvgY = (y: number) =>
+  1726→    height - padding - ((y - range[0]) / (range[1] - range[0])) * (height - 2 * padding);
+  1727→  const originX = toSvgX(0);
+  1728→  const originY = toSvgY(0);
+  1729→
+  1730→  return (
+  1731→    <div>
+  1732→      <p className="text-xs font-semibold text-gray-700 mb-1">{title}</p>
+  1733→      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto bg-gray-50 rounded-lg">
+  1734→        {/* Grid */}
+  1735→        {Array.from({ length: 11 }, (_, i) => {
+  1736→          const v = range[0] + ((range[1] - range[0]) * i) / 10;
+  1737→          return (
+  1738→            <g key={`grid-${i}`}>
+  1739→              <line x1={toSvgX(v)} y1={padding} x2={toSvgX(v)} y2={height - padding} stroke="#E5E7EB" strokeWidth={v === 0 ? 1.5 : 0.5} />
+  1740→              <line x1={padding} y1={toSvgY(v)} x2={width - padding} y2={toSvgY(v)} stroke="#E5E7EB" strokeWidth={v === 0 ? 1.5 : 0.5} />
+  1741→            </g>
+  1742→          );
+  1743→        })}
+  1744→        {/* Axes — real (horizontal) and imaginary (vertical) */}
+  1745→        <line x1={padding} y1={originY} x2={width - padding} y2={originY} stroke="#374151" strokeWidth={1.5} />
+  1746→        <line x1={originX} y1={padding} x2={originX} y2={height - padding} stroke="#374151" strokeWidth={1.5} />
+  1747→        {/* Arrows */}
+  1748→        <polygon points={`${width - padding},${originY} ${width - padding - 8},${originY - 4} ${width - padding - 8},${originY + 4}`} fill="#374151" />
+  1749→        <polygon points={`${originX},${padding} ${originX - 4},${padding + 8} ${originX + 4},${padding + 8}`} fill="#374151" />
+  1750→        {/* Axis labels */}
+  1751→        <text x={width - padding + 4} y={originY + 14} fontSize={11} fill="#374151" fontWeight={600}>Re</text>
+  1752→        <text x={originX + 6} y={padding + 4} fontSize={11} fill="#374151" fontWeight={600}>Im</text>
+  1753→        {/* Points (complex numbers) */}
+  1754→        {points.map((p, i) => {
+  1755→          const color = p.color ?? PALETTE[i % PALETTE.length];
+  1756→          const cx = toSvgX(p.re);
+  1757→          const cy = toSvgY(p.im);
+  1758→          return (
+  1759→            <g key={`arg-${i}`}>
+  1760→              {/* Vector from origin to point */}
+  1761→              <line x1={originX} y1={originY} x2={cx} y2={cy} stroke={color} strokeWidth={1.5} opacity={0.5} />
+  1762→              {/* Point */}
+  1763→              <circle cx={cx} cy={cy} r={5} fill={color} stroke="white" strokeWidth={1.5} />
+  1764→              {/* Label */}
+  1765→              {p.label && (
+  1766→                <text x={cx + 8} y={cy - 4} fontSize={11} fill={color} fontWeight={700}>
+  1767→                  {p.label}
+  1768→                </text>
+  1769→              )}
+  1770→            </g>
+  1771→          );
+  1772→        })}
+  1773→      </svg>
+  1774→      <p className="text-[10px] text-gray-500 mt-1">
+  1775→        {points.length} complex number{points.length !== 1 ? "s" : ""} plotted on the complex plane (Re/Im axes)
+  1776→      </p>
+  1777→    </div>
+  1778→  );
+  1779→}
+  1780→
+  1781→// =====================================================================
+  1782→// 18. Contour map — topographic-style level curves for f(x, y) = z
+  1783→//     Draws nested closed curves at multiple z levels (or a square grid
+  1784→//     of color bands if a 2D scalar field is provided)
+  1785→// =====================================================================
+  1786→function ContourSVG({ spec }: { spec: any }) {
+  1787→  const title = spec.title ?? "Contour Map";
+  1788→  const levels: Array<{ level: number; color?: string; points?: Array<[number, number]> }> = Array.isArray(spec.levels) ? spec.levels : [];
+  1789→  // If `levels` not provided, generate circular contour rings as a fallback
+  1790→  const fallbackLevels = levels.length === 0
+  1791→    ? Array.from({ length: 6 }, (_, i) => ({
+  1792→        level: (i + 1) * 10,
+  1793→        color: PALETTE[i % PALETTE.length],
+  1794→      }))
+  1795→    : levels;
+  1796→
+  1797→  const width = 420;
+  1798→  const height = 360;
+  1799→  const cx = width / 2;
+  1800→  const cy = height / 2;
+  1801→  const maxR = Math.min(width, height) / 2 - 40;
+  1802→
+  1803→  return (
+  1804→    <div>
+  1805→      <p className="text-xs font-semibold text-gray-700 mb-1">{title}</p>
+  1806→      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto bg-gray-50 rounded-lg">
+  1807→        {/* Background grid (subtle) */}
+  1808→        {Array.from({ length: 9 }, (_, i) => (
+  1809→          <g key={`grid-${i}`}>
+  1810→            <line x1={20 + i * (width - 40) / 8} y1={20} x2={20 + i * (width - 40) / 8} y2={height - 20} stroke="#F3F4F6" strokeWidth={1} />
+  1811→            <line x1={20} y1={20 + i * (height - 40) / 8} x2={width - 20} y2={20 + i * (height - 40) / 8} stroke="#F3F4F6" strokeWidth={1} />
+  1812→          </g>
+  1813→        ))}
+  1814→        {/* Contour curves */}
+  1815→        {fallbackLevels.map((lvl, i) => {
+  1816→          const r = maxR * (i + 1) / fallbackLevels.length;
+  1817→          const color = lvl.color ?? PALETTE[i % PALETTE.length];
+  1818→          // If points are provided, draw a polygon path; otherwise draw a circle (fallback)
+  1819→          if (Array.isArray(lvl.points) && lvl.points.length >= 3) {
+  1820→            const path = lvl.points.map((p, j) => `${j === 0 ? "M" : "L"} ${p[0].toFixed(2)} ${p[1].toFixed(2)}`).join(" ") + " Z";
+  1821→            return <path key={`contour-${i}`} d={path} fill="none" stroke={color} strokeWidth={1.5} opacity={0.8} />;
+  1822→          }
+  1823→          return (
+  1824→            <g key={`contour-${i}`}>
+  1825→              <circle cx={cx} cy={cy} r={r} fill="none" stroke={color} strokeWidth={1.5} opacity={0.8} />
+  1826→              <text x={cx + r + 4} y={cy - r * 0.7} fontSize={9} fill={color} fontWeight={600}>
+  1827→                {lvl.level}
+  1828→              </text>
+  1829→            </g>
+  1830→          );
+  1831→        })}
+  1832→        {/* Peak marker */}
+  1833→        <circle cx={cx} cy={cy} r={3} fill="#1E40AF" />
+  1834→        <text x={cx + 6} y={cy - 4} fontSize={10} fill="#1E40AF" fontWeight={700}>peak</text>
+  1835→      </svg>
+  1836→      <p className="text-[10px] text-gray-500 mt-1">{fallbackLevels.length} contour levels</p>
+  1837→    </div>
+  1838→  );
+  1839→}
+  1840→
+  1841→// =====================================================================
+  1842→// 19. Vector field — arrows showing direction and magnitude at grid points
+  1843→//     For F(x, y) = (P(x,y), Q(x,y)) — typically for force/magnetic fields
+  1844→// =====================================================================
+  1845→function VectorFieldSVG({ spec }: { spec: any }) {
+  1846→  const title = spec.title ?? "Vector Field";
+  1847→  // P and Q expressions (string) or precomputed vectors
+  1848→  const exprP: string = spec.exprP ?? "1";
+  1849→  const exprQ: string = spec.exprQ ?? "0";
+  1850→  const vectors: Array<{ from?: [number, number]; to?: [number, number]; magnitude?: number }> = Array.isArray(spec.vectors) ? spec.vectors : [];
+  1851→  const range: [number, number] = spec.range ?? [-5, 5];
+  1852→  const gridSize: number = spec.gridSize ?? 8;
+  1853→  const xLabel = spec.xLabel ?? "x";
+  1854→  const yLabel = spec.yLabel ?? "y";
+  1855→
+  1856→  const width = 420;
+  1857→  const height = 360;
+  1858→  const padding = 30;
+  1859→
+  1860→  const toSvgX = (x: number) => padding + ((x - range[0]) / (range[1] - range[0])) * (width - 2 * padding);
+  1861→  const toSvgY = (y: number) => height - padding - ((y - range[0]) / (range[1] - range[0])) * (height - 2 * padding);
+  1862→
+  1863→  // Evaluator for P and Q
+  1864→  const eval2 = (expr: string, x: number, y: number): number | null => {
+  1865→    try {
+  1866→      let s = expr
+  1867→        .replace(/\^/g, "**")
+  1868→        .replace(/\bpi\b/gi, "Math.PI")
+  1869→        .replace(/\be\b/g, "Math.E")
+  1870→        .replace(/\bsin\(/g, "Math.sin(")
+  1871→        .replace(/\bcos\(/g, "Math.cos(")
+  1872→        .replace(/\btan\(/g, "Math.tan(")
+  1873→        .replace(/\bsqrt\(/g, "Math.sqrt(")
+  1874→        .replace(/\bx\b/g, String(x))
+  1875→        .replace(/\by\b/g, String(y));
+  1876→      // eslint-disable-next-line no-new-func
+  1877→      const fn = new Function("Math", `"use strict"; return (${s});`);
+  1878→      const r = fn(Math);
+  1879→      return typeof r === "number" && isFinite(r) ? r : null;
+  1880→    } catch { return null; }
+  1881→  };
+  1882→
+  1883→  // If vectors are precomputed, use them; otherwise generate from exprP/exprQ
+  1884→  const fieldVectors: Array<{ x: number; y: number; dx: number; dy: number; magnitude: number }> = [];
+  1885→  if (vectors.length > 0) {
+  1886→    for (const v of vectors) {
+  1887→      const from = v.from ?? [0, 0];
+  1888→      const to = v.to ?? [from[0] + 1, from[1]];
+  1889→      fieldVectors.push({
+  1890→        x: from[0], y: from[1],
+  1891→        dx: to[0] - from[0],
+  1892→        dy: to[1] - from[1],
+  1893→        magnitude: v.magnitude ?? Math.sqrt((to[0] - from[0]) ** 2 + (to[1] - from[1]) ** 2),
+  1894→      });
+  1895→    }
+  1896→  } else {
+  1897→    // Generate grid of arrows
+  1898→    for (let i = 0; i <= gridSize; i++) {
+  1899→      for (let j = 0; j <= gridSize; j++) {
+  1900→        const x = range[0] + ((range[1] - range[0]) * i) / gridSize;
+  1901→        const y = range[0] + ((range[1] - range[0]) * j) / gridSize;
+  1902→        const p = eval2(exprP, x, y);
+  1903→        const q = eval2(exprQ, x, y);
+  1904→        if (p === null || q === null) continue;
+  1905→        // Normalize: arrow length = 1 unit in field direction
+  1906→        const mag = Math.sqrt(p * p + q * q) || 1;
+  1907→        const scale = Math.min(range[1] - range[0], range[1] - range[0]) / gridSize * 0.4;
+  1908→        const dx = (p / mag) * scale;
+  1909→        const dy = (q / mag) * scale;
+  1910→        fieldVectors.push({ x, y, dx, dy, magnitude: mag });
+  1911→      }
+  1912→    }
+  1913→  }
+  1914→
+  1915→  // Color scale by magnitude
+  1916→  const maxMag = Math.max(...fieldVectors.map((v) => v.magnitude), 1);
+  1917→
+  1918→  return (
+  1919→    <div>
+  1920→      <p className="text-xs font-semibold text-gray-700 mb-1">{title}</p>
+  1921→      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto bg-gray-50 rounded-lg">
+  1922→        {/* Axes */}
+  1923→        <line x1={padding} y1={toSvgY(0)} x2={width - padding} y2={toSvgY(0)} stroke="#374151" strokeWidth={1} opacity={0.5} />
+  1924→        <line x1={toSvgX(0)} y1={padding} x2={toSvgX(0)} y2={height - padding} stroke="#374151" strokeWidth={1} opacity={0.5} />
+  1925→        {/* Arrows */}
+  1926→        {fieldVectors.map((v, i) => {
+  1927→          const startX = toSvgX(v.x);
+  1928→          const startY = toSvgY(v.y);
+  1929→          const endX = toSvgX(v.x + v.dx);
+  1930→          const endY = toSvgY(v.y + v.dy);
+  1931→          const intensity = v.magnitude / maxMag;
+  1932→          const color = intensity < 0.33 ? "#06B6D4" : intensity < 0.66 ? "#4F46E5" : "#EF4444";
+  1933→          return (
+  1934→            <g key={`vf-${i}`}>
+  1935→              <line
+  1936→                x1={startX}
+  1937→                y1={startY}
+  1938→                x2={endX}
+  1939→                y2={endY}
+  1940→                stroke={color}
+  1941→                strokeWidth={1.5}
+  1942→                opacity={0.85}
+  1943→              />
+  1944→              <polygon
+  1945→                points={arrowPoints(startX, startY, endX, endY, 6)}
+  1946→                fill={color}
+  1947→              />
+  1948→            </g>
+  1949→          );
+  1950→        })}
+  1951→        <text x={width / 2} y={height - 6} fontSize={11} fill="#374151" textAnchor="middle" fontWeight={600}>{xLabel}</text>
+  1952→        <text x={10} y={height / 2} fontSize={11} fill="#374151" textAnchor="middle" fontWeight={600} transform={`rotate(-90, 10, ${height / 2})`}>{yLabel}</text>
+  1953→      </svg>
+  1954→      <p className="text-[10px] text-gray-500 mt-1">
+  1955→        {fieldVectors.length} arrows · Color: <span className="text-cyan-600">weak</span> → <span className="text-indigo-600">medium</span> → <span className="text-rose-600">strong</span>
+  1956→      </p>
+  1957→    </div>
+  1958→  );
+  1959→}
+  1960→
+  1961→// =====================================================================
+  1962→// 20. Tessellation — repeating geometric pattern that tiles the plane
+  1963→//     Accepts a base tile (polygon) + a tiling pattern (translate/scale)
+  1964→// =====================================================================
+  1965→function TessellationSVG({ spec }: { spec: any }) {
+  1966→  const title = spec.title ?? "Tessellation";
+  1967→  // Tile can be:
+  1968→  //   - "triangle" / "square" / "hexagon" (predefined)
+  1969→  //   - {vertices: [[x,y],...]} (custom polygon)
+  1970→  const tileShape: string = typeof spec.tile === "string" ? spec.tile : "custom";
+  1971→  const tileVertices: Array<[number, number]> | undefined = spec.tileVertices;
+  1972→  const cols: number = spec.cols ?? 6;
+  1973→  const rows: number = spec.rows ?? 5;
+  1974→  const tileSize: number = spec.tileSize ?? 50;
+  1975→  const colors: string[] = Array.isArray(spec.colors) ? spec.colors : PALETTE;
+  1976→  const showLabels: boolean = spec.showLabels !== false;
+  1977→
+  1978→  // Generate base tile vertices
+  1979→  let baseVertices: Array<[number, number]> = [];
+  1980→  if (tileShape === "triangle") {
+  1981→    baseVertices = [[0, 0], [tileSize, 0], [tileSize / 2, tileSize * 0.866]];
+  1982→  } else if (tileShape === "square") {
+  1983→    baseVertices = [[0, 0], [tileSize, 0], [tileSize, tileSize], [0, tileSize]];
+  1984→  } else if (tileShape === "hexagon") {
+  1985→    const r = tileSize / 2;
+  1986→    baseVertices = Array.from({ length: 6 }, (_, i) => {
+  1987→      const a = (Math.PI / 3) * i;
+  1988→      return [r + r * Math.cos(a), r + r * Math.sin(a)] as [number, number];
+  1989→    });
+  1990→  } else if (Array.isArray(tileVertices)) {
+  1991→    baseVertices = tileVertices;
+  1992→  } else {
+  1993→    baseVertices = [[0, 0], [tileSize, 0], [tileSize, tileSize], [0, tileSize]]; // square default
+  1994→  }
+  1995→
+  1996→  // Hexagons need offset rows; squares/triangles need simple grid
+  1997→  const isHexagon = tileShape === "hexagon";
+  1998→  const tileWidth = tileSize;
+  1999→  const tileHeight = isHexagon ? tileSize * 0.866 : tileSize;
+  2000→  const xSpacing = isHexagon ? tileWidth * 0.75 : tileWidth;
+
+[showing lines 1-2000 of 3295; use offset=2001 with limit to continue reading]

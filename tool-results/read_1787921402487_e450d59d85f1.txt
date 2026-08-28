@@ -1,0 +1,756 @@
+     1→     1→import { NextRequest, NextResponse } from "next/server";
+     2→     2→import { getCurrentUser } from "@/lib/auth";
+     3→     3→import { db } from "@/lib/db";
+     4→     4→import { callAI, type ChatMessage as AIMessage } from "@/lib/ai";
+     5→     5→import { checkAndDeductTokens, refundTokens } from "@/lib/monetization";
+     6→     6→import { buildTeachingProfile } from "@/lib/aware-engine";
+     7→     7→import { buildCurriculumContextResolved, resolveGrade, getCurriculumForGradeResolved } from "@/lib/curriculum-engine";
+     8→     8→import { runProofEngine } from "@/lib/proof-engine";
+     9→     9→import { validateAndCorrectGraphSpec } from "@/lib/graph-validator";
+    10→    10→
+    11→    11→export const runtime = "nodejs";
+    12→    12→export const maxDuration = 60;
+    13→    13→
+    14→    14→/**
+    15→    15→ * POST /api/tutor/chat
+    16→    16→ *
+    17→    17→ * ChatGPT-style persistent AI Tutor (Phase 28+):
+    18→    18→ * - Creates/uses a conversation (messages saved to DB, never lost)
+    19→    19→ * - AI can fetch images, videos, graphs via web_search
+    20→    20→ * - AI can generate concept maps inline (returned as Mermaid-style JSON for client render)
+    21→    21→ * - Returns the AI reply + saves both messages to DB
+    22→    22→ *
+    23→    23→ * Body: {
+    24→    24→ *   conversationId?: string,  // null = create new conversation
+    25→    25→ *   message: string,
+    26→    26→ * }
+    27→    27→ */
+    28→    28→export async function POST(req: NextRequest) {
+    29→    29→  let user;
+    30→    30→  try {
+    31→    31→    user = await getCurrentUser();
+    32→    32→  } catch (e: any) {
+    33→    33→    return NextResponse.json({ error: e?.message ?? "Authentication required" }, { status: 401 });
+    34→    34→  }
+    35→    35→
+    36→    36→  const body = await req.json().catch(() => ({}));
+    37→    37→  const conversationId = (body?.conversationId ?? "").toString().trim() || null;
+    38→    38→  const userMessage = (body?.message ?? "").toString().trim();
+    39→    39→  // Optional image attachment — base64 data URL (e.g. "data:image/jpeg;base64,...")
+    40→    40→  // When present, the AI calls the vision model to analyze the image.
+    41→    41→  const imageDataUrl = (body?.image ?? "").toString().trim() || null;
+    42→    42→
+    43→    43→  if (!userMessage && !imageDataUrl) {
+    44→    44→    return NextResponse.json({ error: "Message or image is required" }, { status: 400 });
+    45→    45→  }
+    46→    46→
+    47→    47→  // Deduct tokens
+    48→    48→  const deduct = await checkAndDeductTokens(user.id, "tutor");
+    49→    49→  if (!deduct.ok) {
+    50→    50→    if (deduct.code === "DAILY_LIMIT" || deduct.code === "INSUFFICIENT_TOKENS" || deduct.code === "MODEL_LOCKED") {
+    51→    51→      return NextResponse.json(
+    52→    52→        { error: deduct.error, code: deduct.code, needsUpgrade: true },
+    53→    53→        { status: 402 }
+    54→    54→      );
+    55→    55→    }
+    56→    56→    return NextResponse.json({ error: deduct.error, code: deduct.code }, { status: 500 });
+    57→    57→  }
+    58→    58→
+    59→    59→  try {
+    60→    60→    // 1. Get or create conversation
+    61→    61→    let conversation;
+    62→    62→    if (conversationId) {
+    63→    63→      conversation = await db.chatConversation.findFirst({
+    64→    64→        where: { id: conversationId, userId: user.id },
+    65→    65→        include: { messages: { orderBy: { createdAt: "asc" } } },
+    66→    66→      });
+    67→    67→    }
+    68→    68→    if (!conversation) {
+    69→    69→      const title = userMessage.slice(0, 50) + (userMessage.length > 50 ? "…" : "");
+    70→    70→      conversation = await db.chatConversation.create({
+    71→    71→        data: { userId: user.id, title },
+    72→    72→        include: { messages: true },
+    73→    73→      });
+    74→    74→    }
+    75→    75→
+    76→    76→    // 2. Save the user's message (with optional image attachment)
+    77→    77→    await db.chatMessage.create({
+    78→    78→      data: {
+    79→    79→        conversationId: conversation.id,
+    80→    80→        userId: user.id,
+    81→    81→        role: "user",
+    82→    82→        content: userMessage || "(Image attached — please analyze)",
+    83→    83→        attachments: imageDataUrl ? [{ type: "image", url: imageDataUrl, caption: "Uploaded image" }] as any : null,
+    84→    84→      },
+    85→    85→    });
+    86→    86→
+    87→    87→    // 3. Build chat history from DB (last 20 for context window)
+    88→    88→    const allMessages = await db.chatMessage.findMany({
+    89→    89→      where: { conversationId: conversation.id },
+    90→    90→      orderBy: { createdAt: "asc" },
+    91→    91→      take: 20,
+    92→    92→    });
+    93→    93→
+    94→    94→    // 4. Detect intent from user message
+    95→    95→    const lowerMsg = userMessage.toLowerCase();
+    96→    96→    const wantsVideo = /\bvideo\b|\bclip\b|\bwatch\b|youtube|\bsend me.*(video|clip)\b|show me.*(video|clip)\b/i.test(userMessage);
+    97→    97→    const wantsImage = /\bimage\b|\bpicture\b|\bphoto\b|\billustration\b/i.test(userMessage) &&
+    98→    98→                       !/draw.*(graph|chart|plot|curve|function|polygon|triangle|circle)/i.test(userMessage) &&
+    99→    99→                       !/\bdiagram\b.*\bof\b.*\bvenn\b/i.test(userMessage);
+   100→   100→    // Graph types — each detected type gets its own JSON spec
+   101→   101→    const wantsFunctionPlot = /\b(y\s*=|f\(x\)|graph (?:of )?(?:y|x|sin|cos|tan|x²|x\^))\b|draw\s+(?:y\s*=|f\(x\))/i.test(userMessage) &&
+   102→   102→                              !/\b(scatter|bar|pie|histogram|box|venn|tree|number line|vector)\b/i.test(userMessage);
+   103→   103→    const wantsScatter = /\b(scatter|data points?|plot (?:the|these|all) (?:data )?points?|line of best fit|velocity.*(vs|versus).*time|distance.*(vs|versus).*time|time series)\b/i.test(userMessage) ||
+   104→   104→                         /\(\s*\d+\s*,\s*\d+\s*\)/.test(userMessage); // (x, y) tuples
+   105→   105→    const wantsBar = /\b(bar\s*(chart|graph)|bar plot|column chart|frequency.*by)\b/i.test(userMessage);
+   106→   106→    const wantsHistogram = /\bhistogram\b|frequency distribution|frequency.*class\b/i.test(userMessage);
+   107→   107→    const wantsPie = /\bpie\s*(chart)?\b|percentages?\s*(of (a whole|the))?|proportion of\b/i.test(userMessage);
+   108→   108→    const wantsVenn = /\bvenn\b|\bset[s]?\b.*\b(union|intersection|overlap|disjoint|difference)\b/i.test(userMessage);
+   109→   109→    const wantsNumberLine = /\bnumber line\b|inequality|x\s*[<>≤≥]|x\s*∈|\b(-?\d+)\s*[<≤]\s*x\s*[<≤]\s*(-?\d+)\b/i.test(userMessage);
+   110→   110→    const wantsTree = /\btree diagram\b|probability tree|outcome tree/i.test(userMessage);
+   111→   111→    const wantsBoxPlot = /\bbox\s*(and|&|-)?\s*whisker\b|\bbox\s*plot\b|quartile|five[- ]number summary/i.test(userMessage);
+   112→   112→    const wantsVector = /\bvector(s)?\b|force diagram|\bdisplacement vector\b|\bresultant\b/i.test(userMessage) && !/vector field/i.test(userMessage);
+   113→   113→    const wantsPolygon = /\b(triangle|quadrilateral|pentagon|hexagon|heptagon|octagon|polygon|square|rectangle|rhombus|trapezium|trapezoid|parallelogram|kite)\b/i.test(userMessage) &&
+   114→   114→                         /draw|sketch|construct|label|illustrat/i.test(userMessage);
+   115→   115→    const wantsNetwork = /\bnetwork graph\b|graph theory|vertices and edges|social network|friend graph/i.test(userMessage);
+   116→   116→    const wantsConceptMap = /\bconcept map\b|\bmind map\b|\bmindmap\b|\brelationship between\b/i.test(userMessage);
+   117→   117→    const wantsArgand = /\bargand\b|complex plane|complex number plot|plot.*\bz_\d|plot.*complex number/i.test(userMessage);
+   118→   118→    const wantsContour = /\bcontour map\b|contour lines?|level curves?|topographic|elevation levels?/i.test(userMessage);
+   119→   119→    const wantsVectorField = /\bvector field\b|direction field|force field|magnetic field|electric field|flow field/i.test(userMessage);
+   120→   120→    const wantsTessellation = /\btessellat|tiling pattern|tile the plane|repeating pattern of/i.test(userMessage);
+   121→   121→    const wantsKnot = /\btrefoil\b|\bknot diagram\b|\bfigure.?eight knot\b|\bknot theory\b/i.test(userMessage);
+   122→   122→    // Phase 31 — additional grade-leveled math renderers
+   123→   123→    const wantsPictogram = /\bpictograph\b|\bpictogram\b|picture graph|symbol.*count|emoji.*count/i.test(userMessage);
+   124→   124→    const wantsTally = /\btally (chart|marks?)\b|count tallies/i.test(userMessage);
+   125→   125→    const wantsCarroll = /\bcarroll (diagram|sort)\b|sort by two attributes|sort.*yes.*no/i.test(userMessage);
+   126→   126→    const wantsOgive = /\bogive\b|cumulative frequency curve|cumulative frequency graph/i.test(userMessage);
+   127→   127→    const wantsUnitCircle = /\bunit circle\b|sin.*cos.*circle|trig.*circle|cos θ.*sin θ/i.test(userMessage);
+   128→   128→    const wantsTransform = /\b(reflect|rotate|translate|enlarge|transformation).* (across|in|by|through|of|line|scale factor)/i.test(userMessage) ||
+   129→   129→                            /\breflect (triangle|shape|figure) across\b/i.test(userMessage) ||
+   130→   130→                            /\brotate (triangle|shape|figure) (by|around)\b/i.test(userMessage);
+   131→   131→    const wantsAxes3D = /\b3d (coordinate|axes|space|system)\b|plot.*in 3d|point.*in 3d|\(x, y, z\)|3d graph/i.test(userMessage);
+   132→   132→    const wantsTwoWay = /\btwo[- ]way table\b|contingency table|cross[- ]tabulation/i.test(userMessage);
+   133→   133→    // Phase 32 — spreadsheet + database
+   134→   134→    const wantsCSV = /\bexcel sheet\b|\bspreadsheet\b|\bworksheet\b|\bbuild a sheet\b|make a (food capacity|payment|attendance|inventory|grade book|budget) (sheet|worksheet|spreadsheet)/i.test(userMessage);
+   135→   135→    const wantsERDiagram = /\b(er diagram|entity.?relationship|database schema|database design|access table|ms access|simple database|build a database|design a database)/i.test(userMessage);
+   136→   136→    // Phase 33 — step-by-step solver
+   137→   137→    const wantsSteps = /\bstep by step\b|\bstep[- ]by[- ]step\b|\bshow your work\b|\bhow to solve\b|\bwork it out\b|\bworking for\b/i.test(userMessage) ||
+   138→   138→                       (/\bsolve\b/i.test(userMessage) && /=/i.test(userMessage));
+   139→   139→    const wantsSearch = /\bfind\b|\bsearch\b|\blook up\b|\bwhat is\b|\bwho is\b|\bwhen did\b|\bhow does\b/i.test(userMessage) && !wantsVideo &&
+   140→   140→                       !wantsScatter && !wantsBar && !wantsHistogram && !wantsPie && !wantsVenn &&
+   141→   141→                       !wantsNumberLine && !wantsTree && !wantsBoxPlot && !wantsVector && !wantsPolygon;
+   142→   142→
+   143→   143→    // Aggregate "wants graph" — true if ANY graph type detected
+   144→   144→    const wantsGraph = wantsFunctionPlot || wantsScatter || wantsBar || wantsHistogram || wantsPie ||
+   145→   145→                       wantsVenn || wantsNumberLine || wantsTree || wantsBoxPlot || wantsVector ||
+   146→   146→                       wantsPolygon || wantsNetwork || wantsConceptMap || wantsArgand || wantsContour ||
+   147→   147→                       wantsVectorField || wantsTessellation || wantsKnot ||
+   148→   148→                       wantsPictogram || wantsTally || wantsCarroll || wantsOgive || wantsUnitCircle ||
+   149→   149→                       wantsTransform || wantsAxes3D || wantsTwoWay ||
+   150→   150→                       wantsCSV || wantsERDiagram || wantsSteps;
+   151→   151→
+   152→   152→    let attachments: Array<{ type: string; url: string | null; caption: string }> = [];
+   153→   153→    let searchContext = "";
+   154→   154→
+   155→   155→    // 5. Web search for general queries (and videos, images)
+   156→   156→    if (wantsSearch || wantsVideo || wantsImage) {
+   157→   157→      try {
+   158→   158→        const ZAI = (await import("z-ai-web-dev-sdk")).default;
+   159→   159→        const client = await ZAI.create();
+   160→   160→
+   161→   161→        // For videos, explicitly search YouTube
+   162→   162→        const searchQuery = wantsVideo
+   163→   163→          ? `${userMessage.replace(/video|clip|watch|send me|show me/gi, "").trim()} site:youtube.com`
+   164→   164→          : userMessage;
+   165→   165→
+   166→   166→        const searchResult: any = await client.functions.invoke("web_search", {
+   167→   167→          query: searchQuery,
+   168→   168→          num: wantsVideo ? 5 : 6,
+   169→   169→        });
+   170→   170→
+   171→   171→        // SDK returns array of SearchFunctionResultItem (not {results: [...]})
+   172→   172→        const results: any[] = Array.isArray(searchResult)
+   173→   173→          ? searchResult
+   174→   174→          : (searchResult?.results ?? searchResult?.data ?? []);
+   175→   175→
+   176→   176→        if (results.length > 0) {
+   177→   177→          // Build context for the AI
+   178→   178→          const resultLines = results.slice(0, 6).map((r: any) =>
+   179→   179→            `- ${r.name ?? r.title ?? "Result"} (${r.url ?? r.link ?? ""})\n  ${r.snippet ?? r.description ?? ""}`
+   180→   180→          ).join("\n");
+   181→   181→          searchContext = `\n\nWEB SEARCH RESULTS for "${userMessage}":\n${resultLines}`;
+   182→   182→
+   183→   183→          // Find YouTube videos for video requests
+   184→   184→          if (wantsVideo) {
+   185→   185→            const ytResults = results.filter((r: any) => {
+   186→   186→              const u = r.url ?? r.link ?? "";
+   187→   187→              return /youtube\.com\/watch|youtu\.be\//.test(u);
+   188→   188→            }).slice(0, 2);
+   189→   189→
+   190→   190→            for (const r of ytResults) {
+   191→   191→              const url = r.url ?? r.link ?? "";
+   192→   192→              attachments.push({
+   193→   193→                type: "video",
+   194→   194→                url,
+   195→   195→                caption: r.name ?? r.title ?? "YouTube video",
+   196→   196→              });
+   197→   197→            }
+   198→   198→          }
+   199→   199→
+   200→   200→          // Find images via image-search SDK (returns {results:[{original_url, caption}]})
+   201→   201→          if (wantsImage) {
+   202→   202→            try {
+   203→   203→              const imageSearchRes: any = await client.images.search.create({
+   204→   204→                query: userMessage.replace(/image|picture|photo|diagram|show me|send me/gi, "").trim(),
+   205→   205→                count: 3,
+   206→   206→              });
+   207→   207→              const imageResults: any[] = imageSearchRes?.results ?? [];
+   208→   208→              for (const r of imageResults.slice(0, 2)) {
+   209→   209→                const imgUrl = r.original_url ?? r.url ?? r.thumbnail;
+   210→   210→                if (imgUrl) {
+   211→   211→                  attachments.push({
+   212→   212→                    type: "image",
+   213→   213→                    url: imgUrl,
+   214→   214→                    caption: r.caption ?? r.title ?? "Related image",
+   215→   215→                  });
+   216→   216→                }
+   217→   217→              }
+   218→   218→            } catch (imgErr: any) {
+   219→   219→              console.error("[tutor-chat] image search failed:", imgErr?.message);
+   220→   220→            }
+   221→   221→          }
+   222→   222→        }
+   223→   223→      } catch (e: any) {
+   224→   224→        console.error("[tutor-chat] web search failed:", e?.message);
+   225→   225→      }
+   226→   226→    }
+   227→   227→
+   228→   228→    // 6. Build AI messages with system prompt + curriculum context + search results
+   229→   229→    const teachingProfile = buildTeachingProfile(user.grade ?? "Form 1");
+   230→   230→
+   231→   231→    // Build curriculum context using the CBC curriculum engine (Phase 41)
+   232→   232→    // This grounds the AI within the student's grade-level curriculum —
+   233→   233→    // the AI should NEVER go outside the curriculum topics.
+   234→   234→    const curriculumContext = buildCurriculumContextResolved(user.grade ?? "Form 1");
+   235→   235→
+   236→   236→    // Also try to fetch admin-uploaded curriculum content from DB (best-effort)
+   237→   237→    let dbCurriculumContext = "";
+   238→   238→    try {
+   239→   239→      if (user.grade) {
+   240→   240→        const matchingGrade = await db.curriculumGrade.findFirst({
+   241→   241→          where: { name: { equals: user.grade, mode: "insensitive" }, status: "ready" },
+   242→   242→          include: {
+   243→   243→            subjects: {
+   244→   244→              select: {
+   245→   245→                name: true,
+   246→   246→                topics: { select: { name: true, summary: true, contentMarkdown: true }, orderBy: { orderIndex: "asc" } },
+   247→   247→              },
+   248→   248→            },
+   249→   249→          },
+   250→   250→        });
+   251→   251→        if (matchingGrade) {
+   252→   252→          const topicLines: string[] = [];
+   253→   253→          for (const subj of matchingGrade.subjects) {
+   254→   254→            if (subj.topics.length === 0) continue;
+   255→   255→            topicLines.push(`\n## ${subj.name}`);
+   256→   256→            for (const t of subj.topics.slice(0, 5)) {
+   257→   257→              topicLines.push(`### ${t.name}\n${(t.contentMarkdown ?? "").slice(0, 200)}`);
+   258→   258→            }
+   259→   259→          }
+   260→   260→          if (topicLines.length > 0) {
+   261→   261→            dbCurriculumContext = `\n\nADDITIONAL CURRICULUM CONTENT (admin-uploaded):\n${topicLines.join("\n").slice(0, 3000)}`;
+   262→   262→          }
+   263→   263→        }
+   264→   264→      }
+   265→   265→    } catch {}
+   266→   266→
+   267→   267→    const systemContent = `You are StudyBuddy, a friendly AI tutor for Kenyan students (CBC / KCSE / KPSEA / KJSEA curriculum). ${teachingProfile.systemPromptSuffix}${curriculumContext}${dbCurriculumContext}${searchContext}
+   268→   268→
+   269→   269→SPECIAL CAPABILITIES — when the user asks, you can do these (the system has already fetched the content for you, just describe and reference it):
+   270→   270→
+   271→   271→- VIDEO: When the user asks for a video, you have been given YouTube URLs in the web search context above. Reference them in your reply like "Here's a YouTube video that explains it well: [Title](URL)".
+   272→   272→- IMAGE: When the user asks for an image/diagram, mention that you've attached an image below.
+   273→   273→
+   274→   274→GRAPHING & DRAWING — when the user asks you to draw, plot, sketch, or illustrate something, you MUST include a fenced code block tagged "mathgraph" containing a JSON object. The frontend parses this and renders the appropriate visual as inline SVG.
+   275→   275→
+   276→   276→CRITICAL RULES FOR THE mathgraph BLOCK:
+   277→   277→- Use EXACTLY this format (the tag must be "mathgraph", not "json" or "text"):
+   278→   278→  \`\`\`mathgraph
+   279→   279→  {"type":"scatter", "title":"...", "xLabel":"...", "yLabel":"...", "points":[...]}
+   280→   280→  \`\`\`
+   281→   281→- Include the block ONCE per graph (don't repeat the JSON as plain text after).
+   282→   282→- Don't wrap it in any other language tag.
+   283→   283→- The JSON must be on its own line(s), not inlined with prose.
+   284→   284→- Always include a meaningful title and axis labels (e.g. "Velocity vs Time" with xLabel="Time (s)", yLabel="Velocity (m/s)") — these are shown on the rendered graph.
+   285→   285→- Don't use placeholder data — use the EXACT data the user gave you, or sensible real values matching the user's question.
+   286→   286→- DO NOT output raw SVG, HTML <canvas>, <svg> tags, or any other markup — ONLY the mathgraph JSON spec. The frontend renders it for you.
+   287→   287→- DO NOT describe the graph in prose and then skip the mathgraph block — always include the JSON spec.
+   288→   288→- DO NOT use the wrong graph type — match the type to the user's request:
+   289→   289→  * Physics/data (velocity-time, distance-time) → scatter (NOT function)
+   290→   290→  * Statistics (test scores, frequencies) → bar, histogram, or boxplot
+   291→   291→  * Percentages of a whole → pie
+   292→   292→  * Math equations (y=x^2) → function
+   293→   293→  * Probability outcomes → tree
+   294→   294→  * Sets/unions → venn
+   295→   295→  * Inequalities → numberline
+   296→   296→  * Databases → erdiagram
+   297→   297→  * Spreadsheets → csv
+   298→   298→  * Anything else → freeform (raw SVG)
+   299→   299→- DOUBLE-CHECK your JSON is valid before outputting — no trailing commas, no missing brackets.
+   300→   300→- Include ALL required fields for the chosen type — check the schema reference above.
+   301→   301→
+   302→   302→The "type" field tells the frontend which renderer to use. Available types:
+   303→   303→
+   304→   304→1. function  — { expr: "x^2", xRange, yRange, title, xLabel, yLabel } — y = f(x) plot
+   305→   305→2. scatter   — { points: [[x,y],...], lineOfBestFit: true, xLabel, yLabel, title } — data points + best fit
+   306→   306→3. bar      — { categories: [...], values: [...], xLabel, yLabel, title } — bar chart
+   307→   307→4. histogram — { bins: [{start, end, count},...] } — grouped frequency
+   308→   308→5. pie      — { slices: [{label, value, color?},...] } — pie chart
+   309→   309→6. venn     — { sets: [{label, value?, color?},...] } — 2-3 set Venn
+   310→   310→7. numberline — { range, shadedRange, markers: [{value, label, open}] } — inequality
+   311→   311→8. tree     — { root: { label, children: [{label, probability, children},...] } } — probability tree
+   312→   312→9. network  — { nodes: [{id, label, color?},...], edges: [{from, to, label?}] } — graph theory + concept maps
+   313→   313→10. vector  — { vectors: [{from?, to, label, color?},...], xRange, yRange } — vector arrows
+   314→   314→11. polygon — { vertices: [[x,y],...], labels: [...], showAngles, showSides } — geometric figure
+   315→   315→12. boxplot  — { datasets: [{label, min, q1, median, q3, max, outliers?},...] } — box-and-whisker
+   316→   316→13. slopefield — { expr: "x - y", xRange, yRange, gridSize } — ODE direction field
+   317→   317→14. stemleaf — { data: [...], stemUnit, leafUnit } — stem-and-leaf plot
+   318→   318→15. frequency_polygon — { points: [{midpoint, frequency},...] } OR { bins: [...] } — frequency polygon
+   319→   319→16. freeform — { svg: "<raw SVG markup>", width, height, title } — ANY custom drawing (raw SVG)
+   320→   320→17. argand  — { range, points: [{re, im, label, color?},...] } — complex plane
+   321→   321→18. contour — { levels: [{level, color?, points?},...] } — topographic contour map
+   322→   322→19. vectorfield — { exprP, exprQ, range, gridSize } OR { vectors: [...] } — vector field arrows
+   323→   323→20. tessellation — { tile: "hexagon"|"triangle"|"square", cols, rows, tileSize, colors? } — repeating tiles
+   324→   324→21. knot    — { knotType: "trefoil"|"figure8" } OR { strands: [...], crossings: [...] } — knot diagram
+   325→   325→22. pictogram — { categories: [...], values: [...], symbol: "\u{1F34E}", symbolValue: N } — symbol chart
+   326→   326→23. tally   — { categories: [...], counts: [...] } — tally chart
+   327→   327→24. carroll — { labelX, labelY, attributeX: [yes,no], attributeY: [yes,no], cells: {topLeft:[...],...} } — Carroll diagram
+   328→   328→25. ogive   — { bins: [{start, end, count},...] } OR { points: [[x,y],...] } — cumulative frequency
+   329→   329→26. unitcircle — { angle: degrees } — unit circle with sin/cos projections
+   330→   330→27. transform — { transformType: "reflect"|"rotate"|"translate"|"enlarge", mirrorLine?, original: [[x,y],...], transformed: [[x,y],...], range } — geometric transformation
+   331→   331→28. axes3d  — { range, points: [{x, y, z, label, color?},...] } — 3D coordinate system
+   332→   332→29. twoway  — { rowLabels: [...], colLabels: [...], data: [[...],...], rowLabel, colLabel } — contingency table
+   333→   333→30. erdiagram — { tables: [{name, fields: [{name, type, pk?, fk?},...]}], relationships: [{from: "table.field", to: "table.field", label?}] } — ER diagram
+   334→   334→31. csv     — { headers: [...], rows: [[...],...], downloadName } — spreadsheet with CSV download
+   335→   335→32. steps   — { steps: [{title?, expression?, explanation?},...] } — step-by-step solution
+   336→   336→
+   337→   337→IMPORTANT: Generate the spec data from the USER'S question — do NOT use template/placeholder data.
+   338→   338→Use the exact values the user provided. If the user says "plot (0,0) (1,5) (2,10)", use those exact points.
+   339→   339→If the user says "food capacity: maize 50kg, beans 20kg", use those exact items in the CSV rows.
+   340→   340→
+   341→   341→GENERAL RULES — GENERIC DRAWING PRINCIPLE:
+   342→   342→- ALWAYS pick the MOST APPROPRIATE graph type from the 32 types above. Match by the user's question:
+   343→   343→  * "show 5 apples in pictogram" → pictogram
+   344→   344→  * "tally the votes: A=4, B=7" → tally
+   345→   345→  * "sort shapes by red AND square" → carroll
+   346→   346→  * "cumulative frequency" → ogive
+   347→   347→  * "show sin/cos on unit circle" → unitcircle
+   348→   348→  * "reflect triangle across y-axis" → transform
+   349→   349→  * "plot point (2,1,3) in 3D" → axes3d
+   350→   350→  * "two-way table of gender × sport" → twoway
+   351→   351→  * "vector field for F(x,y) = (-y, x)" → vectorfield
+   352→   352→  * "Argand diagram of z = 2+i" → argand
+   353→   353→  * "trefoil knot" → knot
+   354→   354→  * "hexagon tessellation" → tessellation
+   355→   355→  * "build me an Excel sheet / spreadsheet / worksheet for [topic]" → csv (with proper headers + rows + a download button)
+   356→   356→  * "draw a database schema / ER diagram / Access-style tables" → erdiagram (with tables + PKs/FKs + relationships)
+   357→   357→  * "solve ... step by step" / "show your work" / "explain how to solve" → steps (with title, expression, explanation per step)
+   358→   358→  * "phase portrait for spiral" → freeform (no dedicated renderer yet)
+   359→   359→  * "compass-and-straightedge construction" → freeform
+   360→   360→- When the user asks for something you can't express with the 32 specific types,
+   361→   361→  use "freeform" with raw SVG. Be creative — you can draw 3D cubes (with
+   362→   362→  dashed hidden edges), compass constructions (arcs + lines), phase portraits
+   363→   363→  (spiral/saddle/node shapes), contour maps, knot diagrams, tessellations,
+   364→   364→  Möbius strips, etc. Just write the SVG markup directly.
+   365→   365→
+   366→   366→CRITICAL RULES — NO MARKDOWN TABLES WHEN A GRAPH IS REQUESTED:
+   367→   367→- When the user asks for a database, ER diagram, spreadsheet, worksheet, or
+   368→   368→  any structured-data visual, you MUST include a fenced \`\`\`mathgraph ...\`\`\`
+   369→   369→  code block with the appropriate JSON spec ("erdiagram" or "csv"). DO NOT
+   370→   370→  instead show plain markdown tables in your reply prose.
+   371→   371→- Markdown tables (| col1 | col2 |) are FORBIDDEN in database/spreadsheet
+   372→   372→  replies — the rendered ER diagram or CSV preview IS the table. Only the
+   373→   373→  JSON spec inside the mathgraph block contains the data.
+   374→   374→- Your prose should only briefly describe the design (e.g. "Here's a school
+   375→   375→  database with Students, Classes, Teachers plus relationships. Tap a table
+   376→   376→  to edit fields, or use the Edit button to add tables."). Do NOT echo the
+   377→   377→  data in markdown form.
+   378→   378→
+   379→   379→- For spreadsheet/Excel/worksheet requests, ALWAYS use "csv" type with realistic
+   380→   380→  rows matching the user's scenario (food capacity, payment schedule, budget,
+   381→   381→  attendance, inventory, grade book, etc.). Include the column headers
+   382→   382→  matching the user's request.
+   383→   383→- For database requests, ALWAYS use "erdiagram" type with sensible tables
+   384→   384→  (primary keys, foreign keys, types) matching the user's domain (library,
+   385→   385→  school, store, hospital, etc.). Include relationships between FKs and PKs.
+   386→   386→- When the user asks to EDIT an existing database/table/spreadsheet (e.g.
+   387→   387→  "add a column to the Students table" or "remove the Orders table"),
+   388→   388→  include the FULL UPDATED JSON spec in the mathgraph block — not just the
+   389→   389→  change. The frontend replaces the previous graph with the updated one,
+   390→   390→  it does not stack a second graph. Always include the COMPLETE spec.
+   391→   391→- Always include meaningful titles, axis labels, and category labels in the
+   392→   392→  spec — these are shown on the rendered diagram.
+   393→   393→- Be encouraging and clear. Reply in the same language the user used (English / Kiswahili / French).
+   394→   394→- Keep answers under 250 words unless asked for detail.
+   395→   395→- Use markdown: **bold**, *italic*, lists (- or 1.), [link](url), \`code\`, fenced code blocks for graphs.
+   396→   396→- For MATH EQUATIONS, use LaTeX syntax: inline math $y = mx + b$ or block math $$\\frac{a}{b} = c$$ or $$x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}$$. The frontend renders these with KaTeX.
+   397→   397→- For SUPERSCRIPTS in plain text, you can also use x², x³, etc. (Unicode), but for complex expressions prefer LaTeX.
+   398→   398→
+   399→   399→REAL-TIME THINKING:
+   400→   400→Before answering, include your reasoning process inside <thinking>...</thinking> tags at the START of your reply.
+   401→   401→Write your thinking as short, step-by-step notes (one per line) showing how you plan to answer:
+   402→   402→- What the user is asking
+   403→   403→- What curriculum topic this relates to
+   404→   404→- What key concepts you need to explain
+   405→   405→- What examples or diagrams would help
+   406→   406→- How to structure the answer
+   407→   407→
+   408→   408→Example:
+   409→   409→<thinking>
+   410→   410→User is asking about photosynthesis
+   411→   411→This is in Form 3 Biology curriculum
+   412→   412→Key concepts: light energy, chlorophyll, glucose, oxygen
+   413→   413→Should include a diagram of the process
+   414→   414→Structure: definition → equation → steps → importance
+   415→   415→</thinking>
+   416→   416→
+   417→   417→The thinking is shown to the user in a collapsible dropdown. After the thinking block, write your actual answer.
+   418→   418→
+   419→   419→EXAM GENERATION MODE:
+   420→   420→When the user asks to "test me", "generate an exam", "create a test", "give me questions", "exam me on",
+   421→   421→or similar exam/test/quiz generation requests, include a fenced code block tagged "examgen" with JSON:
+   422→   422→\`\`\`examgen
+   423→   423→{
+   424→   424→  "topic": "what to test on",
+   425→   425→  "numQuestions": 10,
+   426→   426→  "numPages": 3,
+   427→   427→  "gradeLevel": "Form 3",
+   428→   428→  "examType": "kcse_style",
+   429→   429→  "difficulty": "medium"
+   430→   430→}
+   431→   431→\`\`\`
+   432→   432→The frontend will detect this, show a progress bar, generate the exam via the exam engine,
+   433→   433→publish it to the Exam Hub, and show the user a download link. You should also ask the user
+   434→   434→a few clarifying questions if they haven't specified enough (e.g. "How many questions?"
+   435→   435→"How many pages?" "What difficulty?"). If they've given enough info, generate the examgen
+   436→   436→block directly. If the user's grade is known, use it as gradeLevel automatically.`;
+   437→   437→
+   438→   438→    const aiMessages: AIMessage[] = [
+   439→   439→      { role: "system", content: systemContent },
+   440→   440→      ...allMessages
+   441→   441→        .filter((m) => m.role === "user" || m.role === "assistant")
+   442→   442→        .map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
+   443→   443→    ];
+   444→   444→
+   445→   445→    // 7. Call AI — if an image was attached, use the vision API; otherwise the standard chat.
+   446→   446→    let reply = "";
+   447→   447→    let thinkingSteps: string[] = [];
+   448→   448→    try {
+   449→   449→      if (imageDataUrl) {
+   450→   450→        // Vision path — use the z-ai SDK's createVision endpoint directly.
+   451→   451→        // The image is passed as a multimodal content item in the user message.
+   452→   452→        const ZAI = (await import("z-ai-web-dev-sdk")).default;
+   453→   453→        const client = await ZAI.create();
+   454→   454→        const visionMessages: any = [
+   455→   455→          { role: "system", content: systemContent },
+   456→   456→          {
+   457→   457→            role: "user",
+   458→   458→            content: [
+   459→   459→              { type: "text", text: userMessage || "Analyze this image. What is it? Help me understand." },
+   460→   460→              { type: "image_url", image_url: { url: imageDataUrl } },
+   461→   461→            ],
+   462→   462→          },
+   463→   463→          // Include the chat history before this message
+   464→   464→          ...allMessages
+   465→   465→            .slice(0, -1) // exclude the just-saved user message (it's the vision one above)
+   466→   466→            .filter((m) => m.role === "user" || m.role === "assistant")
+   467→   467→            .map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
+   468→   468→        ];
+   469→   469→        const completion: any = await client.chat.completions.createVision({
+   470→   470→          model: "glm-4v",
+   471→   471→          messages: visionMessages,
+   472→   472→        });
+   473→   473→        reply =
+   474→   474→          completion?.choices?.[0]?.message?.content ??
+   475→   475→          completion?.choices?.[0]?.delta?.content ??
+   476→   476→          "";
+   477→   477→        if (!reply) throw new Error("Vision AI returned empty response");
+   478→   478→      } else {
+   479→   479→        reply = await callAI(aiMessages, null, { userId: user.id, route: "/api/tutor/chat" });
+   480→   480→      }
+   481→   481→
+   482→   482→      // Parse thinking steps from the reply (if the AI included <thinking>...</thinking>)
+   483→   483→      // This gives the user real-time visibility into the AI's reasoning process.
+   484→   484→      const thinkingMatch = reply.match(/<thinking>([\s\S]*?)<\/thinking>/i);
+   485→   485→      if (thinkingMatch) {
+   486→   486→        const thinkingText = thinkingMatch[1].trim();
+   487→   487→        // Split into steps by newlines or "Step N:" patterns
+   488→   488→        thinkingSteps = thinkingText
+   489→   489→          .split(/\n+/)
+   490→   490→          .map((s) => s.trim())
+   491→   491→          .filter((s) => s.length > 5)
+   492→   492→          .slice(0, 10); // Max 10 steps
+   493→   493→        // Remove the thinking block from the reply
+   494→   494→        reply = reply.replace(/<thinking>[\s\S]*?<\/thinking>/i, "").trim();
+   495→   495→      }
+   496→   496→    } catch (e: any) {
+   497→   497→      await refundTokens(user.id, "tutor", deduct.costTokens);
+   498→   498→      // Return 200 (not 500) so the client shows the error as a chat message
+   499→   499→      // instead of a network error. The error message is displayed in the
+   500→   500→      // error banner at the bottom of the chat.
+   501→   501→      return NextResponse.json({
+   502→   502→        ok: false,
+   503→   503→        error: e?.message ?? "AI couldn't respond right now. Please try again.",
+   504→   504→      });
+   505→   505→    }
+   506→   506→
+   507→   507→    // 8. Parse reply for inline graph / concept map blocks
+   508→   508→    // The AI is asked to use ```mathgraph ... ``` blocks, but in practice it
+   509→   509→    // often uses ```json, ```text, or no code block at all. We use a lenient
+   510→   510→    // parser: scan ALL fenced code blocks AND any inline JSON-looking text
+   511→   511→    // in the reply, then keep only the ones that look like graph specs
+   512→   512→    // (contain a "type" field matching one of our known graph types).
+   513→   513→    try {
+   514→   514→      const KNOWN_GRAPH_TYPES = new Set([
+   515→   515→        "function", "scatter", "bar", "histogram", "pie", "venn",
+   516→   516→        "numberline", "tree", "network", "vector", "polygon", "boxplot",
+   517→   517→        "slopefield", "stemleaf", "frequency_polygon", "freeform",
+   518→   518→        "argand", "contour", "vectorfield", "tessellation", "knot",
+   519→   519→        "pictogram", "tally", "carroll", "ogive", "unitcircle",
+   520→   520→        "transform", "axes3d", "twoway", "erdiagram", "csv", "steps",
+   521→   521→      ]);
+   522→   522→
+   523→   523→      // Helper: try to parse a string as JSON and check if it has a known graph type
+   524→   524→      const tryParseGraphSpec = (raw: string): any | null => {
+   525→   525→        let s = raw.trim();
+   526→   526→        if (!s) return null;
+   527→   527→        // Strip leading/trailing ``` if accidentally included
+   528→   528→        s = s.replace(/^```[\w-]*\s*/i, "").replace(/```\s*$/i, "");
+   529→   529→        // Find the first { ... } block (in case there's surrounding text)
+   530→   530→        const firstBrace = s.indexOf("{");
+   531→   531→        const lastBrace = s.lastIndexOf("}");
+   532→   532→        if (firstBrace === -1 || lastBrace === -1 || lastBrace < firstBrace) return null;
+   533→   533→        const jsonStr = s.slice(firstBrace, lastBrace + 1);
+   534→   534→        try {
+   535→   535→          const obj = JSON.parse(jsonStr);
+   536→   536→          if (obj && typeof obj === "object" && typeof obj.type === "string" && KNOWN_GRAPH_TYPES.has(obj.type)) {
+   537→   537→            return obj;
+   538→   538→          }
+   539→   539→          // Also accept old "conceptmap" tag — wrap as network type
+   540→   540→          if (obj && typeof obj === "object" && obj.nodes && obj.edges && !obj.type) {
+   541→   541→            return { ...obj, type: "network" };
+   542→   542→          }
+   543→   543→        } catch {
+   544→   544→          return null;
+   545→   545→        }
+   546→   546→        return null;
+   547→   547→      };
+   548→   548→
+   549→   549→      // 1) Look for fenced code blocks (ANY language tag — mathgraph, json, text, etc.)
+   550→   550→      const codeBlockRe = /```([\w-]*)\s*([\s\S]*?)```/g;
+   551→   551→      const foundSpecs: any[] = [];
+   552→   552→      let codeBlockMatch: RegExpExecArray | null;
+   553→   553→      while ((codeBlockMatch = codeBlockRe.exec(reply)) !== null) {
+   554→   554→        const lang = (codeBlockMatch[1] ?? "").toLowerCase();
+   555→   555→        const body = codeBlockMatch[2] ?? "";
+   556→   556→        // Skip non-JSON code blocks like bash, python, javascript, typescript
+   557→   557→        // (these are real code snippets, not graph specs)
+   558→   558→        if (["bash", "sh", "shell", "python", "py", "javascript", "js", "typescript", "ts", "html", "css", "sql"].includes(lang)) {
+   559→   559→          continue;
+   560→   560→        }
+   561→   561→        const spec = tryParseGraphSpec(body);
+   562→   562→        if (spec) {
+   563→   563→          foundSpecs.push(spec);
+   564→   564→        }
+   565→   565→      }
+   566→   566→
+   567→   567→      // 2) Also scan for inline JSON-looking text outside code blocks
+   568→   568→      // (when the AI just dumps {"type":"scatter",...} directly in the message)
+   569→   569→      // Look for `{"type":"..."` patterns
+   570→   570→      const inlineJsonRe = /\{\s*"(?:type|title)"\s*:[^{}]*\}/g;
+   571→   571→      const strippedReply = reply.replace(/```[\s\S]*?```/g, ""); // skip already-processed blocks
+   572→   572→      let inlineMatch: RegExpExecArray | null;
+   573→   573→      while ((inlineMatch = inlineJsonRe.exec(strippedReply)) !== null) {
+   574→   574→        // Greedy match — find the full {...} starting at this position
+   575→   575→        const start = inlineMatch.index;
+   576→   576→        const end = strippedReply.indexOf("}", start);
+   577→   577→        if (end === -1) continue;
+   578→   578→        // Extend to capture nested braces (graph specs may have nested objects like {bins:[{...}]} or {vectors:[{...}]})
+   579→   579→        let depth = 0;
+   580→   580→        let lastBrace = -1;
+   581→   581→        for (let i = start; i < strippedReply.length; i++) {
+   582→   582→          if (strippedReply[i] === "{") depth++;
+   583→   583→          else if (strippedReply[i] === "}") {
+   584→   584→            depth--;
+   585→   585→            if (depth === 0) { lastBrace = i; break; }
+   586→   586→          }
+   587→   587→        }
+   588→   588→        if (lastBrace === -1) continue;
+   589→   589→        const candidate = strippedReply.slice(start, lastBrace + 1);
+   590→   590→        const spec = tryParseGraphSpec(candidate);
+   591→   591→        if (spec) foundSpecs.push(spec);
+   592→   592→      }
+   593→   593→
+   594→   594→      // 3) Validate + correct each spec, then convert to attachment
+   595→   595→      for (const spec of foundSpecs) {
+   596→   596→        // Run the graph validator + auto-corrector
+   597→   597→        const validation = validateAndCorrectGraphSpec(spec);
+   598→   598→        if (!validation.valid) {
+   599→   599→          console.error("[tutor-chat] graph spec invalid:", validation.errors.join("; "));
+   600→   600→          // Skip invalid specs — better no graph than a broken one
+   601→   601→          continue;
+   602→   602→        }
+   603→   603→        const correctedSpec = validation.correctedSpec;
+   604→   604→
+   605→   605→        let attachmentType = "graph";
+   606→   606→        if (correctedSpec.type === "network") {
+   607→   607→          const titleLower = (correctedSpec.title ?? "").toLowerCase();
+   608→   608→          if (/concept map|mind map|mindmap/.test(titleLower) || wantsConceptMap) {
+   609→   609→            attachmentType = "conceptmap";
+   610→   610→          }
+   611→   611→        }
+   612→   612→        attachments.push({
+   613→   613→          type: attachmentType,
+   614→   614→          url: null,
+   615→   615→          caption: JSON.stringify(correctedSpec),
+   616→   616→        });
+   617→   617→      }
+   618→   618→
+   619→   619→      // (graphMatch and conceptMapMatch removed — we use foundSpecs.length === 0
+   620→   620→      // to decide whether to run the fallback synthesis below.)
+   621→   621→
+   622→   622→      // Fallback synthesis REMOVED — the AI must generate its own graph specs
+   623→   623→      // using the mathgraph code block. We no longer inject hardcoded data
+   624→   624→      // when the AI forgets. This ensures all drawings are truly generative
+   625→   625→      // from the AI's understanding of the user's question, not from templates.
+   626→   626→      //
+   627→   627→      // If the AI doesn't include a mathgraph block, the user just sees the
+   628→   628→      // AI's text reply (which should describe what to draw). They can then
+   629→   629→      // ask again with more specific instructions.
+   630→   630→      //
+   631→   631→      // Exception: concept maps get a minimal fallback because the AI often
+   632→   632→      // writes a text outline instead of the JSON spec — we extract the
+   633→   633→      // structure from the AI's reply (### headers, **bolded** terms, topic
+   634→   634→      // from the question) and build a hub-and-spoke network diagram.
+   635→   635→      if (wantsConceptMap && foundSpecs.length === 0) {
+   636→   636→        const PALETTE = ["#4F46E5", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#06B6D4", "#EC4899"];
+   637→   637→        let terms: string[] = (reply.match(/\*\*([A-Z][^*]+)\*\*/g) ?? [])
+   638→   638→          .slice(0, 8)
+   639→   639→          .map((s) => s.slice(2, -2).trim());
+   640→   640→        if (terms.length < 3) {
+   641→   641→          const headerMatches = reply.match(/^#{1,6}\s+(?:\d+\.\d+\s+)?([A-Z][^\n]+)/gm) ?? [];
+   642→   642→          const headerTerms = headerMatches
+   643→   643→            .map((h) => h.replace(/^#{1,6}\s+(?:\d+\.\d+\s+)?/, "").trim())
+   644→   644→            .filter((t) => t.length >= 3 && t.length <= 30)
+   645→   645→            .slice(0, 8);
+   646→   646→          const seen = new Set(terms.map((t) => t.toLowerCase()));
+   647→   647→          for (const ht of headerTerms) {
+   648→   648→            if (!seen.has(ht.toLowerCase())) { terms.push(ht); seen.add(ht.toLowerCase()); }
+   649→   649→          }
+   650→   650→        }
+   651→   651→        let topicName = "Topic";
+   652→   652→        const topicMatch = userMessage.match(/(?:concept\s+map|mind\s+map)\s+(?:of\s+)?(.+)/i);
+   653→   653→        if (topicMatch) {
+   654→   654→          topicName = topicMatch[1].trim().replace(/[.?!]+$/, "").replace(/\bthe\b/gi, "").trim();
+   655→   655→          topicName = topicName.split(/\s+/).map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
+   656→   656→          if (topicName.length > 30) topicName = topicName.slice(0, 30) + "…";
+   657→   657→        }
+   658→   658→        if (terms.length === 0) {
+   659→   659→          terms = topicName !== "Topic" ? ["Definition", "Components", "Process", "Examples", "Importance"] : ["Concept A", "Concept B", "Concept C", "Concept D"];
+   660→   660→        }
+   661→   661→        const nodes: any[] = [{ id: "n0", label: topicName, color: "#1E40AF" }];
+   662→   662→        terms.slice(0, 8).forEach((t, i) => {
+   663→   663→          nodes.push({ id: `n${i + 1}`, label: t.length > 30 ? t.slice(0, 30) + "…" : t, color: PALETTE[(i + 1) % PALETTE.length] });
+   664→   664→        });
+   665→   665→        const edges: any[] = [];
+   666→   666→        for (let i = 1; i < nodes.length; i++) edges.push({ from: "n0", to: `n${i}`, label: "part of" });
+   667→   667→        const synthesized = { type: "network", title: `Concept Map: ${topicName}`, nodes, edges };
+   668→   668→        let attachmentType = "conceptmap";
+   669→   669→        attachments.push({ type: attachmentType, url: null, caption: JSON.stringify(synthesized) });
+   670→   670→      }
+   671→   671→    } catch (parseErr: any) {
+   672→   672→      console.error("[tutor-chat] attachment parse failed:", parseErr?.message);
+   673→   673→    }
+   674→   674→
+   675→   675→    // 8b. Parse reply for exam generation blocks (```examgen { ... } ```)
+   676→   676→    let examGenConfig: any = null;
+   677→   677→    try {
+   678→   678→      const examGenMatch = reply.match(/```examgen\s*([\s\S]*?)```/);
+   679→   679→      if (examGenMatch) {
+   680→   680→        let cleaned = examGenMatch[1].trim();
+   681→   681→        if (cleaned.startsWith("```")) {
+   682→   682→          cleaned = cleaned.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "");
+   683→   683→        }
+   684→   684→        const firstBrace = cleaned.indexOf("{");
+   685→   685→        const lastBrace = cleaned.lastIndexOf("}");
+   686→   686→        if (firstBrace !== -1 && lastBrace !== -1) {
+   687→   687→          examGenConfig = JSON.parse(cleaned.slice(firstBrace, lastBrace + 1));
+   688→   688→        }
+   689→   689→      }
+   690→   690→    } catch (examParseErr: any) {
+   691→   691→      console.error("[tutor-chat] examgen parse failed:", examParseErr?.message);
+   692→   692→    }
+   693→   693→
+   694→   694→    // 8c. Run the Proof Data Engine — validates the reply against curriculum,
+   695→   695→    // checks readability, verifies factual accuracy, and generates thinking steps
+   696→   696→    let proofResult: any = null;
+   697→   697→    try {
+   698→   698→      proofResult = await runProofEngine(reply, user.grade ?? "Form 1", userMessage, user.id);
+   699→   699→
+   700→   700→      // If the proof engine found corrections, append them to the reply
+   701→   701→      if (proofResult.corrections.length > 0) {
+   702→   702→        reply += "\n\n---\n**🔍 Verification Notes:**\n" + proofResult.corrections.join("\n");
+   703→   703→      }
+   704→   704→      if (proofResult.warnings.length > 0) {
+   705→   705→        reply += "\n\n**⚠️ Notes:**\n" + proofResult.warnings.join("\n");
+   706→   706→      }
+   707→   707→    } catch (proofErr: any) {
+   708→   708→      console.error("[tutor-chat] proof engine failed:", proofErr?.message);
+   709→   709→    }
+   710→   710→
+   711→   711→    // 9. Save the AI's reply (with attachments metadata)
+   712→   712→    await db.chatMessage.create({
+   713→   713→      data: {
+   714→   714→        conversationId: conversation.id,
+   715→   715→        userId: user.id,
+   716→   716→        role: "assistant",
+   717→   717→        content: reply,
+   718→   718→        attachments: attachments.length > 0 ? (attachments as any) : null,
+   719→   719→      },
+   720→   720→    });
+   721→   721→
+   722→   722→    // 10. Update conversation timestamp
+   723→   723→    await db.chatConversation.update({
+   724→   724→      where: { id: conversation.id },
+   725→   725→      data: { updatedAt: new Date() },
+   726→   726→    });
+   727→   727→
+   728→   728→    return NextResponse.json({
+   729→   729→      ok: true,
+   730→   730→      conversationId: conversation.id,
+   731→   731→      reply,
+   732→   732→      attachments: attachments.length > 0 ? attachments : undefined,
+   733→   733→      examGen: examGenConfig ? {
+   734→   734→        topic: examGenConfig.topic ?? "General",
+   735→   735→        numQuestions: Math.min(40, Math.max(5, Number(examGenConfig.numQuestions) || 10)),
+   736→   736→        numPages: Math.min(10, Math.max(1, Number(examGenConfig.numPages) || 2)),
+   737→   737→        gradeLevel: examGenConfig.gradeLevel ?? user.grade ?? "General",
+   738→   738→        examType: examGenConfig.examType ?? "kcse_style",
+   739→   739→        difficulty: examGenConfig.difficulty ?? "medium",
+   740→   740→      } : undefined,
+   741→   741→      thinking: [...thinkingSteps, ...(proofResult?.thinkingSteps ?? [])],
+   742→   742→      proof: proofResult ? {
+   743→   743→        passed: proofResult.passed,
+   744→   744→        curriculumMatch: proofResult.curriculumMatch,
+   745→   745→        readabilityScore: proofResult.readabilityScore,
+   746→   746→        factualConfidence: proofResult.factualConfidence,
+   747→   747→      } : undefined,
+   748→   748→      remaining: deduct.remaining,
+   749→   749→      tokenBalance: deduct.newBalance,
+   750→   750→    });
+   751→   751→  } catch (e: any) {
+   752→   752→    console.error("[tutor-chat] error:", e?.message);
+   753→   753→    return NextResponse.json({ error: "Failed to process chat" }, { status: 500 });
+   754→   754→  }
+   755→   755→}
+   756→   756→
