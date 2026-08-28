@@ -14,10 +14,10 @@ export const runtime = "nodejs";
  */
 export async function GET(
   _req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const user = await getCurrentUser();
-  const setId = params.id;
+  const { id: setId } = await params;
 
   // Verify ownership and load cards + lesson content
   const studySet = await db.studySet.findFirst({

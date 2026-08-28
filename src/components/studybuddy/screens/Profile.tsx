@@ -70,7 +70,7 @@ export function Profile() {
         setName(user.name ?? "");
         setEmail(user.email ?? "");
         setPlan(user.plan);
-        if (user.languageOfInstruction) setLanguageOfInstruction(user.learningLanguage);
+        if (user.learningLanguage) setLanguageOfInstruction(user.learningLanguage);
         const keyStatus = await api.hasApiKey();
         if (!mounted) return;
         setHasStoredApiKey(keyStatus.hasKey);

@@ -13,9 +13,9 @@ export const runtime = "nodejs";
  * Phase 46 — used by the StudyGroupScreen to show "who's in this group"
  * and a "Top members" mini leaderboard.
  */
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser();
-  const groupId = params.id;
+  const { id: groupId } = await params;
 
   // Verify membership
   const membership = await db.studyGroupMember.findFirst({

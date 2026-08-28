@@ -5,6 +5,7 @@ import {
   Users,
   Loader2,
   AlertCircle,
+  AlertTriangle,
   ChevronLeft,
   LogOut,
   Flame,
@@ -22,6 +23,7 @@ import {
   CheckCircle2,
   BookOpen,
   Lock,
+  Crown,
 } from "lucide-react";
 import { useApp } from "../store";
 
@@ -258,6 +260,11 @@ export function ParentDashboard() {
             </button>
           </div>
         </div>
+
+        {/* Phase 46 — Alerts banner + sibling comparison */}
+        {children.length > 0 && Object.keys(insights).length > 0 && (
+          <AlertsAndComparison children={children} insights={insights} />
+        )}
 
         {/* Per-child insights cards */}
         {children.length === 0 ? (
@@ -705,5 +712,118 @@ function FloatingAITeacher({
         </div>
       )}
     </>
+  );
+}
+
+/**
+ * Phase 46 — AlertsAndComparison
+ *
+ * Surfaces:
+ *   1. Alerts when a child's mastery drops below 0.4 or their streak broke.
+ *   2. A side-by-side comparison of children's XP / mastery / streak to spot
+ *      the struggler at a glance.
+ *
+ * Renders only when the parent has 1+ children with insights loaded.
+ */
+function AlertsAndComparison({
+  children,
+  insights,
+}: {
+  children: Array<{ id: string; displayName: string; username: string; avatarEmoji?: string | null }>;
+  insights: Record<string, ChildInsights>;
+}) {
+  type Alert = { childId: string; childName: string; severity: "high" | "medium"; message: string };
+  const alerts: Alert[] = [];
+
+  for (const c of children) {
+    const i = insights[c.id];
+    if (!i) continue;
+    // High-severity: avg mastery < 0.4 across all subjects
+    const avgMastery =
+      i.masteryBySubject.length > 0
+        ? i.masteryBySubject.reduce((s, m) => s + m.mastery, 0) / i.masteryBySubject.length
+        : null;
+    if (avgMastery !== null && avgMastery < 0.4) {
+      alerts.push({
+        childId: c.id,
+        childName: c.displayName,
+        severity: "high",
+        message: `Mastery dropped below 40% — needs focused support (avg ${Math.round(avgMastery * 100)}%).`,
+      });
+    }
+    // Medium-severity: streak broke (no activity in 2+ days)
+    if (i.lastActivityDate) {
+      const daysSince = (Date.now() - new Date(i.lastActivityDate).getTime()) / (1000 * 60 * 60 * 24);
+      if (daysSince >= 2) {
+        alerts.push({
+          childId: c.id,
+          childName: c.displayName,
+          severity: "medium",
+          message: `No activity for ${Math.round(daysSince)} days — streak likely broken.`,
+        });
+      }
+    }
+  }
+
+  // Sibling comparison — sort by readiness desc, show as a compact leaderboard
+  const ranking = children
+    .map((c) => ({ child: c, insights: insights[c.id] }))
+    .filter((x) => x.insights)
+    .sort((a, b) => (b.insights.readiness ?? 0) - (a.insights.readiness ?? 0));
+
+  return (
+    <div className="space-y-3">
+      {/* Alerts */}
+      {alerts.length > 0 && (
+        <div className={`rounded-2xl border p-4 ${alerts.some(a => a.severity === "high") ? "bg-rose-50 border-rose-200" : "bg-amber-50 border-amber-200"}`}>
+          <p className="text-sm font-bold text-gray-900 flex items-center gap-1.5 mb-2">
+            <AlertTriangle className={`w-4 h-4 ${alerts.some(a => a.severity === "high") ? "text-rose-600" : "text-amber-600"}`} />
+            Attention needed
+          </p>
+          <ul className="space-y-1.5">
+            {alerts.map((a, i) => (
+              <li key={i} className="text-xs text-gray-700 flex items-start gap-1.5">
+                <span className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${a.severity === "high" ? "bg-rose-500" : "bg-amber-500"}`} />
+                <span><b>{a.childName}:</b> {a.message}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Sibling comparison */}
+      {ranking.length >= 2 && (
+        <div className="rounded-2xl bg-white border border-gray-200 p-4">
+          <p className="text-sm font-bold text-gray-900 flex items-center gap-1.5 mb-3">
+            <Crown className="w-4 h-4 text-amber-500" /> Sibling Comparison
+            <span className="text-[10px] font-normal text-gray-500 ml-1">By readiness score</span>
+          </p>
+          <div className="space-y-2">
+            {ranking.map((r, i) => (
+              <div key={r.child.id} className="flex items-center gap-3">
+                <span
+                  className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${
+                    i === 0 ? "bg-amber-500 text-white" : i === 1 ? "bg-gray-400 text-white" : "bg-gray-200 text-gray-600"
+                  }`}
+                >
+                  {i + 1}
+                </span>
+                <span className="text-lg flex-shrink-0">{r.child.avatarEmoji ?? "🧒"}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-gray-900 truncate">{r.child.displayName}</p>
+                  <p className="text-[10px] text-gray-500">
+                    {r.insights.xp.toLocaleString()} XP · Lvl {r.insights.level} · {r.insights.streak}d streak
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm font-bold text-gray-900">{r.insights.readiness ?? 0}</p>
+                  <p className="text-[9px] text-gray-500">readiness</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

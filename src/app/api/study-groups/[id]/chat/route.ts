@@ -14,9 +14,9 @@ export const runtime = "nodejs";
  * every 3 seconds. This keeps the change small and works without changes
  * to the deployment infrastructure.
  */
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser();
-  const groupId = params.id;
+  const { id: groupId } = await params;
   const url = new URL(req.url);
   const since = url.searchParams.get("since");
 
@@ -59,9 +59,9 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
  *
  * Posts a new chat message. Returns the created message.
  */
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser();
-  const groupId = params.id;
+  const { id: groupId } = await params;
   const body = await req.json().catch(() => ({})) as { body?: string };
 
   const text = (body.body ?? "").toString().trim();
