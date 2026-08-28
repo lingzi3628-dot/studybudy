@@ -1164,8 +1164,16 @@ export function AITutorChat() {
             )}
             {busy && (
               <div className="flex justify-start">
-                <div className="bg-white border border-gray-200 rounded-2xl rounded-bl-sm px-4 py-3 text-sm text-gray-500 flex items-center gap-2">
-                  <Loader2 className="w-4 h-4 animate-spin" /> Thinking…
+                <div className="flex gap-2">
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center flex-shrink-0">
+                    <Bot className="w-4 h-4 text-white" />
+                  </div>
+                  <div className="bg-white border border-gray-200 rounded-2xl rounded-bl-sm px-4 py-3 text-sm">
+                    <div className="flex items-center gap-2 text-gray-500">
+                      <Loader2 className="w-4 h-4 animate-spin" /> Thinking…
+                    </div>
+                    <p className="text-[10px] text-gray-400 mt-1">Analyzing your question against the curriculum…</p>
+                  </div>
                 </div>
               </div>
             )}

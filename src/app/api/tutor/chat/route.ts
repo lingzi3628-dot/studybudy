@@ -382,6 +382,26 @@ CRITICAL RULES — NO MARKDOWN TABLES WHEN A GRAPH IS REQUESTED:
 - For MATH EQUATIONS, use LaTeX syntax: inline math $y = mx + b$ or block math $$\\frac{a}{b} = c$$ or $$x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}$$. The frontend renders these with KaTeX.
 - For SUPERSCRIPTS in plain text, you can also use x², x³, etc. (Unicode), but for complex expressions prefer LaTeX.
 
+REAL-TIME THINKING:
+Before answering, include your reasoning process inside <thinking>...</thinking> tags at the START of your reply.
+Write your thinking as short, step-by-step notes (one per line) showing how you plan to answer:
+- What the user is asking
+- What curriculum topic this relates to
+- What key concepts you need to explain
+- What examples or diagrams would help
+- How to structure the answer
+
+Example:
+<thinking>
+User is asking about photosynthesis
+This is in Form 3 Biology curriculum
+Key concepts: light energy, chlorophyll, glucose, oxygen
+Should include a diagram of the process
+Structure: definition → equation → steps → importance
+</thinking>
+
+The thinking is shown to the user in a collapsible dropdown. After the thinking block, write your actual answer.
+
 EXAM GENERATION MODE:
 When the user asks to "test me", "generate an exam", "create a test", "give me questions", "exam me on",
 or similar exam/test/quiz generation requests, include a fenced code block tagged "examgen" with JSON:
@@ -410,6 +430,7 @@ block directly. If the user's grade is known, use it as gradeLevel automatically
 
     // 7. Call AI — if an image was attached, use the vision API; otherwise the standard chat.
     let reply = "";
+    let thinkingSteps: string[] = [];
     try {
       if (imageDataUrl) {
         // Vision path — use the z-ai SDK's createVision endpoint directly.
@@ -442,6 +463,21 @@ block directly. If the user's grade is known, use it as gradeLevel automatically
         if (!reply) throw new Error("Vision AI returned empty response");
       } else {
         reply = await callAI(aiMessages, null, { userId: user.id, route: "/api/tutor/chat" });
+      }
+
+      // Parse thinking steps from the reply (if the AI included <thinking>...</thinking>)
+      // This gives the user real-time visibility into the AI's reasoning process.
+      const thinkingMatch = reply.match(/<thinking>([\s\S]*?)<\/thinking>/i);
+      if (thinkingMatch) {
+        const thinkingText = thinkingMatch[1].trim();
+        // Split into steps by newlines or "Step N:" patterns
+        thinkingSteps = thinkingText
+          .split(/\n+/)
+          .map((s) => s.trim())
+          .filter((s) => s.length > 5)
+          .slice(0, 10); // Max 10 steps
+        // Remove the thinking block from the reply
+        reply = reply.replace(/<thinking>[\s\S]*?<\/thinking>/i, "").trim();
       }
     } catch (e: any) {
       await refundTokens(user.id, "tutor", deduct.costTokens);
@@ -686,7 +722,7 @@ block directly. If the user's grade is known, use it as gradeLevel automatically
         examType: examGenConfig.examType ?? "kcse_style",
         difficulty: examGenConfig.difficulty ?? "medium",
       } : undefined,
-      thinking: proofResult?.thinkingSteps ?? [],
+      thinking: [...thinkingSteps, ...(proofResult?.thinkingSteps ?? [])],
       proof: proofResult ? {
         passed: proofResult.passed,
         curriculumMatch: proofResult.curriculumMatch,

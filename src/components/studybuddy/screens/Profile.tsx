@@ -18,6 +18,7 @@ import {
   Crown,
   Users,
   Bot,
+  GraduationCap,
   Globe,
 } from "lucide-react";
 import { useApp } from "../store";
@@ -53,6 +54,7 @@ export function Profile() {
   const [isFamilyParent, setIsFamilyParent] = useState(false);
   const [isFamilyChild, setIsFamilyChild] = useState(false);
   const [childCount, setChildCount] = useState(0);
+  const [userGrade, setUserGrade] = useState("");
 
   useEffect(() => {
     let mounted = true;
@@ -82,6 +84,9 @@ export function Profile() {
           const me = await meRes.json();
           if (mounted && me.isFamilyChild) {
             setIsFamilyChild(true);
+          }
+          if (mounted && me.user?.grade) {
+            setUserGrade(me.user.grade);
           }
         }
       } catch (e) {
@@ -243,6 +248,8 @@ export function Profile() {
         <section className="mt-6">
           <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Preferences</h2>
           <div className="rounded-2xl bg-white border border-gray-200 shadow-sm divide-y divide-gray-100">
+            {/* Grade switcher — user can change grade anytime */}
+            <GradeSwitcher currentGrade={userGrade} />
             <div className="p-4 flex items-center gap-3">
               <span className="w-9 h-9 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center">
                 <Languages className="w-4 h-4" />
@@ -717,5 +724,79 @@ function BuddySelectorInline() {
         )}
       </div>
     </section>
+  );
+}
+
+// =====================================================================
+// GradeSwitcher — lets user change their grade level anytime
+// When changed, the AI tutor + curriculum engine + exam generator all
+// switch to the new grade level automatically.
+// =====================================================================
+function GradeSwitcher({ currentGrade }: { currentGrade: string }) {
+  const [grade, setGrade] = useState(currentGrade);
+  const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const GRADE_OPTIONS = [
+    { group: "Pre-Primary", grades: ["PP1", "PP2"] },
+    { group: "Lower Primary", grades: ["Grade 1", "Grade 2", "Grade 3"] },
+    { group: "Upper Primary", grades: ["Grade 4", "Grade 5", "Grade 6"] },
+    { group: "Junior School (Grade 7-9)", grades: ["Grade 7", "Grade 8", "Grade 9"] },
+    { group: "Senior School (CBE / 8-4-4)", grades: ["Grade 10", "Grade 11", "Grade 12", "Grade 13", "Form 1", "Form 2", "Form 3", "Form 4"] },
+  ];
+
+  const changeGrade = async (newGrade: string) => {
+    if (newGrade === grade || busy) return;
+    setBusy(true);
+    setToast(null);
+    try {
+      const r = await fetch("/api/user/profile", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ grade: newGrade }),
+      });
+      if (!r.ok) throw new Error("Failed to update grade");
+      setGrade(newGrade);
+      setToast(`✓ Switched to ${newGrade} — AI + curriculum updated!`);
+      setTimeout(() => setToast(null), 3000);
+      // Reload to pick up the new grade in all components
+      setTimeout(() => window.location.reload(), 1500);
+    } catch (e: any) {
+      setToast(`✗ ${e?.message ?? "Failed"}`);
+      setTimeout(() => setToast(null), 3000);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="p-4 flex items-center gap-3">
+      <span className="w-9 h-9 rounded-full bg-violet-50 text-violet-600 flex items-center justify-center">
+        <GraduationCap className="w-4 h-4" />
+      </span>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-gray-900">Grade level</p>
+        <p className="text-xs text-gray-500">
+          Switch grade anytime — AI, curriculum & exams adapt instantly
+        </p>
+        {toast && <p className="text-[10px] mt-1 text-emerald-600 font-semibold">{toast}</p>}
+      </div>
+      <div className="relative">
+        <select
+          value={grade}
+          onChange={(e) => changeGrade(e.target.value)}
+          disabled={busy}
+          className="text-sm font-medium text-gray-900 bg-transparent border border-gray-200 rounded-lg px-2 py-1 outline-none focus:border-violet-400 disabled:opacity-50"
+        >
+          {GRADE_OPTIONS.map((group) => (
+            <optgroup key={group.group} label={group.group}>
+              {group.grades.map((g) => (
+                <option key={g} value={g}>{g}</option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+      </div>
+    </div>
   );
 }
