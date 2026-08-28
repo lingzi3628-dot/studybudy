@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { useApp } from "../store";
 import { api, type Progress as ProgressData, type StudySetSummary } from "../api";
+import { useI18n } from "@/lib/useI18n";
 
 const quickActions = [
   { label: "Upload Notes", icon: UploadCloud, color: "bg-indigo-50 text-indigo-600" },
@@ -51,26 +52,37 @@ const popularTopics: { name: string; subject: string; emoji: string }[] = [
 
 function greeting(): string {
   const h = new Date().getHours();
-  if (h < 12) return "Good morning";
-  if (h < 18) return "Good afternoon";
-  return "Good evening";
+  if (h < 12) return "morning";
+  if (h < 18) return "afternoon";
+  return "evening";
 }
 
 export function Home() {
   const { setScreen, openCreate, setActiveStudySetId, setActiveTopicId } = useApp();
+  const { t } = useI18n();
   const [progress, setProgress] = useState<ProgressData | null>(null);
   const [sets, setSets] = useState<StudySetSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  // Phase 45: recommended cards (due cards biased toward weak topics)
+  const [recommendedCards, setRecommendedCards] = useState<Array<{ id: string; front?: string | null; question?: string | null; subject?: string | null; topic?: string | null; cardType?: string }>>([]);
 
   useEffect(() => {
     let mounted = true;
     (async () => {
       setLoading(true);
       try {
-        const [p, s] = await Promise.all([api.getProgress(), api.listStudySets()]);
+        // Phase 45: fire getRecommended() in parallel with the existing two calls.
+        // It returns due cards + weak topics in one trip — saves a round-trip vs
+        // the old "weakAreas only" approach.
+        const [p, s, rec] = await Promise.all([
+          api.getProgress(),
+          api.listStudySets(),
+          api.getRecommended().catch(() => ({ cards: [], weakTopics: [] })),
+        ]);
         if (!mounted) return;
         setProgress(p);
         setSets(s.sets);
+        setRecommendedCards(rec.cards ?? []);
       } catch (e) {
         console.warn("home fetch failed", e);
       } finally {
@@ -93,19 +105,19 @@ export function Home() {
         {/* greeting — full width on desktop */}
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm text-gray-500">{greeting()}, {name}! 👋</p>
-            <h1 className="text-2xl font-bold text-gray-900">Let&apos;s learn today</h1>
+            <p className="text-sm text-gray-500">{t(`dash.greeting.${greeting()}`)}, {name}! 👋</p>
+            <h1 className="text-2xl font-bold text-gray-900">{t("dash.tapToStart")}</h1>
           </div>
           <div className="hidden md:flex items-center gap-1.5 bg-amber-50 text-amber-700 px-3 py-1.5 rounded-full">
             <Flame className="w-4 h-4 text-amber-500" />
             <span className="text-sm font-bold">{streak}</span>
-            <span className="text-xs text-amber-600/80">day streak</span>
+            <span className="text-xs text-amber-600/80">{t("dash.streak")}</span>
           </div>
         </div>
 
         {loading ? (
           <div className="mt-10 flex items-center justify-center text-gray-400">
-            <Loader2 className="w-5 h-5 animate-spin" /> <span className="ml-2 text-sm">Loading…</span>
+            <Loader2 className="w-5 h-5 animate-spin" /> <span className="ml-2 text-sm">{t("common.loading")}</span>
           </div>
         ) : (
           <>
@@ -115,7 +127,7 @@ export function Home() {
               <section className="md:col-span-2">
                 <div className="rounded-2xl bg-gradient-to-br from-indigo-600 to-violet-500 p-5 text-white shadow-md h-full">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold uppercase tracking-wide opacity-80">Continue Learning</span>
+                    <span className="text-xs font-semibold uppercase tracking-wide opacity-80">{t("dash.continueLearning")}</span>
                     <span className="text-xs bg-white/20 px-2 py-0.5 rounded-full">Smart Review</span>
                   </div>
                   <h2 className="text-lg font-bold mt-2">{dueCount > 0 ? `${dueCount} cards due now` : "No reviews due today 🎉"}</h2>
@@ -129,7 +141,7 @@ export function Home() {
                     disabled={dueCount === 0}
                     className="mt-4 inline-flex items-center gap-1.5 bg-white text-indigo-700 font-semibold text-sm px-4 py-2 rounded-full shadow hover:bg-indigo-50 transition disabled:opacity-40"
                   >
-                    <Play className="w-4 h-4" /> {dueCount > 0 ? "Start Review" : "All caught up"}
+                    <Play className="w-4 h-4" /> {dueCount > 0 ? t("dash.startReview") : t("study.allCaughtUp")}
                   </button>
                 </div>
               </section>
@@ -142,7 +154,7 @@ export function Home() {
                       <Sparkles className="w-5 h-5 text-amber-500" />
                     </span>
                     <div>
-                      <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide">Today&apos;s Challenge</p>
+                      <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide">{t("dash.todaysChallenge")}</p>
                       <h3 className="text-sm font-semibold text-gray-900 mt-0.5">
                         5 questions on Photosynthesis
                       </h3>
@@ -163,7 +175,7 @@ export function Home() {
 
             {/* Quick actions */}
             <section className="mt-5">
-              <h3 className="text-sm font-semibold text-gray-900 mb-3">Quick Actions</h3>
+              <h3 className="text-sm font-semibold text-gray-900 mb-3">{t("dash.quickActions")}</h3>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 {quickActions.map((q) => {
                   const Icon = q.icon;
@@ -207,66 +219,209 @@ export function Home() {
             {sets.length > 0 && (
               <section className="mt-6">
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-semibold text-gray-900">Your study sets</h3>
+                  <h3 className="text-sm font-semibold text-gray-900">{t("dash.yourStudySets")}</h3>
                   <button className="text-xs text-indigo-600 font-medium flex items-center">
-                    See all <ChevronRight className="w-3 h-3" />
+                    {t("dash.seeAll")} <ChevronRight className="w-3 h-3" />
                   </button>
                 </div>
                 <div className="-mx-4 px-4 md:mx-0 md:px-0 flex gap-3 overflow-x-auto no-scrollbar md:grid md:grid-cols-3 md:gap-4 md:overflow-visible">
                   {sets.slice(0, 6).map((s) => (
-                    <button
+                    <div
                       key={s.id}
-                      onClick={() => {
-                        setActiveStudySetId(s.id);
-                        setScreen("quiz");
-                      }}
-                      className="flex-shrink-0 w-44 md:w-auto text-left group"
+                      className="flex-shrink-0 w-44 md:w-auto text-left group relative"
                     >
-                      <div className={`h-24 rounded-2xl bg-gradient-to-br ${subjectGradients[s.subject ?? "default"] ?? subjectGradients.default} p-3 flex items-end text-white shadow-md group-hover:scale-[1.02] transition`}>
-                        <FileText className="w-5 h-5" />
+                      <button
+                        onClick={() => {
+                          setActiveStudySetId(s.id);
+                          setScreen("quiz");
+                        }}
+                        className="block w-full"
+                      >
+                        <div className={`h-24 rounded-2xl bg-gradient-to-br ${subjectGradients[s.subject ?? "default"] ?? subjectGradients.default} p-3 flex items-end text-white shadow-md group-hover:scale-[1.02] transition`}>
+                          <FileText className="w-5 h-5" />
+                        </div>
+                        <p className="mt-2 text-sm font-semibold text-gray-900 truncate">{s.title}</p>
+                        <p className="text-xs text-gray-500">
+                          {s.subject ?? "General"} · {s.cardCount} cards
+                        </p>
+                      </button>
+                      {/* Phase 45: Export buttons — Anki + PDF */}
+                      <div className="mt-2 flex gap-1.5">
+                        <a
+                          href={`/api/study-sets/${s.id}/export/anki`}
+                          download
+                          onClick={(e) => e.stopPropagation()}
+                          className="flex-1 text-center text-[10px] font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 py-1 rounded-md transition"
+                          title="Download as Anki-importable text file"
+                        >
+                          ⤓ Anki
+                        </a>
+                        <a
+                          href={`/api/study-sets/${s.id}/export/pdf`}
+                          download
+                          onClick={(e) => e.stopPropagation()}
+                          className="flex-1 text-center text-[10px] font-medium text-rose-700 bg-rose-50 hover:bg-rose-100 py-1 rounded-md transition"
+                          title="Download as printable PDF"
+                        >
+                          ⤓ PDF
+                        </a>
                       </div>
-                      <p className="mt-2 text-sm font-semibold text-gray-900 truncate">{s.title}</p>
-                      <p className="text-xs text-gray-500">
-                        {s.subject ?? "General"} · {s.cardCount} cards
-                      </p>
-                    </button>
+                    </div>
                   ))}
                 </div>
               </section>
             )}
 
-            {/* Weak areas / recommended */}
+            {/* Weak areas / recommended — Phase 45 upgrade:
+                • Per-topic due-card count badge
+                • "Review now" CTA that pre-loads weak-topic cards into the queue
+                • Second row: individual due cards (biased toward weak topics) */}
             {weakAreas.length > 0 && (
               <section className="mt-6">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
-                    <AlertCircle className="w-4 h-4 text-amber-500" /> Recommended for you
+                    <AlertCircle className="w-4 h-4 text-amber-500" /> {t("dash.recommended")}
                   </h3>
                 </div>
                 <div className="-mx-4 px-4 md:mx-0 md:px-0 flex gap-3 overflow-x-auto no-scrollbar md:grid md:grid-cols-3 md:gap-4 md:overflow-visible">
-                  {weakAreas.map((w) => (
-                    <button
-                      key={`${w.subject}-${w.topic}`}
-                      onClick={async () => {
-                        try {
-                          const r = await api.upsertTopic({ name: w.topic, subject: w.subject });
-                          setActiveTopicId(r.topic.id);
-                          setScreen("study");
-                        } catch {
-                          openCreate();
-                        }
-                      }}
-                      className="flex-shrink-0 w-44 md:w-auto text-left"
-                    >
-                      <div className="h-24 rounded-2xl bg-gradient-to-br from-amber-500 to-rose-500 p-3 flex flex-col justify-between text-white shadow-md">
-                        <span className="text-xs opacity-80">Needs practice</span>
-                        <div>
-                          <p className="text-sm font-semibold">{w.topic}</p>
-                          <p className="text-xs opacity-80">{w.subject} · {Math.round(w.mastery * 100)}%</p>
-                        </div>
+                  {weakAreas.map((w) => {
+                    const dueForTopic = recommendedCards.filter(
+                      (c) => c.subject === w.subject && c.topic === w.topic
+                    ).length;
+                    return (
+                      <div
+                        key={`${w.subject}-${w.topic}`}
+                        className="flex-shrink-0 w-44 md:w-auto text-left"
+                      >
+                        <button
+                          onClick={async () => {
+                            try {
+                              const r = await api.upsertTopic({ name: w.topic, subject: w.subject });
+                              setActiveTopicId(r.topic.id);
+                              setScreen("study");
+                            } catch {
+                              openCreate();
+                            }
+                          }}
+                          className="block w-full"
+                        >
+                          <div className="h-28 rounded-2xl bg-gradient-to-br from-amber-500 to-rose-500 p-3 flex flex-col justify-between text-white shadow-md hover:shadow-lg transition">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs opacity-80">Needs practice</span>
+                              {dueForTopic > 0 && (
+                                <span className="text-[10px] bg-white/30 px-1.5 py-0.5 rounded-full">
+                                  {dueForTopic} due
+                                </span>
+                              )}
+                            </div>
+                            <div>
+                              <p className="text-sm font-semibold line-clamp-1">{w.topic}</p>
+                              <p className="text-xs opacity-80">{w.subject} · {Math.round(w.mastery * 100)}%</p>
+                            </div>
+                          </div>
+                        </button>
+                        {dueForTopic > 0 && (
+                          <button
+                            onClick={async () => {
+                              try {
+                                // Phase 45: fetch the user's due cards biased to THIS weak topic
+                                // and route straight into the flashcards review screen.
+                                const { cards } = await api.getReviewQueue({
+                                  bias: "weak",
+                                  subject: w.subject,
+                                  topic: w.topic,
+                                  limit: 10,
+                                });
+                                if (cards.length > 0 && cards[0]?.setId) {
+                                  setActiveStudySetId(cards[0].setId);
+                                  setScreen("flashcards");
+                                } else {
+                                  // No cards due for this topic — fall back to opening the study room
+                                  const r = await api.upsertTopic({ name: w.topic, subject: w.subject });
+                                  setActiveTopicId(r.topic.id);
+                                  setScreen("study");
+                                }
+                              } catch {
+                                openCreate();
+                              }
+                            }}
+                            className="mt-2 w-full text-[11px] font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 py-1.5 rounded-lg transition flex items-center justify-center gap-1"
+                          >
+                            <Sparkles className="w-3 h-3" /> Review {dueForTopic} {dueForTopic === 1 ? "card" : "cards"}
+                          </button>
+                        )}
                       </div>
-                    </button>
-                  ))}
+                    );
+                  })}
+                </div>
+
+                {/* Second row: individual due cards (biased toward weak topics) */}
+                {recommendedCards.length > 0 && (
+                  <div className="mt-5">
+                    <p className="text-xs text-gray-500 mb-2 flex items-center gap-1">
+                      <Clock className="w-3 h-3" /> Cards due now — weak topics shown first
+                    </p>
+                    <div className="-mx-4 px-4 md:mx-0 md:px-0 flex gap-2.5 overflow-x-auto no-scrollbar">
+                      {recommendedCards.slice(0, 12).map((c) => {
+                        const preview = (c.question || c.front || "Review card").slice(0, 70);
+                        const subject = c.subject ?? "General";
+                        const stripeColor = (subjectGradients as any)[subject] ?? subjectGradients.default;
+                        return (
+                          <button
+                            key={c.id}
+                            onClick={async () => {
+                              // The Card's setId is not in our type slice — but if the
+                              // user has due cards, they have a study set, so we just
+                              // route to the flashcards screen which will load the queue.
+                              setScreen("flashcards");
+                            }}
+                            className="flex-shrink-0 w-56 h-20 rounded-xl bg-white border border-gray-200 shadow-sm hover:border-indigo-300 hover:shadow-md transition overflow-hidden flex"
+                          >
+                            <div className={`w-1.5 bg-gradient-to-b ${stripeColor} flex-shrink-0`} />
+                            <div className="flex-1 p-2.5 min-w-0">
+                              <p className="text-[10px] text-gray-400 mb-0.5">
+                                {subject}{c.topic ? ` · ${c.topic}` : ""}
+                              </p>
+                              <p className="text-xs font-medium text-gray-800 line-clamp-2">{preview}</p>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </section>
+            )}
+
+            {/* No weak areas but cards are due — keep the review loop alive */}
+            {weakAreas.length === 0 && recommendedCards.length > 0 && (
+              <section className="mt-6">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+                    <Sparkles className="w-4 h-4 text-indigo-500" /> {t("dash.staySharp")}
+                  </h3>
+                </div>
+                <div className="-mx-4 px-4 md:mx-0 md:px-0 flex gap-2.5 overflow-x-auto no-scrollbar">
+                  {recommendedCards.slice(0, 12).map((c) => {
+                    const preview = (c.question || c.front || "Review card").slice(0, 70);
+                    const subject = c.subject ?? "General";
+                    const stripeColor = (subjectGradients as any)[subject] ?? subjectGradients.default;
+                    return (
+                      <button
+                        key={c.id}
+                        onClick={() => setScreen("flashcards")}
+                        className="flex-shrink-0 w-56 h-20 rounded-xl bg-white border border-gray-200 shadow-sm hover:border-indigo-300 hover:shadow-md transition overflow-hidden flex"
+                      >
+                        <div className={`w-1.5 bg-gradient-to-b ${stripeColor} flex-shrink-0`} />
+                        <div className="flex-1 p-2.5 min-w-0">
+                          <p className="text-[10px] text-gray-400 mb-0.5">
+                            {subject}{c.topic ? ` · ${c.topic}` : ""}
+                          </p>
+                          <p className="text-xs font-medium text-gray-800 line-clamp-2">{preview}</p>
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               </section>
             )}
@@ -275,7 +430,7 @@ export function Home() {
             <section className="mt-6">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
-                  <BookOpen className="w-4 h-4 text-indigo-600" /> Browse Topics
+                  <BookOpen className="w-4 h-4 text-indigo-600" /> {t("dash.browseTopics")}
                 </h3>
                 <button
                   onClick={() => setScreen("search")}

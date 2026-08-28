@@ -1,6 +1,7 @@
 "use client";
 
 import { type ReactElement, useState, useRef, useEffect, useCallback } from "react";
+import { compileExpression } from "@/lib/safe-math";
 
 // =====================================================================
 // Shared interactivity hooks
@@ -236,27 +237,14 @@ function FunctionSVG({ spec }: { spec: any }) {
   const height = 320;
   const padding = 40;
 
+  // Phase 45: use mathjs via safe-math.ts — handles implicit multiplication,
+  // sin^2(x), |x|, log_10, csc/sec/cot/asin/etc, and avoids the `\be\b`→`Math.E`
+  // word-corruption bug that the old regex evaluator had.
+  // Cache the compiled function across the 100+ sample points.
+  const _cachedFn = compileExpression(expr, "x");
   const evaluate = (x: number): number | null => {
-    try {
-      let safeExpr = expr
-        .replace(/\^/g, "**")
-        .replace(/\bpi\b/gi, "Math.PI")
-        .replace(/\be\b/g, "Math.E")
-        .replace(/\bsin\(/g, "Math.sin(")
-        .replace(/\bcos\(/g, "Math.cos(")
-        .replace(/\btan\(/g, "Math.tan(")
-        .replace(/\bsqrt\(/g, "Math.sqrt(")
-        .replace(/\blog\(/g, "Math.log(")
-        .replace(/\bexp\(/g, "Math.exp(")
-        .replace(/\babs\(/g, "Math.abs(")
-        .replace(/\bx\b/g, String(x));
-      // eslint-disable-next-line no-new-func
-      const fn = new Function("Math", `"use strict"; return (${safeExpr});`);
-      const result = fn(Math);
-      return typeof result === "number" && isFinite(result) ? result : null;
-    } catch {
-      return null;
-    }
+    if (!_cachedFn) return null;
+    return _cachedFn({ x });
   };
 
   const points: Array<{ x: number; y: number }> = [];
@@ -1413,29 +1401,12 @@ function SlopeFieldSVG({ spec }: { spec: any }) {
   const height = 360;
   const padding = 40;
 
-  // Safe expression evaluator — supports Math.* + x + y
+  // Safe expression evaluator — supports Math.* + x + y (Phase 45: via mathjs)
+  // Cache the compiled function across the grid×grid sample points.
+  const _cachedFn2 = compileExpression(expr, "x", "y");
   const evaluate = (x: number, y: number): number | null => {
-    try {
-      let safeExpr = expr
-        .replace(/\^/g, "**")
-        .replace(/\bpi\b/gi, "Math.PI")
-        .replace(/\be\b/g, "Math.E")
-        .replace(/\bsin\(/g, "Math.sin(")
-        .replace(/\bcos\(/g, "Math.cos(")
-        .replace(/\btan\(/g, "Math.tan(")
-        .replace(/\bsqrt\(/g, "Math.sqrt(")
-        .replace(/\blog\(/g, "Math.log(")
-        .replace(/\bexp\(/g, "Math.exp(")
-        .replace(/\babs\(/g, "Math.abs(")
-        .replace(/\bx\b/g, String(x))
-        .replace(/\by\b/g, String(y));
-      // eslint-disable-next-line no-new-func
-      const fn = new Function("Math", `"use strict"; return (${safeExpr});`);
-      const result = fn(Math);
-      return typeof result === "number" && isFinite(result) ? result : null;
-    } catch {
-      return null;
-    }
+    if (!_cachedFn2) return null;
+    return _cachedFn2({ x, y });
   };
 
   const toSvgX = (x: number) => padding + ((x - xRange[0]) / (xRange[1] - xRange[0])) * (width - 2 * padding);
@@ -1678,10 +1649,19 @@ function FreeformSVG({ spec }: { spec: any }) {
   }
 
   // Sanitize: strip <script>...</script>, on* handlers, javascript: URLs,
-  // external image refs, and data: URLs (to prevent XSS and data exfiltration).
+  // external image refs, data: URLs, <iframe>/<embed>/<object>/<foreignObject>,
+  // <style> blocks, and inline style attributes that could exfiltrate data
+  // or break layout. (Phase 45: tightened from the Phase 44 baseline.)
   let sanitized = svgContent;
   // Remove <script>...</script> blocks
   sanitized = sanitized.replace(/<script[\s\S]*?<\/script>/gi, "");
+  // Remove <style>...</style> blocks (can be used for CSS-based data exfiltration)
+  sanitized = sanitized.replace(/<style[\s\S]*?<\/style>/gi, "");
+  // Remove <iframe>, <embed>, <object>, <foreignObject> tags entirely
+  sanitized = sanitized.replace(/<iframe[\s\S]*?<\/iframe>/gi, "");
+  sanitized = sanitized.replace(/<embed\b[^>]*>/gi, "");
+  sanitized = sanitized.replace(/<object[\s\S]*?<\/object>/gi, "");
+  sanitized = sanitized.replace(/<foreignObject[\s\S]*?<\/foreignObject>/gi, "");
   // Remove on* event handlers (onclick, onload, onerror, etc.)
   sanitized = sanitized.replace(/\son\w+\s*=\s*"[^"]*"/gi, "");
   sanitized = sanitized.replace(/\son\w+\s*=\s*'[^']*'/gi, "");
@@ -1693,6 +1673,12 @@ function FreeformSVG({ spec }: { spec: any }) {
   sanitized = sanitized.replace(/href\s*=\s*'https?:\/\/[^']*'/gi, "href='#'");
   // Remove xlink:href external references too
   sanitized = sanitized.replace(/xlink:href\s*=\s*"https?:\/\/[^"]*"/gi, 'xlink:href="#"');
+  // Strip inline style attributes that reference external URLs via CSS
+  sanitized = sanitized.replace(/style\s*=\s*"[^"]*url\([^)]*\)[^"]*"/gi, 'style=""');
+  // Remove <?xml ... ?> processing instructions
+  sanitized = sanitized.replace(/<\?xml[\s\S]*?\?>/gi, "");
+  // Remove HTML comments (can hide IE conditional-comment attacks)
+  sanitized = sanitized.replace(/<!--[\s\S]*?-->/g, "");
 
   return (
     <div>
@@ -1860,24 +1846,18 @@ function VectorFieldSVG({ spec }: { spec: any }) {
   const toSvgX = (x: number) => padding + ((x - range[0]) / (range[1] - range[0])) * (width - 2 * padding);
   const toSvgY = (y: number) => height - padding - ((y - range[0]) / (range[1] - range[0])) * (height - 2 * padding);
 
-  // Evaluator for P and Q
+  // Evaluator for P and Q (Phase 45: via mathjs + per-expr compile cache)
+  // We cache the compiled function per expression string so the inner
+  // grid-sampling loop doesn't re-parse the same expression 64+ times.
+  const _evalCache = new Map<string, ((v: Record<string, number>) => number | null) | null>();
   const eval2 = (expr: string, x: number, y: number): number | null => {
-    try {
-      let s = expr
-        .replace(/\^/g, "**")
-        .replace(/\bpi\b/gi, "Math.PI")
-        .replace(/\be\b/g, "Math.E")
-        .replace(/\bsin\(/g, "Math.sin(")
-        .replace(/\bcos\(/g, "Math.cos(")
-        .replace(/\btan\(/g, "Math.tan(")
-        .replace(/\bsqrt\(/g, "Math.sqrt(")
-        .replace(/\bx\b/g, String(x))
-        .replace(/\by\b/g, String(y));
-      // eslint-disable-next-line no-new-func
-      const fn = new Function("Math", `"use strict"; return (${s});`);
-      const r = fn(Math);
-      return typeof r === "number" && isFinite(r) ? r : null;
-    } catch { return null; }
+    let fn = _evalCache.get(expr);
+    if (fn === undefined) {
+      fn = compileExpression(expr, "x", "y");
+      _evalCache.set(expr, fn);
+    }
+    if (!fn) return null;
+    return fn({ x, y });
   };
 
   // If vectors are precomputed, use them; otherwise generate from exprP/exprQ

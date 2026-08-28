@@ -14,6 +14,10 @@ import { getUILang, setUILang, t as translate, type Lang } from "@/lib/i18n";
  *   const { t, lang, setLang } = useI18n();
  *   <h1>{t("nav.home")}</h1>  // "Home" / "Nyumbani" / "Accueil"
  *   <button onClick={() => setLang("sw")}>Kiswahili</button>
+ *
+ * Phase 45: supports interpolation params:
+ *   t("dash.reviewCards", { n: 5 })  →  "Review 5 cards"  (en)
+ *   t("quiz.youNeed", { n: 70 })    →  "You need 70% to pass."  (en)
  */
 export function useI18n() {
   const [lang, setLangState] = useState<Lang>("en");
@@ -36,7 +40,8 @@ export function useI18n() {
     return () => window.removeEventListener("lang-change", handler);
   }, []);
 
-  const t = useCallback((key: string) => translate(key, lang), [lang]);
+  // Phase 45: t() now accepts optional interpolation params
+  const t = useCallback((key: string, params?: Record<string, string | number>) => translate(key, lang, params), [lang]);
 
   return { t, lang, setLang };
 }

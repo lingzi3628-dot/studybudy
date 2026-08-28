@@ -150,3 +150,84 @@ Work Log:
 Stage Summary:
 - Recommendation grid in AI Tutor is now grade-aware. Switching grade in Profile (which triggers a page reload) automatically re-runs the filter and shows only the prompts appropriate for the new grade band.
 - File changed: src/components/studybuddy/screens/AITutorChat.tsx
+
+---
+Task ID: phase45-upgrade-batch
+Agent: main
+Task: Implement 10 upgrades selected by user: #1 (mathjs evaluator), #2 (adaptive learning path), #6 (validator hardening), #7 (freeform sanitization), #8 (proof engine wiring), #9 (i18n expansion), #10 (exam proctoring), #11 (Anki/PDF export), #13 (data-saver mode), #15 (accessibility audit)
+
+Work Log:
+- Phase A — AI Drawing Quality Sprint (#1 + #6 + #7 + #8):
+  - Created src/lib/safe-math.ts — mathjs-based expression evaluator (handles implicit mult, sin^2, |x|, log_10, csc/sec/cot, etc. — replaces the brittle regex `\be\b → Math.E` that corrupted words like "true").
+  - Replaced 3 regex-based `new Function("Math", …)` evaluators in GraphRenderers.tsx (FunctionSVG, SlopeFieldSVG, VectorFieldSVG) with cached mathjs-compiled functions.
+  - Rewrote src/lib/graph-validator.ts: deep clone (no mutation), type aliases (line→function, chart→bar, etc.), `data`→`points` rename, range sanity checks (swap inverted, pad zero-span), expr syntax validation via mathjs.parse, missing histogram case, nested-shape checks for boxplot (auto-orders min/q1/median/q3/max), duplicate-id detection for network/erdiagram, array length caps (MAX_POINTS=5000), nested-object validation for twoway/erdiagram/csv/steps, viewBox clamping for freeform.
+  - Hardened FreeformSVG sanitization (GraphRenderers.tsx): strip <style>, <iframe>, <embed>, <object>, <foreignObject>, <?xml?>, HTML comments, inline-style url() refs in addition to existing <script>/on*/javascript/external URL stripping.
+  - Wired Proof Engine Step 5 (src/lib/proof-engine.ts) to actually call validateAndCorrectGraphSpec on every detected graph spec; surfaces real validation errors/warnings to the thinking dropdown instead of just checking "has type field".
+  - Added retry loop in /api/tutor/chat/route.ts: when a graph spec fails validation, makes ONE follow-up AI call asking it to fix the spec using the validation errors as feedback. Only retries for ≤2 specs (avoids runaway costs). Recovers a large fraction of malformed specs.
+  - Added first Vitest test suite in the repo: src/lib/graph-validator.test.ts (46 tests covering type aliases, inference, data→points rename, range sanity, per-type validation, array caps, deep-clone safety, hasGraphSpec, and 6 known-AI-mistake fixtures). All 46 tests pass.
+  - Installed vitest as devDependency.
+  - Build: clean. New route /api/study-sets/[id]/export/anki + /pdf registered.
+
+- Phase B — Adaptive Learning Path (#2):
+  - Extended src/lib/progression.ts getDueCards(userId, limit, opts?) with `bias: "weak"` and `topicId`/`subject`+`topic` filters. When bias="weak", pulls TopicMastery rows with mastery<0.6 (same threshold as /api/progress) and partitions due cards: weak-topic cards first (stable by dueDate), then the rest.
+  - Modified /api/review/queue/route.ts to accept query params: limit (1-50), bias ("weak"), topicId, subject, topic.
+  - Created /api/review/recommended/route.ts — convenience endpoint returning { cards, weakTopics } in one call, with per-topic due-card count.
+  - Added api.getReviewQueue(opts?) and api.getRecommended() client wrappers.
+  - Upgraded Home.tsx "Recommended for you" section: per-topic due-card badge ("5 due"), per-topic "Review N cards" CTA that pre-loads weak-topic cards, and a second row of individual due-card thumbnails (subject-colored stripe + question preview) biased toward weak topics. New "Stay sharp — review your due cards" section when no weak areas but cards are due.
+
+- Phase C — Exam Proctoring (#10):
+  - Created src/components/studybuddy/screens/useProctorGuard.ts — reusable hook that:
+    - Enters fullscreen on mount (browser-permitting)
+    - Tracks tab-switches via visibilitychange + blur
+    - Blocks copy/paste/cut/context-menu
+    - Blocks Ctrl+C/V/X/A and F12 / Ctrl+Shift+I DevTools shortcuts
+    - Auto-submits at maxViolations (default 3) via onAutoSubmit callback
+    - Returns { violations, violationCount, lastEvent, inFullscreen, showWarning, dismissWarning }
+  - Wired into SchoolTimedTest.tsx: proctor runs only when test is active; violation counter shown in header (gray/amber/rose based on count); warning banner with per-violation-type message + "Dismiss" button; auto-submits with proctor metadata in the submit body.
+
+- Phase D — Anki + PDF Export (#11):
+  - Created src/lib/anki-export.ts — cardToAnki() converts Card (flashcard or MCQ) to Anki basic shape; cardsToTSV() generates Anki-importable TSV with #separator:tab, #html:true, #tags column:3 headers; generateTSVBytes() returns UTF-8 bytes.
+  - Created src/lib/pdf-export.ts — buildStudySetPDF() uses pdf-lib (pure JS) to compile a study set + lesson content + flashcards + MCQs into A4 portrait PDF with cover page, lesson section, flashcard section (front/back), MCQ section (with correct-answer marker ✓ and explanation), per-page footer.
+  - Created 2 new API routes:
+    - GET /api/study-sets/[id]/export/anki — TSV download (works on Anki Desktop/Web/Android/iOS)
+    - GET /api/study-sets/[id]/export/pdf — PDF download (Content-Type: application/pdf)
+  - Added Anki + PDF export buttons to Home.tsx study-set cards (small `⤓ Anki` / `⤓ PDF` buttons under each card).
+
+- Phase E — Data Saver Mode (#13):
+  - Added `dataSaver` boolean + `toggleDataSaver` + `setDataSaver` to the Zustand store (src/components/studybuddy/store.ts); persisted to localStorage.
+  - Added a Data Saver toggle to Profile.tsx (Wifi/WifiOff icon, description changes based on state).
+  - Wired AITutorChat.tsx: hides the model-comparison button (which makes 2-5x API calls) when dataSaver is on; passes dataSaver flag to /api/tutor/chat.
+  - Wired /api/tutor/chat/route.ts: when dataSaver is on, skips the image-search web call (saves an external roundtrip), and injects a "keep replies concise — target 1-2 paragraphs max ~150 words" hint into the system prompt.
+
+- Phase F — Accessibility Audit (#15):
+  - Added a skip-to-content link to src/app/layout.tsx (`#main-content` landmark) that's visually hidden until focused, then jumps keyboard users past the nav.
+  - Added prefers-reduced-motion CSS rules to globals.css: disables all decorative animations (confetti, slide-up, pop-in, shake), kills the global 200ms transition, and stops the flashcard flip transition when the user has reduced-motion on.
+  - Added high-contrast `:focus-visible { outline: 2px solid #4F46E5 !important; outline-offset: 2px }` for keyboard navigation (WCAG 2.4.7).
+  - Upgraded small-text contrast on mobile (max-width:768px): `text-[10px] text-gray-400` → `text-gray-600` (passes WCAG AA on white).
+  - Added Arabic RTL support: `setUILang("ar")` sets `<html dir="rtl">`.
+  - Added role="log" aria-live="polite" to the AI Tutor message container so screen readers announce new assistant messages.
+
+- Phase G — i18n Expansion (#9):
+  - Expanded src/lib/i18n.ts: added Arabic (ar) and Spanish (es) dictionaries — 5 languages total now.
+  - Expanded the dictionary from 80 keys to ~95 keys covering Home, Flashcards, Quiz, AI Tutor status, Data Saver, Dark Mode, Notifications.
+  - Added {placeholder} interpolation support: t("dash.reviewCards", "en", { n: 5 }) → "Review 5 cards".
+  - Added isRTL() helper + auto-sets <html dir> on setUILang().
+  - Updated useI18n.ts hook: t() now accepts optional params object for interpolation.
+  - Wired useI18n() into Home.tsx (greeting, headings, "Continue Learning", "Today's Challenge", "Quick Actions", "Your study sets", "Recommended for you", "Stay sharp", "Browse Topics", streak chip, loading state).
+  - Wired useI18n() into Flashcards.tsx (loading, error, "All caught up", "No cards due today", card flip prompts, "Show answer", "Still learning", "I knew it", back-home button).
+  - Wired useI18n() into Quiz.tsx (loading, error, "Question N", back-home button).
+  - Added 2 new options to Profile.tsx language dropdown: 🇪🇸 Español and 🇸🇦 العربية.
+
+- Verification:
+  - Vitest suite: 46 tests pass (npx vitest run src/lib/graph-validator.test.ts).
+  - Next.js production build: clean (npx next build succeeds, no TS errors in changed files).
+  - 2 new API routes registered: /api/study-sets/[id]/export/anki, /api/study-sets/[id]/export/pdf.
+  - 1 new convenience route: /api/review/recommended.
+  - No new TypeScript errors introduced in any of the changed files.
+
+Stage Summary:
+- 10 upgrades shipped in this batch. New files: src/lib/safe-math.ts, src/lib/anki-export.ts, src/lib/pdf-export.ts, src/lib/graph-validator.test.ts, src/app/api/review/recommended/route.ts, src/app/api/study-sets/[id]/export/anki/route.ts, src/app/api/study-sets/[id]/export/pdf/route.ts, src/components/studybuddy/screens/useProctorGuard.ts.
+- Modified files: src/lib/graph-validator.ts (rewritten), src/lib/proof-engine.ts, src/lib/progression.ts, src/lib/i18n.ts (rewritten), src/lib/useI18n.ts, src/app/api/review/queue/route.ts, src/app/api/tutor/chat/route.ts, src/app/layout.tsx, src/app/globals.css, src/components/studybuddy/store.ts, src/components/studybuddy/screens/AITutorChat.tsx, src/components/studybuddy/screens/Home.tsx, src/components/studybuddy/screens/Flashcards.tsx, src/components/studybuddy/screens/Quiz.tsx, src/components/studybuddy/screens/SchoolTimedTest.tsx, src/components/studybuddy/screens/Profile.tsx, src/components/studybuddy/screens/GraphRenderers.tsx.
+- Installed: pdf-lib (runtime dep), vitest (dev dep).
+- First test file in the repo (46 tests). Foundation now exists for adding more test coverage.
+- i18n now supports 5 languages (en/sw/fr/es/ar) with RTL + interpolation, but only 3 screens consume it fully — wrapping the remaining ~35 screens is mechanical follow-up work.

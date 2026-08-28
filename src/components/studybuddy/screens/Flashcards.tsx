@@ -4,9 +4,11 @@ import { useEffect, useState } from "react";
 import { X, Check, RotateCcw, Loader2, AlertCircle, Trophy } from "lucide-react";
 import { useApp } from "../store";
 import { api, type Card } from "../api";
+import { useI18n } from "@/lib/useI18n";
 
 export function Flashcards() {
   const { setScreen } = useApp();
+  const { t } = useI18n();
   const [cards, setCards] = useState<Card[]>([]);
   const [idx, setIdx] = useState(0);
   const [flipped, setFlipped] = useState(false);
@@ -59,7 +61,7 @@ export function Flashcards() {
     return (
       <div className="min-h-screen max-w-2xl mx-auto flex items-center justify-center text-gray-400">
         <Loader2 className="w-6 h-6 animate-spin" />
-        <span className="ml-2 text-sm">Loading your review queue…</span>
+        <span className="ml-2 text-sm">{t("common.loading")}</span>
       </div>
     );
   }
@@ -70,7 +72,7 @@ export function Flashcards() {
         <AlertCircle className="w-8 h-8 text-rose-500" />
         <p className="mt-3 text-sm text-rose-600">{error}</p>
         <button onClick={() => setScreen("home")} className="mt-4 px-4 h-10 rounded-full bg-indigo-600 text-white text-sm font-semibold">
-          Back home
+          {t("study.backHome")}
         </button>
       </div>
     );
@@ -83,18 +85,18 @@ export function Flashcards() {
           <Trophy className="w-7 h-7" />
         </div>
         <h1 className="mt-4 text-xl font-bold text-gray-900">
-          {done ? "All caught up!" : "No cards due today"}
+          {done ? t("study.allCaughtUp") : t("study.noCardsDue")}
         </h1>
         <p className="mt-1 text-sm text-gray-500">
           {done
-            ? `You reviewed ${cards.length} cards. Knew ${knownCount}/${cards.length}.`
-            : "Come back later or create a new study set from the Create button."}
+            ? t("study.youReviewed", { n: cards.length, k: knownCount })
+            : t("study.comeBackLater")}
         </p>
         <button
           onClick={() => setScreen("home")}
           className="mt-6 px-6 h-11 rounded-full bg-indigo-600 text-white font-semibold text-sm shadow-md hover:bg-indigo-700"
         >
-          Back home
+          {t("study.backHome")}
         </button>
       </div>
     );
@@ -141,17 +143,17 @@ export function Flashcards() {
           <div className={`flip-card-inner ${flipped ? "is-flipped" : ""}`}>
             <div className="flip-card-face rounded-3xl bg-white shadow-md border border-gray-100 p-6 flex flex-col items-center justify-center text-center">
               <span className="text-[10px] uppercase tracking-wider text-indigo-600 font-semibold">
-                Question · {card.topic ?? "General"}
+                {t("study.question")} · {card.topic ?? "General"}
               </span>
               <p className="mt-3 text-xl font-semibold text-gray-900 leading-snug">
                 {card.front ?? card.question ?? "No question"}
               </p>
-              <span className="mt-6 text-xs text-gray-400">Tap card to flip</span>
+              <span className="mt-6 text-xs text-gray-400">{t("study.flip")}</span>
             </div>
             <div className="flip-card-face flip-card-back rounded-3xl bg-gradient-to-br from-indigo-600 to-violet-500 text-white shadow-md p-6 flex flex-col items-center justify-center text-center">
-              <span className="text-[10px] uppercase tracking-wider opacity-80 font-semibold">Answer</span>
+              <span className="text-[10px] uppercase tracking-wider opacity-80 font-semibold">{t("study.answer")}</span>
               <p className="mt-3 text-xl font-bold leading-snug">{card.back ?? "No answer"}</p>
-              <span className="mt-6 text-xs opacity-70">Tap card to flip back</span>
+              <span className="mt-6 text-xs opacity-70">{t("study.flipBack")}</span>
             </div>
           </div>
         </button>
@@ -166,14 +168,14 @@ export function Flashcards() {
               disabled={submitting}
               className="h-12 rounded-full bg-amber-500 text-white font-semibold shadow-md hover:bg-amber-600 transition flex items-center justify-center gap-1.5 disabled:opacity-50"
             >
-              <RotateCcw className="w-4 h-4" /> Still learning
+              <RotateCcw className="w-4 h-4" /> {t("study.stillLearning")}
             </button>
             <button
               onClick={() => submit(5)}
               disabled={submitting}
               className="h-12 rounded-full bg-emerald-500 text-white font-semibold shadow-md hover:bg-emerald-600 transition flex items-center justify-center gap-1.5 disabled:opacity-50"
             >
-              <Check className="w-4 h-4" /> I knew it
+              <Check className="w-4 h-4" /> {t("study.iKnewIt")}
             </button>
           </div>
         ) : (
@@ -181,7 +183,7 @@ export function Flashcards() {
             onClick={() => setFlipped(true)}
             className="w-full h-12 rounded-full bg-indigo-600 text-white font-semibold shadow-md hover:bg-indigo-700 transition"
           >
-            Show answer
+            {t("study.showAnswer")}
           </button>
         )}
       </div>

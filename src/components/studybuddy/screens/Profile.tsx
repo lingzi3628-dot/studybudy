@@ -20,6 +20,8 @@ import {
   Bot,
   GraduationCap,
   Globe,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
 import { useApp } from "../store";
 import { api } from "../api";
@@ -41,6 +43,8 @@ export function Profile() {
     setHasStoredApiKey,
     languageOfInstruction,
     setLanguageOfInstruction,
+    dataSaver,
+    toggleDataSaver,
     setScreen,
   } = useApp();
   const { t, lang: uiLang, setLang: setUiLangHook } = useI18n();
@@ -288,6 +292,8 @@ export function Profile() {
                 <option value="en">🇬🇧 English</option>
                 <option value="sw">🇰🇪 Kiswahili</option>
                 <option value="fr">🇫🇷 Français</option>
+                <option value="es">🇪🇸 Español</option>
+                <option value="ar">🇸🇦 العربية</option>
               </select>
             </div>
 
@@ -314,6 +320,24 @@ export function Profile() {
               </div>
               <span className={`w-11 h-6 rounded-full transition-colors relative ${notifications ? "bg-indigo-600" : "bg-gray-300"}`}>
                 <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${notifications ? "translate-x-5" : ""}`} />
+              </span>
+            </button>
+
+            {/* Phase 45 — Data Saver mode for low-bandwidth connections */}
+            <button onClick={toggleDataSaver} className="w-full p-4 flex items-center gap-3 hover:bg-gray-50">
+              <span className={`w-9 h-9 rounded-full flex items-center justify-center ${dataSaver ? "bg-emerald-50 text-emerald-600" : "bg-gray-100 text-gray-500"}`}>
+                {dataSaver ? <WifiOff className="w-4 h-4" /> : <Wifi className="w-4 h-4" />}
+              </span>
+              <div className="flex-1 text-left">
+                <p className="text-sm font-medium text-gray-900">Data Saver</p>
+                <p className="text-xs text-gray-500">
+                  {dataSaver
+                    ? "On — image generation, model compare, and long AI replies are disabled."
+                    : "Save data on slow connections — disables image gen & long AI replies."}
+                </p>
+              </div>
+              <span className={`w-11 h-6 rounded-full transition-colors relative ${dataSaver ? "bg-emerald-600" : "bg-gray-300"}`}>
+                <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${dataSaver ? "translate-x-5" : ""}`} />
               </span>
             </button>
 

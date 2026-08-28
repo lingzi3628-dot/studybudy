@@ -16,6 +16,7 @@
 
 import { resolveGrade, getCurriculumForGradeResolved, isWithinCurriculum } from "./curriculum-engine";
 import { callAI, type ChatMessage } from "./ai";
+import { validateAndCorrectGraphSpec, hasGraphSpec } from "./graph-validator";
 
 export type ProofResult = {
   passed: boolean;
@@ -163,21 +164,60 @@ export async function runProofEngine(
     thinkingSteps.push("✅ Response length is appropriate");
   }
 
-  // Step 5: Graph/drawing validation
+  // Step 5: Graph/drawing validation — Phase 45: actually call validateAndCorrectGraphSpec
+  // instead of just checking "has type field". This catches:
+  //   - Missing required fields (e.g. scatter without points)
+  //   - Wrong field names (e.g. "data" instead of "points" — auto-corrected)
+  //   - Inverted/zero-span ranges
+  //   - Broken math expressions (validated via mathjs.parse)
+  //   - Mismatched bar lengths, empty arrays, etc.
   thinkingSteps.push("📊 Step 5: Checking graph/drawing specs...");
-  const mathgraphMatch = reply.match(/```mathgraph\s*([\s\S]*?)```/);
-  if (mathgraphMatch) {
-    try {
-      const spec = JSON.parse(mathgraphMatch[1].trim());
-      if (!spec.type) {
-        warnings.push("⚠️ The graph spec is missing a 'type' field.");
-        thinkingSteps.push("⚠️ Graph spec missing type field");
-      } else {
-        thinkingSteps.push(`✅ Graph spec valid: type=${spec.type}`);
+  if (hasGraphSpec(reply)) {
+    // Collect ALL mathgraph-tagged blocks AND any inline JSON-looking blocks
+    // (the tutor chat route's parser is lenient — we mirror that here)
+    const specs: any[] = [];
+    // mathgraph-tagged blocks
+    const mathgraphRe = /```mathgraph\s*([\s\S]*?)```/g;
+    let m: RegExpExecArray | null;
+    while ((m = mathgraphRe.exec(reply)) !== null) {
+      try { specs.push(JSON.parse(m[1].trim())); } catch { /* ignore */ }
+    }
+    // Generic fenced code blocks with JSON inside (any lang tag, like the route)
+    const codeRe = /```([\w-]*)\s*([\s\S]*?)```/g;
+    let cm: RegExpExecArray | null;
+    while ((cm = codeRe.exec(reply)) !== null) {
+      const lang = (cm[1] ?? "").toLowerCase();
+      const body = cm[2] ?? "";
+      if (["mathgraph", "bash", "sh", "shell", "python", "py", "javascript", "js", "typescript", "ts", "html", "css", "sql"].includes(lang)) continue;
+      const firstBrace = body.indexOf("{");
+      const lastBrace = body.lastIndexOf("}");
+      if (firstBrace === -1 || lastBrace === -1 || lastBrace < firstBrace) continue;
+      try {
+        const obj = JSON.parse(body.slice(firstBrace, lastBrace + 1));
+        if (obj && typeof obj === "object" && typeof obj.type === "string") {
+          if (!specs.includes(obj)) specs.push(obj);
+        }
+      } catch { /* ignore */ }
+    }
+
+    if (specs.length === 0) {
+      thinkingSteps.push("ℹ️ Graph spec mentioned but could not be parsed");
+      warnings.push("⚠️ The reply mentioned a graph but the spec could not be parsed.");
+    } else {
+      for (let i = 0; i < specs.length; i++) {
+        const spec = specs[i];
+        const result = validateAndCorrectGraphSpec(spec);
+        if (!result.valid) {
+          warnings.push(`⚠️ Graph ${i + 1} (${spec.type ?? "unknown"}): ${result.errors.join("; ")}`);
+          thinkingSteps.push(`❌ Graph ${i + 1} (${spec.type ?? "unknown"}) invalid: ${result.errors.join("; ")}`);
+        } else {
+          if (result.warnings.length > 0) {
+            thinkingSteps.push(`⚠️ Graph ${i + 1} (${spec.type}): valid with ${result.warnings.length} auto-correction(s) — ${result.warnings.slice(0, 2).join("; ")}${result.warnings.length > 2 ? " …" : ""}`);
+          } else {
+            thinkingSteps.push(`✅ Graph ${i + 1} (${spec.type}) valid`);
+          }
+        }
       }
-    } catch {
-      warnings.push("⚠️ The graph spec has invalid JSON.");
-      thinkingSteps.push("⚠️ Graph spec JSON parse failed");
     }
   } else {
     thinkingSteps.push("ℹ️ No graph spec in this reply");

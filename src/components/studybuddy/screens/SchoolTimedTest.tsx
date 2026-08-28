@@ -3,9 +3,10 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import {
   X, Loader2, AlertCircle, Check, Clock, Trophy,
-  ChevronRight, ChevronLeft, PartyPopper,
+  ChevronRight, ChevronLeft, PartyPopper, ShieldAlert,
 } from "lucide-react";
 import { useApp } from "../store";
+import { useProctorGuard } from "./useProctorGuard";
 
 type Question = { id: string; questionText: string; options: string[] };
 
@@ -22,6 +23,7 @@ export function SchoolTimedTest() {
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const intervalRef = useRef<any>(null);
+  const submittedRef = useRef(false);
 
   const start = useCallback(async () => {
     if (!topicId) { setError("No topic"); setLoading(false); return; }
@@ -49,7 +51,7 @@ export function SchoolTimedTest() {
     if (timeLeft > 0 && !result && !loading) {
       intervalRef.current = setInterval(() => {
         setTimeLeft((t) => {
-          if (t <= 1) { submit(); return 0; }
+          if (t <= 1) { submit("timeout"); return 0; }
           return t - 1;
         });
       }, 1000);
@@ -57,8 +59,25 @@ export function SchoolTimedTest() {
     }
   }, [timeLeft, result, loading]);
 
-  const submit = async () => {
-    if (submitting) return;
+  // Phase 45: proctor guard — exits fullscreen / detects tab-switches / blocks copy-paste.
+  // Auto-submits at 3 violations (configurable). Only enabled once the test screen is active
+  // (not during loading, error, or result views).
+  // Declared before `submit` because submit reads `proctor.violationCount` when reason="proctor".
+  const [testActive, setTestActive] = useState(false);
+  useEffect(() => { setTestActive(!loading && !error && !result); }, [loading, error, result]);
+  const proctorRef = useRef<{ violationCount: number } | null>(null);
+  const proctor = useProctorGuard({
+    enabled: testActive,
+    maxViolations: 3,
+    onAutoSubmit: () => submit("proctor"),
+  });
+  // Keep the ref synced so submit() can read the current violation count without
+  // re-creating submit on every violation increment.
+  useEffect(() => { proctorRef.current = { violationCount: proctor.violationCount }; }, [proctor.violationCount]);
+
+  const submit = async (reason?: "manual" | "timeout" | "proctor") => {
+    if (submitting || submittedRef.current) return;
+    submittedRef.current = true;
     clearInterval(intervalRef.current);
     setSubmitting(true);
     try {
@@ -66,7 +85,15 @@ export function SchoolTimedTest() {
       const r = await fetch(`/api/school/topic/${topicId}/submit-test`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ answers: formatted }),
+        body: JSON.stringify({
+          answers: formatted,
+          // Phase 45: include proctor metadata so the backend can flag suspicious submissions
+          proctor: reason === "proctor"
+            ? { autoSubmitted: true, reason: "violations_exceeded", violationCount: proctorRef.current?.violationCount ?? 0 }
+            : reason === "timeout"
+            ? { autoSubmitted: true, reason: "timeout" }
+            : null,
+        }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error ?? "Failed");
@@ -169,8 +196,58 @@ export function SchoolTimedTest() {
           <Clock className="w-4 h-4" />
           <span className={timeLeft < 60 ? "text-rose-400 animate-pulse" : ""}>{mins}:{secs.toString().padStart(2, "0")}</span>
         </div>
-        <span className="text-xs text-gray-400">{current + 1}/{questions.length}</span>
+        <div className="flex items-center gap-2">
+          {/* Phase 45: proctor violation indicator */}
+          {proctor.violationCount > 0 && (
+            <span
+              className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                proctor.violationCount >= 3
+                  ? "bg-rose-900/40 text-rose-300"
+                  : proctor.violationCount >= 2
+                  ? "bg-amber-900/40 text-amber-300"
+                  : "bg-gray-700 text-gray-300"
+              }`}
+              title={`Proctor violations: ${proctor.violationCount}/3 — test will auto-submit at 3`}
+            >
+              <ShieldAlert className="w-3 h-3 inline mr-0.5" />
+              {proctor.violationCount}/3
+            </span>
+          )}
+          <span className="text-xs text-gray-400">{current + 1}/{questions.length}</span>
+        </div>
       </header>
+
+      {/* Phase 45: proctor warning banner — shown when a violation occurs */}
+      {proctor.showWarning && proctor.lastEvent && (
+        <div className="bg-amber-900/30 border-b border-amber-700/40 px-4 py-2 flex items-start gap-2">
+          <ShieldAlert className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold text-amber-300">
+              ⚠️ Proctor warning ({proctor.violationCount}/{3} violations)
+            </p>
+            <p className="text-[11px] text-amber-200/80 mt-0.5">
+              {proctor.lastEvent.type === "tab-switch" && "You switched away from the test window. Stay on this tab to avoid auto-submission."}
+              {proctor.lastEvent.type === "fullscreen-exit" && "You exited fullscreen. Re-enter fullscreen to continue."}
+              {proctor.lastEvent.type === "copy" && "Copying is disabled during the test."}
+              {proctor.lastEvent.type === "paste" && "Pasting is disabled during the test."}
+              {proctor.lastEvent.type === "cut" && "Cutting is disabled during the test."}
+              {proctor.lastEvent.type === "context-menu" && "Right-click is disabled during the test."}
+              {proctor.lastEvent.type === "keyboard-shortcut" && `Blocked keyboard shortcut: ${proctor.lastEvent.detail ?? ""}.`}
+              {proctor.violationCount >= 2 && proctor.violationCount < 3 && (
+                <span className="block mt-1 text-amber-400 font-medium">
+                  One more violation and the test will be auto-submitted.
+                </span>
+              )}
+            </p>
+          </div>
+          <button
+            onClick={proctor.dismissWarning}
+            className="text-amber-400 hover:text-amber-200 text-xs px-2 py-1 flex-shrink-0"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Question */}
       <div className="flex-1 flex items-center justify-center p-4">
@@ -212,7 +289,7 @@ export function SchoolTimedTest() {
             Next <ChevronRight className="w-4 h-4" />
           </button>
         ) : (
-          <button onClick={submit} disabled={submitting}
+          <button onClick={() => submit("manual")} disabled={submitting}
             className="px-4 h-9 rounded-full bg-emerald-600 text-white text-xs font-bold disabled:opacity-50 flex items-center gap-1">
             {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
             Submit

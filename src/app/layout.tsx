@@ -65,7 +65,17 @@ export default function RootLayout({
       <body
         className={`${inter.variable} font-sans antialiased bg-gray-50 text-gray-900`}
       >
-        <AuthProvider>{children}</AuthProvider>
+        {/* Phase 45: Skip-to-content link for keyboard / screen-reader users.
+            Visually hidden until focused, then jumps to the main landmark. */}
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-[200] focus:px-4 focus:py-2 focus:bg-indigo-600 focus:text-white focus:rounded-lg focus:shadow-lg focus:text-sm focus:font-semibold"
+        >
+          Skip to content
+        </a>
+        <AuthProvider>
+          <div id="main-content">{children}</div>
+        </AuthProvider>
         <Toaster />
         <ServiceWorkerRegister />
       </body>

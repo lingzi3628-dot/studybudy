@@ -39,6 +39,10 @@ export async function POST(req: NextRequest) {
   // Optional image attachment — base64 data URL (e.g. "data:image/jpeg;base64,...")
   // When present, the AI calls the vision model to analyze the image.
   const imageDataUrl = (body?.image ?? "").toString().trim() || null;
+  // Phase 45: Data Saver mode — when true, the backend will:
+  //   (a) skip the image-search route (saves an external web call)
+  //   (b) append a "keep it concise" hint to the system prompt
+  const dataSaver = !!body?.dataSaver;
 
   if (!userMessage && !imageDataUrl) {
     return NextResponse.json({ error: "Message or image is required" }, { status: 400 });
@@ -153,7 +157,9 @@ export async function POST(req: NextRequest) {
     let searchContext = "";
 
     // 5. Web search for general queries (and videos, images)
-    if (wantsSearch || wantsVideo || wantsImage) {
+    // Phase 45: skip image search entirely in Data Saver mode (saves external call).
+    // Video and general web searches are still allowed because they're cheap.
+    if ((wantsSearch || wantsVideo || (wantsImage && !dataSaver)) && (wantsSearch || wantsVideo || wantsImage)) {
       try {
         const ZAI = (await import("z-ai-web-dev-sdk")).default;
         const client = await ZAI.create();
@@ -265,6 +271,7 @@ export async function POST(req: NextRequest) {
     } catch {}
 
     const systemContent = `You are StudyBuddy, a friendly AI tutor for Kenyan students (CBC / KCSE / KPSEA / KJSEA curriculum). ${teachingProfile.systemPromptSuffix}${curriculumContext}${dbCurriculumContext}${searchContext}
+${dataSaver ? `\nDATA SAVER MODE is ON. Keep your reply concise — target 1-2 short paragraphs (max ~150 words). Skip verbose examples and unnecessary elaboration. Lead with the direct answer; only add explanation if the user asks for it.\n` : ``}
 
 SPECIAL CAPABILITIES — when the user asks, you can do these (the system has already fetched the content for you, just describe and reference it):
 
@@ -591,13 +598,64 @@ block directly. If the user's grade is known, use it as gradeLevel automatically
         if (spec) foundSpecs.push(spec);
       }
 
-      // 3) Validate + correct each spec, then convert to attachment
+      // 3) Validate + correct each spec, then convert to attachment.
+      // Phase 45: if validation fails on the first try, attempt ONE retry call to
+      // the LLM asking it to fix the spec. This recovers a large fraction of
+      // malformed specs without adding latency to the happy path.
       for (const spec of foundSpecs) {
         // Run the graph validator + auto-corrector
-        const validation = validateAndCorrectGraphSpec(spec);
+        let validation = validateAndCorrectGraphSpec(spec);
+
+        // If invalid, try one retry: ask the AI to fix the spec using the
+        // validation errors as feedback. Only retry if this is a spec the AI
+        // *intended* to render (i.e. came from a mathgraph/json block).
+        if (!validation.valid && foundSpecs.length <= 2) {
+          try {
+            const fixMessages: AIMessage[] = [
+              {
+                role: "system",
+                content:
+                  "You are a graph spec validator. The user asked a math/science question and your previous reply contained a graph spec that failed validation. " +
+                  "Output ONLY a single corrected JSON graph spec (no markdown fences, no explanation, no other text). " +
+                  "Use the exact same graph type but fix the listed errors. Include all required fields for that type.",
+              },
+              {
+                role: "user",
+                content:
+                  `The original (invalid) spec was:\n${JSON.stringify(spec, null, 2)}\n\n` +
+                  `Validation errors:\n- ${validation.errors.join("\n- ")}\n\n` +
+                  (validation.warnings.length > 0 ? `Auto-correction warnings:\n- ${validation.warnings.join("\n- ")}\n\n` : "") +
+                  `Output a corrected JSON spec now. Start with { and end with }. Do not include any other text.`,
+              },
+            ];
+            const fixReply = await callAI(fixMessages, null, {
+              userId: user.id,
+              route: "/api/tutor/chat/retry-graph",
+            });
+            // Try to extract a JSON object from the retry reply
+            const trimmed = fixReply.trim().replace(/^```[\w-]*\s*/i, "").replace(/```\s*$/i, "");
+            const fb = trimmed.indexOf("{");
+            const lb = trimmed.lastIndexOf("}");
+            if (fb !== -1 && lb !== -1 && lb > fb) {
+              const retrySpec = JSON.parse(trimmed.slice(fb, lb + 1));
+              const retryValidation = validateAndCorrectGraphSpec(retrySpec);
+              if (retryValidation.valid) {
+                console.log("[tutor-chat] graph spec retry succeeded — recovered", retrySpec.type);
+                validation = retryValidation;
+              } else {
+                console.error("[tutor-chat] graph spec retry still invalid:", retryValidation.errors.join("; "));
+              }
+            }
+          } catch (retryErr: any) {
+            console.error("[tutor-chat] graph spec retry failed:", retryErr?.message);
+          }
+        }
+
         if (!validation.valid) {
-          console.error("[tutor-chat] graph spec invalid:", validation.errors.join("; "));
-          // Skip invalid specs — better no graph than a broken one
+          console.error("[tutor-chat] graph spec invalid (post-retry):", validation.errors.join("; "));
+          // Skip invalid specs — better no graph than a broken one.
+          // TODO: surface a "graph failed" placeholder to the user so they know
+          // the AI tried but couldn't draw it. For now, log to console.
           continue;
         }
         const correctedSpec = validation.correctedSpec;

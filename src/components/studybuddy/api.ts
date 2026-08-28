@@ -323,10 +323,27 @@ export const api = {
     if (!r.ok) await err(r);
     return r.json();
   },
-  getReviewQueue: async () => {
-    const r = await fetch("/api/review/queue");
+  getReviewQueue: async (opts?: { bias?: "weak"; topicId?: string; subject?: string; topic?: string; limit?: number }) => {
+    const params = new URLSearchParams();
+    if (opts?.bias) params.set("bias", opts.bias);
+    if (opts?.topicId) params.set("topicId", opts.topicId);
+    if (opts?.subject) params.set("subject", opts.subject);
+    if (opts?.topic) params.set("topic", opts.topic);
+    if (opts?.limit) params.set("limit", String(opts.limit));
+    const qs = params.toString();
+    const r = await fetch(`/api/review/queue${qs ? `?${qs}` : ""}`);
     if (!r.ok) await err(r);
     return r.json() as Promise<{ cards: Card[] }>;
+  },
+  // Phase 45: convenience — returns due cards biased to weak topics + the weak topics
+  // themselves in a single call. Saves Home from issuing two requests.
+  getRecommended: async () => {
+    const r = await fetch("/api/review/recommended");
+    if (!r.ok) await err(r);
+    return r.json() as Promise<{
+      cards: Card[];
+      weakTopics: Array<{ subject: string; topic: string; mastery: number; dueCardCount: number; totalAttempts: number; correctAttempts: number }>;
+    }>;
   },
 
   // progress

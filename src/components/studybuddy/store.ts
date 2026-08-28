@@ -109,6 +109,10 @@ interface AppState {
   setHasStoredApiKey: (v: boolean) => void;
   languageOfInstruction: string;
   setLanguageOfInstruction: (v: string) => void;
+  // Phase 45 — low-bandwidth / data-saver mode
+  dataSaver: boolean;
+  toggleDataSaver: () => void;
+  setDataSaver: (v: boolean) => void;
 }
 
 const LS_KEY = "studybuddy_onboarded";
@@ -174,6 +178,24 @@ export const useApp = create<AppState>((set) => ({
   setHasStoredApiKey: (v) => set({ hasStoredApiKey: v }),
   languageOfInstruction: "English",
   setLanguageOfInstruction: (v) => set({ languageOfInstruction: v }),
+  // Phase 45 — low-bandwidth / data-saver mode (persisted in localStorage).
+  // When true, the app:
+  //   - Skips Pollinations image generation in AI Tutor
+  //   - Hides the model-comparison panel (it makes 2-5x API calls)
+  //   - Limits AI Tutor response length via a system-prompt hint
+  //   - Replaces heavy graph animations with static renderings
+  dataSaver: typeof window !== "undefined" && localStorage.getItem("studybuddy_datasaver") === "1",
+  toggleDataSaver: () => {
+    set((s) => {
+      const next = !s.dataSaver;
+      if (typeof window !== "undefined") localStorage.setItem("studybuddy_datasaver", next ? "1" : "0");
+      return { dataSaver: next };
+    });
+  },
+  setDataSaver: (v) => {
+    if (typeof window !== "undefined") localStorage.setItem("studybuddy_datasaver", v ? "1" : "0");
+    set({ dataSaver: v });
+  },
 }));
 
 export function resetOnboarding() {

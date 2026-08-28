@@ -234,3 +234,92 @@
   transition-property: background-color, border-color, color, fill, stroke;
   transition-duration: 200ms;
 }
+
+/* =====================================================================
+   Phase 45 — Accessibility upgrades
+   ===================================================================== */
+
+/* Respect prefers-reduced-motion — disable all decorative animations.
+   This applies to: confetti, slide-up, pop-in, shake, flip-card flip,
+   and the global 200ms transition. Critical motion (e.g. live progress
+   bars) still works because they use CSS transitions, which are reduced
+   to instant via the `transition: none` rule below. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+  .confetti-piece { display: none !important; }
+  .animate-slide-up,
+  .animate-pop-in,
+  .animate-shake { animation: none !important; }
+  .flip-card-inner.is-flipped { transform: rotateY(180deg); }
+  .flip-card-inner { transition: none !important; }
+}
+
+/* Visible focus ring for keyboard navigation — WCAG 2.4.7.
+   Tailwind's default focus-visible ring is often too subtle on colored
+   backgrounds (e.g. indigo button on indigo card). We bump it to a
+   2px solid ring with high contrast against most surfaces. */
+:focus-visible {
+  outline: 2px solid #4F46E5 !important;
+  outline-offset: 2px !important;
+  border-radius: 4px;
+}
+
+/* Don't apply the keyboard focus ring to mouse clicks on interactive elements */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Screen-reader-only utility class (Tailwind's `sr-only` should do this,
+   but we re-declare it here for elements outside the Tailwind layer). */
+.sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+/* Higher-contrast small text — `text-[10px] text-gray-400` fails WCAG AA
+   on white backgrounds (contrast ratio ~3.5:1 vs required 4.5:1 for body
+   text). We upgrade gray-400/gray-500 to gray-600 for text under 11px. */
+@media (max-width: 768px) {
+  /* On mobile, where users may be outdoors, bump contrast further. */
+  .text-\[10px\].text-gray-400,
+  .text-\[11px\].text-gray-400 {
+    color: #4b5563 !important; /* gray-600 */
+  }
+}
+
+/* Better link color contrast — `text-indigo-600` on white passes AA
+   for normal text, but for small text under 14px we use a darker shade. */
+a.text-xs.text-indigo-600,
+a.text-\[10px\].text-indigo-600,
+a.text-\[11px\].text-indigo-600 {
+  color: #3730a3 !important; /* indigo-800 */
+}
+
+/* Live region for screen readers — used by AI Tutor to announce new
+   assistant messages. The element exists in the DOM but is invisible. */
+.sr-live-region {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

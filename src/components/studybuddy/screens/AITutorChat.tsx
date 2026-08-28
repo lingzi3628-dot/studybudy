@@ -82,7 +82,7 @@ type ConceptMapSpec = {
  * - Copy / retry buttons on AI messages
  */
 export function AITutorChat() {
-  const { setScreen } = useApp();
+  const { setScreen, dataSaver } = useApp();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversation, setActiveConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<ChatMsg[]>([]);
@@ -309,6 +309,9 @@ export function AITutorChat() {
           conversationId: activeConversation?.id ?? null,
           message: messageText,
           image: img,
+          // Phase 45: tell the backend to keep replies short and skip image-search
+          // when Data Saver mode is on.
+          dataSaver,
         }),
       });
       const d = await r.json();
@@ -1043,16 +1046,18 @@ export function AITutorChat() {
                 </div>
               )}
             </div>
-            {/* Model comparison button (Feature #1) */}
-            <button
-              onClick={() => setShowCompare(!showCompare)}
-              className={`w-8 h-8 rounded-full flex items-center justify-center transition ${
-                showCompare ? "bg-violet-600 text-white" : "bg-violet-50 text-violet-700 hover:bg-violet-100"
-              }`}
-              title="Compare multiple Study Buddies side-by-side"
-            >
-              <GitBranch className="w-4 h-4" />
-            </button>
+            {/* Model comparison button (Feature #1) — hidden in Data Saver mode (Phase 45) */}
+            {!dataSaver && (
+              <button
+                onClick={() => setShowCompare(!showCompare)}
+                className={`w-8 h-8 rounded-full flex items-center justify-center transition ${
+                  showCompare ? "bg-violet-600 text-white" : "bg-violet-50 text-violet-700 hover:bg-violet-100"
+                }`}
+                title={dataSaver ? "Disabled in Data Saver mode" : "Compare multiple Study Buddies side-by-side"}
+              >
+                <GitBranch className="w-4 h-4" />
+              </button>
+            )}
             {/* Exam generator button */}
             <button
               onClick={() => setShowExamForm(!showExamForm)}
@@ -1149,7 +1154,14 @@ export function AITutorChat() {
         {/* Chat area */}
         <div className="flex-1 flex flex-col max-w-3xl mx-auto w-full">
           {/* Messages */}
-          <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+          <div
+            ref={scrollRef}
+            className="flex-1 overflow-y-auto px-4 py-4 space-y-4"
+            role="log"
+            aria-live="polite"
+            aria-label="AI Tutor conversation"
+            aria-atomic="false"
+          >
             {messages.length === 0 && !busy ? (
               <div className="text-center py-12">
                 <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center mb-4">
@@ -2239,8 +2251,7 @@ function FlashcardsFromConceptMapButton({ spec }: { spec: any }) {
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { setScreen } = useApp();
-
+  const { setScreen, dataSaver } = useApp();
   const generate = async () => {
     setBusy(true);
     setError(null);

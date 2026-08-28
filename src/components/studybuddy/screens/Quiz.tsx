@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { X, Check, ChevronRight, Info, Loader2, AlertCircle, Trophy } from "lucide-react";
 import { useApp } from "../store";
 import { api, type Card } from "../api";
+import { useI18n } from "@/lib/useI18n";
 
 type Q = {
   cardId: string;
@@ -17,6 +18,7 @@ type Q = {
 
 export function Quiz() {
   const { setScreen, activeStudySetId } = useApp();
+  const { t } = useI18n();
   const [questions, setQuestions] = useState<Q[]>([]);
   const [qIdx, setQIdx] = useState(0);
   const [selected, setSelected] = useState<number | null>(null);
@@ -100,7 +102,7 @@ export function Quiz() {
     return (
       <div className="min-h-screen max-w-2xl mx-auto flex items-center justify-center text-gray-400">
         <Loader2 className="w-6 h-6 animate-spin" />
-        <span className="ml-2 text-sm">Loading quiz…</span>
+        <span className="ml-2 text-sm">{t("common.loading")}</span>
       </div>
     );
   }
@@ -111,7 +113,7 @@ export function Quiz() {
         <AlertCircle className="w-8 h-8 text-rose-500" />
         <p className="mt-3 text-sm text-rose-600">{error}</p>
         <button onClick={() => setScreen("home")} className="mt-4 px-4 h-10 rounded-full bg-indigo-600 text-white text-sm font-semibold">
-          Back home
+          {t("study.backHome")}
         </button>
       </div>
     );
@@ -131,7 +133,7 @@ export function Quiz() {
           onClick={() => setScreen("home")}
           className="mt-6 px-6 h-11 rounded-full bg-indigo-600 text-white font-semibold text-sm shadow-md hover:bg-indigo-700"
         >
-          Back home
+          {t("study.backHome")}
         </button>
       </div>
     );
@@ -167,7 +169,7 @@ export function Quiz() {
 
       <div className="flex-1 px-4 py-6 flex flex-col">
         <p className="text-xs font-semibold uppercase tracking-wide text-indigo-600">
-          Question {qIdx + 1} {q.topic ? `· ${q.topic}` : ""}
+          {t("study.question")} {qIdx + 1} {q.topic ? `· ${q.topic}` : ""}
         </p>
         <h2 className="mt-2 text-xl font-bold text-gray-900 leading-snug">{q.question}</h2>
 

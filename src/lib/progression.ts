@@ -129,19 +129,65 @@ export async function recordAttempt(args: {
   }
 }
 
-/** Returns the user's cards due now (up to `limit`). */
-export async function getDueCards(userId: string, limit = 20) {
+/** Returns the user's cards due now (up to `limit`).
+ *  Phase 45: supports optional `bias: "weak"` to surface cards from weak topics
+ *  (mastery < 0.6, matching /api/progress threshold) first, and optional
+ *  `topicId` filter to limit to a single topic.
+ */
+export async function getDueCards(
+  userId: string,
+  limit = 20,
+  opts?: { bias?: "weak"; topicId?: string; subject?: string; topic?: string }
+) {
   const now = new Date();
+
+  // Build the where clause — base: due cards for this user
+  const where: any = {
+    userId,
+    dueDate: { lte: now },
+  };
+
+  // Optional topicId filter (direct link on the Card)
+  if (opts?.topicId) {
+    where.card = { topicId: opts.topicId };
+  } else if (opts?.subject && opts?.topic) {
+    // Or filter by (subject, topic) on the Card
+    where.card = { subject: opts.subject, topic: opts.topic };
+  }
+
+  // Fetch up to 100 due cards so we have headroom to re-rank by weak-topic bias
   const due = await db.cardReview.findMany({
-    where: {
-      userId,
-      dueDate: { lte: now },
-    },
-    take: limit,
+    where,
+    take: 100,
     orderBy: { dueDate: "asc" },
     include: { card: true },
   });
-  return due.map((r) => r.card);
+
+  // If no bias requested, return the earliest-due `limit` cards as before.
+  if (!opts?.bias || opts.bias !== "weak") {
+    return due.slice(0, limit).map((r) => r.card);
+  }
+
+  // Pull the user's weak topics (mastery < 0.6, totalAttempts >= 1).
+  // Same threshold as /api/progress for consistency.
+  const weak = await db.topicMastery.findMany({
+    where: { userId, masteryLevel: { lt: 0.6 }, totalAttempts: { gte: 1 } },
+    select: { subject: true, topic: true, masteryLevel: true },
+  });
+  // Build a quick lookup set of "subject||topic" weak keys
+  const weakKeys = new Set(weak.map((m) => `${m.subject}||${m.topic}`));
+
+  // Partition due cards: weak-topic cards first (stable by dueDate), then the rest.
+  const weakCards = due.filter((r) =>
+    r.card.subject && r.card.topic && weakKeys.has(`${r.card.subject}||${r.card.topic}`)
+  );
+  const otherCards = due.filter((r) =>
+    !(r.card.subject && r.card.topic && weakKeys.has(`${r.card.subject}||${r.card.topic}`))
+  );
+
+  // Within each partition, the original dueDate ASC order is preserved.
+  const ranked = [...weakCards, ...otherCards].slice(0, limit);
+  return ranked.map((r) => r.card);
 }
 
 /** Count of due cards — for the Home badge. */
