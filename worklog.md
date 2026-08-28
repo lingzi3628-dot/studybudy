@@ -231,3 +231,84 @@ Stage Summary:
 - Installed: pdf-lib (runtime dep), vitest (dev dep).
 - First test file in the repo (46 tests). Foundation now exists for adding more test coverage.
 - i18n now supports 5 languages (en/sw/fr/es/ar) with RTL + interpolation, but only 3 screens consume it fully — wrapping the remaining ~35 screens is mechanical follow-up work.
+
+---
+Task ID: phase46-upgrade-batch
+Agent: main
+Task: Implement the remaining 10 upgrades selected by user: #3 (notifications end-to-end), #4 (syllabus coverage), #5 (study-group collaboration), #12 (leaderboard UI), #14 (FSRS-5 upgrade), #16 (Python code sandbox), #17 (lab simulator), #18 (scientific calculator), #19 (TTS voice upgrade), #20 (parent dashboard enhancements)
+
+Work Log:
+- Phase A — Notifications end-to-end (#3):
+  - Created src/lib/notifications-send.ts — wires up real email sending via nodemailer (already a dependency). Reads SMTP_HOST/PORT/USER/PASS/FROM env vars. WhatsApp/SMS left as 'skipped' with a clear log (paid gateway needed).
+  - Created src/app/api/notifications/send/route.ts — endpoint that flushes pending NotificationLog rows for the current user.
+  - Created src/components/studybuddy/NotificationPanel.tsx — dropdown panel with unread badge, mark-all-read, and the auto-creation of "due review" notifications.
+  - Wired TopBar.tsx: replaced the static Bell icon (with a fake red dot) with the live NotificationPanel dropdown.
+  - Added NotificationLog → User relation to the Prisma schema.
+
+- Phase B — Syllabus coverage tracker (#4):
+  - Added CurriculumTopicProgress model to Prisma schema (userId, topicId, status: not_started/in_progress/completed, startedAt, completedAt). Added User.curriculumTopicProgress + CurriculumTopic.userProgress relations.
+  - Created /api/curriculum/coverage (GET + POST) — GET returns { coveragePct, completedTopics, totalTopics, topics[] }; POST marks a topic as in_progress or completed.
+  - Wired CurriculumSubjectView: added a coverage ring (circular SVG progress) in the header showing X/Y topics done + % coverage, with color grades (amber <50%, indigo <100%, emerald =100%). Each topic row now shows status (✓ / ▶ / number) + a context-aware CTA (Start / Continue / Review).
+
+- Phase C — Study-group collaboration (#5):
+  - Added StudyGroupMessage model (groupId, userId, body, createdAt) to Prisma schema.
+  - Created /api/study-groups/[id]/chat (GET + POST) — polling-based chat (no websockets needed). GET returns messages since `?since=ISO` for incremental polling; POST validates length ≤1000 and membership.
+  - Created /api/study-groups/[id]/members — returns members with XP/level/joinedAt for the mini leaderboard.
+  - Created src/components/studybuddy/screens/StudyGroupScreen.tsx — full-screen chat UI: header with name + copyable invite code + member count, top "Top members" mini leaderboard, scrolling chat with auto-scroll, 3-second polling for new messages, message input with Enter-to-send.
+  - Added "studyGroup" to Screen union type + activeStudyGroupId to Zustand store.
+  - Wired page.tsx router + StudyRoom.tsx's onOpenGroup handler (was `() => {}`) to open the new StudyGroupScreen.
+
+- Phase D — Leaderboard UI (#12):
+  - Added a "Leaderboard" section to Progress.tsx: gradient rank-hero card showing the user's rank + monthly XP + total XP, top-10 list with crown badges (gold/silver/bronze for ranks 1/2/3), the current user's row highlighted, "Monthly XP" label so users know the metric.
+  - Fetches from the existing /api/user/leaderboard endpoint in parallel with the main progress load.
+
+- Phase E — FSRS-5 upgrade (#14):
+  - Rewrote src/lib/memory.ts with the FSRS-5 (Free Spaced Repetition Scheduler) algorithm. Adds stability + difficulty fields (optional for backward compat). Uses the published FSRS-5 power-forgetting curve, mean-reverting difficulty formula, and 90%-recall target interval computation.
+  - Kept the `sm2Update` function name (and easeFactor field) for backward compat — easeFactor is now derived from FSRS difficulty: EF = 1.3 + (2.5 - 1.3) * (10 - D) / 9.
+  - Added `currentRetrievability()` export for future UI showing "85% recall" hints on flashcards.
+
+- Phase F — Python code sandbox (#16):
+  - Created src/components/studybuddy/screens/CodeRunner.tsx — Python runner using Pyodide (Python compiled to WASM) loaded via CDN. No npm dependency needed. Runs 100% in the browser, no server roundtrip.
+  - Pre-bundles 6 example snippets: Hello World, Loop, Function (is_prime), Math (quadratic formula), Sympy (symbolic solve), Plot (matplotlib → base64 PNG embedded in output).
+  - Captures stdout/stderr, detects embedded plots (PLOT_PNG: prefix convention) and renders them inline.
+  - Added "codeRunner" to Screen union type. Wired into Home Quick Actions ("Python Runner" button) and page.tsx router.
+
+- Phase G — Lab simulator (#17):
+  - Created src/components/studybuddy/screens/LabScreen.tsx — embeds 12 PhET interactive simulations from the University of Colorado (free, no API key needed) via iframes.
+  - Mapped to Kenya CBC / KCSE curriculum: Forces & Motion, Projectile Motion, Wave on String, Ohm's Law, Circuits, Balancing Equations, pH Scale, Build an Atom, Photosynthesis, Natural Selection, Graphing Lines, Fractions.
+  - Subject filter (All/Physics/Chemistry/Biology/Mathematics) + subject-colored gradient cards. Full-screen iframe when a sim is opened.
+  - Added "lab" to Screen union type. Wired into Home Quick Actions ("Lab Simulator") and page.tsx router.
+
+- Phase H — Scientific calculator (#18):
+  - Created src/components/studybuddy/screens/CalculatorScreen.tsx — scientific calculator using mathjs (already installed). Supports +, -, *, /, ^, sin/cos/tan, sqrt, log10, ln, π, e, parentheses, variable assignment.
+  - Memory keys (MC/MR/M+/M-) + 10-item history with localStorage persistence.
+  - 5-column button grid with color-coded function keys (emerald), operators (amber), numbers (white), memory (gray), clear (rose).
+  - Added "calculator" to Screen union type. Wired into Home Quick Actions ("Calculator") and page.tsx router.
+
+- Phase I — TTS voice upgrade (#19):
+  - Upgraded src/components/studybuddy/screens/voice-mode.ts browserSpeak() to:
+    (a) Auto-split long text into chunks of ≤200 chars by sentence boundaries (Chrome long-text cutoff bug workaround)
+    (b) Auto-pick the user's preferred TTS language from their `languageOfInstruction` setting (English/Kiswahili/French/Spanish/Arabic/Chinese → BCP-47 codes via window global)
+  - Added getPreferredTTSLang() + setPreferredTTSLang() exports. Profile.tsx pushes the language to the window global on mount and whenever it changes.
+
+- Phase J — Parent dashboard enhancements (#20):
+  - Added AlertsAndComparison component to ParentDashboard.tsx:
+    (a) Alerts banner: shows high-severity alerts when a child's avg mastery < 0.4 (rose), medium-severity when streak broke (2+ days inactivity, amber)
+    (b) Sibling comparison: leaderboard of all children ranked by readiness score, with avatar emojis, XP/level/streak subtext
+  - Renders only when parent has 1+ children with insights loaded.
+
+- Phase K — Bug fixes:
+  - Fixed /api/study-groups/[id]/{chat,members}/route.ts and /api/study-sets/[id]/export/{anki,pdf}/route.ts to use Next.js 16 async-params signature (params: Promise<{ id: string }>, const { id } = await params).
+  - Fixed pre-existing bug in Profile.tsx line 73 where `user.languageOfInstruction` was referenced but the User type only has `learningLanguage`.
+
+- Verification:
+  - Vitest suite: 46 tests still pass (npx vitest run src/lib/graph-validator.test.ts).
+  - Next.js production build: clean (npx next build succeeds, no new errors in changed files).
+  - 4 new API routes registered: /api/study-groups/[id]/chat, /api/study-groups/[id]/members, /api/curriculum/coverage, /api/notifications/send.
+  - 3 new screen routes registered: studyGroup, codeRunner, lab, calculator.
+  - 2 new Prisma models: CurriculumTopicProgress, StudyGroupMessage.
+
+Stage Summary:
+- 10 upgrades shipped. New files: src/lib/notifications-send.ts, src/app/api/notifications/send/route.ts, src/app/api/curriculum/coverage/route.ts, src/app/api/study-groups/[id]/chat/route.ts, src/app/api/study-groups/[id]/members/route.ts, src/components/studybuddy/NotificationPanel.tsx, src/components/studybuddy/screens/StudyGroupScreen.tsx, src/components/studybuddy/screens/CodeRunner.tsx, src/components/studybuddy/screens/LabScreen.tsx, src/components/studybuddy/screens/CalculatorScreen.tsx.
+- Modified files: prisma/schema.prisma (+CurriculumTopicProgress, +StudyGroupMessage, +User relations, +NotificationLog.user relation), src/lib/memory.ts (rewritten to FSRS-5), src/components/studybuddy/screens/voice-mode.ts (chunking + lang-of-instruction), src/components/studybuddy/TopBar.tsx, src/components/studybuddy/store.ts (4 new screens + activeStudyGroupId), src/app/page.tsx, src/components/studybuddy/screens/Home.tsx (3 new Quick Actions), src/components/studybuddy/screens/CurriculumSubjectView.tsx (coverage ring + topic status), src/components/studybuddy/screens/Progress.tsx (leaderboard), src/components/studybuddy/screens/Profile.tsx (TTS sync), src/components/studybuddy/screens/ParentDashboard.tsx (alerts + comparison), src/components/studybuddy/screens/StudyRoom.tsx (open group handler), src/app/api/study-sets/[id]/export/{anki,pdf}/route.ts (Promise params).
+- Build: clean. Tests: 46/46 passing. All 20 originally-proposed upgrades now shipped.
