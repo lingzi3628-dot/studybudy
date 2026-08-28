@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { callAI, type ChatMessage as AIMessage } from "@/lib/ai";
 import { checkAndDeductTokens, refundTokens } from "@/lib/monetization";
 import { buildTeachingProfile } from "@/lib/aware-engine";
+import { buildCurriculumContext, getCurriculumForGrade } from "@/lib/curriculum-engine";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -225,8 +226,13 @@ export async function POST(req: NextRequest) {
     // 6. Build AI messages with system prompt + curriculum context + search results
     const teachingProfile = buildTeachingProfile(user.grade ?? "Form 1");
 
-    // Fetch curriculum context (best-effort)
-    let curriculumContext = "";
+    // Build curriculum context using the CBC curriculum engine (Phase 41)
+    // This grounds the AI within the student's grade-level curriculum —
+    // the AI should NEVER go outside the curriculum topics.
+    const curriculumContext = buildCurriculumContext(user.grade ?? "Form 1");
+
+    // Also try to fetch admin-uploaded curriculum content from DB (best-effort)
+    let dbCurriculumContext = "";
     try {
       if (user.grade) {
         const matchingGrade = await db.curriculumGrade.findFirst({
@@ -245,18 +251,18 @@ export async function POST(req: NextRequest) {
           for (const subj of matchingGrade.subjects) {
             if (subj.topics.length === 0) continue;
             topicLines.push(`\n## ${subj.name}`);
-            for (const t of subj.topics.slice(0, 8)) {
+            for (const t of subj.topics.slice(0, 5)) {
               topicLines.push(`### ${t.name}\n${(t.contentMarkdown ?? "").slice(0, 200)}`);
             }
           }
           if (topicLines.length > 0) {
-            curriculumContext = `\n\nCURRICULUM CONTENT for ${matchingGrade.name}:\n${topicLines.join("\n").slice(0, 5000)}`;
+            dbCurriculumContext = `\n\nADDITIONAL CURRICULUM CONTENT (admin-uploaded):\n${topicLines.join("\n").slice(0, 3000)}`;
           }
         }
       }
     } catch {}
 
-    const systemContent = `You are StudyBuddy, a friendly AI tutor for Kenyan students (CBC / KCSE / KPSEA / KJSEA curriculum). ${teachingProfile.systemPromptSuffix}${curriculumContext}${searchContext}
+    const systemContent = `You are StudyBuddy, a friendly AI tutor for Kenyan students (CBC / KCSE / KPSEA / KJSEA curriculum). ${teachingProfile.systemPromptSuffix}${curriculumContext}${dbCurriculumContext}${searchContext}
 
 SPECIAL CAPABILITIES — when the user asks, you can do these (the system has already fetched the content for you, just describe and reference it):
 
