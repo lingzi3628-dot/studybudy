@@ -26,6 +26,7 @@ import {
   Mic,
   Square,
   Sparkles,
+  FileText,
 } from "lucide-react";
 import { useApp } from "../store";
 import { GraphRenderer, type GraphSpec } from "./GraphRenderers";
@@ -86,7 +87,10 @@ export function AITutorChat() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [pendingImage, setPendingImage] = useState<string | null>(null); // base64 data URL for vision
+  const [pendingDocument, setPendingDocument] = useState<{ text: string; fileName: string; fileType: string; preview: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const docInputRef = useRef<HTMLInputElement | null>(null);
+  const [uploadingDoc, setUploadingDoc] = useState(false);
   // Continuous voice conversation mode (like ChatGPT voice mode)
   const [voiceMode, setVoiceMode] = useState(false);
   const voiceModeRef = useRef(false); // ref version for use inside callbacks
@@ -179,17 +183,26 @@ export function AITutorChat() {
   const send = async (text?: string) => {
     const q = (text ?? input).trim();
     const img = pendingImage;
-    if ((!q && !img) || busy) return;
+    const doc = pendingDocument;
+    if ((!q && !img && !doc) || busy) return;
     setInput("");
     setPendingImage(null);
+    setPendingDocument(null);
     setBusy(true);
     setError(null);
     setShowUpgrade(false);
 
+    // Build the message — if a document is attached, include its text as context
+    let messageText = q;
+    if (doc) {
+      messageText = q || "Please analyze this document and help me understand it.";
+      messageText += `\n\n--- DOCUMENT: ${doc.fileName} (${doc.fileType.toUpperCase()}) ---\n${doc.text}\n--- END DOCUMENT ---\n`;
+    }
+
     const tempUserMsg: ChatMsg = {
       id: `temp-${Date.now()}`,
       role: "user",
-      content: q || "(Image attached)",
+      content: q || (doc ? `📄 ${doc.fileName}` : "(Image attached)"),
       attachments: img ? [{ type: "image", url: img, caption: "Uploaded image" }] : undefined,
       createdAt: new Date().toISOString(),
     };
@@ -201,7 +214,7 @@ export function AITutorChat() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           conversationId: activeConversation?.id ?? null,
-          message: q,
+          message: messageText,
           image: img,
         }),
       });
@@ -450,6 +463,36 @@ export function AITutorChat() {
     navigator.clipboard.writeText(msg.content);
     setCopiedId(msg.id);
     setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  // Document upload — extract text from PDF/DOC/DOCX/XLSX/CSV/TXT
+  const handleDocumentUpload = async (file: File) => {
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      setError("Document too large (max 10MB)");
+      return;
+    }
+    setUploadingDoc(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const r = await fetch("/api/tutor/upload-document", {
+        method: "POST",
+        body: formData,
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Upload failed");
+      setPendingDocument({
+        text: d.text,
+        fileName: d.fileName,
+        fileType: d.fileType,
+        preview: d.preview,
+      });
+    } catch (e: any) {
+      setError(e?.message ?? "Document upload failed");
+    } finally {
+      setUploadingDoc(false);
+    }
   };
 
   // Load available buddies for per-conversation switching + comparison
@@ -1024,13 +1067,37 @@ export function AITutorChat() {
                   <p className="text-xs font-semibold text-emerald-700">Image ready to send</p>
                   <p className="text-[10px] text-emerald-600">Vision AI will analyze this with your question</p>
                 </div>
-                <button
-                  onClick={() => setPendingImage(null)}
-                  className="text-emerald-700 hover:text-rose-600"
-                  title="Remove image"
-                >
+                <button onClick={() => setPendingImage(null)} className="text-emerald-700 hover:text-rose-600" title="Remove image">
                   <X className="w-4 h-4" />
                 </button>
+              </div>
+            )}
+            {/* Pending document preview */}
+            {(pendingDocument || uploadingDoc) && (
+              <div className="mb-2 flex items-center gap-2 p-2 bg-amber-50 border border-amber-200 rounded-xl">
+                <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center text-xl flex-shrink-0">
+                  {uploadingDoc ? <Loader2 className="w-5 h-5 animate-spin text-amber-600" /> : "📄"}
+                </div>
+                <div className="flex-1 min-w-0">
+                  {uploadingDoc ? (
+                    <>
+                      <p className="text-xs font-semibold text-amber-700">Extracting text…</p>
+                      <p className="text-[10px] text-amber-600">Reading document contents</p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-xs font-semibold text-amber-800 truncate">{pendingDocument?.fileName}</p>
+                      <p className="text-[10px] text-amber-600 truncate">
+                        {pendingDocument?.fileType.toUpperCase()} · {pendingDocument?.text.length.toLocaleString()} chars extracted
+                      </p>
+                    </>
+                  )}
+                </div>
+                {pendingDocument && (
+                  <button onClick={() => setPendingDocument(null)} className="text-amber-700 hover:text-rose-600" title="Remove document">
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
               </div>
             )}
             <form
@@ -1086,9 +1153,34 @@ export function AITutorChat() {
               >
                 <Paperclip className="w-4 h-4" />
               </button>
+              {/* Document upload button (PDF/DOC/DOCX/XLSX/CSV) */}
+              <input
+                ref={docInputRef}
+                type="file"
+                accept=".pdf,.doc,.docx,.xlsx,.xls,.csv,.txt,.md"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) handleDocumentUpload(f);
+                  e.target.value = "";
+                }}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => docInputRef.current?.click()}
+                disabled={busy || uploadingDoc}
+                title="Upload a document (PDF, DOC, DOCX, XLSX, CSV, TXT)"
+                className={`w-10 h-10 rounded-full flex items-center justify-center disabled:opacity-50 transition flex-shrink-0 ${
+                  pendingDocument
+                    ? "bg-amber-500 text-white hover:bg-amber-600"
+                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                }`}
+              >
+                {uploadingDoc ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+              </button>
               <button
                 type="submit"
-                disabled={busy || (!input.trim() && !pendingImage)}
+                disabled={busy || (!input.trim() && !pendingImage && !pendingDocument)}
                 className="w-10 h-10 rounded-full bg-indigo-600 text-white flex items-center justify-center disabled:opacity-50 hover:bg-indigo-700 transition flex-shrink-0"
               >
                 {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
