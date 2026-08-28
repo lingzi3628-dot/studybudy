@@ -14,6 +14,7 @@ import {
   Globe,
   Loader2,
   AlertCircle,
+  Crown,
 } from "lucide-react";
 import { api, type Progress as ProgressData } from "../api";
 
@@ -42,6 +43,9 @@ export function Progress() {
   const [data, setData] = useState<ProgressData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Phase 46 — leaderboard state
+  const [leaderboard, setLeaderboard] = useState<{ top10: any[]; userRank: number | null; userEntry: any } | null>(null);
+  const [leaderboardLoading, setLeaderboardLoading] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -56,6 +60,21 @@ export function Progress() {
         setError(e?.message ?? "Failed to load progress");
       } finally {
         if (mounted) setLoading(false);
+      }
+    })();
+    // Phase 46 — fetch leaderboard in parallel (best-effort, doesn't block the screen)
+    (async () => {
+      setLeaderboardLoading(true);
+      try {
+        const r = await fetch("/api/user/leaderboard");
+        if (r.ok) {
+          const d = await r.json();
+          if (mounted) setLeaderboard(d);
+        }
+      } catch {
+        /* ignore — leaderboard is optional */
+      } finally {
+        if (mounted) setLeaderboardLoading(false);
       }
     })();
     return () => {
@@ -216,6 +235,86 @@ export function Progress() {
               );
             })}
           </div>
+        </section>
+
+        {/* Phase 46 — Leaderboard */}
+        <section className="mt-6">
+          <h2 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-1.5">
+            <Trophy className="w-4 h-4 text-amber-500" /> Leaderboard
+            <span className="text-[10px] font-normal text-gray-500 ml-1">Monthly XP</span>
+          </h2>
+
+          {/* User's rank hero card */}
+          {leaderboard?.userRank && (
+            <div className="rounded-2xl bg-gradient-to-br from-indigo-600 to-violet-500 p-4 text-white shadow-md mb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center text-lg font-bold flex-shrink-0">
+                  #{leaderboard.userRank}
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs opacity-80">Your rank</p>
+                  <p className="text-base font-bold">
+                    {leaderboard.userEntry?.monthXp?.toLocaleString() ?? 0} XP this month
+                  </p>
+                  <p className="text-[11px] opacity-80 mt-0.5">
+                    Total: {leaderboard.userEntry?.xpTotal?.toLocaleString() ?? 0} XP
+                  </p>
+                </div>
+                <Trophy className="w-6 h-6 opacity-80 flex-shrink-0" />
+              </div>
+            </div>
+          )}
+
+          {/* Top 10 list */}
+          {leaderboardLoading ? (
+            <div className="flex items-center justify-center text-gray-400 py-6">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span className="ml-2 text-xs">Loading leaderboard…</span>
+            </div>
+          ) : leaderboard?.top10 && leaderboard.top10.length > 0 ? (
+            <ol className="space-y-1.5">
+              {leaderboard.top10.map((entry: any) => (
+                <li
+                  key={entry.userId}
+                  className={`flex items-center gap-3 p-2.5 rounded-xl ${
+                    entry.isCurrentUser
+                      ? "bg-indigo-50 border border-indigo-200"
+                      : entry.rank <= 3
+                      ? "bg-amber-50/50"
+                      : "bg-white border border-gray-100"
+                  }`}
+                >
+                  <span
+                    className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                      entry.rank === 1 ? "bg-amber-500 text-white"
+                      : entry.rank === 2 ? "bg-gray-400 text-white"
+                      : entry.rank === 3 ? "bg-amber-700 text-white"
+                      : "bg-gray-100 text-gray-600"
+                    }`}
+                  >
+                    {entry.rank <= 3 ? <Crown className="w-3.5 h-3.5" /> : `#${entry.rank}`}
+                  </span>
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-100 to-violet-100 text-indigo-700 flex items-center justify-center text-xs font-bold flex-shrink-0">
+                    {(entry.name ?? "?").charAt(0).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-gray-900 truncate">
+                      {entry.name}{entry.isCurrentUser && <span className="ml-1 text-indigo-600">(you)</span>}
+                    </p>
+                    <p className="text-[10px] text-gray-500">{entry.monthXp?.toLocaleString() ?? 0} XP / month</p>
+                  </div>
+                  <div className="text-right text-[10px] text-gray-500">
+                    <p className="font-bold text-gray-700">{entry.xpTotal?.toLocaleString() ?? 0}</p>
+                    <p>total</p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="text-xs text-gray-400 text-center py-4">
+              No leaderboard data yet — start studying to climb the ranks!
+            </p>
+          )}
         </section>
       </div>
     </div>

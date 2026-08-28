@@ -867,7 +867,11 @@ export function StudyRoom() {
           {roomData?.studyGroups?.length > 0 && (
             <GroupStudySection
               groups={roomData.studyGroups}
-              onOpenGroup={() => {}} // groups managed via API for now
+              onOpenGroup={(g: any) => {
+                // Phase 46 — open the StudyGroupScreen with the selected group
+                (useApp.getState() as any).setActiveStudyGroupId(g?.id ?? null);
+                setScreen("studyGroup");
+              }}
             />
           )}
 

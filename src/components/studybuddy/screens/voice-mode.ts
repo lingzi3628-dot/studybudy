@@ -67,9 +67,94 @@ export function pickVoiceForLang(lang: string): SpeechSynthesisVoice | null {
 
 let currentUtterance: SpeechSynthesisUtterance | null = null;
 
+// Phase 46 — language-of-instruction map (matches the Zustand store field)
+// Maps human-readable language names to BCP-47 codes the browser understands.
+const LANG_NAME_TO_BCP47: Record<string, string> = {
+  English: "en-US",
+  Kiswahili: "sw-KE",   // Kenyan Swahili
+  Chinese: "zh-CN",
+  French: "fr-FR",
+  Spanish: "es-ES",
+  Arabic: "ar-SA",
+};
+
+/**
+ * Get the user's preferred TTS language. Reads from a window global that
+ * the AITutorChat / Profile set after the Zustand store loads. Avoids a
+ * circular import between this lib and the Zustand store.
+ *
+ * Phase 46: this lets the AI Tutor's voice mode respect the user's
+ * `languageOfInstruction` setting in Profile.
+ */
+export function getPreferredTTSLang(): string | null {
+  if (typeof window === "undefined") return null;
+  const lang = (window as any).__studybuddy_lang_of_instruction as string | undefined;
+  if (lang && LANG_NAME_TO_BCP47[lang]) {
+    return LANG_NAME_TO_BCP47[lang];
+  }
+  return null;
+}
+
+/**
+ * Set the user's preferred TTS language (called by Profile.tsx + AITutorChat.tsx
+ * after the Zustand store loads the languageOfInstruction).
+ *
+ * Phase 46: this is the inverse of getPreferredTTSLang — it lets components
+ * push the current language into a window global without this lib having to
+ * import the store.
+ */
+export function setPreferredTTSLang(langName: string): void {
+  if (typeof window === "undefined") return;
+  (window as any).__studybuddy_lang_of_instruction = langName;
+}
+
+/**
+ * Split text into chunks of <=200 chars by sentence boundaries — works around
+ * the Chrome long-text cutoff bug. Sentences longer than 200 chars are split
+ * at the nearest space.
+ *
+ * Phase 46: enables reading long AI Tutor replies aloud without truncation.
+ */
+function chunkText(text: string, maxLen = 200): string[] {
+  if (text.length <= maxLen) return [text];
+  const chunks: string[] = [];
+  // Split on sentence boundaries (. ? !) followed by space
+  const sentences = text.match(/[^.!?]+[.!?]+(\s|$)|[^.!?]+$/g) ?? [text];
+  let current = "";
+  for (const s of sentences) {
+    const trimmed = s.trim();
+    if (!trimmed) continue;
+    if ((current + " " + trimmed).length > maxLen && current) {
+      chunks.push(current);
+      current = trimmed;
+    } else {
+      current = current ? current + " " + trimmed : trimmed;
+    }
+    // If a single sentence exceeds maxLen, hard-split at word boundaries
+    while (current.length > maxLen) {
+      const slice = current.slice(0, maxLen);
+      const lastSpace = slice.lastIndexOf(" ");
+      if (lastSpace > 0) {
+        chunks.push(current.slice(0, lastSpace));
+        current = current.slice(lastSpace + 1);
+      } else {
+        chunks.push(current.slice(0, maxLen));
+        current = current.slice(maxLen);
+      }
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
+
 /**
  * Speak text using the browser's speechSynthesis.
  * Returns a promise that resolves when speech is finished or cancelled.
+ *
+ * Phase 46 upgrades:
+ *   - Auto-splits long text by sentence boundaries (Chrome bug workaround)
+ *   - Falls back to the user's languageOfInstruction from the Zustand store
+ *     if no `lang` option is passed
  *
  * Usage:
  *   const stop = speak("Hello world", { lang: "en-US" });
@@ -90,38 +175,61 @@ export function browserSpeak(
   // Cancel any ongoing speech first
   window.speechSynthesis.cancel();
 
-  const utterance = new SpeechSynthesisUtterance(text);
-  if (opts.voice) utterance.voice = opts.voice;
-  if (opts.rate !== undefined) utterance.rate = opts.rate;
-  if (opts.pitch !== undefined) utterance.pitch = opts.pitch;
-  if (opts.volume !== undefined) utterance.volume = opts.volume;
-  if (opts.lang) utterance.lang = opts.lang;
+  // Resolve the effective language — explicit option > user preference > default
+  const lang = opts.lang ?? getPreferredTTSLang();
+  const effectiveOpts = lang ? { ...opts, lang } : opts;
 
-  // Auto-pick voice if lang is given but no voice
-  if (!utterance.voice && opts.lang) {
-    const v = pickVoiceForLang(opts.lang);
-    if (v) utterance.voice = v;
-  }
-
-  currentUtterance = utterance;
+  // Phase 46 — split long text into chunks (Chrome bug workaround)
+  const chunks = chunkText(text, 200);
 
   let resolveFn: () => void;
   let rejectFn: (e: Error) => void;
   const promise = new Promise<void>((resolve, reject) => {
     resolveFn = resolve;
     rejectFn = reject;
-    utterance.onend = () => resolve();
-    utterance.onerror = (e) => reject(new Error("Speech error: " + (e as any).error));
   });
 
+  let chunkIdx = 0;
+  let stopped = false;
+
+  const speakChunk = () => {
+    if (stopped) return;
+    if (chunkIdx >= chunks.length) {
+      resolveFn();
+      return;
+    }
+    const utterance = new SpeechSynthesisUtterance(chunks[chunkIdx]);
+    if (effectiveOpts.voice) utterance.voice = effectiveOpts.voice;
+    if (effectiveOpts.rate !== undefined) utterance.rate = effectiveOpts.rate;
+    if (effectiveOpts.pitch !== undefined) utterance.pitch = effectiveOpts.pitch;
+    if (effectiveOpts.volume !== undefined) utterance.volume = effectiveOpts.volume;
+    if (effectiveOpts.lang) utterance.lang = effectiveOpts.lang;
+
+    // Auto-pick voice if lang is given but no voice
+    if (!utterance.voice && effectiveOpts.lang) {
+      const v = pickVoiceForLang(effectiveOpts.lang);
+      if (v) utterance.voice = v;
+    }
+
+    utterance.onend = () => {
+      chunkIdx++;
+      speakChunk();
+    };
+    utterance.onerror = (e) => {
+      if (!stopped) rejectFn(new Error("Speech error: " + (e as any).error));
+    };
+
+    currentUtterance = utterance;
+    window.speechSynthesis.speak(utterance);
+  };
+
+  speakChunk();
+
   const stop = () => {
+    stopped = true;
     window.speechSynthesis.cancel();
     resolveFn();
   };
-
-  // Chrome bug: long text can be cut off. Split by sentence if >200 chars.
-  // For simplicity, we speak the full text and rely on the browser.
-  window.speechSynthesis.speak(utterance);
 
   return { promise, stop };
 }

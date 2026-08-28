@@ -41,7 +41,11 @@ export type Screen =
   | "studyBuddy"
   | "bookshelf"
   | "printableExam"
-  | "examHub";
+  | "examHub"
+  | "studyGroup"
+  | "codeRunner"
+  | "lab"
+  | "calculator";
 
 export type CreateOption =
   | "upload"
@@ -87,6 +91,10 @@ interface AppState {
   setActiveCurriculumTopicId: (id: string | null) => void;
   activeExamId: string | null;
   setActiveExamId: (id: string | null) => void;
+
+  // Phase 46 — active study group (for StudyGroupScreen)
+  activeStudyGroupId: string | null;
+  setActiveStudyGroupId: (id: string | null) => void;
 
   // create modal
   createOpen: boolean;
@@ -147,6 +155,10 @@ export const useApp = create<AppState>((set) => ({
   setActiveCurriculumTopicId: (id) => set({ activeCurriculumTopicId: id }),
   activeExamId: null,
   setActiveExamId: (id) => set({ activeExamId: id }),
+
+  // Phase 46 — active study group
+  activeStudyGroupId: null,
+  setActiveStudyGroupId: (id) => set({ activeStudyGroupId: id }),
 
   createOpen: false,
   createOption: null,

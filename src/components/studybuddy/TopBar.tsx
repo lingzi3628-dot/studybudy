@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Bell, Flame, Coins, Trophy, Zap, CircleDot, Lock, Bot } from "lucide-react";
+import { NotificationPanel } from "./NotificationPanel";
 import { useApp } from "./store";
 
 function TopBarInner({ mobile }: { mobile: boolean }) {
@@ -210,13 +211,8 @@ function TopBarInner({ mobile }: { mobile: boolean }) {
           </div>
         )}
 
-        <button
-          aria-label="Notifications"
-          className="relative w-9 h-9 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-700"
-        >
-          <Bell className="w-5 h-5" />
-          <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full ring-2 ring-white" />
-        </button>
+        {/* Phase 46: Real notifications dropdown — replaces the static Bell icon */}
+        <NotificationPanel />
       </div>
       {!mobile && (
         <div className="flex items-center gap-3">

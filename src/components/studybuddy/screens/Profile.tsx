@@ -27,6 +27,7 @@ import { useApp } from "../store";
 import { api } from "../api";
 import { getUILang, setUILang, type Lang } from "@/lib/i18n";
 import { useI18n } from "@/lib/useI18n";
+import { setPreferredTTSLang } from "./voice-mode";
 import { VisualApiEditor } from "./VisualApiEditor";
 
 const languages = ["English", "Kiswahili", "Chinese", "French", "Spanish", "Arabic"];
@@ -133,12 +134,19 @@ export function Profile() {
 
   const handleLanguageChange = async (v: string) => {
     setLanguageOfInstruction(v);
+    // Phase 46 — push to voice-mode's window global so TTS uses this language
+    setPreferredTTSLang(v);
     try {
       await api.updateUser({ learningLanguage: v });
     } catch (e) {
       // best-effort
     }
   };
+
+  // Phase 46 — sync the languageOfInstruction to voice-mode on mount
+  useEffect(() => {
+    setPreferredTTSLang(languageOfInstruction);
+  }, [languageOfInstruction]);
 
   return (
     <div className="md:px-8 md:py-6">

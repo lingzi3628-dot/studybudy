@@ -23,10 +23,16 @@ import { api, type Progress as ProgressData, type StudySetSummary } from "../api
 import { useI18n } from "@/lib/useI18n";
 
 const quickActions = [
-  { label: "Upload Notes", icon: UploadCloud, color: "bg-indigo-50 text-indigo-600" },
-  { label: "Ask AI Tutor", icon: Bot, color: "bg-violet-50 text-violet-600" },
-  { label: "Draw Graph", icon: LineChart, color: "bg-emerald-50 text-emerald-600" },
-  { label: "Generate Flashcards", icon: Layers, color: "bg-amber-50 text-amber-600" },
+  { label: "Upload Notes", icon: UploadCloud, color: "bg-indigo-50 text-indigo-600", screen: null },
+  { label: "Ask AI Tutor", icon: Bot, color: "bg-violet-50 text-violet-600", screen: "tutor" as const },
+  { label: "Draw Graph", icon: LineChart, color: "bg-emerald-50 text-emerald-600", screen: null },
+  { label: "Generate Flashcards", icon: Layers, color: "bg-amber-50 text-amber-600", screen: null },
+  // Phase 46 — Python code runner
+  { label: "Python Runner", icon: Sparkles, color: "bg-gray-50 text-emerald-600", screen: "codeRunner" as const },
+  // Phase 46 — Lab simulator (PhET embeds)
+  { label: "Lab Simulator", icon: BookOpen, color: "bg-rose-50 text-rose-600", screen: "lab" as const },
+  // Phase 46 — Scientific calculator
+  { label: "Calculator", icon: LineChart, color: "bg-violet-50 text-violet-700", screen: "calculator" as const },
 ];
 
 const subjectGradients: Record<string, string> = {
@@ -182,7 +188,7 @@ export function Home() {
                   return (
                     <button
                       key={q.label}
-                      onClick={() => openCreate()}
+                      onClick={() => q.screen ? setScreen(q.screen) : openCreate()}
                       className="flex flex-col items-start gap-2 p-3.5 rounded-2xl bg-white border border-gray-200 shadow-sm hover:border-indigo-300 hover:shadow-md transition text-left"
                     >
                       <span className={`w-9 h-9 rounded-full flex items-center justify-center ${q.color}`}>

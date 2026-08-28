@@ -78,6 +78,8 @@ model User {
   dailyGoals            DailyGoal[]
   studyGroupsCreated    StudyGroup[]
   studyGroupMemberships StudyGroupMember[]
+  // Phase 46 — group chat
+  studyGroupMessages     StudyGroupMessage[]
   notifications         Notification[]
   // Phase 13 — coin economy
   modelRentals          ModelRental[]
@@ -96,6 +98,9 @@ model User {
   activePaths           UserActivePath[]
   // Phase 18 — school mode
   schoolStudent         SchoolStudent?
+  // Phase 46 — syllabus coverage tracker
+  curriculumTopicProgress CurriculumTopicProgress[]
+  notificationLogs      NotificationLog[]
 
   // Relations for search settings are handled in SearchSettings model
 }
@@ -880,6 +885,8 @@ model StudyGroup {
   topic       Topic?   @relation(fields: [topicId], references: [id], onDelete: SetNull)
   members     StudyGroupMember[]
   bookmarks   Bookmark[]
+  // Phase 46 — group chat
+  messages    StudyGroupMessage[]
 
   @@index([createdById])
 }
@@ -895,6 +902,23 @@ model StudyGroupMember {
 
   @@unique([groupId, userId])
   @@index([groupId])
+}
+
+// Phase 46 — Study-group chat
+// Polling-based (the frontend polls /api/study-groups/[id]/chat?since=ISO every 3s).
+// No websockets required — keeps the deployment simple.
+model StudyGroupMessage {
+  id        String   @id @default(uuid())
+  groupId   String
+  userId    String
+  body      String
+  createdAt DateTime @default(now())
+
+  group     StudyGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([groupId, createdAt])
+  @@index([userId])
 }
 
 model Notification {
@@ -1459,6 +1483,8 @@ model CurriculumTopic {
   subject         CurriculumSubject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
   flashcards      CurriculumFlashcard[]
   quizQuestions   CurriculumQuizQuestion[]
+  // Phase 46 — syllabus coverage tracker
+  userProgress    CurriculumTopicProgress[]
 
   @@index([subjectId])
 }
@@ -1491,6 +1517,30 @@ model CurriculumQuizQuestion {
 
   topic         CurriculumTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
 
+  @@index([topicId])
+}
+
+// Phase 46 — Syllabus coverage tracker
+// One row per (user, curriculumTopic). `status` advances:
+//   'not_started' → 'in_progress' → 'completed'.
+// A topic is 'completed' when the user has at least 1 attempt and TopicMastery
+// for the same (subject, topic name) is >= 0.7 (capacity-engine threshold).
+// This drives the per-subject "X/Y topics completed" ring on the
+// CurriculumSubjectView and PathDashboard screens.
+model CurriculumTopicProgress {
+  id          String   @id @default(uuid())
+  userId      String
+  topicId     String
+  status      String   @default("not_started") // 'not_started' | 'in_progress' | 'completed'
+  startedAt   DateTime?
+  completedAt DateTime?
+  updatedAt   DateTime @updatedAt
+
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topic       CurriculumTopic   @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, topicId])
+  @@index([userId, status])
   @@index([topicId])
 }
 
@@ -1574,6 +1624,8 @@ model NotificationLog {
   status      String   @default("pending")  // 'pending' | 'sent' | 'failed'
   sentAt      DateTime?
   createdAt   DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([status])

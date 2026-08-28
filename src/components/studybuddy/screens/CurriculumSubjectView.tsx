@@ -65,6 +65,8 @@ export function CurriculumSubjectView() {
   const [error, setError] = useState<string | null>(null);
   const [showChatbot, setShowChatbot] = useState(false);
   const [capacity, setCapacity] = useState<any>(null);
+  // Phase 46 — syllabus coverage tracker
+  const [coverage, setCoverage] = useState<{ coveragePct: number; completedTopics: number; totalTopics: number; topics: Array<{ id: string; status: string }> } | null>(null);
 
   useEffect(() => {
     if (!activeCurriculumSubjectId) {
@@ -109,6 +111,19 @@ export function CurriculumSubjectView() {
           if (capRes.ok) {
             const capData = await capRes.json();
             setCapacity(capData.capacity ?? null);
+          }
+        } catch {
+          // best-effort
+        }
+
+        // Phase 46 — fetch syllabus coverage ring
+        try {
+          const covRes = await fetch(
+            `/api/curriculum/coverage?subjectId=${activeCurriculumSubjectId}`
+          );
+          if (covRes.ok) {
+            const covData = await covRes.json();
+            setCoverage(covData);
           }
         } catch {
           // best-effort
@@ -178,6 +193,31 @@ export function CurriculumSubjectView() {
               {subject.gradeName} · {topics.length} topics
             </p>
           </div>
+          {/* Phase 46 — syllabus coverage ring */}
+          {coverage && coverage.totalTopics > 0 && (
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <div className="relative w-10 h-10">
+                <svg className="w-10 h-10 -rotate-90" viewBox="0 0 36 36">
+                  <circle cx="18" cy="18" r="14" fill="none" stroke="#E5E7EB" strokeWidth="3" />
+                  <circle
+                    cx="18" cy="18" r="14" fill="none"
+                    stroke={coverage.coveragePct >= 100 ? "#10B981" : coverage.coveragePct >= 50 ? "#6366F1" : "#F59E0B"}
+                    strokeWidth="3" strokeLinecap="round"
+                    strokeDasharray={`${(coverage.coveragePct / 100) * 88} 88`}
+                  />
+                </svg>
+                <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-gray-900">
+                  {coverage.coveragePct}%
+                </span>
+              </div>
+              <div className="text-right">
+                <p className="text-[10px] font-bold text-gray-900">
+                  {coverage.completedTopics}/{coverage.totalTopics}
+                </p>
+                <p className="text-[9px] text-gray-500">topics done</p>
+              </div>
+            </div>
+          )}
         </div>
       </header>
 
@@ -295,54 +335,78 @@ export function CurriculumSubjectView() {
           </div>
         ) : (
           <ol className="space-y-2">
-            {topics.map((t, i) => (
-              <li key={t.id}>
-                <button
-                  onClick={() => openTopic(t.id)}
-                  className="w-full text-left rounded-2xl bg-white border border-gray-200 shadow-sm hover:shadow-md hover:border-indigo-300 transition-all p-4 flex items-center gap-3"
-                >
-                  {/* Step number */}
-                  <div className="flex-shrink-0 w-10 h-10 rounded-full bg-indigo-600 text-white flex items-center justify-center text-sm font-bold">
-                    {i + 1}
-                  </div>
-
-                  {/* Topic info */}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-bold text-gray-900 truncate">
-                      {t.name}
-                    </p>
-                    {t.summary && (
-                      <p className="text-xs text-gray-500 line-clamp-2 mt-0.5">
-                        {t.summary}
-                      </p>
-                    )}
-                    <div className="flex items-center gap-3 mt-1.5 text-[10px] text-gray-500">
-                      <span className="flex items-center gap-0.5">
-                        <Clock className="w-3 h-3" />
-                        {t.estimatedMin} min
-                      </span>
-                      {t.flashcardCount > 0 && (
-                        <span className="flex items-center gap-0.5">
-                          <Layers className="w-3 h-3" />
-                          {t.flashcardCount} cards
-                        </span>
-                      )}
-                      {t.quizQuestionCount > 0 && (
-                        <span className="flex items-center gap-0.5">
-                          <Brain className="w-3 h-3" />
-                          {t.quizQuestionCount} questions
-                        </span>
-                      )}
+            {topics.map((t, i) => {
+              // Phase 46 — show topic status (completed/in-progress/not-started)
+              const status = coverage?.topics?.find((c) => c.id === t.id)?.status ?? "not_started";
+              const statusIcon = status === "completed" ? "✓" : status === "in_progress" ? "▶" : `${i + 1}`;
+              const statusBg = status === "completed"
+                ? "bg-emerald-600"
+                : status === "in_progress"
+                ? "bg-amber-500"
+                : "bg-indigo-600";
+              return (
+                <li key={t.id}>
+                  <button
+                    onClick={() => openTopic(t.id)}
+                    className="w-full text-left rounded-2xl bg-white border border-gray-200 shadow-sm hover:shadow-md hover:border-indigo-300 transition-all p-4 flex items-center gap-3"
+                  >
+                    {/* Step number / status */}
+                    <div className={`flex-shrink-0 w-10 h-10 rounded-full ${statusBg} text-white flex items-center justify-center text-sm font-bold`}>
+                      {statusIcon}
                     </div>
-                  </div>
 
-                  {/* Start button */}
-                  <span className="flex-shrink-0 px-3 py-1.5 rounded-full bg-indigo-50 text-indigo-700 text-[11px] font-bold flex items-center gap-1">
-                    <Play className="w-3 h-3" /> Start
-                  </span>
-                </button>
-              </li>
-            ))}
+                    {/* Topic info */}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold text-gray-900 truncate">
+                        {t.name}
+                      </p>
+                      {t.summary && (
+                        <p className="text-xs text-gray-500 line-clamp-2 mt-0.5">
+                          {t.summary}
+                        </p>
+                      )}
+                      <div className="flex items-center gap-3 mt-1.5 text-[10px] text-gray-500">
+                        <span className="flex items-center gap-0.5">
+                          <Clock className="w-3 h-3" />
+                          {t.estimatedMin} min
+                        </span>
+                        {t.flashcardCount > 0 && (
+                          <span className="flex items-center gap-0.5">
+                            <Layers className="w-3 h-3" />
+                            {t.flashcardCount} cards
+                          </span>
+                        )}
+                        {t.quizQuestionCount > 0 && (
+                          <span className="flex items-center gap-0.5">
+                            <Brain className="w-3 h-3" />
+                            {t.quizQuestionCount} questions
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Start / Continue / Review button — changes label by status */}
+                    <span
+                      className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[11px] font-bold flex items-center gap-1 ${
+                        status === "completed"
+                          ? "bg-emerald-50 text-emerald-700"
+                          : status === "in_progress"
+                          ? "bg-amber-50 text-amber-700"
+                          : "bg-indigo-50 text-indigo-700"
+                      }`}
+                    >
+                      {status === "completed" ? (
+                        <>Review</>
+                      ) : status === "in_progress" ? (
+                        <><Play className="w-3 h-3" /> Continue</>
+                      ) : (
+                        <><Play className="w-3 h-3" /> Start</>
+                      )}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
           </ol>
         )}
 
