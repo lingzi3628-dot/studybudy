@@ -105,6 +105,12 @@ export function AITutorChat() {
   const [compareResults, setCompareResults] = useState<any[]>([]);
   const [comparing, setComparing] = useState(false);
   const [preferredIndex, setPreferredIndex] = useState<number | null>(null);
+  // Exam generator state
+  const [showExamForm, setShowExamForm] = useState(false);
+  const [examConfig, setExamConfig] = useState({ topic: "", numQuestions: "10", numPages: "2", gradeLevel: "", examType: "mixed", difficulty: "medium" });
+  const [generatingExam, setGeneratingExam] = useState(false);
+  const [examResult, setExamResult] = useState<{ html: string; summary: any } | null>(null);
+  const [viewingExam, setViewingExam] = useState<string | null>(null); // HTML of exam being viewed
   const [loading, setLoading] = useState(true);
   const [showSidebar, setShowSidebar] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -557,7 +563,6 @@ export function AITutorChat() {
     setPreferredIndex(index);
     const winner = compareResults[index];
     if (winner?.modelName && winner.modelName !== currentModel) {
-      // Switch to the preferred model for future questions
       try {
         await fetch("/api/user/model", {
           method: "POST",
@@ -566,6 +571,42 @@ export function AITutorChat() {
         });
         setCurrentModel(winner.modelName);
       } catch {}
+    }
+  };
+
+  // Generate an exam/test via AI
+  const generateExam = async () => {
+    if (!examConfig.topic.trim() || generatingExam) return;
+    setGeneratingExam(true);
+    setShowExamForm(false);
+    try {
+      const r = await fetch("/api/tutor/generate-exam", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          topic: examConfig.topic.trim(),
+          numQuestions: Number(examConfig.numQuestions),
+          numPages: Number(examConfig.numPages),
+          gradeLevel: examConfig.gradeLevel || "General",
+          examType: examConfig.examType,
+          difficulty: examConfig.difficulty,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Generation failed");
+      setExamResult({ html: d.html, summary: d.summary });
+      // Also show a chat message about the exam
+      const aiMsg: ChatMsg = {
+        id: `exam-${Date.now()}`,
+        role: "assistant",
+        content: `📝 I've created an exam on **${d.summary.topic}** with ${d.summary.questionCount} questions (${d.summary.totalMarks} marks) for ${d.summary.gradeLevel} students. Click the exam card below to view, download, or print it!`,
+        createdAt: new Date().toISOString(),
+      };
+      setMessages((m) => [...m, aiMsg]);
+    } catch (e: any) {
+      setError(e?.message ?? "Exam generation failed");
+    } finally {
+      setGeneratingExam(false);
     }
   };
 
@@ -734,6 +775,72 @@ export function AITutorChat() {
     { icon: "⛰️", text: "Draw a contour map showing a hill with 3 elevation levels", category: "General" },
   ];
 
+  // Exam viewer panel — full screen, shows the generated exam HTML
+  if (viewingExam) {
+    return (
+      <div className="fixed inset-0 z-[100] bg-white flex flex-col">
+        <header className="sticky top-0 z-30 bg-white border-b border-gray-200 flex-shrink-0">
+          <div className="flex items-center justify-between h-14 px-4">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setViewingExam(null)}
+                className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-500"
+              >
+                <ChevronLeft className="w-5 h-5" />
+              </button>
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center">
+                <FileText className="w-4 h-4 text-white" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-gray-900 leading-tight">StudyBuddy Exam</p>
+                <p className="text-[10px] text-gray-500 leading-tight">View · Print · Download</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => window.print()}
+                className="px-3 h-8 rounded-full bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 flex items-center gap-1"
+              >
+                🖨️ Print
+              </button>
+              <a
+                href="https://studybuddy.ai"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-3 h-8 rounded-full bg-violet-50 text-violet-700 text-xs font-semibold hover:bg-violet-100 flex items-center gap-1"
+              >
+                StudyBuddy ↗
+              </a>
+            </div>
+          </div>
+        </header>
+        <div className="flex-1 overflow-y-auto bg-gray-100">
+          <div className="max-w-[800px] mx-auto bg-white shadow-lg my-4 min-h-[600px]">
+            <iframe
+              srcDoc={viewingExam}
+              className="w-full h-screen border-none"
+              title="StudyBuddy Exam"
+              style={{ minHeight: "80vh" }}
+            />
+          </div>
+        </div>
+        <div className="flex-shrink-0 bg-white border-t border-gray-200 p-3">
+          <div className="max-w-[800px] mx-auto flex items-center justify-between">
+            <p className="text-xs text-gray-500">
+              📖 Read the exam, then tap "Print" to save as PDF or print at a cyber café
+            </p>
+            <button
+              onClick={() => setViewingExam(null)}
+              className="px-4 h-8 rounded-full bg-gray-100 text-gray-600 text-xs font-semibold hover:bg-gray-200"
+            >
+              ← Back to Chat
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       {/* Header */}
@@ -795,6 +902,16 @@ export function AITutorChat() {
               title="Compare multiple Study Buddies side-by-side"
             >
               <GitBranch className="w-4 h-4" />
+            </button>
+            {/* Exam generator button */}
+            <button
+              onClick={() => setShowExamForm(!showExamForm)}
+              className={`w-8 h-8 rounded-full flex items-center justify-center transition ${
+                showExamForm ? "bg-amber-500 text-white" : "bg-amber-50 text-amber-700 hover:bg-amber-100"
+              }`}
+              title="Generate a printable exam/test"
+            >
+              <FileText className="w-4 h-4" />
             </button>
             {/* Voice mode toggle */}
             <button
@@ -965,6 +1082,103 @@ export function AITutorChat() {
               </div>
             )}
           </div>
+
+          {/* Exam generator form — shown when showExamForm is true */}
+          {showExamForm && (
+            <div className="flex-shrink-0 px-3 py-3 bg-gradient-to-r from-amber-50 to-orange-50 border-t border-amber-200 space-y-2">
+              <div className="flex items-center gap-2">
+                <FileText className="w-4 h-4 text-amber-600" />
+                <p className="text-xs font-bold text-amber-700">📝 Exam Generator — create a printable test on any topic</p>
+              </div>
+              <input
+                type="text"
+                value={examConfig.topic}
+                onChange={(e) => setExamConfig({ ...examConfig, topic: e.target.value })}
+                placeholder="What topic? (e.g. Photosynthesis, Algebra, Kenyan History)"
+                className="w-full px-3 py-1.5 rounded-lg border border-amber-200 text-sm outline-none focus:border-amber-400 bg-white"
+              />
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="text-[10px] font-semibold text-gray-600">Questions</label>
+                  <input type="number" min={5} max={50} value={examConfig.numQuestions}
+                    onChange={(e) => setExamConfig({ ...examConfig, numQuestions: e.target.value })}
+                    className="w-full px-2 py-1 rounded-lg border border-amber-200 text-sm bg-white" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold text-gray-600">Pages</label>
+                  <input type="number" min={1} max={10} value={examConfig.numPages}
+                    onChange={(e) => setExamConfig({ ...examConfig, numPages: e.target.value })}
+                    className="w-full px-2 py-1 rounded-lg border border-amber-200 text-sm bg-white" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold text-gray-600">Grade</label>
+                  <input type="text" value={examConfig.gradeLevel}
+                    onChange={(e) => setExamConfig({ ...examConfig, gradeLevel: e.target.value })}
+                    placeholder="Form 4"
+                    className="w-full px-2 py-1 rounded-lg border border-amber-200 text-sm bg-white" />
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <select value={examConfig.examType}
+                  onChange={(e) => setExamConfig({ ...examConfig, examType: e.target.value })}
+                  className="px-2 py-1 rounded-lg border border-amber-200 text-xs bg-white">
+                  <option value="mixed">Mixed (MCQ + Short Answer)</option>
+                  <option value="mcq">MCQ only</option>
+                  <option value="short_answer">Short Answer only</option>
+                </select>
+                <select value={examConfig.difficulty}
+                  onChange={(e) => setExamConfig({ ...examConfig, difficulty: e.target.value })}
+                  className="px-2 py-1 rounded-lg border border-amber-200 text-xs bg-white">
+                  <option value="easy">Easy</option>
+                  <option value="medium">Medium</option>
+                  <option value="hard">Hard</option>
+                </select>
+              </div>
+              <button
+                onClick={generateExam}
+                disabled={generatingExam || !examConfig.topic.trim()}
+                className="w-full h-9 rounded-full bg-amber-600 text-white text-xs font-semibold hover:bg-amber-700 disabled:opacity-50 flex items-center justify-center gap-1.5"
+              >
+                {generatingExam ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Generating exam…</> : <>📝 Generate Exam</>}
+              </button>
+            </div>
+          )}
+
+          {/* Exam result card — shown when examResult is set */}
+          {examResult && (
+            <div className="flex-shrink-0 px-3 py-3 bg-gradient-to-r from-emerald-50 to-teal-50 border-t border-emerald-200">
+              <div className="rounded-xl bg-white border-2 border-emerald-300 p-4 shadow-md">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center">
+                    <FileText className="w-5 h-5 text-white" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-bold text-gray-900">📝 Exam Ready!</p>
+                    <p className="text-[11px] text-gray-500">
+                      {examResult.summary?.questionCount} questions · {examResult.summary?.totalMarks} marks · {examResult.summary?.gradeLevel} · {examResult.summary?.difficulty}
+                    </p>
+                  </div>
+                </div>
+                <p className="text-xs text-gray-600 mb-3">
+                  Topic: <strong>{examResult.summary?.topic}</strong> — Click below to view, print, or download the exam. You can print it at the nearest cyber café.
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setViewingExam(examResult.html)}
+                    className="flex-1 h-9 rounded-full bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 flex items-center justify-center gap-1"
+                  >
+                    <FileText className="w-3.5 h-3.5" /> Open Exam
+                  </button>
+                  <button
+                    onClick={() => setExamResult(null)}
+                    className="px-3 h-9 rounded-full bg-gray-100 text-gray-600 text-xs font-semibold hover:bg-gray-200"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Model comparison panel — shown when showCompare is true */}
           {showCompare && (
