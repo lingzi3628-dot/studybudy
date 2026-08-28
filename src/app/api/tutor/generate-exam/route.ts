@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { callAI, type ChatMessage } from "@/lib/ai";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+export const maxDuration = 300; // 5 min for large exams
 
 /**
  * POST /api/tutor/generate-exam
@@ -18,11 +18,8 @@ export const maxDuration = 120;
  *   difficulty?: string,    // "easy" | "medium" | "hard"
  * }
  *
- * Generates an exam using AI, returns:
- *   { exam: { title, questions, totalMarks }, html: "...full HTML with StudyBuddy branding..." }
- *
- * The HTML is rendered in a full-screen panel on the client.
- * The user can view, print (→ save as PDF), and download.
+ * For large exams (>15 questions), generates in batches to avoid
+ * AI response truncation.
  */
 export async function POST(req: NextRequest) {
   let user;
@@ -37,90 +34,82 @@ export async function POST(req: NextRequest) {
   const numQuestions = Math.min(50, Math.max(5, Number(body?.numQuestions) || 10));
   const numPages = Math.min(10, Math.max(1, Number(body?.numPages) || 2));
   const gradeLevel = (body?.gradeLevel ?? "").toString().trim() || "General";
-  const examType = (body?.examType ?? "mixed").toString(); // "mcq" | "short_answer" | "mixed"
+  const examType = (body?.examType ?? "mixed").toString();
   const difficulty = (body?.difficulty ?? "medium").toString();
 
   if (!topic) {
     return NextResponse.json({ error: "Topic is required" }, { status: 400 });
   }
 
-  // Generate questions via AI
-  const systemPrompt = `You are an expert exam creator for Kenyan students (CBC/KCSE/KPSEA curriculum).
+  // For large exams (>15 questions), generate in batches to avoid truncation
+  const allQuestions: any[] = [];
+  const batchSize = numQuestions > 15 ? 10 : numQuestions;
+  const numBatches = Math.ceil(numQuestions / batchSize);
 
-Create a ${difficulty} exam on: "${topic}"
+  for (let batch = 0; batch < numBatches; batch++) {
+    const remaining = numQuestions - batch * batchSize;
+    const thisBatchSize = Math.min(batchSize, remaining);
+    const startNum = batch * batchSize + 1;
+
+    const systemPrompt = `You are an expert exam creator for Kenyan students (CBC/KCSE/KPSEA curriculum).
+
+Create ${thisBatchSize} ${difficulty} questions (questions ${startNum} to ${startNum + thisBatchSize - 1}) on: "${topic}"
 Grade level: ${gradeLevel}
-Number of questions: ${numQuestions}
 Exam type: ${examType} (mcq = multiple choice only, short_answer = written answers only, mixed = both)
-Pages: ~${numPages} (affects how detailed each answer should be)
 
 RULES:
 - Questions must be accurate and educational
-- For MCQ: provide 4 options (A, B, C, D) with one correct answer
+- For MCQ: provide 4 options with one correct answer (correctIndex 0-3)
 - For short answer: provide the expected answer and marks
 - Include a mix of question types if examType is "mixed" (~60% MCQ, ~40% short answer)
 - Each question should be worth 1-5 marks
-- Include an answer key at the end
+- Do NOT include an answer key section — just the questions
 
-Return ONLY valid JSON:
-{
-  "title": "Exam: [topic]",
-  "subtitle": "[gradeLevel] · [difficulty] · [numQuestions] questions",
-  "questions": [
-    {
-      "type": "mcq",
-      "number": 1,
-      "question": "...",
-      "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
-      "correctIndex": 0,
-      "marks": 1,
-      "explanation": "Brief explanation of why the answer is correct"
-    },
-    {
-      "type": "short_answer",
-      "number": 6,
-      "question": "...",
-      "answer": "Expected answer...",
-      "marks": 3
-    }
-  ],
-  "totalMarks": 0,
-  "instructions": "Answer ALL questions. Write your answers in the spaces provided."
-}`;
+Return ONLY valid JSON (no markdown, no code blocks):
+{"questions":[{"type":"mcq","number":${startNum},"question":"...","options":["A) ...","B) ...","C) ...","D) ..."],"correctIndex":0,"marks":1,"explanation":"..."},{"type":"short_answer","number":${startNum + 1},"question":"...","answer":"...","marks":3}]}`;
 
-  const messages: ChatMessage[] = [
-    { role: "system", content: systemPrompt },
-    { role: "user", content: `Generate a ${numQuestions}-question ${examType} exam on "${topic}" for ${gradeLevel} students.` },
-  ];
+    const messages: ChatMessage[] = [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: `Generate ${thisBatchSize} questions on "${topic}" for ${gradeLevel} students. Questions numbered ${startNum} to ${startNum + thisBatchSize - 1}.` },
+    ];
 
-  let exam: any = null;
-  try {
-    const reply = await callAI(messages, null, { userId: user.id, route: "/api/tutor/generate-exam" });
-    let cleaned = reply.trim();
-    if (cleaned.startsWith("```")) {
-      cleaned = cleaned.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "");
+    try {
+      const reply = await callAI(messages, null, { userId: user.id, route: "/api/tutor/generate-exam" });
+      let cleaned = reply.trim();
+      // Strip markdown code blocks
+      if (cleaned.startsWith("```")) {
+        cleaned = cleaned.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "");
+      }
+      const firstBrace = cleaned.indexOf("{");
+      const lastBrace = cleaned.lastIndexOf("}");
+      if (firstBrace !== -1 && lastBrace !== -1) {
+        const parsed = JSON.parse(cleaned.slice(firstBrace, lastBrace + 1));
+        if (Array.isArray(parsed.questions)) {
+          allQuestions.push(...parsed.questions);
+        }
+      }
+    } catch (batchErr: any) {
+      console.error(`[generate-exam] Batch ${batch + 1} failed:`, batchErr?.message);
+      // Continue with other batches — partial exam is better than no exam
     }
-    const firstBrace = cleaned.indexOf("{");
-    const lastBrace = cleaned.lastIndexOf("}");
-    if (firstBrace !== -1 && lastBrace !== -1) {
-      exam = JSON.parse(cleaned.slice(firstBrace, lastBrace + 1));
-    }
-  } catch (e: any) {
-    console.error("[generate-exam] AI generation failed:", e?.message);
+  }
+
+  if (allQuestions.length === 0) {
     return NextResponse.json(
-      { error: "AI couldn't generate the exam. Please try again." },
+      { error: "AI couldn't generate any questions. Please try again with fewer questions or a simpler topic." },
       { status: 500 }
     );
   }
 
-  if (!exam || !Array.isArray(exam.questions) || exam.questions.length === 0) {
-    return NextResponse.json(
-      { error: "AI generated an invalid exam. Please try again with different parameters." },
-      { status: 500 }
-    );
-  }
-
-  // Calculate total marks
-  exam.totalMarks = exam.questions.reduce((s: number, q: any) => s + (q.marks ?? 1), 0);
+  // Build the exam object
+  const totalMarks = allQuestions.reduce((s: number, q: any) => s + (q.marks ?? 1), 0);
+  const exam = {
+    title: `Exam: ${topic}`,
+    subtitle: `${gradeLevel} · ${difficulty} · ${allQuestions.length} questions`,
+    questions: allQuestions,
+    totalMarks,
+    instructions: "Answer ALL questions. Write your answers in the spaces provided.",
+  };
 
   // Build the full HTML for the printable exam
   const html = buildExamHTML(exam, topic, gradeLevel, user.name ?? "Student");

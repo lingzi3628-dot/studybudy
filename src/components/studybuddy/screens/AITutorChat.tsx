@@ -604,7 +604,14 @@ export function AITutorChat() {
       };
       setMessages((m) => [...m, aiMsg]);
     } catch (e: any) {
-      setError(e?.message ?? "Exam generation failed");
+      // Show the error as a chat message (not a red banner)
+      const errMsg: ChatMsg = {
+        id: `exam-err-${Date.now()}`,
+        role: "assistant",
+        content: `❌ Couldn't generate the exam: ${e?.message ?? "unknown error"}. Try with fewer questions (e.g. 10) or a simpler topic.`,
+        createdAt: new Date().toISOString(),
+      };
+      setMessages((m) => [...m, errMsg]);
     } finally {
       setGeneratingExam(false);
     }
