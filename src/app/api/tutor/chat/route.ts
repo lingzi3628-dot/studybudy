@@ -6,6 +6,7 @@ import { checkAndDeductTokens, refundTokens } from "@/lib/monetization";
 import { buildTeachingProfile } from "@/lib/aware-engine";
 import { buildCurriculumContextResolved, resolveGrade, getCurriculumForGradeResolved } from "@/lib/curriculum-engine";
 import { runProofEngine } from "@/lib/proof-engine";
+import { validateAndCorrectGraphSpec } from "@/lib/graph-validator";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -284,6 +285,19 @@ CRITICAL RULES FOR THE mathgraph BLOCK:
 - Don't use placeholder data — use the EXACT data the user gave you, or sensible real values matching the user's question.
 - DO NOT output raw SVG, HTML <canvas>, <svg> tags, or any other markup — ONLY the mathgraph JSON spec. The frontend renders it for you.
 - DO NOT describe the graph in prose and then skip the mathgraph block — always include the JSON spec.
+- DO NOT use the wrong graph type — match the type to the user's request:
+  * Physics/data (velocity-time, distance-time) → scatter (NOT function)
+  * Statistics (test scores, frequencies) → bar, histogram, or boxplot
+  * Percentages of a whole → pie
+  * Math equations (y=x^2) → function
+  * Probability outcomes → tree
+  * Sets/unions → venn
+  * Inequalities → numberline
+  * Databases → erdiagram
+  * Spreadsheets → csv
+  * Anything else → freeform (raw SVG)
+- DOUBLE-CHECK your JSON is valid before outputting — no trailing commas, no missing brackets.
+- Include ALL required fields for the chosen type — check the schema reference above.
 
 The "type" field tells the frontend which renderer to use. Available types:
 
@@ -577,18 +591,20 @@ block directly. If the user's grade is known, use it as gradeLevel automatically
         if (spec) foundSpecs.push(spec);
       }
 
-      // 3) Convert each found spec into an attachment
+      // 3) Validate + correct each spec, then convert to attachment
       for (const spec of foundSpecs) {
-        // For backward compat, network-type specs are tagged as "conceptmap" so the
-        // UI shows the Brain icon — UNLESS the spec type is explicitly "network"
-        // (which means it was actually a graph-theory network diagram).
+        // Run the graph validator + auto-corrector
+        const validation = validateAndCorrectGraphSpec(spec);
+        if (!validation.valid) {
+          console.error("[tutor-chat] graph spec invalid:", validation.errors.join("; "));
+          // Skip invalid specs — better no graph than a broken one
+          continue;
+        }
+        const correctedSpec = validation.correctedSpec;
+
         let attachmentType = "graph";
-        if (spec.type === "network") {
-          // Could be a graph-theory network OR a concept map. If the AI used the
-          // old "conceptmap" tag (we already converted that above), or if the
-          // title mentions "concept map" / "mind map", label it as conceptmap.
-          // Otherwise label as graph.
-          const titleLower = (spec.title ?? "").toLowerCase();
+        if (correctedSpec.type === "network") {
+          const titleLower = (correctedSpec.title ?? "").toLowerCase();
           if (/concept map|mind map|mindmap/.test(titleLower) || wantsConceptMap) {
             attachmentType = "conceptmap";
           }
@@ -596,7 +612,7 @@ block directly. If the user's grade is known, use it as gradeLevel automatically
         attachments.push({
           type: attachmentType,
           url: null,
-          caption: JSON.stringify(spec),
+          caption: JSON.stringify(correctedSpec),
         });
       }
 
