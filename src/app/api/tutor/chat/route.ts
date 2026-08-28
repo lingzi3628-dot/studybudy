@@ -373,7 +373,26 @@ CRITICAL RULES — NO MARKDOWN TABLES WHEN A GRAPH IS REQUESTED:
 - Keep answers under 250 words unless asked for detail.
 - Use markdown: **bold**, *italic*, lists (- or 1.), [link](url), \`code\`, fenced code blocks for graphs.
 - For MATH EQUATIONS, use LaTeX syntax: inline math $y = mx + b$ or block math $$\\frac{a}{b} = c$$ or $$x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}$$. The frontend renders these with KaTeX.
-- For SUPERSCRIPTS in plain text, you can also use x², x³, etc. (Unicode), but for complex expressions prefer LaTeX.`;
+- For SUPERSCRIPTS in plain text, you can also use x², x³, etc. (Unicode), but for complex expressions prefer LaTeX.
+
+EXAM GENERATION MODE:
+When the user asks to "test me", "generate an exam", "create a test", "give me questions", "exam me on",
+or similar exam/test/quiz generation requests, include a fenced code block tagged "examgen" with JSON:
+\`\`\`examgen
+{
+  "topic": "what to test on",
+  "numQuestions": 10,
+  "numPages": 3,
+  "gradeLevel": "Form 3",
+  "examType": "kcse_style",
+  "difficulty": "medium"
+}
+\`\`\`
+The frontend will detect this, show a progress bar, generate the exam via the exam engine,
+publish it to the Exam Hub, and show the user a download link. You should also ask the user
+a few clarifying questions if they haven't specified enough (e.g. "How many questions?"
+"How many pages?" "What difficulty?"). If they've given enough info, generate the examgen
+block directly. If the user's grade is known, use it as gradeLevel automatically.`;
 
     const aiMessages: AIMessage[] = [
       { role: "system", content: systemContent },
@@ -594,6 +613,25 @@ CRITICAL RULES — NO MARKDOWN TABLES WHEN A GRAPH IS REQUESTED:
       console.error("[tutor-chat] attachment parse failed:", parseErr?.message);
     }
 
+    // 8b. Parse reply for exam generation blocks (```examgen { ... } ```)
+    let examGenConfig: any = null;
+    try {
+      const examGenMatch = reply.match(/```examgen\s*([\s\S]*?)```/);
+      if (examGenMatch) {
+        let cleaned = examGenMatch[1].trim();
+        if (cleaned.startsWith("```")) {
+          cleaned = cleaned.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "");
+        }
+        const firstBrace = cleaned.indexOf("{");
+        const lastBrace = cleaned.lastIndexOf("}");
+        if (firstBrace !== -1 && lastBrace !== -1) {
+          examGenConfig = JSON.parse(cleaned.slice(firstBrace, lastBrace + 1));
+        }
+      }
+    } catch (examParseErr: any) {
+      console.error("[tutor-chat] examgen parse failed:", examParseErr?.message);
+    }
+
     // 9. Save the AI's reply (with attachments metadata)
     await db.chatMessage.create({
       data: {
@@ -616,6 +654,14 @@ CRITICAL RULES — NO MARKDOWN TABLES WHEN A GRAPH IS REQUESTED:
       conversationId: conversation.id,
       reply,
       attachments: attachments.length > 0 ? attachments : undefined,
+      examGen: examGenConfig ? {
+        topic: examGenConfig.topic ?? "General",
+        numQuestions: Math.min(40, Math.max(5, Number(examGenConfig.numQuestions) || 10)),
+        numPages: Math.min(10, Math.max(1, Number(examGenConfig.numPages) || 2)),
+        gradeLevel: examGenConfig.gradeLevel ?? user.grade ?? "General",
+        examType: examGenConfig.examType ?? "kcse_style",
+        difficulty: examGenConfig.difficulty ?? "medium",
+      } : undefined,
       remaining: deduct.remaining,
       tokenBalance: deduct.newBalance,
     });

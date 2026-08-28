@@ -107,10 +107,94 @@ export function AITutorChat() {
   const [preferredIndex, setPreferredIndex] = useState<number | null>(null);
   // Exam generator state
   const [showExamForm, setShowExamForm] = useState(false);
-  const [examConfig, setExamConfig] = useState({ topic: "", numQuestions: "10", numPages: "2", gradeLevel: "", examType: "mixed", difficulty: "medium" });
+  const [examConfig, setExamConfig] = useState({ topic: "", numQuestions: "10", numPages: "2", gradeLevel: "", examType: "kcse_style", difficulty: "medium" });
   const [generatingExam, setGeneratingExam] = useState(false);
+  const [examProgress, setExamProgress] = useState(0);
   const [examResult, setExamResult] = useState<{ html: string; summary: any } | null>(null);
   const [viewingExam, setViewingExam] = useState<string | null>(null); // HTML of exam being viewed
+
+  // Auto-generate exam from chat (triggered by examgen block in AI reply)
+  const autoGenerateExam = async (config: any) => {
+    setGeneratingExam(true);
+    setExamProgress(0);
+    // Show a progress message in chat
+    const progressMsg: ChatMsg = {
+      id: `exam-progress-${Date.now()}`,
+      role: "assistant",
+      content: `📝 Generating your exam on **${config.topic}**… Please wait while I create ${config.numQuestions} questions.`,
+      createdAt: new Date().toISOString(),
+    };
+    setMessages((m) => [...m, progressMsg]);
+
+    // Simulate progress (the actual generation happens server-side)
+    const progressInterval = setInterval(() => {
+      setExamProgress((p) => Math.min(90, p + Math.random() * 15));
+    }, 2000);
+
+    try {
+      const r = await fetch("/api/tutor/generate-exam", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(config),
+      });
+      const d = await r.json();
+      clearInterval(progressInterval);
+      setExamProgress(100);
+
+      if (!r.ok) throw new Error(d.error ?? "Generation failed");
+
+      // Auto-publish to Exam Hub
+      let examHubId: string | null = null;
+      try {
+        const pubRes = await fetch("/api/admin/exam-papers", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            examType: "ai_template",
+            title: `${config.topic} — ${config.gradeLevel} Exam (${d.summary.questionCount}Q, ${d.summary.totalMarks}M)`,
+            description: `AI-generated exam on ${config.topic} for ${config.gradeLevel}. ${d.summary.questionCount} questions, ${d.summary.totalMarks} marks. Difficulty: ${d.summary.difficulty}.`,
+            category: "studybuddy_ai",
+            gradeLevel: config.gradeLevel,
+            subjectName: config.topic,
+            questions: d.exam.questions,
+            totalMarks: d.summary.totalMarks,
+            durationMin: Math.ceil(d.summary.totalMarks * 1.5),
+            isPublished: true,
+          }),
+        });
+        if (pubRes.ok) {
+          const pubData = await pubRes.json();
+          examHubId = pubData.paper?.id ?? null;
+        }
+      } catch (pubErr: any) {
+        console.error("[autoGenerateExam] publish failed:", pubErr?.message);
+      }
+
+      // Show success message with link
+      const successMsg: ChatMsg = {
+        id: `exam-done-${Date.now()}`,
+        role: "assistant",
+        content: `✅ Your exam on **${config.topic}** is ready!\n\n📊 **${d.summary.questionCount} questions · ${d.summary.totalMarks} marks · ${config.gradeLevel} · ${config.difficulty}**\n\n🔗 Tap the exam card below to view and download it as a PDF.\n\n📢 I've also published this exam to the **Exam Hub** so other students can try it too!`,
+        createdAt: new Date().toISOString(),
+      };
+      setMessages((m) => [...m, successMsg]);
+
+      setExamResult({ html: d.html, summary: { ...d.summary, examHubId } });
+    } catch (e: any) {
+      clearInterval(progressInterval);
+      setExamProgress(0);
+      const errMsg: ChatMsg = {
+        id: `exam-err-${Date.now()}`,
+        role: "assistant",
+        content: `❌ Couldn't generate the exam: ${e?.message ?? "unknown error"}. Try with fewer questions.`,
+        createdAt: new Date().toISOString(),
+      };
+      setMessages((m) => [...m, errMsg]);
+    } finally {
+      setGeneratingExam(false);
+      setTimeout(() => setExamProgress(0), 1000);
+    }
+  };
   const [loading, setLoading] = useState(true);
   const [showSidebar, setShowSidebar] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -256,6 +340,11 @@ export function AITutorChat() {
         createdAt: new Date().toISOString(),
       };
       setMessages((m) => [...m, aiMsg]);
+
+      // If the AI included an examgen block, auto-generate the exam
+      if (d.examGen) {
+        autoGenerateExam(d.examGen);
+      }
 
       if (!activeConversation) {
         setActiveConversation({ id: d.conversationId, title: q.slice(0, 50), updatedAt: new Date().toISOString() });
@@ -786,7 +875,7 @@ export function AITutorChat() {
   if (viewingExam) {
     return (
       <div className="fixed inset-0 z-[100] bg-white flex flex-col">
-        <header className="sticky top-0 z-30 bg-white border-b border-gray-200 flex-shrink-0">
+        <header className="sticky top-0 z-30 bg-white border-b border-gray-200 flex-shrink-0 no-print">
           <div className="flex items-center justify-between h-14 px-4">
             <div className="flex items-center gap-2">
               <button
@@ -800,32 +889,23 @@ export function AITutorChat() {
               </div>
               <div>
                 <p className="text-sm font-bold text-gray-900 leading-tight">StudyBuddy Exam</p>
-                <p className="text-[10px] text-gray-500 leading-tight">View · Print · Download</p>
+                <p className="text-[10px] text-gray-500 leading-tight">View · Download PDF</p>
               </div>
             </div>
             <div className="flex items-center gap-2">
               <button
                 onClick={() => {
-                  // Download as HTML file (user can open in browser → print to PDF)
+                  // Open the exam HTML in a new tab — user can print/save as PDF there
+                  // This ensures the full multi-page content prints correctly (not just the iframe)
                   const blob = new Blob([viewingExam], { type: "text/html;charset=utf-8" });
                   const url = URL.createObjectURL(blob);
-                  const a = document.createElement("a");
-                  a.href = url;
-                  a.download = `studybuddy-exam-${Date.now()}.html`;
-                  document.body.appendChild(a);
-                  a.click();
-                  document.body.removeChild(a);
-                  URL.revokeObjectURL(url);
+                  window.open(url, "_blank");
+                  // Clean up after 10 seconds
+                  setTimeout(() => URL.revokeObjectURL(url), 10000);
                 }}
-                className="px-3 h-8 rounded-full bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 flex items-center gap-1"
-              >
-                💾 Download
-              </button>
-              <button
-                onClick={() => window.print()}
                 className="px-3 h-8 rounded-full bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 flex items-center gap-1"
               >
-                🖨️ Print / Save PDF
+                📄 Download PDF
               </button>
               <a
                 href="https://studybuddy.ai"
@@ -842,16 +922,16 @@ export function AITutorChat() {
           <div className="max-w-[800px] mx-auto bg-white shadow-lg my-4 min-h-[600px]">
             <iframe
               srcDoc={viewingExam}
-              className="w-full h-screen border-none"
+              className="w-full border-none"
               title="StudyBuddy Exam"
-              style={{ minHeight: "80vh" }}
+              style={{ minHeight: "80vh", height: "100%" }}
             />
           </div>
         </div>
         <div className="flex-shrink-0 bg-white border-t border-gray-200 p-3">
           <div className="max-w-[800px] mx-auto flex items-center justify-between">
             <p className="text-xs text-gray-500">
-              📖 Read the exam · 💾 Download the HTML file · 🖨️ Print to save as PDF at a cyber café
+              📖 Read the exam · Tap "📄 Download PDF" to open it in a new tab → Ctrl+P → "Save as PDF"
             </p>
             <button
               onClick={() => setViewingExam(null)}
@@ -1166,6 +1246,19 @@ export function AITutorChat() {
               >
                 {generatingExam ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Generating exam…</> : <>📝 Generate Exam</>}
               </button>
+            </div>
+          )}
+
+          {/* Exam generation progress bar */}
+          {generatingExam && (
+            <div className="flex-shrink-0 px-3 py-3 bg-gradient-to-r from-amber-50 to-orange-50 border-t border-amber-200">
+              <div className="flex items-center gap-2 mb-1.5">
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-600" />
+                <p className="text-xs font-semibold text-amber-700">📝 Generating exam… {Math.round(examProgress)}%</p>
+              </div>
+              <div className="h-2 bg-amber-100 rounded-full overflow-hidden">
+                <div className="h-full bg-amber-500 rounded-full transition-all" style={{ width: `${examProgress}%` }} />
+              </div>
             </div>
           )}
 
@@ -1765,7 +1858,7 @@ function MarkdownContent({ content, isUser }: { content: string; isUser: boolean
       {blocks.map((block, i) => {
         if (block.type === "code") {
           // Skip mathgraph/conceptmap code blocks — they are rendered as attachments
-          if (block.lang === "mathgraph" || block.lang === "conceptmap") return null;
+          if (block.lang === "mathgraph" || block.lang === "conceptmap" || block.lang === "examgen") return null;
           // Also skip JSON / text blocks that look like graph specs (since the
           // server has parsed them into attachments already). Check if the
           // block content starts with `{"type": "..."` where type is one of
