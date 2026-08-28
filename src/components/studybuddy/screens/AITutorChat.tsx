@@ -50,6 +50,8 @@ type ChatMsg = {
   role: "user" | "assistant";
   content: string;
   attachments?: Attachment[];
+  thinking?: string[]; // Proof Data Engine thinking steps
+  proof?: { passed: boolean; curriculumMatch: boolean; readabilityScore: number; factualConfidence: number };
   createdAt: string;
 };
 
@@ -337,6 +339,8 @@ export function AITutorChat() {
         role: "assistant",
         content: d.reply,
         attachments: d.attachments,
+        thinking: d.thinking,
+        proof: d.proof,
         createdAt: new Date().toISOString(),
       };
       setMessages((m) => [...m, aiMsg]);
@@ -1687,6 +1691,14 @@ function MessageBubble({
             </div>
           )}
 
+          {/* Thinking dropdown + proof badges (Phase 42) */}
+          {!isUser && msg.thinking && msg.thinking.length > 0 && (
+            <ThinkingDropdown thinking={msg.thinking} proof={msg.proof} />
+          )}
+          {!isUser && msg.proof && !msg.thinking && (
+            <ProofBadges proof={msg.proof} />
+          )}
+
           {/* Action buttons on AI messages */}
           {!isUser && (
             <div className="flex items-center gap-1 mt-1.5 opacity-0 group-hover:opacity-100 transition">
@@ -2246,6 +2258,81 @@ function CompareCard({ result, onPrefer }: { result: any; onPrefer: () => void }
           👍 I prefer this one
         </button>
       )}
+    </div>
+  );
+}
+
+// =====================================================================
+// ThinkingDropdown — shows the Proof Data Engine's thinking steps
+// in a collapsible dropdown (like DeepSeek/ChatGPT reasoning view)
+// =====================================================================
+function ThinkingDropdown({ thinking, proof }: { thinking: string[]; proof?: any }) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="mt-2 rounded-lg border border-gray-100 overflow-hidden">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full px-3 py-1.5 flex items-center justify-between bg-gray-50 hover:bg-gray-100 transition text-[10px]"
+      >
+        <div className="flex items-center gap-2">
+          <Brain className="w-3 h-3 text-violet-500" />
+          <span className="font-semibold text-gray-600">
+            {expanded ? "Hide thinking" : "Show thinking"} ({thinking.length} steps)
+          </span>
+          {proof && (
+            <div className="flex items-center gap-1.5 ml-1">
+              {proof.curriculumMatch && <span className="text-emerald-500" title="Within curriculum">✓ curriculum</span>}
+              {proof.factualConfidence >= 80 && <span className="text-indigo-500" title="Fact-checked">✓ verified</span>}
+              {proof.readabilityScore >= 70 && <span className="text-amber-500" title="Readable">✓ readable</span>}
+              {!proof.passed && <span className="text-rose-500" title="Has warnings">⚠</span>}
+            </div>
+          )}
+        </div>
+        <ChevronLeft className={`w-3 h-3 text-gray-400 transition-transform ${expanded ? "rotate-90" : "-rotate-90"}`} />
+      </button>
+      {expanded && (
+        <div className="px-3 py-2 space-y-1 bg-white">
+          {thinking.map((step, i) => (
+            <div key={i} className="text-[10px] text-gray-500 font-mono leading-relaxed flex items-start gap-1.5">
+              <span className="text-gray-400 flex-shrink-0">{i + 1}.</span>
+              <span>{step}</span>
+            </div>
+          ))}
+          {proof && (
+            <div className="mt-2 pt-2 border-t border-gray-100 flex flex-wrap gap-2 text-[10px]">
+              <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">
+                Curriculum: {proof.curriculumMatch ? "✓" : "⚠"}
+              </span>
+              <span className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700">
+                Facts: {proof.factualConfidence}%
+              </span>
+              <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">
+                Readability: {proof.readabilityScore}%
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// =====================================================================
+// ProofBadges — compact proof status without thinking dropdown
+// =====================================================================
+function ProofBadges({ proof }: { proof: any }) {
+  return (
+    <div className="mt-1.5 flex gap-1.5 text-[10px]">
+      <span className={`px-2 py-0.5 rounded-full ${proof.curriculumMatch ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>
+        {proof.curriculumMatch ? "✓ Curriculum" : "⚠ Out of curriculum"}
+      </span>
+      <span className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700">
+        Facts: {proof.factualConfidence}%
+      </span>
+      <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">
+        Readability: {proof.readabilityScore}%
+      </span>
     </div>
   );
 }

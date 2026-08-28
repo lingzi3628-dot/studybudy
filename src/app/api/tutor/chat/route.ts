@@ -4,7 +4,8 @@ import { db } from "@/lib/db";
 import { callAI, type ChatMessage as AIMessage } from "@/lib/ai";
 import { checkAndDeductTokens, refundTokens } from "@/lib/monetization";
 import { buildTeachingProfile } from "@/lib/aware-engine";
-import { buildCurriculumContext, getCurriculumForGrade } from "@/lib/curriculum-engine";
+import { buildCurriculumContextResolved, resolveGrade, getCurriculumForGradeResolved } from "@/lib/curriculum-engine";
+import { runProofEngine } from "@/lib/proof-engine";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -229,7 +230,7 @@ export async function POST(req: NextRequest) {
     // Build curriculum context using the CBC curriculum engine (Phase 41)
     // This grounds the AI within the student's grade-level curriculum —
     // the AI should NEVER go outside the curriculum topics.
-    const curriculumContext = buildCurriculumContext(user.grade ?? "Form 1");
+    const curriculumContext = buildCurriculumContextResolved(user.grade ?? "Form 1");
 
     // Also try to fetch admin-uploaded curriculum content from DB (best-effort)
     let dbCurriculumContext = "";
@@ -638,6 +639,23 @@ block directly. If the user's grade is known, use it as gradeLevel automatically
       console.error("[tutor-chat] examgen parse failed:", examParseErr?.message);
     }
 
+    // 8c. Run the Proof Data Engine — validates the reply against curriculum,
+    // checks readability, verifies factual accuracy, and generates thinking steps
+    let proofResult: any = null;
+    try {
+      proofResult = await runProofEngine(reply, user.grade ?? "Form 1", userMessage, user.id);
+
+      // If the proof engine found corrections, append them to the reply
+      if (proofResult.corrections.length > 0) {
+        reply += "\n\n---\n**🔍 Verification Notes:**\n" + proofResult.corrections.join("\n");
+      }
+      if (proofResult.warnings.length > 0) {
+        reply += "\n\n**⚠️ Notes:**\n" + proofResult.warnings.join("\n");
+      }
+    } catch (proofErr: any) {
+      console.error("[tutor-chat] proof engine failed:", proofErr?.message);
+    }
+
     // 9. Save the AI's reply (with attachments metadata)
     await db.chatMessage.create({
       data: {
@@ -667,6 +685,13 @@ block directly. If the user's grade is known, use it as gradeLevel automatically
         gradeLevel: examGenConfig.gradeLevel ?? user.grade ?? "General",
         examType: examGenConfig.examType ?? "kcse_style",
         difficulty: examGenConfig.difficulty ?? "medium",
+      } : undefined,
+      thinking: proofResult?.thinkingSteps ?? [],
+      proof: proofResult ? {
+        passed: proofResult.passed,
+        curriculumMatch: proofResult.curriculumMatch,
+        readabilityScore: proofResult.readabilityScore,
+        factualConfidence: proofResult.factualConfidence,
       } : undefined,
       remaining: deduct.remaining,
       tokenBalance: deduct.newBalance,

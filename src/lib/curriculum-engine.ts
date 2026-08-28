@@ -775,4 +775,81 @@ RULES:
 - If a student asks about a lower-grade topic, briefly review it and connect it to their current curriculum
 - Use age-appropriate language for ${curriculum.level} students
 - Reference specific learning outcomes from the curriculum when teaching`;
+
+}
+
+// =====================================================================
+// GRADE ALIAS RESOLUTION — CBE (Competency Based Education) uses
+// different naming: Grade 10 = Form 1, Grade 11 = Form 2, etc.
+// The old 8-4-4 system uses "Form 1-4" for senior school.
+// CBE uses "Grade 10-12" for senior school.
+// Both systems share the same curriculum content.
+// =====================================================================
+
+const GRADE_ALIASES: Record<string, string> = {
+  "Grade 10": "Form 1",
+  "Grade 11": "Form 2",
+  "Grade 12": "Form 3",
+  "Grade 13": "Form 4",
+  "Form 1": "Form 1",
+  "Form 2": "Form 2",
+  "Form 3": "Form 3",
+  "Form 4": "Form 4",
+};
+
+/**
+ * Resolve a grade name to the canonical key in KENYA_CBC_CURRICULUM.
+ * Handles CBE aliases (Grade 10 → Form 1, etc.) and case variations.
+ */
+export function resolveGrade(grade: string): string {
+  if (!grade) return "Form 1";
+  const trimmed = grade.trim();
+
+  // Direct match
+  if (KENYA_CBC_CURRICULUM[trimmed]) return trimmed;
+
+  // Case-insensitive match
+  const lower = trimmed.toLowerCase();
+  for (const key of Object.keys(KENYA_CBC_CURRICULUM)) {
+    if (key.toLowerCase() === lower) return key;
+  }
+
+  // CBE alias (Grade 10 → Form 1, etc.)
+  if (GRADE_ALIASES[trimmed]) return GRADE_ALIASES[trimmed];
+
+  // Try "grade X" → "Grade X"
+  const gradeMatch = trimmed.match(/grade\s*(\d+)/i);
+  if (gradeMatch) {
+    const gradeNum = parseInt(gradeMatch[1]);
+    if (gradeNum >= 10 && gradeNum <= 13) {
+      const formNum = gradeNum - 9; // Grade 10 = Form 1
+      const formKey = `Form ${formNum}`;
+      if (KENYA_CBC_CURRICULUM[formKey]) return formKey;
+    }
+    const gradeKey = `Grade ${gradeNum}`;
+    if (KENYA_CBC_CURRICULUM[gradeKey]) return gradeKey;
+  }
+
+  // Try "form X" → "Form X"
+  const formMatch = trimmed.match(/form\s*(\d+)/i);
+  if (formMatch) {
+    const formKey = `Form ${formMatch[1]}`;
+    if (KENYA_CBC_CURRICULUM[formKey]) return formKey;
+  }
+
+  return "Form 1"; // Default fallback
+}
+
+/**
+ * Get curriculum for a grade — resolves CBE aliases automatically.
+ */
+export function getCurriculumForGradeResolved(grade: string): CurriculumGrade | null {
+  return getCurriculumForGrade(resolveGrade(grade));
+}
+
+/**
+ * Build curriculum context — resolves CBE aliases automatically.
+ */
+export function buildCurriculumContextResolved(grade: string): string {
+  return buildCurriculumContext(resolveGrade(grade));
 }
