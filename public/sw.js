@@ -1,17 +1,16 @@
 /**
- * StudyBuddy AI Service Worker v56 — Offline Mode
+ * StudyBuddy AI Service Worker v57 — Offline Mode
  *
- * v23-v55 — prior upgrades.
- * v56 — Phase 47: Buddy system foundation
- *   - 8 specialized AI buddies (Study/Dev/Data/ML/Web/Backend/Server/TVET)
- *   - Project + ProjectFile Prisma models (multi-file code projects)
- *   - BuddySwitcher dropdown in AI Tutor header
- *   - ProjectsScreen: list/manage saved projects
- *   - Home "Choose your buddy" grid
- *   - /api/buddies + /api/projects CRUD routes
+ * v23-v56 — prior upgrades.
+ * v57 — Phase 48: DevBuddy — multi-language code runner
+ *   - CodeMirror 6 editor with syntax highlighting (Python/JS/TS/SQL/MD/JSON)
+ *   - JavaScript sandbox via Web Worker (eval + 5s timeout + console capture)
+ *   - DevBuddyScreen with multi-file tabs + Run/Save
+ *   - "Save as project" button in AI Tutor for DevBuddy replies
+ *   - ProjectsScreen "Open" routes dev projects to DevBuddyScreen
  */
 
-const CACHE_VERSION = "studybuddy-v56-offline";
+const CACHE_VERSION = "studybuddy-v57-offline";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const CONTENT_CACHE = `${CACHE_VERSION}-content`;
 const IMAGE_CACHE = `${CACHE_VERSION}-images`;

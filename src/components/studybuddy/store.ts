@@ -46,7 +46,8 @@ export type Screen =
   | "codeRunner"
   | "lab"
   | "calculator"
-  | "projects";
+  | "projects"
+  | "devBuddy";
 
 export type CreateOption =
   | "upload"
@@ -96,6 +97,10 @@ interface AppState {
   // Phase 46 — active study group (for StudyGroupScreen)
   activeStudyGroupId: string | null;
   setActiveStudyGroupId: (id: string | null) => void;
+
+  // Phase 48 — active project id (for DevBuddy / Notebook / Web Builder screens)
+  activeProjectId: string | null;
+  setActiveProjectId: (id: string | null) => void;
 
   // create modal
   createOpen: boolean;
@@ -160,6 +165,10 @@ export const useApp = create<AppState>((set) => ({
   // Phase 46 — active study group
   activeStudyGroupId: null,
   setActiveStudyGroupId: (id) => set({ activeStudyGroupId: id }),
+
+  // Phase 48 — active project id (for DevBuddy / future Notebook / Web Builder)
+  activeProjectId: null,
+  setActiveProjectId: (id) => set({ activeProjectId: id }),
 
   createOpen: false,
   createOption: null,

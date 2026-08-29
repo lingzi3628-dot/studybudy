@@ -355,3 +355,45 @@ Stage Summary:
 - 2 new UI components: BuddySwitcher, ProjectsScreen
 - Build: clean (no new TypeScript errors). Tests: 46/46 pass.
 - Phase 47 unblocks Phase 48 (DevBuddy) — the buddy abstraction, project model, and picker UI are all in place.
+
+---
+Task ID: phase48-devbuddy
+Agent: main
+Task: Phase 48 — DevBuddy: multi-language code runner. The first buddy to ship its full editor + sandbox stack on top of the Phase 47 foundation.
+
+Work Log:
+- Installed 7 npm packages: codemirror, @codemirror/lang-python, @codemirror/lang-javascript, @codemirror/lang-sql, @codemirror/lang-markdown, @codemirror/lang-json, @codemirror/theme-one-dark. Total bundle adds ~150KB gzipped, lazy-loaded only when DevBuddyScreen is opened.
+- Created src/components/studybuddy/screens/CodeEditor.tsx — CodeMirror 6 wrapper supporting 11 languages (python, javascript, typescript, jsx, tsx, sql, markdown, json, html, css, text). Includes line numbers, active-line highlight, One Dark theme, 2-space indent, read-only mode. Exports detectLanguageFromPath() helper for inferring language from file extension.
+- Created src/components/studybuddy/screens/useJSRunner.ts — React hook that runs JavaScript in a Web Worker sandbox. Worker is created from a Blob URL (no separate file needed). Captures console.log/info/warn/error, the last expression's value, and errors with stack traces. 5-second timeout kills infinite loops. stop() terminates the worker mid-execution.
+- Created src/components/studybuddy/screens/DevBuddyScreen.tsx — full-screen code editor:
+  - Header: project title (editable), unsaved-changes indicator, "Saved" toast, Save button
+  - File tabs: one per ProjectFile, click to switch, ★ marks the entry file, × on non-entry files to delete, + button to add a new file (modal with path input + language detection from extension)
+  - Center: CodeEditor for the active file (auto-detects language from path)
+  - Run bar: Run button (label shows active filename), Stop button when running, runtime indicator ("Pyodide" / "Web Worker sandbox" / "Unsupported")
+  - Output panel: console output with error highlighting, duration in ms
+  - Load: GET /api/projects/[id] if activeProjectId set, otherwise creates a temp project with starter main.py
+  - Save: if project has temp id → POST /api/projects (creates with files); else PUT /api/projects/[id]/files (bulk-upserts)
+  - Run: Python files → lazy-load Pyodide (same CDN as Phase 46 CodeRunner); JS/TS files → useJSRunner; other files → "Can't run this file type" message
+- Created src/lib/code-extract.ts — extractCodeFiles(reply) helper that parses AI replies to extract code blocks as Project files. Supports:
+  - Annotated blocks: ```python path="src/main.py" → { path: "src/main.py", language: "python", content: ... }
+  - Plain blocks: ```python → uses default filename (main.py, main.js, etc.)
+  - Skips non-code blocks (mathgraph, examgen, text) UNLESS they have a path= annotation
+  - Marks the first runnable file (python/js/ts) as the entry point
+- Created src/lib/code-extract.test.ts — 17 tests covering annotated/plain blocks, multi-file, mixed languages, non-code skip, edge cases. All 17 pass.
+- Wired store.ts: added "devBuddy" to Screen union + activeProjectId state + setActiveProjectId setter.
+- Wired app/page.tsx: imported DevBuddyScreen, added to immersive list, registered screen router.
+- Updated ProjectsScreen: "Open" button now routes dev-buddy projects to DevBuddyScreen (sets activeProjectId, navigates to "devBuddy"). Other buddies still fall back to AI Tutor until Phase 49+ ships their editors. Added a "New Code Project" button (emerald) that opens DevBuddyScreen with no activeProjectId → creates a temp project with a starter main.py file.
+- Updated AITutorChat.tsx (Phase 48 — Save as project):
+  - Imported extractCodeFiles + Save icon from lucide-react
+  - Added handleSaveAsProject(msg) callback: extracts code files from the reply, POSTs them to /api/projects with the user's first message as the title, then routes to DevBuddyScreen with the new project loaded.
+  - Extended MessageBubble to accept onSaveAsProject prop. The button renders conditionally: only when activeBuddyId is one of ["dev", "web", "backend"] AND the reply contains extractable code blocks. The button shows the file count: "Save as project (3)".
+  - The parent AITutorChat passes onSaveAsProject to MessageBubble only for assistant messages with a code-capable buddy active.
+- Bumped service worker v56 → v57 (cache-busts the old shell so the new screens appear after deploy).
+
+Stage Summary:
+- Phase 48 ships the first complete buddy toolchain: editor + sandbox + save/load + chat integration.
+- New files: src/components/studybuddy/screens/CodeEditor.tsx, src/components/studybuddy/screens/useJSRunner.ts, src/components/studybuddy/screens/DevBuddyScreen.tsx, src/lib/code-extract.ts, src/lib/code-extract.test.ts.
+- Modified files: src/components/studybuddy/store.ts (devBuddy screen + activeProjectId), src/app/page.tsx (router), src/components/studybuddy/screens/ProjectsScreen.tsx (route to DevBuddyScreen + New Code Project button + Sparkles import), src/components/studybuddy/screens/AITutorChat.tsx (Save as project button + extractCodeFiles import + handleSaveAsProject + Save icon), src/components/studybuddy/screens/AITutorChat.tsx MessageBubble (onSaveAsProject prop).
+- Installed: 7 CodeMirror 6 packages (~150KB gzipped, lazy-loaded).
+- Build: clean (fixed 2 template-literal backtick parsing bugs in the Web Worker code string). Tests: 63/63 pass (46 graph-validator + 17 code-extract).
+- Phase 48 unblocks Phase 49 (DataBuddy) — the CodeEditor + Project model + ProjectsScreen routing are all reusable. Phase 49 just adds a NotebookScreen with cell-based UI on top.

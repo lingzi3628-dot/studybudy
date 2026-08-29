@@ -18,7 +18,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import {
-  ChevronLeft, Loader2, AlertCircle, FileCode2, Trash2, Plus, Star, Globe,
+  ChevronLeft, Loader2, AlertCircle, FileCode2, Trash2, Plus, Star, Globe, Sparkles,
 } from "lucide-react";
 import { useApp } from "../store";
 import { isValidBuddyId } from "@/lib/buddies/registry";
@@ -120,11 +120,22 @@ export function ProjectsScreen() {
               Saved code, notebooks, websites, and models across all buddies.
             </p>
           </div>
+          {/* Phase 48 — New blank code project (opens DevBuddyScreen with a temp id) */}
+          <button
+            onClick={() => {
+              (useApp.getState() as any).setActiveProjectId(null);
+              setScreen("devBuddy");
+            }}
+            className="px-3 h-9 rounded-full bg-emerald-600 text-white text-xs font-semibold flex items-center gap-1 hover:bg-emerald-700"
+            title="Open the DevBuddy editor with a new empty project"
+          >
+            <Plus className="w-3.5 h-3.5" /> New Code Project
+          </button>
           <button
             onClick={() => setScreen("tutor")}
             className="px-3 h-9 rounded-full bg-indigo-600 text-white text-xs font-semibold flex items-center gap-1 hover:bg-indigo-700"
           >
-            <Plus className="w-3.5 h-3.5" /> New via AI
+            <Sparkles className="w-3.5 h-3.5" /> New via AI
           </button>
         </div>
 
@@ -223,20 +234,21 @@ export function ProjectsScreen() {
                     </div>
                     <div className="flex gap-1.5 mt-2.5">
                       <button
-                        // Phase 48+ will route to the per-buddy editor:
-                        //   dev → CodeEditor screen (Phase 48)
+                        // Phase 48: dev projects route to DevBuddyScreen.
+                        // Phase 49+ will add the per-buddy editors:
                         //   data → NotebookScreen (Phase 49)
                         //   ml → MLPlayground (Phase 50)
                         //   web → WebBuilderScreen (Phase 51)
                         //   backend → BackendBuddyScreen (Phase 52)
                         //   server → ServerBuddyScreen (Phase 53)
                         //   tvet → TVETBuddyScreen (Phase 54)
-                        // For Phase 47, we open the conversation that generated it (if linked),
-                        // otherwise show a "coming in Phase X" toast.
                         onClick={() => {
-                          if (p.conversationId) {
-                            // Continue in chat — open AI Tutor with this conversation
-                            (useApp.getState() as any).setActiveStudySetId?.(null);
+                          const state = useApp.getState() as any;
+                          if (p.buddyId === "dev") {
+                            state.setActiveProjectId(p.id);
+                            setScreen("devBuddy");
+                          } else if (p.conversationId) {
+                            // No editor yet for this buddy — open AI Tutor with this conversation
                             setScreen("tutor");
                           } else {
                             alert(`The ${meta.displayName} editor ships in Phase ${getPhaseForBuddy(p.buddyId)}. For now, ask the buddy to update it via chat.`);

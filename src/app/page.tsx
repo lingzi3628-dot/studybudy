@@ -48,6 +48,7 @@ import { CodeRunner } from "@/components/studybuddy/screens/CodeRunner";
 import { LabScreen } from "@/components/studybuddy/screens/LabScreen";
 import { CalculatorScreen } from "@/components/studybuddy/screens/CalculatorScreen";
 import { ProjectsScreen } from "@/components/studybuddy/screens/ProjectsScreen";
+import { DevBuddyScreen } from "@/components/studybuddy/screens/DevBuddyScreen";
 
 // Secret admin access code — type this word on the keyboard anywhere
 // in the app to unlock the admin login screen.
@@ -156,7 +157,7 @@ export default function Page() {
   }, [setScreen]);
 
   // Immersive study modes have their own full-screen layout (no top bar / bottom nav).
-  const immersive = ["flashcards", "quiz", "graph", "language", "tutor", "path", "study", "admin", "adminLogin", "landing", "onboarding", "auth", "premium", "conceptMap", "earnCenter", "classroom", "schoolRegister", "schoolDashboard", "schoolSubject", "schoolTimedTest", "familyRegister", "familyChildLogin", "familyDashboard", "curriculumSubject", "curriculumTopic", "exam", "calendar", "timetable", "studyBuddy", "bookshelf", "printableExam", "examHub", "studyGroup", "codeRunner", "lab", "calculator", "projects"];
+  const immersive = ["flashcards", "quiz", "graph", "language", "tutor", "path", "study", "admin", "adminLogin", "landing", "onboarding", "auth", "premium", "conceptMap", "earnCenter", "classroom", "schoolRegister", "schoolDashboard", "schoolSubject", "schoolTimedTest", "familyRegister", "familyChildLogin", "familyDashboard", "curriculumSubject", "curriculumTopic", "exam", "calendar", "timetable", "studyBuddy", "bookshelf", "printableExam", "examHub", "studyGroup", "codeRunner", "lab", "calculator", "projects", "devBuddy"];
 
   if (screen === "onboarding") {
     return (
@@ -227,6 +228,7 @@ export default function Page() {
         {screen === "lab" && <LabScreen />}
         {screen === "calculator" && <CalculatorScreen />}
         {screen === "projects" && <ProjectsScreen />}
+        {screen === "devBuddy" && <DevBuddyScreen />}
         <CreateModal />
       </div>
     );
