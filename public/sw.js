@@ -1,20 +1,18 @@
 /**
- * StudyBuddy AI Service Worker v36 — Offline Mode
+ * StudyBuddy AI Service Worker v55 — Offline Mode
  *
- * v23-v35 — prior upgrades.
- * v36 — Phase 35: backend + UI for AI model management:
- *   1. API key rotation (multiple keys per provider, auto-advance on 429)
- *   2. API fallback chains (priority order + budget-aware skipping)
- *   3. Daily budget caps per provider (auto-skip when reached)
- *   4. Auto health checks (ApiHealthCheck model, admin can trigger + view)
- *   5. Usage analytics (admin dashboard with totals + per-provider breakdown
- *      + mini sparkline of calls per day + 24h/7d/30d range picker)
- *   6. Model comparison endpoint (parallel calls to multiple Study Buddies)
- *   + Health badges on visual API nodes (🟢/🟡/🔴/⚪)
- *   + Per-conversation model switcher (dropdown in AI Tutor header)
+ * v23-v54 — prior upgrades.
+ * v55 — Phase 45+46: 20 new upgrades:
+ *   - AI drawing quality sprint (mathjs, validator hardening, freeform sanitize)
+ *   - Adaptive learning path, syllabus coverage tracker, study-group chat
+ *   - Exam proctoring, Anki/PDF export, Data Saver mode, a11y audit
+ *   - i18n expansion (Arabic + Spanish), notifications end-to-end
+ *   - Leaderboard UI, FSRS-5 flashcards, Python code runner (Pyodide)
+ *   - Lab simulator (PhET), scientific calculator, TTS voice upgrade,
+ *     parent dashboard enhancements
  */
 
-const CACHE_VERSION = "studybuddy-v54-offline";
+const CACHE_VERSION = "studybuddy-v55-offline";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const CONTENT_CACHE = `${CACHE_VERSION}-content`;
 const IMAGE_CACHE = `${CACHE_VERSION}-images`;
