@@ -44,6 +44,19 @@ const subjectGradients: Record<string, string> = {
   default: "from-indigo-500 to-violet-500",
 };
 
+// Phase 47 — the 8 buddies shown in the "Choose your buddy" grid on Home.
+// Each card taps to open AI Tutor with that buddy pre-selected.
+const BUDDY_GRID = [
+  { id: "study",   emoji: "📚", name: "StudyBuddy",    tagline: "K-12 tutor (Kenya CBC / KCSE)",  accent: "from-indigo-500 to-violet-500" },
+  { id: "dev",     emoji: "💻", name: "DevBuddy",      tagline: "Code, debug, refactor, ship",    accent: "from-emerald-500 to-teal-500" },
+  { id: "data",    emoji: "📊", name: "DataBuddy",     tagline: "Notebooks, pandas, SQL, EDA",     accent: "from-sky-500 to-cyan-500" },
+  { id: "ml",      emoji: "🧠", name: "MLBuddy",       tagline: "Train, visualize, evaluate models", accent: "from-violet-500 to-fuchsia-500" },
+  { id: "web",     emoji: "🌐", name: "WebBuddy",      tagline: "Prompt → website → deploy",      accent: "from-amber-500 to-orange-500" },
+  { id: "backend", emoji: "⚙️", name: "BackendBuddy", tagline: "APIs, SQL, databases, servers",  accent: "from-rose-500 to-pink-500" },
+  { id: "server",  emoji: "🖥️", name: "ServerBuddy",  tagline: "Linux, Docker, Nginx, deploy",   accent: "from-gray-700 to-gray-900" },
+  { id: "tvet",    emoji: "🔧", name: "TVETBuddy",    tagline: "Technical & vocational training", accent: "from-amber-600 to-red-600" },
+] as const;
+
 // popular topics carousel
 const popularTopics: { name: string; subject: string; emoji: string }[] = [
   { name: "Quadratic Equations", subject: "Mathematics", emoji: "📈" },
@@ -127,6 +140,40 @@ export function Home() {
           </div>
         ) : (
           <>
+            {/* Phase 47 — Choose your buddy grid (8 specialized AI personas) */}
+            <section className="mt-5">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-gray-900">Choose your buddy</h3>
+                <button
+                  onClick={() => setScreen("projects")}
+                  className="text-xs text-indigo-600 font-medium flex items-center"
+                >
+                  My Projects <ChevronRight className="w-3 h-3" />
+                </button>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {BUDDY_GRID.map((b) => (
+                  <button
+                    key={b.id}
+                    onClick={() => {
+                      // Persist the buddy choice + open AI Tutor
+                      try {
+                        localStorage.setItem("studybuddy_active_buddy", b.id);
+                      } catch { /* ignore */ }
+                      setScreen("tutor");
+                    }}
+                    className="text-left rounded-2xl bg-white border border-gray-200 shadow-sm hover:shadow-md hover:border-indigo-300 transition p-3 flex flex-col gap-1.5"
+                  >
+                    <div className={`w-9 h-9 rounded-xl bg-gradient-to-br ${b.accent} text-white flex items-center justify-center text-lg`}>
+                      {b.emoji}
+                    </div>
+                    <p className="text-xs font-bold text-gray-900">{b.name}</p>
+                    <p className="text-[10px] text-gray-500 line-clamp-2">{b.tagline}</p>
+                  </button>
+                ))}
+              </div>
+            </section>
+
             {/* Bento grid on desktop */}
             <div className="mt-5 md:grid md:grid-cols-3 md:gap-4 space-y-4 md:space-y-0">
               {/* Continue Learning — spans 2 cols on desktop */}

@@ -45,7 +45,8 @@ export type Screen =
   | "studyGroup"
   | "codeRunner"
   | "lab"
-  | "calculator";
+  | "calculator"
+  | "projects";
 
 export type CreateOption =
   | "upload"

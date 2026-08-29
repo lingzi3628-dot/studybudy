@@ -7,6 +7,7 @@ import { buildTeachingProfile } from "@/lib/aware-engine";
 import { buildCurriculumContextResolved, resolveGrade, getCurriculumForGradeResolved } from "@/lib/curriculum-engine";
 import { runProofEngine } from "@/lib/proof-engine";
 import { validateAndCorrectGraphSpec } from "@/lib/graph-validator";
+import { getBuddy, isValidBuddyId, DEFAULT_BUDDY_ID } from "@/lib/buddies/registry";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -43,6 +44,12 @@ export async function POST(req: NextRequest) {
   //   (a) skip the image-search route (saves an external web call)
   //   (b) append a "keep it concise" hint to the system prompt
   const dataSaver = !!body?.dataSaver;
+  // Phase 47: Buddy routing — the client sends the user's selected buddy id.
+  // Falls back to the conversation's buddyId if it was set when the conversation
+  // was created. Defaults to "study" (StudyBuddy) for backward compat.
+  const requestedBuddyId = (body?.buddyId ?? "").toString().trim();
+  const buddyId = isValidBuddyId(requestedBuddyId) ? requestedBuddyId : DEFAULT_BUDDY_ID;
+  const buddy = getBuddy(buddyId);
 
   if (!userMessage && !imageDataUrl) {
     return NextResponse.json({ error: "Message or image is required" }, { status: 400 });
@@ -270,7 +277,17 @@ export async function POST(req: NextRequest) {
       }
     } catch {}
 
-    const systemContent = `You are StudyBuddy, a friendly AI tutor for Kenyan students (CBC / KCSE / KPSEA / KJSEA curriculum). ${teachingProfile.systemPromptSuffix}${curriculumContext}${dbCurriculumContext}${searchContext}
+    // Phase 47 — Build the system prompt.
+    //   - For StudyBuddy (default): keep the existing inline prompt verbatim (backward compat).
+    //   - For other buddies: delegate to the buddy's buildSystemPrompt() function.
+    //     This lets each buddy inject its own domain knowledge + capabilities
+    //     without touching this route.
+    let systemContent: string;
+    if (buddyId === "study") {
+      // Backward-compat path — exact same prompt as Phase 1-46.
+      // This is the StudyBuddy prompt that has been tested and tuned across 46
+      // phases of work. Don't change it without a regression test.
+      systemContent = `You are StudyBuddy, a friendly AI tutor for Kenyan students (CBC / KCSE / KPSEA / KJSEA curriculum). ${teachingProfile.systemPromptSuffix}${curriculumContext}${dbCurriculumContext}${searchContext}
 ${dataSaver ? `\nDATA SAVER MODE is ON. Keep your reply concise — target 1-2 short paragraphs (max ~150 words). Skip verbose examples and unnecessary elaboration. Lead with the direct answer; only add explanation if the user asks for it.\n` : ``}
 
 SPECIAL CAPABILITIES — when the user asks, you can do these (the system has already fetched the content for you, just describe and reference it):
@@ -307,46 +324,10 @@ CRITICAL RULES FOR THE mathgraph BLOCK:
 - Include ALL required fields for the chosen type — check the schema reference above.
 
 The "type" field tells the frontend which renderer to use. Available types:
+1. function 2. scatter 3. bar 4. histogram 5. pie 6. venn 7. numberline 8. tree 9. network 10. vector 11. polygon 12. boxplot 13. slopefield 14. stemleaf 15. frequency_polygon 16. freeform 17. argand 18. contour 19. vectorfield 20. tessellation 21. knot 22. pictogram 23. tally 24. carroll 25. ogive 26. unitcircle 27. transform 28. axes3d 29. twoway 30. erdiagram 31. csv 32. steps
 
-1. function  — { expr: "x^2", xRange, yRange, title, xLabel, yLabel } — y = f(x) plot
-2. scatter   — { points: [[x,y],...], lineOfBestFit: true, xLabel, yLabel, title } — data points + best fit
-3. bar      — { categories: [...], values: [...], xLabel, yLabel, title } — bar chart
-4. histogram — { bins: [{start, end, count},...] } — grouped frequency
-5. pie      — { slices: [{label, value, color?},...] } — pie chart
-6. venn     — { sets: [{label, value?, color?},...] } — 2-3 set Venn
-7. numberline — { range, shadedRange, markers: [{value, label, open}] } — inequality
-8. tree     — { root: { label, children: [{label, probability, children},...] } } — probability tree
-9. network  — { nodes: [{id, label, color?},...], edges: [{from, to, label?}] } — graph theory + concept maps
-10. vector  — { vectors: [{from?, to, label, color?},...], xRange, yRange } — vector arrows
-11. polygon — { vertices: [[x,y],...], labels: [...], showAngles, showSides } — geometric figure
-12. boxplot  — { datasets: [{label, min, q1, median, q3, max, outliers?},...] } — box-and-whisker
-13. slopefield — { expr: "x - y", xRange, yRange, gridSize } — ODE direction field
-14. stemleaf — { data: [...], stemUnit, leafUnit } — stem-and-leaf plot
-15. frequency_polygon — { points: [{midpoint, frequency},...] } OR { bins: [...] } — frequency polygon
-16. freeform — { svg: "<raw SVG markup>", width, height, title } — ANY custom drawing (raw SVG)
-17. argand  — { range, points: [{re, im, label, color?},...] } — complex plane
-18. contour — { levels: [{level, color?, points?},...] } — topographic contour map
-19. vectorfield — { exprP, exprQ, range, gridSize } OR { vectors: [...] } — vector field arrows
-20. tessellation — { tile: "hexagon"|"triangle"|"square", cols, rows, tileSize, colors? } — repeating tiles
-21. knot    — { knotType: "trefoil"|"figure8" } OR { strands: [...], crossings: [...] } — knot diagram
-22. pictogram — { categories: [...], values: [...], symbol: "\u{1F34E}", symbolValue: N } — symbol chart
-23. tally   — { categories: [...], counts: [...] } — tally chart
-24. carroll — { labelX, labelY, attributeX: [yes,no], attributeY: [yes,no], cells: {topLeft:[...],...} } — Carroll diagram
-25. ogive   — { bins: [{start, end, count},...] } OR { points: [[x,y],...] } — cumulative frequency
-26. unitcircle — { angle: degrees } — unit circle with sin/cos projections
-27. transform — { transformType: "reflect"|"rotate"|"translate"|"enlarge", mirrorLine?, original: [[x,y],...], transformed: [[x,y],...], range } — geometric transformation
-28. axes3d  — { range, points: [{x, y, z, label, color?},...] } — 3D coordinate system
-29. twoway  — { rowLabels: [...], colLabels: [...], data: [[...],...], rowLabel, colLabel } — contingency table
-30. erdiagram — { tables: [{name, fields: [{name, type, pk?, fk?},...]}], relationships: [{from: "table.field", to: "table.field", label?}] } — ER diagram
-31. csv     — { headers: [...], rows: [[...],...], downloadName } — spreadsheet with CSV download
-32. steps   — { steps: [{title?, expression?, explanation?},...] } — step-by-step solution
-
-IMPORTANT: Generate the spec data from the USER'S question — do NOT use template/placeholder data.
-Use the exact values the user provided. If the user says "plot (0,0) (1,5) (2,10)", use those exact points.
-If the user says "food capacity: maize 50kg, beans 20kg", use those exact items in the CSV rows.
-
-GENERAL RULES — GENERIC DRAWING PRINCIPLE:
-- ALWAYS pick the MOST APPROPRIATE graph type from the 32 types above. Match by the user's question:
+GENERAL RULES:
+- ALWAYS pick the MOST APPROPRIATE graph type from the 32 types. Match by the user's question:
   * "show 5 apples in pictogram" → pictogram
   * "tally the votes: A=4, B=7" → tally
   * "sort shapes by red AND square" → carroll
@@ -359,73 +340,31 @@ GENERAL RULES — GENERIC DRAWING PRINCIPLE:
   * "Argand diagram of z = 2+i" → argand
   * "trefoil knot" → knot
   * "hexagon tessellation" → tessellation
-  * "build me an Excel sheet / spreadsheet / worksheet for [topic]" → csv (with proper headers + rows + a download button)
-  * "draw a database schema / ER diagram / Access-style tables" → erdiagram (with tables + PKs/FKs + relationships)
-  * "solve ... step by step" / "show your work" / "explain how to solve" → steps (with title, expression, explanation per step)
-  * "phase portrait for spiral" → freeform (no dedicated renderer yet)
-  * "compass-and-straightedge construction" → freeform
-- When the user asks for something you can't express with the 32 specific types,
-  use "freeform" with raw SVG. Be creative — you can draw 3D cubes (with
-  dashed hidden edges), compass constructions (arcs + lines), phase portraits
-  (spiral/saddle/node shapes), contour maps, knot diagrams, tessellations,
-  Möbius strips, etc. Just write the SVG markup directly.
+  * "build me an Excel sheet / spreadsheet / worksheet for [topic]" → csv
+  * "draw a database schema / ER diagram / Access-style tables" → erdiagram
+  * "solve ... step by step" / "show your work" / "explain how to solve" → steps
+- For anything not covered by the 32 types, use "freeform" with raw SVG.
 
 CRITICAL RULES — NO MARKDOWN TABLES WHEN A GRAPH IS REQUESTED:
-- When the user asks for a database, ER diagram, spreadsheet, worksheet, or
-  any structured-data visual, you MUST include a fenced \`\`\`mathgraph ...\`\`\`
-  code block with the appropriate JSON spec ("erdiagram" or "csv"). DO NOT
-  instead show plain markdown tables in your reply prose.
-- Markdown tables (| col1 | col2 |) are FORBIDDEN in database/spreadsheet
-  replies — the rendered ER diagram or CSV preview IS the table. Only the
-  JSON spec inside the mathgraph block contains the data.
-- Your prose should only briefly describe the design (e.g. "Here's a school
-  database with Students, Classes, Teachers plus relationships. Tap a table
-  to edit fields, or use the Edit button to add tables."). Do NOT echo the
-  data in markdown form.
+- For database/spreadsheet requests, ALWAYS include a fenced \`\`\`mathgraph ...\`\`\` code block with the appropriate JSON spec ("erdiagram" or "csv"). Do NOT show plain markdown tables in your reply prose.
+- Markdown tables (| col1 | col2 |) are FORBIDDEN in database/spreadsheet replies — the rendered ER diagram or CSV preview IS the table.
 
-- For spreadsheet/Excel/worksheet requests, ALWAYS use "csv" type with realistic
-  rows matching the user's scenario (food capacity, payment schedule, budget,
-  attendance, inventory, grade book, etc.). Include the column headers
-  matching the user's request.
-- For database requests, ALWAYS use "erdiagram" type with sensible tables
-  (primary keys, foreign keys, types) matching the user's domain (library,
-  school, store, hospital, etc.). Include relationships between FKs and PKs.
-- When the user asks to EDIT an existing database/table/spreadsheet (e.g.
-  "add a column to the Students table" or "remove the Orders table"),
-  include the FULL UPDATED JSON spec in the mathgraph block — not just the
-  change. The frontend replaces the previous graph with the updated one,
-  it does not stack a second graph. Always include the COMPLETE spec.
-- Always include meaningful titles, axis labels, and category labels in the
-  spec — these are shown on the rendered diagram.
+- For spreadsheet/Excel/worksheet requests, ALWAYS use "csv" type with realistic rows matching the user's scenario.
+- For database requests, ALWAYS use "erdiagram" type with sensible tables (PKs, FKs, types) and relationships.
+- When the user asks to EDIT an existing database/table/spreadsheet, include the FULL UPDATED JSON spec — not just the change.
+- Always include meaningful titles, axis labels, and category labels.
+
 - Be encouraging and clear. Reply in the same language the user used (English / Kiswahili / French).
 - Keep answers under 250 words unless asked for detail.
-- Use markdown: **bold**, *italic*, lists (- or 1.), [link](url), \`code\`, fenced code blocks for graphs.
-- For MATH EQUATIONS, use LaTeX syntax: inline math $y = mx + b$ or block math $$\\frac{a}{b} = c$$ or $$x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}$$. The frontend renders these with KaTeX.
-- For SUPERSCRIPTS in plain text, you can also use x², x³, etc. (Unicode), but for complex expressions prefer LaTeX.
+- Use markdown: **bold**, *italic*, lists, [link](url), \`code\`, fenced code blocks.
+- For MATH EQUATIONS, use LaTeX syntax: inline math $y = mx + b$ or block math $$\\frac{a}{b} = c$$. The frontend renders these with KaTeX.
 
 REAL-TIME THINKING:
 Before answering, include your reasoning process inside <thinking>...</thinking> tags at the START of your reply.
-Write your thinking as short, step-by-step notes (one per line) showing how you plan to answer:
-- What the user is asking
-- What curriculum topic this relates to
-- What key concepts you need to explain
-- What examples or diagrams would help
-- How to structure the answer
-
-Example:
-<thinking>
-User is asking about photosynthesis
-This is in Form 3 Biology curriculum
-Key concepts: light energy, chlorophyll, glucose, oxygen
-Should include a diagram of the process
-Structure: definition → equation → steps → importance
-</thinking>
-
-The thinking is shown to the user in a collapsible dropdown. After the thinking block, write your actual answer.
+Write your thinking as short, step-by-step notes (one per line) showing how you plan to answer.
 
 EXAM GENERATION MODE:
-When the user asks to "test me", "generate an exam", "create a test", "give me questions", "exam me on",
-or similar exam/test/quiz generation requests, include a fenced code block tagged "examgen" with JSON:
+When the user asks to "test me", "generate an exam", "create a test", "give me questions", "exam me on", or similar, include a fenced code block tagged "examgen" with JSON:
 \`\`\`examgen
 {
   "topic": "what to test on",
@@ -436,11 +375,26 @@ or similar exam/test/quiz generation requests, include a fenced code block tagge
   "difficulty": "medium"
 }
 \`\`\`
-The frontend will detect this, show a progress bar, generate the exam via the exam engine,
-publish it to the Exam Hub, and show the user a download link. You should also ask the user
-a few clarifying questions if they haven't specified enough (e.g. "How many questions?"
-"How many pages?" "What difficulty?"). If they've given enough info, generate the examgen
-block directly. If the user's grade is known, use it as gradeLevel automatically.`;
+The frontend will detect this, show a progress bar, generate the exam via the exam engine, publish it to the Exam Hub, and show the user a download link.`;
+    } else {
+      // Phase 47 — delegate to the buddy's buildSystemPrompt().
+      // Each buddy (dev, data, ml, web, backend, server, tvet) injects its own
+      // domain knowledge, capabilities, and tone. The shared MATHGRAPH_INSTRUCTIONS
+      // constant in study.ts is reused so all buddies can draw graphs.
+      systemContent = buddy.buildSystemPrompt({
+        userGrade: user.grade,
+        languageOfInstruction: user.learningLanguage,
+        currentModel: user.currentModel,
+        userMessage,
+        dataSaver,
+        searchContext,
+        curriculumContext,
+        dbCurriculumContext,
+        teachingProfileSuffix: teachingProfile.systemPromptSuffix,
+        hasImage: !!imageDataUrl,
+        gradeBand: undefined,
+      });
+    }
 
     const aiMessages: AIMessage[] = [
       { role: "system", content: systemContent },

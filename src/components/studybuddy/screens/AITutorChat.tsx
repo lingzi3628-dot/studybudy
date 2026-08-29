@@ -31,6 +31,8 @@ import {
 import { useApp } from "../store";
 import { GraphRenderer, type GraphSpec } from "./GraphRenderers";
 import katex from "katex";
+import { BuddySwitcher, getStoredBuddyId } from "./BuddySwitcher";
+import type { BuddyId } from "@/lib/buddies/types";
 import {
   isBrowserTTSSupported,
   isBrowserASRSupported,
@@ -102,6 +104,9 @@ export function AITutorChat() {
   const [availableBuddies, setAvailableBuddies] = useState<Array<{ modelName: string; displayName: string; emoji: string; canUse: boolean }>>([]);
   const [currentModel, setCurrentModel] = useState<string>("");
   const [userGrade, setUserGrade] = useState<string>("");
+  // Phase 47 — which buddy is active for this conversation. Read from
+  // localStorage on mount so the user's last choice is remembered.
+  const [activeBuddyId, setActiveBuddyId] = useState<BuddyId>("study");
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [showCompare, setShowCompare] = useState(false);
   const [compareBuddies, setCompareBuddies] = useState<string[]>([]);
@@ -312,6 +317,9 @@ export function AITutorChat() {
           // Phase 45: tell the backend to keep replies short and skip image-search
           // when Data Saver mode is on.
           dataSaver,
+          // Phase 47: tell the backend which buddy is active so it can route
+          // to the right system-prompt builder.
+          buddyId: activeBuddyId,
         }),
       });
       const d = await r.json();
@@ -600,6 +608,9 @@ export function AITutorChat() {
 
   // Load available buddies for per-conversation switching + comparison
   useEffect(() => {
+    // Phase 47 — restore the user's last buddy choice from localStorage
+    setActiveBuddyId(getStoredBuddyId());
+
     Promise.all([fetch("/api/user/models"), fetch("/api/auth/me")])
       .then(async ([mRes, meRes]) => {
         if (mRes.ok) {
@@ -1018,6 +1029,12 @@ export function AITutorChat() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {/* Phase 47 — Buddy switcher (specialized AI persona picker) */}
+            <BuddySwitcher
+              activeBuddyId={activeBuddyId}
+              onBuddyChange={(id) => setActiveBuddyId(id)}
+              compact
+            />
             {/* Per-conversation model switcher (Feature #7) */}
             <div className="relative">
               <button

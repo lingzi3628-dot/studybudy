@@ -312,3 +312,46 @@ Stage Summary:
 - 10 upgrades shipped. New files: src/lib/notifications-send.ts, src/app/api/notifications/send/route.ts, src/app/api/curriculum/coverage/route.ts, src/app/api/study-groups/[id]/chat/route.ts, src/app/api/study-groups/[id]/members/route.ts, src/components/studybuddy/NotificationPanel.tsx, src/components/studybuddy/screens/StudyGroupScreen.tsx, src/components/studybuddy/screens/CodeRunner.tsx, src/components/studybuddy/screens/LabScreen.tsx, src/components/studybuddy/screens/CalculatorScreen.tsx.
 - Modified files: prisma/schema.prisma (+CurriculumTopicProgress, +StudyGroupMessage, +User relations, +NotificationLog.user relation), src/lib/memory.ts (rewritten to FSRS-5), src/components/studybuddy/screens/voice-mode.ts (chunking + lang-of-instruction), src/components/studybuddy/TopBar.tsx, src/components/studybuddy/store.ts (4 new screens + activeStudyGroupId), src/app/page.tsx, src/components/studybuddy/screens/Home.tsx (3 new Quick Actions), src/components/studybuddy/screens/CurriculumSubjectView.tsx (coverage ring + topic status), src/components/studybuddy/screens/Progress.tsx (leaderboard), src/components/studybuddy/screens/Profile.tsx (TTS sync), src/components/studybuddy/screens/ParentDashboard.tsx (alerts + comparison), src/components/studybuddy/screens/StudyRoom.tsx (open group handler), src/app/api/study-sets/[id]/export/{anki,pdf}/route.ts (Promise params).
 - Build: clean. Tests: 46/46 passing. All 20 originally-proposed upgrades now shipped.
+
+---
+Task ID: phase47-foundation
+Agent: main
+Task: Phase 47 — Foundation: Buddy System + Project Model. The abstraction that all 7 future buddies (Phase 48-54) plug into.
+
+Work Log:
+- Created src/lib/buddies/types.ts — Buddy, BuddyMetadata, BuddyId, BuddyCapability, BuddySuggestion, BuddyPromptContext type system. 22 capability flags cover all sandbox/graph/tool types the future phases will plug in.
+- Created src/lib/buddies/study.ts — StudyBuddy definition (wraps Phase 1-46 behavior). Exports MATHGRAPH_INSTRUCTIONS + EXAMGEN_INSTRUCTIONS constants so other buddies can reuse them.
+- Created 7 stub buddy definitions (full system prompts, ready for their phase to add tools):
+  - src/lib/buddies/dev.ts — DevBuddy (Phase 48 will add CodeMirror editor + JS/Go runners)
+  - src/lib/buddies/data.ts — DataBuddy (Phase 49 will add NotebookScreen + datasets)
+  - src/lib/buddies/ml.ts — MLBuddy (Phase 50 will add TensorFlow.js playground)
+  - src/lib/buddies/web.ts — WebBuddy (Phase 51 will add three-pane builder + Vercel deploy)
+  - src/lib/buddies/backend.ts — BackendBuddy (Phase 52 will add SQL playground + API tester)
+  - src/lib/buddies/server.ts — ServerBuddy (Phase 53 will add simulated shell + Docker)
+  - src/lib/buddies/tvet.ts — TVETBuddy (Phase 54 will add trade simulators + CDACC curriculum)
+- Created src/lib/buddies/registry.ts — central registry with getBuddy(id), isValidBuddyId, listBuddies, listBuddyMetadata, DEFAULT_BUDDY_ID.
+- Added Prisma models: Project (id, userId, buddyId, title, description, conversationId, tags, isPublic, starCount) + ProjectFile (id, projectId, path, language, content, isEntry). Added ChatConversation.buddyId column. Added User.projects relation.
+- Created 4 new API routes:
+  - GET /api/buddies — list buddy metadata for the picker UI (never exposes system prompts)
+  - GET/POST /api/projects — list/create projects (filterable by buddyId)
+  - GET/PATCH/DELETE /api/projects/[id] — fetch/update/delete a project (with access control: owner OR public)
+  - GET/PUT/DELETE /api/projects/[id]/files — read/bulk-upsert/delete files (PUT uses a transaction to maintain the isEntry invariant — at most one entry file per project)
+- Modified /api/tutor/chat/route.ts to accept `buddyId` in the request body and route to the buddy's buildSystemPrompt() function. Backward-compat: StudyBuddy (the default) keeps the exact same inline prompt as Phase 1-46 (zero regression risk); all other buddies delegate to their buildSystemPrompt().
+- Created src/components/studybuddy/screens/BuddySwitcher.tsx — dropdown component shown in the AI Tutor header. Shows all 8 buddies with emoji/name/tagline/capability chips/free-vs-premium badge. Persists the user's choice to localStorage via getStoredBuddyId/setStoredBuddyId helpers.
+- Created src/components/studybuddy/screens/ProjectsScreen.tsx — list/manage saved projects. Filter chips per buddy. Each project card shows buddy emoji, title, description, tags, file count, entry file, public badge, star count, last-updated date. "Open" button (Phase 48+ will route to per-buddy editors; for Phase 47 routes back to AI Tutor or shows a "coming in Phase X" message). Delete with confirm + loading state.
+- Wired everything together:
+  - store.ts: added "projects" to the Screen union type
+  - app/page.tsx: registered the new screen + added to immersive list
+  - Home.tsx: added a "Choose your buddy" grid (8 cards, each opens AI Tutor with that buddy pre-selected) + "My Projects" link in the header
+  - AITutorChat.tsx: imported BuddySwitcher + BuddyId type, added activeBuddyId state, restored from localStorage on mount, inserted the BuddySwitcher pill in the header before the model picker, sends buddyId in the /api/tutor/chat request body
+- Bumped service worker to v56 (was v55) so the new screens bust the old cache on next visit.
+
+Stage Summary:
+- 8 buddies registered (Study full, 7 stubs ready for Phase 48-54)
+- 4 new API routes registered: /api/buddies, /api/projects, /api/projects/[id], /api/projects/[id]/files
+- 2 new Prisma models: Project, ProjectFile (with multi-file support + entry-point flag)
+- 1 new Prisma column: ChatConversation.buddyId (default "study" for backward compat)
+- 1 new screen: projects (ProjectsScreen)
+- 2 new UI components: BuddySwitcher, ProjectsScreen
+- Build: clean (no new TypeScript errors). Tests: 46/46 pass.
+- Phase 47 unblocks Phase 48 (DevBuddy) — the buddy abstraction, project model, and picker UI are all in place.

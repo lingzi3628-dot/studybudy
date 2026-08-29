@@ -101,6 +101,8 @@ model User {
   // Phase 46 — syllabus coverage tracker
   curriculumTopicProgress CurriculumTopicProgress[]
   notificationLogs      NotificationLog[]
+  // Phase 47 — buddy system: saved projects
+  projects              Project[]
 
   // Relations for search settings are handled in SearchSettings model
 }
@@ -1868,6 +1870,9 @@ model ChatConversation {
   id          String   @id @default(uuid())
   userId      String
   title       String   @default("New chat")
+  // Phase 47 — which buddy handled this conversation. Defaults to "study"
+  // for backward compat with conversations created before Phase 47.
+  buddyId     String   @default("study")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @default(now()) @updatedAt
 
@@ -1875,6 +1880,7 @@ model ChatConversation {
   
   @@index([userId])
   @@index([updatedAt])
+  @@index([userId, buddyId])
 }
 
 model ChatMessage {
@@ -1890,4 +1896,75 @@ model ChatMessage {
 
   @@index([conversationId])
   @@index([userId])
+}
+
+// =====================================================================
+// Phase 47 — Buddy Foundation: Project + ProjectFile
+// =====================================================================
+// A "Project" is a saved unit of work tied to a specific buddy:
+//   - DevBuddy → code projects (Python/JS/TS multi-file)
+//   - DataBuddy → notebooks (saved as a single .ipynb-style JSON file)
+//   - MLBuddy → trained models (topology + weights as files)
+//   - WebBuddy → generated websites (HTML/CSS/JS bundle)
+//   - BackendBuddy → API projects (Express/FastAPI + schema + openapi.yaml)
+//   - ServerBuddy → deployment configs (Dockerfile, nginx.conf, etc.)
+//   - TVETBuddy → trade exercises (e.g. circuit diagrams, cost estimates)
+//
+// Each project has many ProjectFile rows — one per file. This lets us
+// save multi-file projects (e.g. an Express app with routes/, models/, etc.)
+// and load them back into the editor in Phase 48+.
+
+model Project {
+  id          String   @id @default(uuid())
+  userId      String
+  // Which buddy created this project. Drives which editor opens it.
+  // 'study' | 'dev' | 'data' | 'ml' | 'web' | 'backend' | 'server' | 'tvet'
+  buddyId     String   @default("dev")
+  title       String
+  description String?
+  // Optional: link the project to a specific AI conversation (the one that
+  // generated it). Lets us "Continue in chat" from the project view.
+  conversationId String?
+  // Optional: AI-generated tags for search/filter (e.g. ["python", "ml", "iris"])
+  tags        String[]
+  // Whether the project is shared publicly at /u/[user]/projects/[id]
+  isPublic    Boolean  @default(false)
+  // Stars from other users (for the public gallery)
+  starCount   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  files          ProjectFile[]
+  // conversation   ChatConversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  @@index([userId, buddyId])
+  @@index([userId, updatedAt])
+  @@index([isPublic])
+  @@index([starCount])
+}
+
+model ProjectFile {
+  id        String   @id @default(uuid())
+  projectId String
+  // Path within the project (e.g. "src/index.ts", "README.md", "openapi.yaml")
+  path      String
+  // Programming language for syntax highlighting. Stored as a string so we
+  // can support any language without an enum migration.
+  // 'python' | 'javascript' | 'typescript' | 'go' | 'rust' | 'sql' |
+  // 'html' | 'css' | 'json' | 'yaml' | 'markdown' | 'bash' | 'text'
+  language  String   @default("text")
+  // File contents. Using @db.Text for unlimited length (Postgres TEXT).
+  // For SQLite local dev, falls back to String (max ~1GB anyway).
+  content   String
+  // Whether the file is the entry point (e.g. main.py, index.html, app.py).
+  // Set by the buddy when it generates the project.
+  isEntry   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, path])
+  @@index([projectId])
 }

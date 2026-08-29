@@ -1,18 +1,17 @@
 /**
- * StudyBuddy AI Service Worker v55 — Offline Mode
+ * StudyBuddy AI Service Worker v56 — Offline Mode
  *
- * v23-v54 — prior upgrades.
- * v55 — Phase 45+46: 20 new upgrades:
- *   - AI drawing quality sprint (mathjs, validator hardening, freeform sanitize)
- *   - Adaptive learning path, syllabus coverage tracker, study-group chat
- *   - Exam proctoring, Anki/PDF export, Data Saver mode, a11y audit
- *   - i18n expansion (Arabic + Spanish), notifications end-to-end
- *   - Leaderboard UI, FSRS-5 flashcards, Python code runner (Pyodide)
- *   - Lab simulator (PhET), scientific calculator, TTS voice upgrade,
- *     parent dashboard enhancements
+ * v23-v55 — prior upgrades.
+ * v56 — Phase 47: Buddy system foundation
+ *   - 8 specialized AI buddies (Study/Dev/Data/ML/Web/Backend/Server/TVET)
+ *   - Project + ProjectFile Prisma models (multi-file code projects)
+ *   - BuddySwitcher dropdown in AI Tutor header
+ *   - ProjectsScreen: list/manage saved projects
+ *   - Home "Choose your buddy" grid
+ *   - /api/buddies + /api/projects CRUD routes
  */
 
-const CACHE_VERSION = "studybuddy-v55-offline";
+const CACHE_VERSION = "studybuddy-v56-offline";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const CONTENT_CACHE = `${CACHE_VERSION}-content`;
 const IMAGE_CACHE = `${CACHE_VERSION}-images`;
