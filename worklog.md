@@ -397,3 +397,37 @@ Stage Summary:
 - Installed: 7 CodeMirror 6 packages (~150KB gzipped, lazy-loaded).
 - Build: clean (fixed 2 template-literal backtick parsing bugs in the Web Worker code string). Tests: 63/63 pass (46 graph-validator + 17 code-extract).
 - Phase 48 unblocks Phase 49 (DataBuddy) — the CodeEditor + Project model + ProjectsScreen routing are all reusable. Phase 49 just adds a NotebookScreen with cell-based UI on top.
+
+---
+Task ID: phase49-databuddy
+Agent: main
+Task: Phase 49 — DataBuddy: in-browser Jupyter-style notebooks. Runs 100% in the browser via Pyodide + pandas + matplotlib with persistent kernel state across cells.
+
+Work Log:
+- Created src/lib/notebook-engine.ts — NotebookKernel class wrapping Pyodide with persistent global scope. Variables from one cell are visible in the next (like a real Jupyter kernel). Features:
+  - Lazy-load Pyodide on first cell run (shared with CodeRunner/DevBuddy via window global)
+  - Matplotlib Agg backend pre-configured → figures captured as base64 PNG via _studybuddy_get_figures()
+  - Pre-loaded datasets module (studybuddy.datasets.load_dataset) — wraps seaborn's load_dataset + URL fallback for iris, titanic, tips, planets, flights, mpg
+  - reset() clears all user variables and closes all matplotlib figures
+  - runCell(code) returns { stdout, stderr, outputs[], executionCount, durationMs }
+- Created src/components/studybuddy/screens/NotebookScreen.tsx — full-screen cell-based UI:
+  - Cell types: code (CodeEditor + output) and markdown (rendered + edit toggle)
+  - Per-cell toolbar: Run (code only), + Code, + MD, Delete (hover-visible)
+  - Header: editable title, dirty indicator, Save, Run All, Reset Kernel
+  - Cell outputs rendered as: text (pre), image (base64 PNG), table (HTML), error (rose box)
+  - Simple inline markdown renderer (headings, bold, italic, code, links, paragraphs)
+  - Starter notebook: markdown intro cell + titanic dataset exploration cell + matplotlib bar chart cell
+- Persistence: notebook saved as single `notebook.ipynb` JSON file in a Project with buddyId="data". JSON structure: { nbformat, cells: [{ id, type, source, outputs, executionCount }] }. Saved via POST /api/projects (new) or PUT /api/projects/[id]/files (existing).
+- Wired store.ts: added "notebook" to Screen union type.
+- Wired app/page.tsx: imported NotebookScreen, added to immersive list, registered screen router.
+- Updated ProjectsScreen:
+  - Added "New Notebook" button (sky-blue, Database icon) that opens NotebookScreen with a starter notebook
+  - Updated "Open" button routing: dev projects → DevBuddyScreen (Phase 48), data projects → NotebookScreen (Phase 49), other buddies → AI Tutor fallback
+- Build: clean (Compiled successfully in 40s). Tests: 63/63 pass. Service worker: v57 → v58.
+
+Stage Summary:
+- Phase 49 ships the second buddy toolchain: notebook engine + cell UI + dataset loading + matplotlib capture + save/load.
+- New files: src/lib/notebook-engine.ts, src/components/studybuddy/screens/NotebookScreen.tsx.
+- Modified files: src/components/studybuddy/store.ts (notebook screen), src/app/page.tsx (router + import), src/components/studybuddy/screens/ProjectsScreen.tsx (New Notebook button + Open routes data → notebook + Database import), public/sw.js (v58).
+- No new npm packages — reuses CodeEditor (Phase 48), Pyodide (Phase 46), and Project model (Phase 47).
+- Phase 49 unblocks Phase 50 (MLBuddy) — the NotebookKernel + cell UI are reusable. Phase 50 will add TensorFlow.js training on top.

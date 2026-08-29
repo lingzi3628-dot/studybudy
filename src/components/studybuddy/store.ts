@@ -47,7 +47,8 @@ export type Screen =
   | "lab"
   | "calculator"
   | "projects"
-  | "devBuddy";
+  | "devBuddy"
+  | "notebook";
 
 export type CreateOption =
   | "upload"

@@ -1,16 +1,18 @@
 /**
- * StudyBuddy AI Service Worker v57 — Offline Mode
+ * StudyBuddy AI Service Worker v58 — Offline Mode
  *
- * v23-v56 — prior upgrades.
- * v57 — Phase 48: DevBuddy — multi-language code runner
- *   - CodeMirror 6 editor with syntax highlighting (Python/JS/TS/SQL/MD/JSON)
- *   - JavaScript sandbox via Web Worker (eval + 5s timeout + console capture)
- *   - DevBuddyScreen with multi-file tabs + Run/Save
- *   - "Save as project" button in AI Tutor for DevBuddy replies
- *   - ProjectsScreen "Open" routes dev projects to DevBuddyScreen
+ * v23-v57 — prior upgrades.
+ * v58 — Phase 49: DataBuddy — in-browser Jupyter notebook
+ *   - NotebookKernel: persistent Pyodide kernel (variables survive across cells)
+ *   - NotebookScreen: cell-based UI (code + markdown cells)
+ *   - Pre-loaded datasets: iris, titanic, tips, planets, flights, mpg
+ *   - Matplotlib figure capture (Agg → base64 PNG inline)
+ *   - DataFrame table rendering
+ *   - Save as notebook.ipynb JSON in a data Project
+ *   - "New Notebook" button on ProjectsScreen
  */
 
-const CACHE_VERSION = "studybuddy-v57-offline";
+const CACHE_VERSION = "studybuddy-v58-offline";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const CONTENT_CACHE = `${CACHE_VERSION}-content`;
 const IMAGE_CACHE = `${CACHE_VERSION}-images`;

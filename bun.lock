@@ -5,6 +5,12 @@
     "": {
       "name": "nextjs_tailwind_shadcn_ts",
       "dependencies": {
+        "@codemirror/lang-javascript": "^6.2.5",
+        "@codemirror/lang-json": "^6.0.2",
+        "@codemirror/lang-markdown": "^6.5.2",
+        "@codemirror/lang-python": "^6.2.1",
+        "@codemirror/lang-sql": "^6.10.0",
+        "@codemirror/theme-one-dark": "^6.1.3",
         "@dagrejs/dagre": "^3.1.1",
         "@dnd-kit/core": "^6.3.1",
         "@dnd-kit/sortable": "^10.0.0",
@@ -48,6 +54,7 @@
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
         "cmdk": "^1.1.1",
+        "codemirror": "^6.0.2",
         "dagre": "^0.8.5",
         "date-fns": "^4.1.0",
         "embla-carousel-react": "^8.6.0",
@@ -158,7 +165,7 @@
 
     "@codemirror/lang-java": ["@codemirror/lang-java@6.0.2", "https://registry.npmjs.com/@codemirror/lang-java/-/lang-java-6.0.2.tgz", { "dependencies": { "@codemirror/language": "^6.0.0", "@lezer/java": "^1.0.0" } }, "sha512-m5Nt1mQ/cznJY7tMfQTJchmrjdjQ71IDs+55d1GAa8DGaB8JXWsVCkVT284C3RTASaY43YknrK2X3hPO/J3MOQ=="],
 
-    "@codemirror/lang-javascript": ["@codemirror/lang-javascript@6.2.4", "https://registry.npmjs.com/@codemirror/lang-javascript/-/lang-javascript-6.2.4.tgz", { "dependencies": { "@codemirror/autocomplete": "^6.0.0", "@codemirror/language": "^6.6.0", "@codemirror/lint": "^6.0.0", "@codemirror/state": "^6.0.0", "@codemirror/view": "^6.17.0", "@lezer/common": "^1.0.0", "@lezer/javascript": "^1.0.0" } }, "sha512-0WVmhp1QOqZ4Rt6GlVGwKJN3KW7Xh4H2q8ZZNGZaP6lRdxXJzmjm4FqvmOojVj6khWJHIb9sp7U/72W7xQgqAA=="],
+    "@codemirror/lang-javascript": ["@codemirror/lang-javascript@6.2.5", "", { "dependencies": { "@codemirror/autocomplete": "^6.0.0", "@codemirror/language": "^6.6.0", "@codemirror/lint": "^6.0.0", "@codemirror/state": "^6.0.0", "@codemirror/view": "^6.17.0", "@lezer/common": "^1.0.0", "@lezer/javascript": "^1.0.0" } }, "sha512-zD4e5mS+50htS7F+TYjBPsiIFGanfVqg4HyUz6WNFikgOPf2BgKlx+TQedI1w6n/IqRBVBbBWmGFdLB/7uxO4A=="],
 
     "@codemirror/lang-jinja": ["@codemirror/lang-jinja@6.0.0", "https://registry.npmjs.com/@codemirror/lang-jinja/-/lang-jinja-6.0.0.tgz", { "dependencies": { "@codemirror/lang-html": "^6.0.0", "@codemirror/language": "^6.0.0", "@lezer/common": "^1.2.0", "@lezer/highlight": "^1.2.0", "@lezer/lr": "^1.4.0" } }, "sha512-47MFmRcR8UAxd8DReVgj7WJN1WSAMT7OJnewwugZM4XiHWkOjgJQqvEM1NpMj9ALMPyxmlziEI1opH9IaEvmaw=="],
 
@@ -168,7 +175,7 @@
 
     "@codemirror/lang-liquid": ["@codemirror/lang-liquid@6.3.1", "https://registry.npmjs.com/@codemirror/lang-liquid/-/lang-liquid-6.3.1.tgz", { "dependencies": { "@codemirror/autocomplete": "^6.0.0", "@codemirror/lang-html": "^6.0.0", "@codemirror/language": "^6.0.0", "@codemirror/state": "^6.0.0", "@codemirror/view": "^6.0.0", "@lezer/common": "^1.0.0", "@lezer/highlight": "^1.0.0", "@lezer/lr": "^1.3.1" } }, "sha512-S/jE/D7iij2Pu70AC65ME6AYWxOOcX20cSJvaPgY5w7m2sfxsArAcUAuUgm/CZCVmqoi9KiOlS7gj/gyLipABw=="],
 
-    "@codemirror/lang-markdown": ["@codemirror/lang-markdown@6.5.0", "https://registry.npmjs.com/@codemirror/lang-markdown/-/lang-markdown-6.5.0.tgz", { "dependencies": { "@codemirror/autocomplete": "^6.7.1", "@codemirror/lang-html": "^6.0.0", "@codemirror/language": "^6.3.0", "@codemirror/state": "^6.0.0", "@codemirror/view": "^6.0.0", "@lezer/common": "^1.2.1", "@lezer/markdown": "^1.0.0" } }, "sha512-0K40bZ35jpHya6FriukbgaleaqzBLZfOh7HuzqbMxBXkbYMJDxfF39c23xOgxFezR+3G+tR2/Mup+Xk865OMvw=="],
+    "@codemirror/lang-markdown": ["@codemirror/lang-markdown@6.5.2", "", { "dependencies": { "@codemirror/autocomplete": "^6.7.1", "@codemirror/lang-html": "^6.0.0", "@codemirror/language": "^6.3.0", "@codemirror/state": "^6.0.0", "@codemirror/view": "^6.0.0", "@lezer/common": "^1.2.1", "@lezer/markdown": "^1.0.0" } }, "sha512-AwBOdkWYuA//WcM0xO5PfHPUcmz/O2i5o0Nsg1U69SII/loCJlFI1Romd9xp2HYb1kYJRGZotyqRghuHH5n8Kw=="],
 
     "@codemirror/lang-php": ["@codemirror/lang-php@6.0.2", "https://registry.npmjs.com/@codemirror/lang-php/-/lang-php-6.0.2.tgz", { "dependencies": { "@codemirror/lang-html": "^6.0.0", "@codemirror/language": "^6.0.0", "@codemirror/state": "^6.0.0", "@lezer/common": "^1.0.0", "@lezer/php": "^1.0.0" } }, "sha512-ZKy2v1n8Fc8oEXj0Th0PUMXzQJ0AIR6TaZU+PbDHExFwdu+guzOA4jmCHS1Nz4vbFezwD7LyBdDnddSJeScMCA=="],
 
@@ -201,6 +208,8 @@
     "@codemirror/search": ["@codemirror/search@6.6.0", "https://registry.npmjs.com/@codemirror/search/-/search-6.6.0.tgz", { "dependencies": { "@codemirror/state": "^6.0.0", "@codemirror/view": "^6.37.0", "crelt": "^1.0.5" } }, "sha512-koFuNXcDvyyotWcgOnZGmY7LZqEOXZaaxD/j6n18TCLx2/9HieZJ5H6hs1g8FiRxBD0DNfs0nXn17g872RmYdw=="],
 
     "@codemirror/state": ["@codemirror/state@6.5.4", "https://registry.npmjs.com/@codemirror/state/-/state-6.5.4.tgz", { "dependencies": { "@marijn/find-cluster-break": "^1.0.0" } }, "sha512-8y7xqG/hpB53l25CIoit9/ngxdfoG+fx+V3SHBrinnhOtLvKHRyAJJuHzkWrR4YXXLX8eXBsejgAAxHUOdW1yw=="],
+
+    "@codemirror/theme-one-dark": ["@codemirror/theme-one-dark@6.1.3", "", { "dependencies": { "@codemirror/language": "^6.0.0", "@codemirror/state": "^6.0.0", "@codemirror/view": "^6.0.0", "@lezer/highlight": "^1.0.0" } }, "sha512-NzBdIvEJmx6fjeremiGp3t/okrLPYT0d9orIc7AFun8oZcRk58aejkqhv6spnz4MLAevrKNPMQYXEWMg4s+sKA=="],
 
     "@codemirror/view": ["@codemirror/view@6.39.11", "https://registry.npmjs.com/@codemirror/view/-/view-6.39.11.tgz", { "dependencies": { "@codemirror/state": "^6.5.0", "crelt": "^1.0.6", "style-mod": "^4.1.0", "w3c-keyname": "^2.2.4" } }, "sha512-bWdeR8gWM87l4DB/kYSF9A+dVackzDb/V56Tq7QVrQ7rn86W0rgZFtlL3g3pem6AeGcb9NQNoy3ao4WpW4h5tQ=="],
 
@@ -2226,6 +2235,18 @@
 
     "@babel/helper-compilation-targets/semver": ["semver@6.3.1", "https://registry.npmjs.com/semver/-/semver-6.3.1.tgz", { "bin": { "semver": "bin/semver.js" } }, "sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA=="],
 
+    "@codemirror/lang-angular/@codemirror/lang-javascript": ["@codemirror/lang-javascript@6.2.4", "https://registry.npmjs.com/@codemirror/lang-javascript/-/lang-javascript-6.2.4.tgz", { "dependencies": { "@codemirror/autocomplete": "^6.0.0", "@codemirror/language": "^6.6.0", "@codemirror/lint": "^6.0.0", "@codemirror/state": "^6.0.0", "@codemirror/view": "^6.17.0", "@lezer/common": "^1.0.0", "@lezer/javascript": "^1.0.0" } }, "sha512-0WVmhp1QOqZ4Rt6GlVGwKJN3KW7Xh4H2q8ZZNGZaP6lRdxXJzmjm4FqvmOojVj6khWJHIb9sp7U/72W7xQgqAA=="],
+
+    "@codemirror/lang-html/@codemirror/lang-javascript": ["@codemirror/lang-javascript@6.2.4", "https://registry.npmjs.com/@codemirror/lang-javascript/-/lang-javascript-6.2.4.tgz", { "dependencies": { "@codemirror/autocomplete": "^6.0.0", "@codemirror/language": "^6.6.0", "@codemirror/lint": "^6.0.0", "@codemirror/state": "^6.0.0", "@codemirror/view": "^6.17.0", "@lezer/common": "^1.0.0", "@lezer/javascript": "^1.0.0" } }, "sha512-0WVmhp1QOqZ4Rt6GlVGwKJN3KW7Xh4H2q8ZZNGZaP6lRdxXJzmjm4FqvmOojVj6khWJHIb9sp7U/72W7xQgqAA=="],
+
+    "@codemirror/lang-vue/@codemirror/lang-javascript": ["@codemirror/lang-javascript@6.2.4", "https://registry.npmjs.com/@codemirror/lang-javascript/-/lang-javascript-6.2.4.tgz", { "dependencies": { "@codemirror/autocomplete": "^6.0.0", "@codemirror/language": "^6.6.0", "@codemirror/lint": "^6.0.0", "@codemirror/state": "^6.0.0", "@codemirror/view": "^6.17.0", "@lezer/common": "^1.0.0", "@lezer/javascript": "^1.0.0" } }, "sha512-0WVmhp1QOqZ4Rt6GlVGwKJN3KW7Xh4H2q8ZZNGZaP6lRdxXJzmjm4FqvmOojVj6khWJHIb9sp7U/72W7xQgqAA=="],
+
+    "@codemirror/language-data/@codemirror/lang-javascript": ["@codemirror/lang-javascript@6.2.4", "https://registry.npmjs.com/@codemirror/lang-javascript/-/lang-javascript-6.2.4.tgz", { "dependencies": { "@codemirror/autocomplete": "^6.0.0", "@codemirror/language": "^6.6.0", "@codemirror/lint": "^6.0.0", "@codemirror/state": "^6.0.0", "@codemirror/view": "^6.17.0", "@lezer/common": "^1.0.0", "@lezer/javascript": "^1.0.0" } }, "sha512-0WVmhp1QOqZ4Rt6GlVGwKJN3KW7Xh4H2q8ZZNGZaP6lRdxXJzmjm4FqvmOojVj6khWJHIb9sp7U/72W7xQgqAA=="],
+
+    "@codemirror/language-data/@codemirror/lang-markdown": ["@codemirror/lang-markdown@6.5.0", "https://registry.npmjs.com/@codemirror/lang-markdown/-/lang-markdown-6.5.0.tgz", { "dependencies": { "@codemirror/autocomplete": "^6.7.1", "@codemirror/lang-html": "^6.0.0", "@codemirror/language": "^6.3.0", "@codemirror/state": "^6.0.0", "@codemirror/view": "^6.0.0", "@lezer/common": "^1.2.1", "@lezer/markdown": "^1.0.0" } }, "sha512-0K40bZ35jpHya6FriukbgaleaqzBLZfOh7HuzqbMxBXkbYMJDxfF39c23xOgxFezR+3G+tR2/Mup+Xk865OMvw=="],
+
+    "@codesandbox/sandpack-react/@codemirror/lang-javascript": ["@codemirror/lang-javascript@6.2.4", "https://registry.npmjs.com/@codemirror/lang-javascript/-/lang-javascript-6.2.4.tgz", { "dependencies": { "@codemirror/autocomplete": "^6.0.0", "@codemirror/language": "^6.6.0", "@codemirror/lint": "^6.0.0", "@codemirror/state": "^6.0.0", "@codemirror/view": "^6.17.0", "@lezer/common": "^1.0.0", "@lezer/javascript": "^1.0.0" } }, "sha512-0WVmhp1QOqZ4Rt6GlVGwKJN3KW7Xh4H2q8ZZNGZaP6lRdxXJzmjm4FqvmOojVj6khWJHIb9sp7U/72W7xQgqAA=="],
+
     "@codesandbox/sandpack-react/react-is": ["react-is@17.0.2", "https://registry.npmjs.com/react-is/-/react-is-17.0.2.tgz", {}, "sha512-w2GsyukL62IJnlaff/nRegPQR94C/XXamvMWmSHRJ4y7Ts/4ocGRmTHvOs8PSE6pB3dWOrD/nueuU5sduBsQ4w=="],
 
     "@eslint-community/eslint-utils/eslint-visitor-keys": ["eslint-visitor-keys@3.4.3", "https://registry.npmjs.com/eslint-visitor-keys/-/eslint-visitor-keys-3.4.3.tgz", {}, "sha512-wpc+LXeiyiisxPlEkUzU6svyS1frIO3Mgxj1fdy7Pm8Ygzguax2N3Fa/D/ag1WqbOprdI+uY6wMUl8/a2G+iag=="],
@@ -2233,6 +2254,8 @@
     "@eslint/eslintrc/globals": ["globals@14.0.0", "https://registry.npmjs.com/globals/-/globals-14.0.0.tgz", {}, "sha512-oahGvuMGQlPw/ivIYBjVSrWAfWLBeku5tpPE2fOPLi+WHffIWbuh2tCjhyQhTBPMf5E9jDEH4FOmTYgYwbKwtQ=="],
 
     "@formatjs/ecma402-abstract/@formatjs/intl-localematcher": ["@formatjs/intl-localematcher@0.6.2", "https://registry.npmjs.com/@formatjs/intl-localematcher/-/intl-localematcher-0.6.2.tgz", { "dependencies": { "tslib": "^2.8.0" } }, "sha512-XOMO2Hupl0wdd172Y06h6kLpBz6Dv+J4okPLl4LPtzbr8f66WbIoy4ev98EBuZ6ZK4h5ydTN6XneT4QVpD7cdA=="],
+
+    "@mdxeditor/editor/@codemirror/lang-markdown": ["@codemirror/lang-markdown@6.5.0", "https://registry.npmjs.com/@codemirror/lang-markdown/-/lang-markdown-6.5.0.tgz", { "dependencies": { "@codemirror/autocomplete": "^6.7.1", "@codemirror/lang-html": "^6.0.0", "@codemirror/language": "^6.3.0", "@codemirror/state": "^6.0.0", "@codemirror/view": "^6.0.0", "@lezer/common": "^1.2.1", "@lezer/markdown": "^1.0.0" } }, "sha512-0K40bZ35jpHya6FriukbgaleaqzBLZfOh7HuzqbMxBXkbYMJDxfF39c23xOgxFezR+3G+tR2/Mup+Xk865OMvw=="],
 
     "@radix-ui/react-alert-dialog/@radix-ui/react-slot": ["@radix-ui/react-slot@1.2.3", "https://registry.npmjs.com/@radix-ui/react-slot/-/react-slot-1.2.3.tgz", { "dependencies": { "@radix-ui/react-compose-refs": "1.1.2" }, "peerDependencies": { "@types/react": "*", "react": "^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc" }, "optionalPeers": ["@types/react"] }, "sha512-aeNmHnBxbi2St0au6VBVC7JXFlhLlOnvIIlePNniyUNAClzmtAUEY8/pBiK3iHjufOlwA+c20/8jngo7xcrg8A=="],
 

@@ -18,7 +18,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import {
-  ChevronLeft, Loader2, AlertCircle, FileCode2, Trash2, Plus, Star, Globe, Sparkles,
+  ChevronLeft, Loader2, AlertCircle, FileCode2, Trash2, Plus, Star, Globe, Sparkles, Database,
 } from "lucide-react";
 import { useApp } from "../store";
 import { isValidBuddyId } from "@/lib/buddies/registry";
@@ -130,6 +130,17 @@ export function ProjectsScreen() {
             title="Open the DevBuddy editor with a new empty project"
           >
             <Plus className="w-3.5 h-3.5" /> New Code Project
+          </button>
+          {/* Phase 49 — New blank notebook (opens NotebookScreen with a starter notebook) */}
+          <button
+            onClick={() => {
+              (useApp.getState() as any).setActiveProjectId(null);
+              setScreen("notebook");
+            }}
+            className="px-3 h-9 rounded-full bg-sky-600 text-white text-xs font-semibold flex items-center gap-1 hover:bg-sky-700"
+            title="Open a new Jupyter-style notebook (runs in-browser via Pyodide)"
+          >
+            <Database className="w-3.5 h-3.5" /> New Notebook
           </button>
           <button
             onClick={() => setScreen("tutor")}
@@ -247,6 +258,10 @@ export function ProjectsScreen() {
                           if (p.buddyId === "dev") {
                             state.setActiveProjectId(p.id);
                             setScreen("devBuddy");
+                          } else if (p.buddyId === "data") {
+                            // Phase 49 — data projects route to NotebookScreen
+                            state.setActiveProjectId(p.id);
+                            setScreen("notebook");
                           } else if (p.conversationId) {
                             // No editor yet for this buddy — open AI Tutor with this conversation
                             setScreen("tutor");
