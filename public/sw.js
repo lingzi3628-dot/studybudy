@@ -1,18 +1,19 @@
 /**
- * StudyBuddy AI Service Worker v58 — Offline Mode
+ * StudyBuddy AI Service Worker v59 — Offline Mode
  *
- * v23-v57 — prior upgrades.
- * v58 — Phase 49: DataBuddy — in-browser Jupyter notebook
- *   - NotebookKernel: persistent Pyodide kernel (variables survive across cells)
- *   - NotebookScreen: cell-based UI (code + markdown cells)
- *   - Pre-loaded datasets: iris, titanic, tips, planets, flights, mpg
- *   - Matplotlib figure capture (Agg → base64 PNG inline)
- *   - DataFrame table rendering
- *   - Save as notebook.ipynb JSON in a data Project
- *   - "New Notebook" button on ProjectsScreen
+ * v23-v58 — prior upgrades.
+ * v59 — Phase 50: MLBuddy — TensorFlow.js training playground
+ *   - In-browser neural network training (no server, no Python)
+ *   - Pre-loaded demos: XOR, Iris classification, Housing regression
+ *   - Model architecture builder (dense/dropout layers, optimizer, learning rate)
+ *   - Real-time loss curve + accuracy visualization (SVG)
+ *   - Decision boundary visualization for 2D classifiers
+ *   - Save trained models as JSON in a Project (model.json + README.md)
+ *   - "New Model" button on ProjectsScreen
+ *   - TensorFlow.js ~1.2MB lazy-loaded on first use
  */
 
-const CACHE_VERSION = "studybuddy-v58-offline";
+const CACHE_VERSION = "studybuddy-v59-offline";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const CONTENT_CACHE = `${CACHE_VERSION}-content`;
 const IMAGE_CACHE = `${CACHE_VERSION}-images`;

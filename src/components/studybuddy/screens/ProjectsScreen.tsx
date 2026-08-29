@@ -18,7 +18,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import {
-  ChevronLeft, Loader2, AlertCircle, FileCode2, Trash2, Plus, Star, Globe, Sparkles, Database,
+  ChevronLeft, Loader2, AlertCircle, FileCode2, Trash2, Plus, Star, Globe, Sparkles, Database, Brain,
 } from "lucide-react";
 import { useApp } from "../store";
 import { isValidBuddyId } from "@/lib/buddies/registry";
@@ -142,6 +142,17 @@ export function ProjectsScreen() {
           >
             <Database className="w-3.5 h-3.5" /> New Notebook
           </button>
+          {/* Phase 50 — New ML model (opens MLPlaygroundScreen) */}
+          <button
+            onClick={() => {
+              (useApp.getState() as any).setActiveProjectId(null);
+              setScreen("mlPlayground");
+            }}
+            className="px-3 h-9 rounded-full bg-violet-600 text-white text-xs font-semibold flex items-center gap-1 hover:bg-violet-700"
+            title="Open the ML training playground (TensorFlow.js in-browser)"
+          >
+            <Brain className="w-3.5 h-3.5" /> New Model
+          </button>
           <button
             onClick={() => setScreen("tutor")}
             className="px-3 h-9 rounded-full bg-indigo-600 text-white text-xs font-semibold flex items-center gap-1 hover:bg-indigo-700"
@@ -262,6 +273,10 @@ export function ProjectsScreen() {
                             // Phase 49 — data projects route to NotebookScreen
                             state.setActiveProjectId(p.id);
                             setScreen("notebook");
+                          } else if (p.buddyId === "ml") {
+                            // Phase 50 — ml projects route to MLPlaygroundScreen
+                            state.setActiveProjectId(p.id);
+                            setScreen("mlPlayground");
                           } else if (p.conversationId) {
                             // No editor yet for this buddy — open AI Tutor with this conversation
                             setScreen("tutor");

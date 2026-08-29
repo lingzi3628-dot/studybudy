@@ -431,3 +431,43 @@ Stage Summary:
 - Modified files: src/components/studybuddy/store.ts (notebook screen), src/app/page.tsx (router + import), src/components/studybuddy/screens/ProjectsScreen.tsx (New Notebook button + Open routes data → notebook + Database import), public/sw.js (v58).
 - No new npm packages — reuses CodeEditor (Phase 48), Pyodide (Phase 46), and Project model (Phase 47).
 - Phase 49 unblocks Phase 50 (MLBuddy) — the NotebookKernel + cell UI are reusable. Phase 50 will add TensorFlow.js training on top.
+
+---
+Task ID: phase50-mlbuddy
+Agent: main
+Task: Phase 50 — MLBuddy: TensorFlow.js training playground. In-browser neural network training with real-time loss curves, decision boundaries, and pre-loaded demos.
+
+Work Log:
+- Installed @tensorflow/tfjs (^4.22.0, ~1.2MB, lazy-loaded via dynamic import).
+- Created src/lib/ml-engine.ts:
+  - getTF() — lazy-loads TF.js, sets WebGL backend (fallback to CPU)
+  - buildModel(spec) — builds a TF.js Sequential model from a LayerSpec array (dense, dropout, conv2d, maxPooling2d, flatten)
+  - trainModel(model, xs, ys, epochs, batchSize, validationSplit, callbacks) — trains with per-epoch callbacks for real-time loss/accuracy
+  - predict(model, inputs) — runs inference, returns predictions + predicted classes
+  - modelToJSON(model) — saves model as in-memory JSON artifact via tf.io.withSaveHandler (persists to Project)
+  - modelFromJSON(artifact) — loads model from JSON via tf.io.fromMemory
+  - disposeModel(model) — frees GPU/CPU tensors
+  - 3 pre-loaded demos: XOR (binary classification), Iris (3-class softmax), Housing (regression with normalized features)
+- Created src/components/studybuddy/screens/MLPlaygroundScreen.tsx:
+  - Two-column layout: left = dataset picker + architecture builder + optimizer settings; right = training metrics + loss curve + decision boundary + log
+  - Dataset picker: 3 demo cards (XOR, Iris, Housing) with descriptions
+  - Architecture builder: per-layer controls (type, units, activation, dropout rate), add/remove layers, optimizer (adam/sgd/rmsprop), learning rate, epochs, batch size
+  - Train button: builds model → generates data → trains with real-time epoch callbacks
+  - Loss curve: SVG line chart with loss (solid) + val_loss (dashed) lines
+  - Decision boundary: 50x50 grid classification → colored canvas → base64 PNG (for 2D inputs like XOR)
+  - Stats cards: final loss + best accuracy
+  - Training log: last 10 epochs with loss/acc/val_loss/val_acc
+  - Save Model button: saves model.json + README.md (with architecture + training summary) as a Project file
+- Wired store.ts: added "mlPlayground" to Screen union type
+- Wired app/page.tsx: imported MLPlaygroundScreen, added to immersive list, registered screen router
+- Updated ProjectsScreen:
+  - Added "New Model" button (violet, Brain icon) → opens MLPlaygroundScreen
+  - Updated "Open" routing: dev → DevBuddyScreen, data → NotebookScreen, ml → MLPlaygroundScreen
+- Build: clean (Compiled successfully in 54s). Tests: 63/63 pass. Service worker: v58 → v59.
+
+Stage Summary:
+- Phase 50 ships the third buddy toolchain: ML training engine + playground UI + model persistence.
+- New files: src/lib/ml-engine.ts, src/components/studybuddy/screens/MLPlaygroundScreen.tsx.
+- Modified files: src/components/studybuddy/store.ts, src/app/page.tsx, src/components/studybuddy/screens/ProjectsScreen.tsx (Brain import + New Model button + ml routing), public/sw.js (v59).
+- Installed: @tensorflow/tfjs (~1.2MB, lazy-loaded via dynamic import — only loads when MLPlayground opens).
+- Phase 50 unblocks Phase 51 (WebBuddy) — the Project model + ProjectsScreen routing patterns are now reusable for all remaining buddies.

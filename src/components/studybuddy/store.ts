@@ -48,7 +48,8 @@ export type Screen =
   | "calculator"
   | "projects"
   | "devBuddy"
-  | "notebook";
+  | "notebook"
+  | "mlPlayground";
 
 export type CreateOption =
   | "upload"
