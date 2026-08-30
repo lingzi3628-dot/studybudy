@@ -1,19 +1,18 @@
 /**
- * StudyBuddy AI Service Worker v59 — Offline Mode
+ * StudyBuddy AI Service Worker v60 — Offline Mode
  *
- * v23-v58 — prior upgrades.
- * v59 — Phase 50: MLBuddy — TensorFlow.js training playground
- *   - In-browser neural network training (no server, no Python)
- *   - Pre-loaded demos: XOR, Iris classification, Housing regression
- *   - Model architecture builder (dense/dropout layers, optimizer, learning rate)
- *   - Real-time loss curve + accuracy visualization (SVG)
- *   - Decision boundary visualization for 2D classifiers
- *   - Save trained models as JSON in a Project (model.json + README.md)
- *   - "New Model" button on ProjectsScreen
- *   - TensorFlow.js ~1.2MB lazy-loaded on first use
+ * v23-v59 — prior upgrades.
+ * v60 — Phase 51: Higher Education tracks + onboarding upgrade
+ *   - New onboarding step 0: pick your track (K-12 / Dev / Data / ML / TVET / Mixed)
+ *   - User.track field added to Prisma schema
+ *   - HigherEdHome screen for non-K-12 tracks (8-buddy grid + recent projects)
+ *   - page.tsx routes Home based on user.track
+ *   - AI Tutor default buddy set per track (dev for dev track, etc.)
+ *   - Profile: new TrackSwitcher (move K-12 ↔ Higher-Ed anytime)
+ *   - Per-track grade/level options (Beginner/Intermediate/Advanced/CDACC/etc.)
  */
 
-const CACHE_VERSION = "studybuddy-v59-offline";
+const CACHE_VERSION = "studybuddy-v60-offline";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const CONTENT_CACHE = `${CACHE_VERSION}-content`;
 const IMAGE_CACHE = `${CACHE_VERSION}-images`;

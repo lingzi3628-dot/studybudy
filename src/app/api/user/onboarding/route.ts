@@ -32,6 +32,8 @@ export async function POST(req: NextRequest) {
   const data: any = { onboardingCompleted: true };
   if (typeof body.name === "string") data.name = body.name;
   if (typeof body.grade === "string") data.grade = body.grade;
+  // Phase 51 — save the education track (k12 | dev | data | ml | tvet | mixed)
+  if (typeof body.track === "string") data.track = body.track;
   if (Array.isArray(body.subjects)) data.subjects = body.subjects.filter((s: any) => typeof s === "string");
   if (Array.isArray(body.ambitions)) data.ambitions = body.ambitions.filter((s: any) => typeof s === "string");
   if (typeof body.preferred_language === "string") data.learningLanguage = body.preferred_language;

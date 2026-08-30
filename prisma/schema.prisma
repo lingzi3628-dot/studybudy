@@ -21,6 +21,9 @@ model User {
   encryptedApiKey   String?
   passwordHash      String?
   grade             String?
+  // Phase 51 — Education track: 'k12' | 'dev' | 'data' | 'ml' | 'tvet' | 'mixed'
+  // Drives which Home screen the user sees + which buddy is default in AI Tutor.
+  track             String?  @default("k12")
   subjects          String[]
   ambitions         String[]
   learningLanguage  String   @default("English")

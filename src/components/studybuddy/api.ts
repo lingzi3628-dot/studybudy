@@ -148,6 +148,7 @@ export const api = {
   updateUser: async (body: {
     name?: string;
     grade?: string;
+    track?: string;  // Phase 51 — education track (k12 | dev | data | ml | tvet | mixed)
     subjects?: string[];
     ambitions?: string[];
     learningLanguage?: string;

@@ -19,11 +19,15 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Database,
+  Brain,
+  Wrench,
+  Sparkles,
 } from "lucide-react";
 import { useApp } from "../store";
 import { api } from "../api";
 
-const TOTAL_STEPS = 6;
+const TOTAL_STEPS = 7; // Phase 51 — added track step
 
 const roles = [
   { key: "Student", label: "Student", icon: GraduationCap },
@@ -32,6 +36,28 @@ const roles = [
   { key: "Self-Learner", label: "Self-Learner", icon: Laptop },
   { key: "Inventor", label: "Inventor / Maker", icon: Lightbulb },
 ];
+
+// Phase 51 — Track picker (step 0 of onboarding).
+// Each track opens a different "world": K-12 (current), dev, data, ML, TVET.
+// Mixed = all 8 buddies equally accessible (default for Self-Learner/Inventor).
+const TRACKS = [
+  { key: "k12",   label: "K-12 School",         emoji: "📚", icon: GraduationCap, desc: "Kenya CBC / KCSE / KPSEA / KJSEA", accent: "from-indigo-500 to-violet-500", defaultBuddy: "study" },
+  { key: "dev",   label: "Coding & Programming", emoji: "💻", icon: Code,          desc: "Python, JS, TS, Go, Rust, debug + ship",        accent: "from-emerald-500 to-teal-500", defaultBuddy: "dev" },
+  { key: "data",  label: "Data Science",        emoji: "📊", icon: Database,      desc: "pandas, SQL, notebooks, EDA, visualization",     accent: "from-sky-500 to-cyan-500", defaultBuddy: "data" },
+  { key: "ml",    label: "Machine Learning",    emoji: "🧠", icon: Brain,         desc: "Train, visualize, evaluate models in-browser", accent: "from-violet-500 to-fuchsia-500", defaultBuddy: "ml" },
+  { key: "tvet",  label: "Technical (TVET)",   emoji: "🔧", icon: Wrench,        desc: "Electrical, mechanical, ICT, hospitality, etc.", accent: "from-amber-500 to-red-500", defaultBuddy: "tvet" },
+  { key: "mixed", label: "Multiple interests",  emoji: "🎯", icon: Sparkles,     desc: "Show me all 8 buddies — I'll pick per task",   accent: "from-rose-500 to-pink-500", defaultBuddy: "study" },
+] as const;
+
+// Per-track grade/level options for step 2
+const TRACK_GRADES: Record<string, string[]> = {
+  k12: [], // Populated from /api/curriculum/grades at runtime, falls back to FALLBACK_GRADES
+  dev: ["Beginner", "Intermediate", "Advanced", "Bootcamp student", "Self-taught", "Professional"],
+  data: ["Beginner", "Intermediate", "Advanced", "Analyst", "Data engineer", "Researcher"],
+  ml: ["Beginner", "Intermediate", "Advanced", "Researcher", "PhD student", "AI engineer"],
+  tvet: ["CDACC Level 4", "CDACC Level 5", "CDACC Level 6", "Artisan", "Trainer", "Vocational student"],
+  mixed: ["Beginner", "Intermediate", "Advanced", "Self-taught"],
+};
 
 const FALLBACK_GRADES = [
   "Kindergarten",
@@ -76,6 +102,7 @@ const languages = ["English", "Kiswahili", "Chinese", "French", "Spanish", "Arab
 export function Onboarding() {
   const { completeOnboarding } = useApp();
   const [step, setStep] = useState(0);
+  const [track, setTrack] = useState<string | null>(null);  // Phase 51
   const [role, setRole] = useState<string | null>(null);
   const [grade, setGrade] = useState<string | null>(null);
   const [pickedSubjects, setPickedSubjects] = useState<string[]>([]);
@@ -98,19 +125,21 @@ export function Onboarding() {
   }, []);
 
   // Compute the grade list to show:
-  //   - If curriculumGrades is null (still loading or fetch failed): show FALLBACK_GRADES
-  //   - If curriculumGrades is an array: show only those grades, with status badges
-  const gradeList: string[] = curriculumGrades
-    ? curriculumGrades.map((g) => g.name)
-    : FALLBACK_GRADES;
+  //   - For k12 track: use curriculum grades from DB (or FALLBACK_GRADES)
+  //   - For other tracks: use TRACK_GRADES[track]
+  const gradeList: string[] = (track && track !== "k12" && TRACK_GRADES[track])
+    ? TRACK_GRADES[track]
+    : (curriculumGrades
+      ? curriculumGrades.map((g) => g.name)
+      : FALLBACK_GRADES);
 
   const gradeStatus = (g: string): "ready" | "coming_soon" | null => {
-    if (!curriculumGrades) return null;
+    if (!curriculumGrades || (track && track !== "k12")) return null;
     return curriculumGrades.find((cg) => cg.name === g)?.status ?? null;
   };
 
   const gradeDescription = (g: string): string | null => {
-    if (!curriculumGrades) return null;
+    if (!curriculumGrades || (track && track !== "k12")) return null;
     return curriculumGrades.find((cg) => cg.name === g)?.description ?? null;
   };
 
@@ -124,17 +153,26 @@ export function Onboarding() {
 
   const isLast = step === TOTAL_STEPS - 1;
   const canContinue =
-    (step === 0 && role) ||
-    (step === 1 && grade) ||
-    step === 2 ||
-    (step === 3 && goal) ||
-    step === 4 ||
-    step === 5;
+    (step === 0 && track) ||  // Phase 51 — track step
+    (step === 1 && role) ||
+    (step === 2 && grade) ||
+    step === 3 ||
+    (step === 4 && goal) ||
+    step === 5 ||
+    step === 6;
+
+  // Phase 51 — when track changes, update default Study Buddy model + grade list
+  // (the default buddy id for AI Tutor is set later via track-aware logic in /api/tutor/chat)
+  const onTrackSelect = (trackKey: string) => {
+    setTrack(trackKey);
+    // Reset grade since the grade list changes per track
+    setGrade(null);
+  };
 
   const finish = async () => {
     setSaving(true);
     try {
-      // 1) Save onboarding profile
+      // 1) Save onboarding profile — Phase 51: include the track field
       try {
         const r = await fetch("/api/user/onboarding", {
           method: "POST",
@@ -142,6 +180,7 @@ export function Onboarding() {
           body: JSON.stringify({
             role: role ?? undefined,
             grade: grade ?? undefined,
+            track: track ?? "k12",  // Phase 51
             subjects: pickedSubjects,
             ambitions: goal ? [goal] : [],
             preferred_language: language,
@@ -158,6 +197,7 @@ export function Onboarding() {
         if (!r.ok) {
           await api.updateUser({
             grade: grade ?? undefined,
+            track: track ?? "k12",  // Phase 51
             subjects: pickedSubjects,
             ambitions: goal ? [goal] : [],
             learningLanguage: language,
@@ -167,6 +207,7 @@ export function Onboarding() {
       } catch {
         await api.updateUser({
           grade: grade ?? undefined,
+          track: track ?? "k12",  // Phase 51
           subjects: pickedSubjects,
           ambitions: goal ? [goal] : [],
           learningLanguage: language,
@@ -215,7 +256,45 @@ export function Onboarding() {
       </div>
 
       <div className="flex-1 px-4 overflow-y-auto pb-32">
+        {/* Phase 51 — Step 0: Pick your track */}
         {step === 0 && (
+          <section>
+            <h1 className="text-2xl font-bold text-gray-900 mt-4">What do you want to learn?</h1>
+            <p className="text-sm text-gray-500 mt-1">
+              Pick a track — each one opens a different world of AI buddies and tools. You can change this later.
+            </p>
+            <div className="mt-6 space-y-3">
+              {TRACKS.map((t) => {
+                const selected = track === t.key;
+                return (
+                  <button
+                    key={t.key}
+                    onClick={() => onTrackSelect(t.key)}
+                    className={`w-full text-left p-4 rounded-2xl border-2 transition-all ${
+                      selected ? "border-indigo-600 bg-indigo-50" : "border-gray-200 bg-white hover:border-indigo-300"
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${t.accent} flex items-center justify-center text-2xl flex-shrink-0 shadow-md`}>
+                        {t.emoji}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-base font-semibold text-gray-900">{t.label}</p>
+                        <p className="text-xs text-gray-500 mt-0.5">{t.desc}</p>
+                      </div>
+                      {selected && <Check className="w-5 h-5 text-indigo-600 flex-shrink-0" />}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-4 text-xs text-center text-gray-400">
+              💡 Each track unlocks different AI buddies — DevBuddy for code, DataBuddy for notebooks, MLBuddy for ML, TVETBuddy for trades.
+            </p>
+          </section>
+        )}
+
+        {step === 1 && (
           <section>
             <h1 className="text-2xl font-bold text-gray-900 mt-4">Who are you?</h1>
             <p className="text-sm text-gray-500 mt-1">We&apos;ll personalise your study experience.</p>
@@ -243,13 +322,17 @@ export function Onboarding() {
           </section>
         )}
 
-        {step === 1 && (
+        {step === 2 && (
           <section>
-            <h1 className="text-2xl font-bold text-gray-900 mt-4">Select your grade or level</h1>
+            <h1 className="text-2xl font-bold text-gray-900 mt-4">
+              {track === "k12" ? "Select your grade or level" : "Pick your experience level"}
+            </h1>
             <p className="text-sm text-gray-500 mt-1">
-              {curriculumGrades
-                ? "Grades with content ready are highlighted. Others are coming soon — we'll email you when ready."
-                : "Pick the level that best describes you."}
+              {track === "k12"
+                ? (curriculumGrades
+                  ? "Grades with content ready are highlighted. Others are coming soon — we'll email you when ready."
+                  : "Pick the level that best describes you.")
+                : "This helps your AI buddy tailor explanations to your level."}
             </p>
             <div className="mt-6 grid grid-cols-2 gap-3">
               {gradeList.map((g) => {
@@ -295,7 +378,7 @@ export function Onboarding() {
           </section>
         )}
 
-        {step === 2 && (
+        {step === 3 && (
           <section>
             <h1 className="text-2xl font-bold text-gray-900 mt-4">Which subjects do you want to learn?</h1>
             <p className="text-sm text-gray-500 mt-1">Select all that apply.</p>
@@ -323,7 +406,7 @@ export function Onboarding() {
           </section>
         )}
 
-        {step === 3 && (
+        {step === 4 && (
           <section>
             <h1 className="text-2xl font-bold text-gray-900 mt-4">What is your goal?</h1>
             <p className="text-sm text-gray-500 mt-1">Choose one main goal to focus on.</p>
@@ -349,7 +432,7 @@ export function Onboarding() {
           </section>
         )}
 
-        {step === 4 && (
+        {step === 5 && (
           <section>
             <h1 className="text-2xl font-bold text-gray-900 mt-4">Choose your learning language</h1>
             <p className="text-sm text-gray-500 mt-1">We&apos;ll use this for lessons and explanations.</p>
@@ -373,7 +456,7 @@ export function Onboarding() {
           </section>
         )}
 
-        {step === 5 && (
+        {step === 6 && (
           <section>
             <h1 className="text-2xl font-bold text-gray-900 mt-4">Pick your Study Buddy! 🤖</h1>
             <p className="text-sm text-gray-500 mt-1">Choose your AI study companion. You can change this later.</p>

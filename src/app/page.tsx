@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useApp } from "@/components/studybuddy/store";
 import { TopBar, DesktopTopBar } from "@/components/studybuddy/TopBar";
 import { BottomNav, Sidebar } from "@/components/studybuddy/BottomNav";
@@ -51,6 +51,7 @@ import { ProjectsScreen } from "@/components/studybuddy/screens/ProjectsScreen";
 import { DevBuddyScreen } from "@/components/studybuddy/screens/DevBuddyScreen";
 import { NotebookScreen } from "@/components/studybuddy/screens/NotebookScreen";
 import { MLPlaygroundScreen } from "@/components/studybuddy/screens/MLPlaygroundScreen";
+import { HigherEdHome } from "@/components/studybuddy/screens/HigherEdHome";
 
 // Secret admin access code — type this word on the keyboard anywhere
 // in the app to unlock the admin login screen.
@@ -60,6 +61,23 @@ const ADMIN_SECRET = "adminorg";
 export default function Page() {
   const { screen, setScreen, darkMode } = useApp();
   const keyBuffer = useRef("");
+  // Phase 51 — user's education track (k12 | dev | data | ml | tvet | mixed)
+  // Drives which Home screen we render. Fetched once on mount.
+  const [userTrack, setUserTrack] = useState<string>("k12");
+
+  // Phase 51 — fetch the user's track from /api/auth/me on mount.
+  // We don't block the UI on this — the default "k12" is used until
+  // the fetch resolves, then we re-render with the correct Home.
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.user?.track && d.user.track !== "k12") {
+          setUserTrack(d.user.track);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Phase 24 — Initialize dark mode from localStorage on mount
   useEffect(() => {
@@ -246,7 +264,11 @@ export default function Page() {
         <TopBar />
         <DesktopTopBar />
         <main>
-          {screen === "home" && <PathDashboard />}
+          {/* Phase 51 — Home screen routes based on the user's education track.
+              K-12 users see the existing PathDashboard. Higher-ed track users
+              (dev, data, ml, tvet, mixed) see the new HigherEdHome. */}
+          {screen === "home" && userTrack === "k12" && <PathDashboard />}
+          {screen === "home" && userTrack !== "k12" && <HigherEdHome />}
           {screen === "search" && <Search />}
           {screen === "progress" && <Progress />}
           {screen === "profile" && <Profile />}

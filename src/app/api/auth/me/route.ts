@@ -42,6 +42,7 @@ export async function GET() {
       plan: true,
       role: true,
       grade: true,
+      track: true,  // Phase 51
       subjects: true,
       ambitions: true,
       learningLanguage: true,

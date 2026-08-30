@@ -665,6 +665,25 @@ export function AITutorChat() {
           const me = await meRes.json();
           if (me.authed) setCurrentModel(me.user?.currentModel ?? "study_buddy_free");
           if (me.user?.grade) setUserGrade(me.user.grade);
+          // Phase 51 — if the user has a higher-ed track AND no buddy was previously
+          // chosen (localStorage is empty), default to the track's preferred buddy.
+          // This makes DevBuddy/DataBuddy/MLBuddy/TVETBuddy the default for higher-ed
+          // users without overwriting an explicit prior choice.
+          if (me.user?.track && me.user.track !== "k12") {
+            const trackToBuddy: Record<string, BuddyId> = {
+              dev: "dev",
+              data: "data",
+              ml: "ml",
+              tvet: "tvet",
+              mixed: "study",  // mixed users get the general StudyBuddy default
+            };
+            const preferred = trackToBuddy[me.user.track];
+            const stored = localStorage.getItem("studybuddy_active_buddy");
+            if (preferred && !stored) {
+              setActiveBuddyId(preferred);
+              try { localStorage.setItem("studybuddy_active_buddy", preferred); } catch { /* ignore */ }
+            }
+          }
         }
       })
       .catch(() => {});

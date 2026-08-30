@@ -20,6 +20,7 @@ export async function GET() {
       role: true,
       banned: true,
       grade: true,
+      track: true,
       subjects: true,
       ambitions: true,
       learningLanguage: true,
@@ -61,6 +62,8 @@ export async function PUT(req: NextRequest) {
   const data: any = {};
   if (typeof body.name === "string") data.name = body.name || null;
   if (typeof body.grade === "string") data.grade = body.grade || null;
+  // Phase 51 — update the education track (k12 | dev | data | ml | tvet | mixed)
+  if (typeof body.track === "string") data.track = body.track || "k12";
   if (Array.isArray(body.subjects)) data.subjects = body.subjects.filter((s: any) => typeof s === "string");
   if (Array.isArray(body.ambitions)) data.ambitions = body.ambitions.filter((s: any) => typeof s === "string");
   if (typeof body.preferred_language === "string") data.learningLanguage = body.preferred_language;
@@ -88,6 +91,7 @@ export async function PUT(req: NextRequest) {
       role: true,
       banned: true,
       grade: true,
+      track: true,
       subjects: true,
       ambitions: true,
       learningLanguage: true,

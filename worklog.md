@@ -471,3 +471,69 @@ Stage Summary:
 - Modified files: src/components/studybuddy/store.ts, src/app/page.tsx, src/components/studybuddy/screens/ProjectsScreen.tsx (Brain import + New Model button + ml routing), public/sw.js (v59).
 - Installed: @tensorflow/tfjs (~1.2MB, lazy-loaded via dynamic import — only loads when MLPlayground opens).
 - Phase 50 unblocks Phase 51 (WebBuddy) — the Project model + ProjectsScreen routing patterns are now reusable for all remaining buddies.
+
+---
+Task ID: phase51-higher-ed
+Agent: main
+Task: Phase 51 — Higher Education tracks + onboarding upgrade. Opens a "new world" for TVET, dev, ML, research users. Migrates the buddies I built (in AI Tutor) to be the primary surface for higher-ed users.
+
+Work Log:
+- Added `track` field to the User Prisma model (k12 | dev | data | ml | tvet | mixed). Defaults to "k12" for backward compat.
+- Regenerated Prisma client.
+- Updated 4 API routes to accept + persist the track field:
+  - POST /api/user/onboarding — saves track during onboarding
+  - PUT /api/user/profile — updates track (lets user change later)
+  - POST /api/user — alternative update route (also accepts track)
+  - GET /api/auth/me — now returns user.track so the frontend can route
+- Rebuilt Onboarding flow: total steps 6 → 7 (added track picker as step 0)
+  - 6 track cards with emoji + description + accent gradient:
+    - 📚 K-12 School (Kenya CBC / KCSE) → default buddy: study
+    - 💻 Coding & Programming → default buddy: dev
+    - 📊 Data Science → default buddy: data
+    - 🧠 Machine Learning → default buddy: ml
+    - 🔧 Technical (TVET) → default buddy: tvet
+    - 🎯 Multiple interests → default buddy: study (all 8 buddies)
+  - Per-track grade/level options (TRACK_GRADES):
+    - K-12: existing curriculum grades from /api/curriculum/grades
+    - Dev: Beginner / Intermediate / Advanced / Bootcamp student / Self-taught / Professional
+    - Data: Beginner / Intermediate / Advanced / Analyst / Data engineer / Researcher
+    - ML: Beginner / Intermediate / Advanced / Researcher / PhD student / AI engineer
+    - TVET: CDACC Level 4 / Level 5 / Level 6 / Artisan / Trainer / Vocational student
+    - Mixed: Beginner / Intermediate / Advanced / Self-taught
+  - onTrackSelect resets the grade since the grade list changes per track
+- Created src/components/studybuddy/screens/HigherEdHome.tsx — new Home for higher-ed users:
+  - Greeting + track badge (e.g. "💻 Coding") + streak chip
+  - 3 stats cards: Level, XP, Projects count
+  - 8-buddy grid (all 8 buddies) — the user's track buddy is highlighted with "★ Your track" badge
+  - Quick tools row: Code Editor, Notebook, ML Playground, Lab Simulator
+  - Recent projects: last 4 projects with buddy emoji + title + file count → tap to open in the right editor
+  - Fetches /api/auth/me (for track) + api.getProgress() (for stats) + /api/projects (for recent) in parallel
+- Updated store.ts: added "higherEdHome" to Screen union type
+- Updated app/page.tsx:
+  - Imported HigherEdHome
+  - Added userTrack state + useEffect to fetch it from /api/auth/me on mount
+  - Home screen routing: track="k12" → PathDashboard (existing K-12 home); other tracks → HigherEdHome
+- Updated AITutorChat.tsx:
+  - Reads user.track from /api/auth/me
+  - If track is higher-ed AND no buddy was previously chosen (localStorage empty), sets the track's preferred buddy as default:
+    - dev → DevBuddy, data → DataBuddy, ml → MLBuddy, tvet → TVETBuddy, mixed → StudyBuddy
+  - Doesn't overwrite an explicit prior choice (respects localStorage)
+- Updated Profile.tsx:
+  - Added userTrack state, fetched from /api/auth/me on mount
+  - Added TrackSwitcher component (below GradeSwitcher):
+    - Dropdown with 6 options (K-12 / Coding / Data / ML / TVET / Mixed)
+    - On change: PUT /api/user/profile with track → clears stored buddy → page reload
+    - Toast: "✓ Switched to 💻 Coding — Home + AI Tutor will update!"
+- Updated api.ts: updateUser body type now accepts `track?: string`
+- Updated src/app/api/user/route.ts: POST handler accepts `track` field
+- Bumped service worker v59 → v60.
+
+Stage Summary:
+- Phase 51 ships the "new world" architecture: K-12 users see the existing curriculum-focused Home; higher-ed users see a new HigherEdHome with all 8 buddies prominent, recent projects, and quick tool shortcuts.
+- The onboarding now asks "What do you want to learn?" first, branching into 6 tracks. Each track has its own grade/level options (e.g. CDACC levels for TVET, Beginner/Advanced for dev).
+- Existing users can switch tracks anytime via Profile → Education track dropdown.
+- The AI Tutor's default buddy is now track-aware — a dev-track user gets DevBuddy by default, a TVET-track user gets TVETBuddy, etc.
+- New files: src/components/studybuddy/screens/HigherEdHome.tsx
+- Modified files: prisma/schema.prisma (+track field), src/app/api/user/onboarding/route.ts, src/app/api/user/profile/route.ts, src/app/api/auth/me/route.ts, src/app/api/user/route.ts, src/components/studybuddy/api.ts, src/components/studybuddy/screens/Onboarding.tsx (rewritten step 0 + per-track grades), src/components/studybuddy/screens/Profile.tsx (+userTrack state + TrackSwitcher component), src/components/studybuddy/screens/AITutorChat.tsx (track-aware default buddy), src/app/page.tsx (Home routing by track), src/components/studybuddy/store.ts (+higherEdHome screen), public/sw.js (v60).
+- Build: clean (Compiled successfully in 52s). Tests: 63/63 pass.
+- This phase unblocks the remaining buddies (Phase 52+ Web/Backend/Server/TVET) by establishing the track-based architecture that routes users to the right tools based on their education track.

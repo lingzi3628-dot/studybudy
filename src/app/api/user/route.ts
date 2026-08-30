@@ -10,13 +10,14 @@ export async function GET() {
   return NextResponse.json({ user });
 }
 
-/** POST /api/user — update profile (name, grade, subjects, ambitions, learningLanguage) */
+/** POST /api/user — update profile (name, grade, track, subjects, ambitions, learningLanguage) */
 export async function POST(req: NextRequest) {
   const user = await getCurrentUser();
   const body = await req.json().catch(() => ({}));
-  const { name, grade, subjects, ambitions, learningLanguage } = body as {
+  const { name, grade, track, subjects, ambitions, learningLanguage } = body as {
     name?: string;
     grade?: string;
+    track?: string;
     subjects?: string[];
     ambitions?: string[];
     learningLanguage?: string;
@@ -25,6 +26,7 @@ export async function POST(req: NextRequest) {
   const data: Record<string, unknown> = {};
   if (typeof name === "string") data.name = name;
   if (typeof grade === "string") data.grade = grade;
+  if (typeof track === "string") data.track = track;  // Phase 51
   if (Array.isArray(subjects)) data.subjects = subjects;
   if (Array.isArray(ambitions)) data.ambitions = ambitions;
   if (typeof learningLanguage === "string") data.learningLanguage = learningLanguage;

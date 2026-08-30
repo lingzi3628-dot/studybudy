@@ -60,6 +60,8 @@ export function Profile() {
   const [isFamilyChild, setIsFamilyChild] = useState(false);
   const [childCount, setChildCount] = useState(0);
   const [userGrade, setUserGrade] = useState("");
+  // Phase 51 — education track (k12 | dev | data | ml | tvet | mixed)
+  const [userTrack, setUserTrack] = useState("k12");
 
   useEffect(() => {
     let mounted = true;
@@ -92,6 +94,10 @@ export function Profile() {
           }
           if (mounted && me.user?.grade) {
             setUserGrade(me.user.grade);
+          }
+          // Phase 51 — read the user's track
+          if (mounted && me.user?.track) {
+            setUserTrack(me.user.track);
           }
         }
       } catch (e) {
@@ -262,6 +268,8 @@ export function Profile() {
           <div className="rounded-2xl bg-white border border-gray-200 shadow-sm divide-y divide-gray-100">
             {/* Grade switcher — user can change grade anytime */}
             <GradeSwitcher currentGrade={userGrade} />
+            {/* Phase 51 — Track switcher: lets the user move K-12 ↔ Higher-Ed */}
+            <TrackSwitcher currentTrack={userTrack} onTrackChange={(t) => setUserTrack(t)} />
             <div className="p-4 flex items-center gap-3">
               <span className="w-9 h-9 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center">
                 <Languages className="w-4 h-4" />
@@ -826,6 +834,88 @@ function GradeSwitcher({ currentGrade }: { currentGrade: string }) {
                 <option key={g} value={g}>{g}</option>
               ))}
             </optgroup>
+          ))}
+        </select>
+      </div>
+    </div>
+  );
+}
+
+// =====================================================================
+// TrackSwitcher — Phase 51
+// Lets the user switch their education track anytime. When changed,
+// the Home screen switches between the K-12 PathDashboard and the
+// Higher-Ed HigherEdHome, and the AI Tutor's default buddy changes.
+// =====================================================================
+function TrackSwitcher({
+  currentTrack,
+  onTrackChange,
+}: {
+  currentTrack: string;
+  onTrackChange: (track: string) => void;
+}) {
+  const [track, setTrack] = useState(currentTrack);
+  const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const TRACK_OPTIONS = [
+    { value: "k12",   label: "📚 K-12 School",            desc: "Kenya CBC / KCSE curriculum" },
+    { value: "dev",   label: "💻 Coding & Programming",   desc: "DevBuddy default — Python/JS/Go" },
+    { value: "data",  label: "📊 Data Science",            desc: "DataBuddy default — pandas/SQL" },
+    { value: "ml",    label: "🧠 Machine Learning",        desc: "MLBuddy default — TensorFlow.js" },
+    { value: "tvet",  label: "🔧 Technical (TVET)",        desc: "TVETBuddy default — trades" },
+    { value: "mixed", label: "🎯 Multiple interests",      desc: "All 8 buddies — pick per task" },
+  ];
+
+  const changeTrack = async (newTrack: string) => {
+    if (newTrack === track || busy) return;
+    setBusy(true);
+    setToast(null);
+    try {
+      const r = await fetch("/api/user/profile", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ track: newTrack }),
+      });
+      if (!r.ok) throw new Error("Failed to update track");
+      setTrack(newTrack);
+      onTrackChange(newTrack);
+      const label = TRACK_OPTIONS.find((t) => t.value === newTrack)?.label ?? newTrack;
+      setToast(`✓ Switched to ${label} — Home + AI Tutor will update!`);
+      setTimeout(() => setToast(null), 3000);
+      // Clear the stored buddy so the new track's default kicks in
+      try { localStorage.removeItem("studybuddy_active_buddy"); } catch { /* ignore */ }
+      // Reload to pick up the new track in page.tsx (which routes Home)
+      setTimeout(() => window.location.reload(), 1500);
+    } catch (e: any) {
+      setToast(`✗ ${e?.message ?? "Failed"}`);
+      setTimeout(() => setToast(null), 3000);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="p-4 flex items-center gap-3">
+      <span className="w-9 h-9 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center">
+        <Sparkles className="w-4 h-4" />
+      </span>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-gray-900">Education track</p>
+        <p className="text-xs text-gray-500">
+          Switch between K-12 school and higher-ed tracks (dev / data / ML / TVET)
+        </p>
+        {toast && <p className="text-[10px] mt-1 text-emerald-600 font-semibold">{toast}</p>}
+      </div>
+      <div className="relative">
+        <select
+          value={track}
+          onChange={(e) => changeTrack(e.target.value)}
+          disabled={busy}
+          className="text-sm font-medium text-gray-900 bg-transparent border border-gray-200 rounded-lg px-2 py-1 outline-none focus:border-emerald-400 disabled:opacity-50"
+        >
+          {TRACK_OPTIONS.map((t) => (
+            <option key={t.value} value={t.value}>{t.label}</option>
           ))}
         </select>
       </div>
