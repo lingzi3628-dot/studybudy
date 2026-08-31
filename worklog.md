@@ -537,3 +537,31 @@ Stage Summary:
 - Modified files: prisma/schema.prisma (+track field), src/app/api/user/onboarding/route.ts, src/app/api/user/profile/route.ts, src/app/api/auth/me/route.ts, src/app/api/user/route.ts, src/components/studybuddy/api.ts, src/components/studybuddy/screens/Onboarding.tsx (rewritten step 0 + per-track grades), src/components/studybuddy/screens/Profile.tsx (+userTrack state + TrackSwitcher component), src/components/studybuddy/screens/AITutorChat.tsx (track-aware default buddy), src/app/page.tsx (Home routing by track), src/components/studybuddy/store.ts (+higherEdHome screen), public/sw.js (v60).
 - Build: clean (Compiled successfully in 52s). Tests: 63/63 pass.
 - This phase unblocks the remaining buddies (Phase 52+ Web/Backend/Server/TVET) by establishing the track-based architecture that routes users to the right tools based on their education track.
+
+---
+Task ID: phase52-upgrade-round
+Agent: main
+Task: Phase 52 — Hygiene round + Streaming AI tutor (SSE) + real-time group chat + Web Push + weekly parent emails + CI pipeline
+
+Work Log:
+- HYGIENE: created .env.example (full env template incl. SMTP/VAPID/CRON vars), MIT LICENSE
+- HYGIENE/SECURITY: removed hardcoded Gmail app password + personal admin email from src/lib/email.ts (now SMTP_USER / ADMIN_NOTIFY_EMAIL env-driven); seed-admin.ts no longer contains plaintext admin creds (reads ADMIN_INITIAL_EMAIL/PASSWORD)
+- HYGIENE: removed dead deps next-auth + dagre (kept @dagrejs/dagre, switched concept-map/layout.ts import), moved @types/nodemailer to devDependencies
+- HYGIENE: untracked tool-results/, db/custom.db, download/*.png; extended .gitignore; eslint now ignores scripts/
+- FIX: missing Sparkles import in AITutorChat.tsx (react/jsx-no-undef — runtime crash); ParentDashboard children-as-prop lint error (renamed to childList)
+- CI: .github/workflows/ci.yml — lint + advisory typecheck + vitest + full build against Postgres 16 service container
+- REFACTOR: extracted 768-line tutor chat route logic into src/lib/tutor-chat-engine.ts (detectIntents, runWebSearch, buildTutorSystemPrompt, splitThinking, parseGraphAttachments, parseExamGen, postProcessReply) — shared by classic + stream routes
+- FEATURE (streaming): POST /api/tutor/chat/stream — SSE protocol meta/delta/done/error; true token streaming via GLM SDK stream:true (parseOpenAIStream helper in ai.ts); custom-model users get single-chunk callAI (preserves "not connected" errors); token refund on failure; vision path unchanged (single delta)
+- FEATURE (streaming client): AITutorChat send() rewritten — live delta rendering, <thinking> hidden mid-stream, done payload swaps in final reply + attachments + examGen; graceful fallback to classic endpoint on any SSE failure
+- FEATURE (realtime): GET /api/study-groups/[id]/chat/stream — 2s server-side DB poll, Last-Event-ID resume, 14s pings, 50s self-close (Vercel-safe) + EventSource auto-reconnect; StudyGroupScreen uses EventSource with dedup merge + 3s polling fallback
+- FEATURE (push): PushSubscription model; lib/push.ts (VAPID-gated sender, 404/410 pruning); /api/push/subscribe|unsubscribe|status; sw.js v61 push + notificationclick handlers; PushToggleRow opt-in in Notification bell panel; group chat POST fans out pushes to members
+- FEATURE (emails): lib/parent-digest.ts (weekly per-child stats + HTML email); GET|POST /api/cron/parent-digest (CRON_SECRET Bearer / ?secret= / ?force=1); vercel.json cron Mondays 07:00 UTC
+- README rewritten: custom JWT auth docs (was stale Clerk), CI badge, Phase 52 features + routes, PWA push setup
+- Build: clean (Compiled successfully in 55s). Tests: 63/63 pass. Lint: 0 errors (7 pre-existing warnings). SW v60 → v61.
+
+Stage Summary:
+- Two commits pushed to main: 13e6bc2 (hygiene) + 980cafb (Phase 52).
+- Both chat endpoints now share one engine — future chat behavior changes go in src/lib/tutor-chat-engine.ts only.
+- SSE chosen over WebSockets deliberately: works on Vercel serverless AND self-hosted Caddy without extra infra; EventSource auto-reconnect keeps it robust.
+- Deployment requirements: set SMTP_USER/SMTP_PASS (emails), CRON_SECRET (enables cron route auth), NEXT_PUBLIC_VAPID_PUBLIC_KEY + VAPID_PRIVATE_KEY (push) — all documented in .env.example.
+- SECURITY: the exposed Gmail app password + admin creds must be rotated (they lived in git history); recommend rotating the GitHub PAT used for this session too.
