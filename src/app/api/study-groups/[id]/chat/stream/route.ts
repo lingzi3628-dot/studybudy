@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { checkSseOpen, releaseSse } from "@/lib/sse-rate-limit";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -48,6 +49,22 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     });
   }
 
+  // Phase 53 — SSE safety-net rate limit. The group stream polls the DB every
+  // 2s for up to 50s, so unbounded concurrent streams would exhaust the Neon
+  // connection pool. EventSource auto-reconnect after the 50s self-close
+  // counts as a new open — the 60 opens / 5 min window allows ~10 open chats.
+  const gate = checkSseOpen(user.id, "group");
+  if (!gate.allowed) {
+    console.warn("[group-chat-stream] rate-limited:", user.id, gate.reason);
+    return new Response(
+      JSON.stringify({ error: "Too many live connections. Please try again shortly.", code: "SSE_RATE_LIMIT", retryAfter: gate.retryAfterSec }),
+      {
+        status: 429,
+        headers: { "Content-Type": "application/json", "Retry-After": String(gate.retryAfterSec) },
+      }
+    );
+  }
+
   // Resume point: Last-Event-ID header (from EventSource auto-reconnect)
   // or ?since= query param on the first connect.
   const url = new URL(req.url);
@@ -60,6 +77,16 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
   const encoder = new TextEncoder();
   const startedAt = Date.now();
+
+  // Phase 53 — release the rate-limit slot exactly once, whether the stream
+  // self-closes (50s cap), errors, or the client disconnects (cancel).
+  let released = false;
+  const releaseOnce = () => {
+    if (!released) {
+      released = true;
+      releaseSse(user.id, "group");
+    }
+  };
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -122,11 +149,15 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         console.error("[group-chat-stream] fatal:", e?.message);
       } finally {
         closed = true;
+        releaseOnce();
         try { controller.close(); } catch {}
       }
     },
     cancel() {
-      // Client disconnected (tab closed, EventSource.close()) — nothing to clean up.
+      // Client disconnected (tab closed, EventSource.close()) — stop the poll
+      // loop promptly and release the rate-limit slot exactly once.
+      closed = true;
+      releaseOnce();
     },
   });
 

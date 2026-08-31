@@ -11,6 +11,7 @@ import {
   splitThinking,
   postProcessReply,
 } from "@/lib/tutor-chat-engine";
+import { checkSseOpen, releaseSse } from "@/lib/sse-rate-limit";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -80,6 +81,20 @@ export async function POST(req: NextRequest) {
       status: 400,
       headers: { "Content-Type": "application/json" },
     });
+  }
+
+  // Phase 53 — SSE safety-net rate limit (runaway-loop brake; the DB-backed
+  // daily caps below remain the primary gate).
+  const gate = checkSseOpen(user.id, "tutor");
+  if (!gate.allowed) {
+    console.warn("[tutor-chat-stream] rate-limited:", user.id, gate.reason);
+    return new Response(
+      JSON.stringify({ error: "Too many streaming requests. Please slow down and try again shortly.", code: "SSE_RATE_LIMIT", retryAfter: gate.retryAfterSec }),
+      {
+        status: 429,
+        headers: { "Content-Type": "application/json", "Retry-After": String(gate.retryAfterSec) },
+      }
+    );
   }
 
   // Deduct tokens (same monetization as the classic route)
@@ -250,6 +265,7 @@ export async function POST(req: NextRequest) {
             error: e?.message ?? "AI couldn't respond right now. Please try again.",
           });
         } finally {
+          releaseSse(user.id, "tutor");
           controller.close();
         }
       },
@@ -265,6 +281,9 @@ export async function POST(req: NextRequest) {
     });
   } catch (e: any) {
     console.error("[tutor-chat-stream] setup error:", e?.message);
+    // The stream may or may not have started — release defensively; the
+    // limiter tolerates over-release (clamps at 0).
+    releaseSse(user.id, "tutor");
     await refundTokens(user.id, "tutor", deduct.costTokens);
     return new Response(JSON.stringify({ error: "Failed to process chat" }), {
       status: 500,

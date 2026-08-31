@@ -129,12 +129,41 @@ cp .env.example .env
 ### Set up the database
 
 ```bash
-# Push the Prisma schema to Neon
-bun run db:push
+# Fresh database — apply the migration history (recommended)
+bun run db:deploy      # prisma migrate deploy
+
+# Existing database created with the old `db push` flow — baseline it ONCE:
+npx prisma migrate resolve --applied 0_init
 
 # (Optional) View/edit your data
 bun run db:studio
 ```
+
+### Database migrations (Phase 53)
+
+The schema is now managed by **Prisma Migrate** — `prisma/migrations/` holds
+the migration history (0_init is the baseline of the full 102-model schema).
+Deploys run `prisma migrate deploy`, which only applies pending migrations and
+**never** discards data (the old `db push --accept-data-loss` could silently
+drop columns).
+
+Rules:
+
+- **Schema change → new migration.** After editing `prisma/schema.prisma`,
+  generate the SQL into a new migration folder:
+  ```bash
+  npx prisma migrate diff --from-migrations prisma/migrations \
+    --shadow-database-url "$SHADOW_DATABASE_URL" \
+    --to-schema-datamodel prisma/schema.prisma \
+    --script > prisma/migrations/<name>/migration.sql
+  ```
+  CI's **Migration drift check** step fails if `schema.prisma` and the
+  migration history disagree.
+- `db:push` still exists for throwaway experiments but no longer carries
+  `--accept-data-loss`.
+- The build script runs `migrate deploy` warn-only (so builds without a
+  reachable DB don't break); run `bun run db:deploy` explicitly after deploying
+  if you prefer strictness.
 
 ### Run in dev
 

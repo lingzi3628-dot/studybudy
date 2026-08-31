@@ -593,7 +593,24 @@ export async function parseGraphAttachments(opts: {
 
 export function parseExamGen(reply: string): any | null {
   try {
-    const examGenMatch = reply.match(/```examgen\s*([\s\S]*?)```/);
+    let examGenMatch = reply.match(/```examgen\s*([\s\S]*?)```/);
+    // Some models emit a nested ```json fence INSIDE the examgen block:
+    //   ```examgen
+    //   ```json
+    //   {...}
+    //   ```
+    //   ```
+    // The non-greedy match then closes at the inner fence and captures
+    // nothing useful, which made the inner-fence cleanup below unreachable.
+    // Detect that shape and re-capture greedily (brace-slicing below
+    // tolerates the trailing fence marks).
+    if (examGenMatch) {
+      const captured = examGenMatch[1].trim();
+      if (!captured || captured.startsWith("```")) {
+        const greedy = reply.match(/```examgen\s*([\s\S]*)```/);
+        if (greedy) examGenMatch = greedy;
+      }
+    }
     if (examGenMatch) {
       let cleaned = examGenMatch[1].trim();
       if (cleaned.startsWith("```")) {

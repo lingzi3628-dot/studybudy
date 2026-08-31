@@ -54,8 +54,17 @@ jobs:
         run: npx tsc --noEmit
         continue-on-error: true
 
-      - name: Push Prisma schema to CI database
-        run: npx prisma db push --accept-data-loss --skip-generate
+      # Phase 53 — CI now replays the migration history instead of blind
+      # `db push`. This validates that prisma/migrations can build the
+      # schema from scratch (what a fresh deploy does).
+      - name: Apply Prisma migrations to CI database
+        run: npx prisma migrate deploy
+
+      # Phase 53 — drift check: the migration history must produce EXACTLY
+      # the schema in schema.prisma. Fails if someone edits the schema
+      # without generating a new migration.
+      - name: Migration drift check
+        run: npx prisma migrate diff --exit-code --from-migrations prisma/migrations --shadow-database-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma
 
       - name: Unit tests
         run: npx vitest run
