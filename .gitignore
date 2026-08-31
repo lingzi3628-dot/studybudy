@@ -58,3 +58,10 @@ server.log
 # Build artifacts (kept locally for re-builds, not committed)
 # Allow public/app-release.apk to be committed by NOT listing it
 /upload/
+
+# AI agent scratch artifacts (added Phase 52 hygiene)
+/tool-results/
+# Local SQLite leftovers (prod is Postgres)
+/db/*.db
+# Dev screenshots & deliverable dumps (kept locally, not committed)
+/download/*.png

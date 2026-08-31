@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: studybuddy_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/studybuddy_ci
+      API_KEY_ENCRYPTION_SECRET: "0000000000000000000000000000000000000000000000000000000000000000"
+      ADMIN_JWT_SECRET: "0000000000000000000000000000000000000000000000000000000000000000"
+      ADMIN_INITIAL_EMAIL: ci@example.com
+      ADMIN_INITIAL_PASSWORD: ci-test-password-only
+      NEXT_TELEMETRY_DISABLED: 1
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Lint
+        run: npm run lint
+
+      # Advisory for now — next.config.ts sets ignoreBuildErrors: true,
+      # so the build itself doesn't gate on types. Flip to blocking once
+      # the codebase is type-clean.
+      - name: Typecheck (advisory)
+        run: npx tsc --noEmit
+        continue-on-error: true
+
+      - name: Push Prisma schema to CI database
+        run: npx prisma db push --accept-data-loss --skip-generate
+
+      - name: Unit tests
+        run: npx vitest run
+
+      - name: Build
+        run: npm run build

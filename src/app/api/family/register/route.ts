@@ -11,7 +11,7 @@ import {
   validateUsername,
   validatePasscode,
 } from "@/lib/family-auth";
-import { sendEmail, newFamilyNotification } from "@/lib/email";
+import { sendEmail, adminNotifyEmail, newFamilyNotification } from "@/lib/email";
 
 export const runtime = "nodejs";
 
@@ -278,7 +278,7 @@ export async function POST(req: NextRequest) {
       children: createdChildren.map((c) => ({ name: c.displayName, username: c.username })),
     });
     sendEmail({
-      to: "lingzi3628@gmail.com",
+      to: adminNotifyEmail(),
       subject,
       html,
     }).catch((e: any) => console.error("admin family notification email failed:", e?.message));

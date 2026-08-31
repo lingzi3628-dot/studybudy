@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { signUserToken, getUserCookieName, getUserCookieMaxAge } from "@/lib/user-jwt";
-import { sendEmail, newUserNotification, emailVerificationOtp } from "@/lib/email";
+import { sendEmail, adminNotifyEmail, newUserNotification, emailVerificationOtp } from "@/lib/email";
 import { randomInt } from "crypto";
 
 export const runtime = "nodejs";
@@ -101,7 +101,7 @@ export async function POST(req: NextRequest) {
       role: "user",
     });
     sendEmail({
-      to: "lingzi3628@gmail.com",
+      to: adminNotifyEmail(),
       subject,
       html,
     }).catch((e: any) => console.error("admin notification email failed:", e?.message));

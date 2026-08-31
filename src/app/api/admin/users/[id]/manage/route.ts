@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireAdminJwt as requireAdmin } from "@/lib/admin-session";
-import { sendEmail } from "@/lib/email";
+import { sendEmail, adminNotifyEmail } from "@/lib/email";
 
 export const runtime = "nodejs";
 
@@ -65,7 +65,7 @@ export async function PATCH(
 </div></div></div>`;
 
     sendEmail({
-      to: "lingzi3628@gmail.com",
+      to: adminNotifyEmail(),
       subject: `Admin: User ${actionLabel} — ${user.email ?? "unknown"}`,
       html,
     }).catch(() => {});

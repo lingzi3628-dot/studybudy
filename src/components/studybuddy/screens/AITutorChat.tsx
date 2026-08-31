@@ -5,6 +5,7 @@ import {
   ChevronLeft,
   Send,
   Loader2,
+  Sparkles,
   Trash2,
   Plus,
   MessageSquare,

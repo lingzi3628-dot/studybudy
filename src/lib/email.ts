@@ -26,12 +26,13 @@ function getTransporter(): nodemailer.Transporter | null {
 
   const host = process.env.SMTP_HOST || "smtp.gmail.com";
   const port = Number(process.env.SMTP_PORT) || 587;
-  const user = process.env.SMTP_USER || "lingzi3628@gmail.com";
+  const user = process.env.SMTP_USER || "";
   // Strip spaces from the Google App Password (they're display-only)
-  const pass = (process.env.SMTP_PASS || "ytyzueexsxrcawyd").replace(/\s/g, "");
+  // SECURITY: credentials must come from env vars only — never hardcode them here.
+  const pass = (process.env.SMTP_PASS || "").replace(/\s/g, "");
 
   if (!user || !pass) {
-    console.warn("[email] SMTP credentials not set — emails will not be sent");
+    console.warn("[email] SMTP_USER / SMTP_PASS not set — emails will not be sent");
     return null;
   }
 
@@ -53,6 +54,15 @@ function getTransporter(): nodemailer.Transporter | null {
 type EmailResult = { ok: boolean; error?: string; messageId?: string };
 
 /**
+ * Where admin-facing notification emails (new signups, family registrations,
+ * user management actions) are sent. Set ADMIN_NOTIFY_EMAIL to override;
+ * falls back to the SMTP sender address. Never hardcode a personal address here.
+ */
+export function adminNotifyEmail(): string {
+  return process.env.ADMIN_NOTIFY_EMAIL || process.env.SMTP_USER || "";
+}
+
+/**
  * Sends an HTML email. Returns { ok, error? }.
  */
 export async function sendEmail(opts: {
@@ -68,7 +78,7 @@ export async function sendEmail(opts: {
   }
 
   const fromName = process.env.SMTP_FROM_NAME || "StudyBuddy AI";
-  const fromEmail = process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER || "lingzi3628@gmail.com";
+  const fromEmail = process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER || "noreply@studybuddy.app";
 
   try {
     console.log("[email] Attempting to send to:", opts.to, "subject:", opts.subject);

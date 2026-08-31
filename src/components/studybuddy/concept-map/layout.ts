@@ -4,7 +4,7 @@
  * Converts a flat list of nodes + edges into positioned nodes
  * laid out as a top-to-bottom tree.
  */
-import dagre from "dagre";
+import dagre from "@dagrejs/dagre";
 import type { Node, Edge } from "reactflow";
 
 const NODE_WIDTH = 180;

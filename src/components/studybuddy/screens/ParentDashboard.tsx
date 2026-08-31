@@ -263,7 +263,7 @@ export function ParentDashboard() {
 
         {/* Phase 46 — Alerts banner + sibling comparison */}
         {children.length > 0 && Object.keys(insights).length > 0 && (
-          <AlertsAndComparison children={children} insights={insights} />
+          <AlertsAndComparison childList={children} insights={insights} />
         )}
 
         {/* Per-child insights cards */}
@@ -726,16 +726,16 @@ function FloatingAITeacher({
  * Renders only when the parent has 1+ children with insights loaded.
  */
 function AlertsAndComparison({
-  children,
+  childList,
   insights,
 }: {
-  children: Array<{ id: string; displayName: string; username: string; avatarEmoji?: string | null }>;
+  childList: Array<{ id: string; displayName: string; username: string; avatarEmoji?: string | null }>;
   insights: Record<string, ChildInsights>;
 }) {
   type Alert = { childId: string; childName: string; severity: "high" | "medium"; message: string };
   const alerts: Alert[] = [];
 
-  for (const c of children) {
+  for (const c of childList) {
     const i = insights[c.id];
     if (!i) continue;
     // High-severity: avg mastery < 0.4 across all subjects
@@ -766,7 +766,7 @@ function AlertsAndComparison({
   }
 
   // Sibling comparison — sort by readiness desc, show as a compact leaderboard
-  const ranking = children
+  const ranking = childList
     .map((c) => ({ child: c, insights: insights[c.id] }))
     .filter((x) => x.insights)
     .sort((a, b) => (b.insights.readiness ?? 0) - (a.insights.readiness ?? 0));
