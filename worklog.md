@@ -583,3 +583,17 @@ Stage Summary:
 - ROADMAP.md is the canonical Phase 53-59 plan; buddy stub comments/fields now point at the correct phases
 - Phase 53 (hardening) is the recommended next implementation session — migrations baseline is the single highest-risk debt
 - No runtime code changed in this commit (docs + type-level comments only); build/tests unaffected
+
+---
+Task ID: phases-53-56-implementation
+Agent: main
+Task: Implement Phases 53, 54, 56 per ROADMAP.md (user request "123" = build all three in order).
+
+Work Log:
+- PHASE 53 (commit 6e5a01a): Prisma Migrate baseline (prisma/migrations/0_init = full 102-model schema + lock file); db:push dropped --accept-data-loss; new db:deploy; build runs migrate deploy warn-only; CI applies migrations + drift check (migrate diff --exit-code). lib/sse-rate-limit.ts (sliding-window opens + concurrency, release-once) wired into tutor + group chat streams. /api/cron/streak-reminder (CRON_SECRET, dryRun/force) + vercel.json 17:00 UTC daily. Test wave: gamify + monetization invariants + tutor-engine intents/thinking/examgen; vitest.config.ts (@ alias + DATABASE_URL stub). FIX: parseExamGen nested-fence fallback.
+- PHASE 54 (commit ffbf6ac): lib/web-preview.ts (pure srcdoc assembler + console bridge, 16 tests). WebBuilderScreen (chat SSE / CodeMirror / live iframe preview with device toggles + console panel, mobile pane switcher). 8 offline-first templates (web-templates.ts). ZIP export route (archiver). Vercel BYOT deploy route (v13 inline files, 20 files/4MB caps, never stores token). Wiring: webBuilder screen, ProjectsScreen New Website + routing + honest phase map, HigherEdHome quick tool. SW v62.
+- PHASE 56 (commit 748c777): AIBuddy + BuddyId "ai" + aiapp track across onboarding/profile/tutor-default/HigherEdHome/ProjectsScreen. PromptPlaygroundScreen (A/B variants, temp/maxTokens, run both, durationMs + est tokens, save prompts.md). /api/ai/playground + "playground" feature in monetization tables; CallAIContext threads temperature/maxTokens (platform + BYOK). rag-engine.ts (pure chunk/cosine/topK/citations, 15 tests) + USE embeddings (lazy @tensorflow-models/universal-sentence-encoder, legacy-peer-deps); NotebookScreen rag cell type + %%ragdocs corpus cells + retrieval table output. ai-templates.ts (streaming chat / RAG / agent loop / eval harness) + Agent Builder (agent.json + agent.py). SW v63. README updated.
+
+Stage Summary:
+- 3 commits pushed to main: 6e5a01a, ffbf6ac, 748c777. Tests 63 → 130, lint 0 errors (7 pre-existing warnings), production build clean.
+- Production follow-ups: (1) baseline the live Neon DB once: `npx prisma migrate resolve --applied 0_init` (README documents it); (2) set CRON_SECRET + VAPID keys to activate the streak cron + push; (3) Next per roadmap: Phase 55 BackendBuddy, 57 MLBuddy 2.0, 58 ServerBuddy, 59 TVETBuddy.

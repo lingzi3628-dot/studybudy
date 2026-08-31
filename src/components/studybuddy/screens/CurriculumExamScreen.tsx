@@ -218,15 +218,17 @@ function ExamTaker({ examId, onExit }: { examId: string; onExit: () => void }) {
     if (!exam || submitted) return;
     if (timeLeft <= 0) {
       // Auto-submit when time runs out
-      handleSubmit();
+      void submitExam();
       return;
     }
     const t = setTimeout(() => setTimeLeft((s) => s - 1), 1000);
     return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timeLeft, exam, submitted]);
+  }, [timeLeft, exam, submitted, submitExam]);
 
-  const handleSubmit = useCallback(async () => {
+  // React Compiler note: declared with `function` (not useCallback) so the
+  // compiler can memoize it itself — the manual useCallback here previously
+  // triggered "Existing memoization could not be preserved".
+  async function submitExam() {
     if (submitting || submitted) return;
     setSubmitting(true);
     try {
@@ -244,7 +246,7 @@ function ExamTaker({ examId, onExit }: { examId: string; onExit: () => void }) {
     } finally {
       setSubmitting(false);
     }
-  }, [answers, examId, submitting, submitted]);
+  }
 
   if (loading) {
     return (
@@ -377,7 +379,7 @@ function ExamTaker({ examId, onExit }: { examId: string; onExit: () => void }) {
             if (answeredCount < totalQuestions) {
               if (!confirm(`You've only answered ${answeredCount} of ${totalQuestions} questions. Submit anyway?`)) return;
             }
-            handleSubmit();
+            void submitExam();
           }}
           disabled={submitting || answeredCount === 0}
           className="w-full h-12 rounded-full bg-emerald-600 text-white font-semibold text-sm shadow-md hover:bg-emerald-700 disabled:opacity-40 transition flex items-center justify-center gap-1.5"
