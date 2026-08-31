@@ -14,6 +14,7 @@ import { studyBuddy } from "./study";
 import { devBuddy } from "./dev";
 import { dataBuddy } from "./data";
 import { mlBuddy } from "./ml";
+import { aiBuddy } from "./ai";
 import { webBuddy } from "./web";
 import { backendBuddy } from "./backend";
 import { serverBuddy } from "./server";
@@ -28,6 +29,7 @@ const REGISTRY: Record<BuddyId, Buddy> = {
   dev: devBuddy,
   data: dataBuddy,
   ml: mlBuddy,
+  ai: aiBuddy,
   web: webBuddy,
   backend: backendBuddy,
   server: serverBuddy,
@@ -38,7 +40,7 @@ const REGISTRY: Record<BuddyId, Buddy> = {
  * Ordered list of buddy ids — used by the picker to render in a
  * predictable order (default first, then by phase number).
  */
-const ORDERED_IDS: BuddyId[] = ["study", "dev", "data", "ml", "web", "backend", "server", "tvet"];
+const ORDERED_IDS: BuddyId[] = ["study", "dev", "data", "ml", "ai", "web", "backend", "server", "tvet"];
 
 /**
  * Get a buddy by id. Returns the StudyBuddy if the id is unknown

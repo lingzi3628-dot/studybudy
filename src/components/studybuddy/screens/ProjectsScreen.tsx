@@ -44,6 +44,7 @@ const BUDDY_META: Record<string, { emoji: string; displayName: string; accent: s
   dev: { emoji: "💻", displayName: "DevBuddy", accent: "from-emerald-500 to-teal-500" },
   data: { emoji: "📊", displayName: "DataBuddy", accent: "from-sky-500 to-cyan-500" },
   ml: { emoji: "🧠", displayName: "MLBuddy", accent: "from-violet-500 to-fuchsia-500" },
+  ai: { emoji: "🤖", displayName: "AIBuddy", accent: "from-fuchsia-500 to-purple-600" },
   web: { emoji: "🌐", displayName: "WebBuddy", accent: "from-amber-500 to-orange-500" },
   backend: { emoji: "⚙️", displayName: "BackendBuddy", accent: "from-rose-500 to-pink-500" },
   server: { emoji: "🖥️", displayName: "ServerBuddy", accent: "from-gray-700 to-gray-900" },
@@ -55,6 +56,7 @@ const FILTERS: Array<{ id: "all" | BuddyId; label: string }> = [
   { id: "dev", label: "💻 Code" },
   { id: "data", label: "📊 Data" },
   { id: "ml", label: "🧠 ML" },
+  { id: "ai", label: "🤖 AI" },
   { id: "web", label: "🌐 Web" },
   { id: "backend", label: "⚙️ Backend" },
   { id: "server", label: "🖥️ Server" },
@@ -292,6 +294,10 @@ export function ProjectsScreen() {
                             // Phase 54 — web projects route to WebBuilderScreen
                             state.setActiveProjectId(p.id);
                             setScreen("webBuilder");
+                          } else if (p.buddyId === "ai") {
+                            // Phase 56 — ai projects route to the Prompt Playground
+                            state.setActiveProjectId(p.id);
+                            setScreen("promptPlayground");
                           } else if (p.conversationId) {
                             // No editor yet for this buddy — open AI Tutor with this conversation
                             setScreen("tutor");
@@ -329,7 +335,7 @@ export function ProjectsScreen() {
 
 function getPhaseForBuddy(buddyId: string): number {
   const phases: Record<string, number> = {
-    dev: 48, data: 49, ml: 50, web: 54, backend: 55, server: 58, tvet: 59,
+    dev: 48, data: 49, ml: 50, ai: 56, web: 54, backend: 55, server: 58, tvet: 59,
   };
   return phases[buddyId] ?? 48;
 }

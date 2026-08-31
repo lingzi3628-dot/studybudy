@@ -28,6 +28,7 @@ const BUDDY_GRID = [
   { id: "dev",     emoji: "💻", name: "DevBuddy",      tagline: "Code, debug, refactor, ship",      accent: "from-emerald-500 to-teal-500",   track: "dev" },
   { id: "data",    emoji: "📊", name: "DataBuddy",     tagline: "Notebooks, pandas, SQL, EDA",       accent: "from-sky-500 to-cyan-500",       track: "data" },
   { id: "ml",      emoji: "🧠", name: "MLBuddy",       tagline: "Train, visualize, evaluate models", accent: "from-violet-500 to-fuchsia-500", track: "ml" },
+  { id: "ai",      emoji: "🤖", name: "AIBuddy",       tagline: "Build AI apps: prompts, RAG, agents", accent: "from-fuchsia-500 to-purple-600", track: "aiapp" },
   { id: "web",     emoji: "🌐", name: "WebBuddy",      tagline: "Prompt → website → deploy",         accent: "from-amber-500 to-orange-500",  track: "web" },
   { id: "backend", emoji: "⚙️", name: "BackendBuddy", tagline: "APIs, SQL, databases, servers",     accent: "from-rose-500 to-pink-500",       track: "backend" },
   { id: "server",  emoji: "🖥️", name: "ServerBuddy",  tagline: "Linux, Docker, Nginx, deploy",      accent: "from-gray-700 to-gray-900",      track: "server" },
@@ -39,6 +40,7 @@ const TRACK_LABELS: Record<string, { label: string; emoji: string }> = {
   dev:   { label: "Coding",        emoji: "💻" },
   data:  { label: "Data Science",  emoji: "📊" },
   ml:    { label: "Machine Learning", emoji: "🧠" },
+  aiapp: { label: "AI App Dev",    emoji: "🤖" },
   tvet:  { label: "Technical / TVET", emoji: "🔧" },
   mixed: { label: "Multiple Interests", emoji: "🎯" },
 };

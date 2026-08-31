@@ -32,8 +32,16 @@ import {
 import { useApp } from "../store";
 import { CodeEditor } from "./CodeEditor";
 import { NotebookKernel, type CellOutput, type CellResult } from "@/lib/notebook-engine";
+import {
+  chunkText,
+  isRagDocsCell,
+  ragDocsPayload,
+  RAGDOCS_MARKER,
+  answerQuestion,
+  type RagChunk,
+} from "@/lib/rag-engine";
 
-type CellType = "code" | "markdown";
+type CellType = "code" | "markdown" | "rag";
 
 type NotebookCell = {
   id: string;
@@ -164,7 +172,9 @@ export function NotebookScreen() {
   // Run a single code cell
   const runCell = useCallback(async (id: string) => {
     const cell = notebook.cells.find((c) => c.id === id);
-    if (!cell || cell.type !== "code") return;
+    if (!cell) return;
+    if (cell.type === "rag") return runRagCell(cell);
+    if (cell.type !== "code") return;
 
     setRunningCellId(id);
     setError(null);
@@ -204,10 +214,61 @@ export function NotebookScreen() {
     }
   }, [notebook.cells]);
 
-  // Run all code cells in order
+  // Run a %%rag cell — Phase 56: in-browser RAG (chunk → embed via TF.js
+  // Universal Sentence Encoder → cosine top-k → cited answer through
+  // /api/ai/playground). Corpus = every %%ragdocs markdown cell above.
+  const runRagCell = useCallback(async (cell: NotebookCell) => {
+    setRunningCellId(cell.id);
+    setError(null);
+    try {
+      const corpus = notebook.cells
+        .filter((c) => c.type === "markdown" && isRagDocsCell(c.source))
+        .map((c) => ragDocsPayload(c.source))
+        .filter((t) => t.length > 0)
+        .join("\n\n");
+      if (!corpus) {
+        throw new Error(
+          `No documents loaded. Add a "${RAGDOCS_MARKER}" markdown cell first (paste any text under the marker), then run this cell.`
+        );
+      }
+      const question = cell.source.trim() || "Summarize the documents.";
+      const chunks = chunkText(corpus);
+      const { answer, retrieved, durationMs } = await answerQuestion(question, chunks, 4);
+
+      // Render: retrieval table + the cited answer.
+      const table: CellOutput = {
+        type: "table",
+        columns: ["chunk", "similarity", "excerpt"],
+        rows: retrieved.map((r: RagChunk) => [r.index, r.score.toFixed(2), r.text.slice(0, 80) + (r.text.length > 80 ? "…" : "")]),
+      };
+      const answerOut: CellOutput = { type: "text", content: answer };
+      setNotebook((prev) => ({
+        ...prev,
+        cells: prev.cells.map((c) =>
+          c.id === cell.id
+            ? { ...c, outputs: [table, answerOut], executionCount: (c.executionCount ?? 0) + 1 }
+            : c
+        ),
+      }));
+      void durationMs;
+    } catch (e: any) {
+      setNotebook((prev) => ({
+        ...prev,
+        cells: prev.cells.map((c) =>
+          c.id === cell.id
+            ? { ...c, outputs: [{ type: "error", name: "RagError", message: e?.message ?? "RAG cell failed" }], executionCount: 0 }
+            : c
+        ),
+      }));
+    } finally {
+      setRunningCellId(null);
+    }
+  }, [notebook.cells]);
+
+  // Run all runnable cells in order (code first, then rag)
   const runAll = useCallback(async () => {
-    const codeCells = notebook.cells.filter((c) => c.type === "code");
-    for (const cell of codeCells) {
+    const runnable = notebook.cells.filter((c) => c.type === "code" || c.type === "rag");
+    for (const cell of runnable) {
       await runCell(cell.id);
     }
   }, [notebook.cells, runCell]);
@@ -234,7 +295,7 @@ export function NotebookScreen() {
     const newCell: NotebookCell = {
       id: uuid(),
       type,
-      source: type === "code" ? "" : "",
+      source: type === "rag" ? "" : "",
       outputs: [],
       executionCount: null,
     };
@@ -394,6 +455,31 @@ export function NotebookScreen() {
           >
             <FileText className="w-3.5 h-3.5" /> + Markdown
           </button>
+          <button
+            onClick={() => {
+              addCell("markdown");
+              // Seed the new docs cell via the last cell — simpler: addCell then update.
+              setNotebook((prev) => ({
+                ...prev,
+                cells: prev.cells.map((c) =>
+                  c.id === prev.cells[prev.cells.length - 1].id
+                    ? { ...c, type: "markdown", source: `${RAGDOCS_MARKER}\nPaste (or type) any text here — every RAG cell retrieves from all ${RAGDOCS_MARKER} cells.` }
+                    : c
+                ),
+              }));
+            }}
+            className="px-3 h-9 rounded-full bg-white border border-fuchsia-200 text-fuchsia-600 text-xs font-semibold flex items-center gap-1 hover:border-fuchsia-400"
+            title="Add a document cell that RAG cells will retrieve from"
+          >
+            📄 + Docs
+          </button>
+          <button
+            onClick={() => addCell("rag")}
+            className="px-3 h-9 rounded-full bg-white border border-fuchsia-200 text-fuchsia-600 text-xs font-semibold flex items-center gap-1 hover:border-fuchsia-400"
+            title="Ask a question about your documents (in-browser retrieval + cited answer)"
+          >
+            🧠 + RAG
+          </button>
         </div>
       </div>
 
@@ -473,6 +559,54 @@ function Cell({
             className="px-4 py-3 prose prose-sm max-w-none"
             dangerouslySetInnerHTML={{ __html: renderMarkdown(cell.source) }}
           />
+        )}
+      </div>
+    );
+  }
+
+  // RAG cell — Phase 56: ask a question against the notebook's %%ragdocs corpus
+  if (cell.type === "rag") {
+    return (
+      <div className="group relative rounded-xl bg-white border border-fuchsia-200 shadow-sm overflow-hidden">
+        <div className="flex items-center gap-1 px-3 py-1.5 border-b border-fuchsia-100 bg-fuchsia-50/50">
+          <span className="text-[10px] font-bold uppercase text-fuchsia-500 flex items-center gap-1">
+            🧠 RAG In [{cell.executionCount ?? " "}]
+          </span>
+          <div className="flex-1" />
+          <button
+            onClick={onRun}
+            disabled={isRunning}
+            className="px-2 py-1 rounded-md text-[10px] font-semibold flex items-center gap-1 transition disabled:opacity-50 text-fuchsia-600"
+            title="Embed corpus + answer with citations"
+          >
+            {isRunning ? (
+              <><Loader2 className="w-3 h-3 animate-spin" /> {kernelLoading ? "Loading model…" : "Retrieving…"}</>
+            ) : (
+              <><Play className="w-3 h-3" /> Ask</>
+            )}
+          </button>
+          <button onClick={() => onAddAfter("rag")} className="text-[10px] text-gray-500 hover:text-fuchsia-600 px-1">+ RAG</button>
+          <button onClick={onDelete} className="text-[10px] text-gray-500 hover:text-rose-600 px-1">
+            <Trash2 className="w-3 h-3" />
+          </button>
+        </div>
+        <div className="px-3 py-2">
+          <input
+            value={cell.source}
+            onChange={(e) => onEdit(e.target.value)}
+            placeholder="Ask a question about the documents…"
+            className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 outline-none focus:border-fuchsia-400"
+          />
+          <p className="text-[10px] text-gray-400 mt-1">
+            Corpus = every <code className="text-fuchsia-500">{RAGDOCS_MARKER}</code> markdown cell below. Retrieval runs in-browser (TF.js embeddings); the cited answer comes from the AI.
+          </p>
+        </div>
+        {cell.outputs.length > 0 && (
+          <div className="border-t border-fuchsia-100 bg-fuchsia-50/30 px-3 py-2">
+            {cell.outputs.map((output, i) => (
+              <CellOutputView key={i} output={output} />
+            ))}
+          </div>
         )}
       </div>
     );

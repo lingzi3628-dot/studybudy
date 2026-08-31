@@ -69,6 +69,7 @@ export type BuddyId =
   | "dev"
   | "data"
   | "ml"
+  | "ai"
   | "web"
   | "backend"
   | "server"

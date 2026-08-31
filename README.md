@@ -21,6 +21,8 @@ A mobile-first, AI-powered study companion web app (PWA). Built with Next.js 16,
 - **Real-time Group Chat** — SSE live stream with auto-reconnect + polling fallback *(Phase 52)*
 - **Web Push Notifications** — group messages and system alerts reach users even with the app closed *(Phase 52)*
 - **Weekly Parent Emails** — automated child progress digests via cron *(Phase 52)*
+- **WebBuddy Website Builder** — prompt → generated HTML/CSS/JS files → live sandboxed preview (device toggles + console) → save/export ZIP → one-click Vercel deploy with your own token; 8 offline-first starter templates *(Phase 54)*
+- **AIBuddy — AI App Dev track** — new onboarding track + buddy for building AI apps: A/B Prompt Playground (temperature, latency, token estimates), in-browser RAG notebook cells (TF.js Universal Sentence Encoder embeddings + [chunk N] citations), Agent Builder (spec + runnable tool-calling loop), and 4 ship-it starter projects *(Phase 56)*
 
 ## Tech Stack
 
@@ -255,6 +257,10 @@ The admin auth is **fully separate** from user auth. A regular user cannot acces
 - `GET /api/study-groups/[id]/chat/stream` — live group chat via SSE (Phase 52)
 - `POST /api/push/subscribe` / `POST /api/push/unsubscribe` / `GET /api/push/status` — Web Push (Phase 52)
 - `GET|POST /api/cron/parent-digest` — weekly parent progress emails, CRON_SECRET-protected (Phase 52)
+- `GET|POST /api/cron/streak-reminder` — daily streak-keeper push notifications, CRON_SECRET-protected (Phase 53)
+- `GET /api/projects/[id]/export` — download any project as a ZIP (Phase 54)
+- `POST /api/deploy/vercel` — deploy a static project to Vercel with a user-supplied token (BYOT, never stored) (Phase 54)
+- `POST /api/ai/playground` — run a (system, user) prompt pair with sampling controls for the Prompt Playground (Phase 56)
 - `POST /api/extract/file` — PDF/text upload + text extraction
 - `POST /api/study-sets/from-graph` — save graph as study set
 - `GET/POST /api/topics` + `GET /api/topics/[id]` — topic browse + details

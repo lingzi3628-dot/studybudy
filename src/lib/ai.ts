@@ -29,6 +29,11 @@ export type CallAIContext = {
    * checkAndDeductTokens() and we should skip the second deduction here.
    * Set to false ONLY for unmonetized/system routes. */
   alreadyCharged?: boolean;
+  /** Phase 56 (Prompt Playground) — sampling controls. Honored by the
+   * platform (GLM) and BYOK paths; admin-configured providers keep their
+   * own defaults. */
+  temperature?: number;
+  maxTokens?: number;
 };
 
 /**
@@ -37,7 +42,7 @@ export type CallAIContext = {
  */
 async function callPlatformAI(
   messages: ChatMessage[],
-  ctx: { userId: string; route?: string }
+  ctx: { userId: string; route?: string; temperature?: number; maxTokens?: number }
 ): Promise<string> {
   let content = "";
   let errorMessage: string | null = null;
@@ -48,7 +53,11 @@ async function callPlatformAI(
       setTimeout(() => reject(new Error("AI request timed out (10s)")), 10000)
     );
     const completion = await Promise.race([
-      client.chat.completions.create({ messages } as any),
+      client.chat.completions.create({
+        messages,
+        ...(ctx.temperature !== undefined ? { temperature: ctx.temperature } : {}),
+        ...(ctx.maxTokens !== undefined ? { max_tokens: ctx.maxTokens } : {}),
+      } as any),
       timeoutPromise,
     ]);
     content =
@@ -87,7 +96,7 @@ async function callPlatformAI(
 async function callBYOKAI(
   messages: ChatMessage[],
   apiKey: string,
-  opts: { baseUrl?: string; model?: string; userId: string; route?: string }
+  opts: { baseUrl?: string; model?: string; userId: string; route?: string; temperature?: number; maxTokens?: number }
 ): Promise<string> {
   const baseUrl = (opts.baseUrl || "https://api.openai.com/v1").replace(/\/$/, "");
   const model = opts.model || "gpt-4o-mini";
@@ -102,7 +111,12 @@ async function callBYOKAI(
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
       },
-      body: JSON.stringify({ model, messages, temperature: 0.7 }),
+      body: JSON.stringify({
+        model,
+        messages,
+        temperature: opts.temperature ?? 0.7,
+        ...(opts.maxTokens !== undefined ? { max_tokens: opts.maxTokens } : {}),
+      }),
     });
     if (!res.ok) {
       const txt = await res.text().catch(() => "");
@@ -163,6 +177,8 @@ export async function callAI(
       const content = await callBYOKAI(messages, userApiKey.trim(), {
         userId,
         route,
+        temperature: ctx?.temperature,
+        maxTokens: ctx?.maxTokens,
       });
       return content;
     } catch (e: any) {
@@ -275,7 +291,7 @@ export async function callAI(
   }
 
   // 3) Platform fallback
-  const content = await callPlatformAI(messages, { userId, route });
+  const content = await callPlatformAI(messages, { userId, route, temperature: ctx?.temperature, maxTokens: ctx?.maxTokens });
   return content;
 }
 

@@ -863,6 +863,7 @@ function TrackSwitcher({
     { value: "dev",   label: "💻 Coding & Programming",   desc: "DevBuddy default — Python/JS/Go" },
     { value: "data",  label: "📊 Data Science",            desc: "DataBuddy default — pandas/SQL" },
     { value: "ml",    label: "🧠 Machine Learning",        desc: "MLBuddy default — TensorFlow.js" },
+    { value: "aiapp", label: "🤖 AI App Dev",               desc: "AIBuddy default — prompts, RAG, agents" },
     { value: "tvet",  label: "🔧 Technical (TVET)",        desc: "TVETBuddy default — trades" },
     { value: "mixed", label: "🎯 Multiple interests",      desc: "All 8 buddies — pick per task" },
   ];

@@ -114,6 +114,8 @@ const FLAT_COSTS: Record<string, number> = {
   concept_map: 25,
   cards: 30,
   learning_path: 30,
+  // Phase 56 — AI App Dev tooling
+  playground: 8,
 };
 
 // Per-feature daily caps for FREE users (premium = unlimited).
@@ -139,6 +141,8 @@ const FREE_DAILY_LIMITS: Record<string, number> = {
   voice_transcribe: 10,
   tts: 10,
   classroom: 10,
+  // Phase 56 — AI App Dev tooling (generous: iterating on prompts is the point)
+  playground: 50,
 };
 
 // ---------------------------------------------------------------------

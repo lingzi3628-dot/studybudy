@@ -793,6 +793,7 @@ export function AITutorChat() {
               dev: "dev",
               data: "data",
               ml: "ml",
+              aiapp: "ai",
               tvet: "tvet",
               mixed: "study",  // mixed users get the general StudyBuddy default
             };

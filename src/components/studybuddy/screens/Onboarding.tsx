@@ -23,6 +23,7 @@ import {
   Brain,
   Wrench,
   Sparkles,
+  Bot,
 } from "lucide-react";
 import { useApp } from "../store";
 import { api } from "../api";
@@ -38,15 +39,16 @@ const roles = [
 ];
 
 // Phase 51 — Track picker (step 0 of onboarding).
-// Each track opens a different "world": K-12 (current), dev, data, ML, TVET.
-// Mixed = all 8 buddies equally accessible (default for Self-Learner/Inventor).
+// Each track opens a different "world": K-12 (current), dev, data, ML,
+// AI app dev, TVET. Mixed = all 9 buddies equally accessible.
 const TRACKS = [
   { key: "k12",   label: "K-12 School",         emoji: "📚", icon: GraduationCap, desc: "Kenya CBC / KCSE / KPSEA / KJSEA", accent: "from-indigo-500 to-violet-500", defaultBuddy: "study" },
   { key: "dev",   label: "Coding & Programming", emoji: "💻", icon: Code,          desc: "Python, JS, TS, Go, Rust, debug + ship",        accent: "from-emerald-500 to-teal-500", defaultBuddy: "dev" },
   { key: "data",  label: "Data Science",        emoji: "📊", icon: Database,      desc: "pandas, SQL, notebooks, EDA, visualization",     accent: "from-sky-500 to-cyan-500", defaultBuddy: "data" },
   { key: "ml",    label: "Machine Learning",    emoji: "🧠", icon: Brain,         desc: "Train, visualize, evaluate models in-browser", accent: "from-violet-500 to-fuchsia-500", defaultBuddy: "ml" },
+  { key: "aiapp", label: "AI App Dev",          emoji: "🤖", icon: Bot,           desc: "Build AI apps: prompts, RAG, agents, evals",     accent: "from-fuchsia-500 to-purple-600", defaultBuddy: "ai" },
   { key: "tvet",  label: "Technical (TVET)",   emoji: "🔧", icon: Wrench,        desc: "Electrical, mechanical, ICT, hospitality, etc.", accent: "from-amber-500 to-red-500", defaultBuddy: "tvet" },
-  { key: "mixed", label: "Multiple interests",  emoji: "🎯", icon: Sparkles,     desc: "Show me all 8 buddies — I'll pick per task",   accent: "from-rose-500 to-pink-500", defaultBuddy: "study" },
+  { key: "mixed", label: "Multiple interests",  emoji: "🎯", icon: Sparkles,     desc: "Show me all 9 buddies — I'll pick per task",   accent: "from-rose-500 to-pink-500", defaultBuddy: "study" },
 ] as const;
 
 // Per-track grade/level options for step 2
@@ -55,6 +57,7 @@ const TRACK_GRADES: Record<string, string[]> = {
   dev: ["Beginner", "Intermediate", "Advanced", "Bootcamp student", "Self-taught", "Professional"],
   data: ["Beginner", "Intermediate", "Advanced", "Analyst", "Data engineer", "Researcher"],
   ml: ["Beginner", "Intermediate", "Advanced", "Researcher", "PhD student", "AI engineer"],
+  aiapp: ["Beginner", "Intermediate", "Advanced", "Full-stack dev adding AI", "AI engineer", "ML engineer"],
   tvet: ["CDACC Level 4", "CDACC Level 5", "CDACC Level 6", "Artisan", "Trainer", "Vocational student"],
   mixed: ["Beginner", "Intermediate", "Advanced", "Self-taught"],
 };

@@ -51,6 +51,7 @@ export type Screen =
   | "notebook"
   | "mlPlayground"
   | "webBuilder"
+  | "promptPlayground"
   | "higherEdHome";
 
 export type CreateOption =
