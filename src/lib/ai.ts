@@ -307,3 +307,205 @@ export function parseJsonLoose<T = unknown>(raw: string): T {
 
 // Backwards-compat exports (callers may import callPlatformAI and callBYOKAI directly)
 export { callPlatformAI, callBYOKAI };
+
+// ============================================================
+// Phase 52 — Streaming AI support
+// ============================================================
+
+/**
+ * Parse an OpenAI-compatible SSE body (ReadableStream) and yield text deltas.
+ * Handles `data: {...}` lines with choices[0].delta.content, stops on [DONE].
+ */
+async function* parseOpenAIStream(body: ReadableStream<Uint8Array>): AsyncGenerator<string> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      // SSE events are separated by \n\n
+      let sep: number;
+      while ((sep = buffer.indexOf("\n\n")) !== -1) {
+        const rawEvent = buffer.slice(0, sep);
+        buffer = buffer.slice(sep + 2);
+        for (const line of rawEvent.split("\n")) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith("data:")) continue;
+          const payload = trimmed.slice(5).trim();
+          if (!payload || payload === "[DONE]") continue;
+          try {
+            const json = JSON.parse(payload);
+            const delta =
+              json?.choices?.[0]?.delta?.content ??
+              json?.choices?.[0]?.message?.content ??
+              "";
+            if (delta) yield delta as string;
+          } catch {
+            // ignore malformed chunks (keepalives etc.)
+          }
+        }
+      }
+    }
+  } finally {
+    try { reader.releaseLock(); } catch {}
+  }
+}
+
+/**
+ * Stream an OpenAI-compatible endpoint via fetch (used for BYOK).
+ * Yields text deltas. Returns via generator — usage logging is the caller's job
+ * (best-effort log happens inside this function on completion).
+ */
+async function* streamBYOKAI(
+  messages: ChatMessage[],
+  apiKey: string,
+  opts: { baseUrl?: string; model?: string; userId: string; route?: string }
+): AsyncGenerator<string> {
+  const baseUrl = (opts.baseUrl || "https://api.openai.com/v1").replace(/\/$/, "");
+  const model = opts.model || "gpt-4o-mini";
+  let full = "";
+  let errorMessage: string | null = null;
+
+  try {
+    const res = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({ model, messages, temperature: 0.7, stream: true }),
+    });
+    if (!res.ok || !res.body) {
+      const txt = await res.text().catch(() => "");
+      errorMessage = `HTTP ${res.status}: ${txt.slice(0, 200)}`;
+    } else {
+      for await (const delta of parseOpenAIStream(res.body as any)) {
+        full += delta;
+        yield delta;
+      }
+      if (!full) errorMessage = "Empty stream from BYOK AI";
+    }
+  } catch (e: any) {
+    errorMessage = e?.message ?? String(e);
+  }
+
+  // log the call (best-effort, mirrors callBYOKAI)
+  try {
+    await logAiCall(opts.userId, {
+      content: full,
+      providerId: null,
+      providerType: "byok",
+      model,
+      promptTokens: null,
+      completionTokens: null,
+      totalTokens: null,
+      cost: 0,
+      status: full ? "success" : "error",
+      errorMessage,
+    }, opts.route);
+  } catch {}
+
+  if (!full && errorMessage) {
+    throw new Error(errorMessage);
+  }
+}
+
+/**
+ * Streaming entrypoint — mirrors callAI()'s resolution order:
+ *   1. BYOK (streamed via OpenAI-compatible fetch)
+ *   2. Model mapping / admin providers (non-streamed — yielded as one chunk)
+ *   3. Platform fallback (GLM SDK, streamed via stream:true)
+ *
+ * Yields text deltas in order. The full reply === concat of all yielded deltas
+ * EXCEPT when a non-streaming fallback path throws — then the error propagates.
+ */
+export async function* streamAI(
+  messages: ChatMessage[],
+  userApiKey: string | null | undefined,
+  ctx?: CallAIContext
+): AsyncGenerator<string> {
+  const userId = ctx?.userId ?? "system";
+  const route = ctx?.route;
+
+  // 1) BYOK — true streaming
+  if (userApiKey && userApiKey.trim()) {
+    let streamed = false;
+    try {
+      for await (const delta of streamBYOKAI(messages, userApiKey.trim(), { userId, route })) {
+        streamed = true;
+        yield delta;
+      }
+      if (streamed) return;
+    } catch (e: any) {
+      console.warn("BYOK stream failed, falling back:", e?.message ?? e);
+      // If nothing was yielded yet, fall through to default resolution.
+      if (streamed) return;
+    }
+  }
+
+  // 2 + 3) Model mapping / admin providers / platform.
+  // Only the platform GLM path supports true streaming today; the rest
+  // resolve via callAI() and are yielded as a single chunk (client renders
+  // progressively anyway).
+  let content = "";
+  try {
+    content = await callAI(messages, null, ctx);
+  } catch (e: any) {
+    throw e;
+  }
+  if (content) yield content;
+}
+
+/**
+ * Stream from the platform GLM SDK directly (stream:true → raw SSE body).
+ * Used by the tutor chat stream route for the fast free-model path.
+ * Throws if the platform stream fails — caller decides fallback.
+ */
+export async function* streamPlatformAI(
+  messages: ChatMessage[],
+  ctx?: CallAIContext
+): AsyncGenerator<string> {
+  const userId = ctx?.userId ?? "system";
+  const route = ctx?.route;
+  const ZAI = (await import("z-ai-web-dev-sdk")).default;
+  const client = await ZAI.create();
+  const body: any = await client.chat.completions.create({
+    messages,
+    stream: true,
+  } as any);
+
+  // SDK returns the raw ReadableStream when the response is an SSE stream.
+  if (!body || typeof (body as any).getReader !== "function") {
+    // Non-stream response (JSON) — extract and yield once.
+    const content =
+      body?.choices?.[0]?.message?.content ??
+      body?.choices?.[0]?.delta?.content ??
+      "";
+    if (!content) throw new Error("Platform AI returned empty response");
+    yield content;
+  } else {
+    let full = "";
+    for await (const delta of parseOpenAIStream(body as any)) {
+      full += delta;
+      yield delta;
+    }
+    // log (best-effort)
+    try {
+      await logAiCall(userId, {
+        content: full,
+        providerId: null,
+        providerType: "glm",
+        model: "glm-default",
+        promptTokens: null,
+        completionTokens: null,
+        totalTokens: null,
+        cost: 0,
+        status: full ? "success" : "error",
+        errorMessage: full ? null : "Empty stream from platform AI",
+      }, route);
+    } catch {}
+    if (!full) throw new Error("Empty stream from platform AI");
+  }
+}

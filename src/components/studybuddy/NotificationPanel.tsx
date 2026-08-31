@@ -13,7 +13,7 @@
  */
 
 import { useEffect, useState, useRef } from "react";
-import { Bell, Check, Loader2, BellOff } from "lucide-react";
+import { Bell, Check, Loader2, BellOff, BellRing } from "lucide-react";
 
 type Notif = {
   id: string;
@@ -30,6 +30,111 @@ const TYPE_EMOJI: Record<string, string> = {
   group_invite: "👥",
   system: "🔔",
 };
+
+// ============================================================
+// Phase 52 — Web Push subscription toggle
+// ============================================================
+
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(base64);
+  const output = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) output[i] = raw.charCodeAt(i);
+  return output;
+}
+
+function PushToggleRow() {
+  const [state, setState] = useState<"loading" | "hidden" | "off" | "on" | "busy">("loading");
+
+  useEffect(() => {
+    (async () => {
+      try {
+        // Server must have VAPID keys configured, browser must support push
+        const st = await fetch("/api/push/status");
+        const d = await st.json();
+        if (!d.configured || typeof window === "undefined" || !("PushManager" in window) || !("serviceWorker" in navigator)) {
+          setState("hidden");
+          return;
+        }
+        const reg = await navigator.serviceWorker.getRegistration();
+        const sub = reg ? await reg.pushManager.getSubscription() : null;
+        setState(sub ? "on" : "off");
+      } catch {
+        setState("hidden");
+      }
+    })();
+  }, []);
+
+  if (state === "loading" || state === "hidden") return null;
+  const busy = state === "busy";
+
+  const enable = async () => {
+    setState("busy");
+    try {
+      const perm = await Notification.requestPermission();
+      if (perm !== "granted") {
+        setState("off");
+        return;
+      }
+      const reg = await navigator.serviceWorker.ready;
+      const key = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? "";
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(key) as BufferSource,
+      });
+      await fetch("/api/push/subscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(sub.toJSON()),
+      });
+      setState("on");
+    } catch {
+      setState("off");
+    }
+  };
+
+  const disable = async () => {
+    setState("busy");
+    try {
+      const reg = await navigator.serviceWorker.getRegistration();
+      const sub = reg ? await reg.pushManager.getSubscription() : null;
+      if (sub) {
+        await fetch("/api/push/unsubscribe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ endpoint: sub.endpoint }),
+        });
+        await sub.unsubscribe();
+      }
+    } catch { /* ignore */ }
+    setState("off");
+  };
+
+  return (
+    <div className="px-4 py-2.5 border-b border-gray-100 bg-indigo-50/50">
+      {state === "off" ? (
+        <button
+          onClick={enable}
+          disabled={busy}
+          className="w-full text-[11px] font-medium text-indigo-700 hover:text-indigo-800 flex items-center justify-center gap-1.5 disabled:opacity-60"
+        >
+          {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <BellRing className="w-3 h-3" />}
+          Enable push notifications
+        </button>
+      ) : (
+        <button
+          onClick={disable}
+          disabled={busy}
+          className="w-full text-[11px] font-medium text-emerald-700 hover:text-emerald-800 flex items-center justify-center gap-1.5 disabled:opacity-60"
+        >
+          {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <BellRing className="w-3 h-3" />}
+          Push notifications on — tap to turn off
+        </button>
+      )}
+    </div>
+  );
+}
 
 export function NotificationPanel() {
   const [open, setOpen] = useState(false);
@@ -110,6 +215,7 @@ export function NotificationPanel() {
 
       {open && (
         <div className="absolute right-0 top-11 z-50 w-80 max-w-[calc(100vw-2rem)] bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden">
+          <PushToggleRow />
           <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
             <h3 className="text-sm font-semibold text-gray-900">Notifications</h3>
             {unread > 0 && (

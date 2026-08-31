@@ -88,6 +88,32 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     },
   });
 
+  // Phase 52 — Web Push fan-out to other group members (best-effort, never blocks)
+  try {
+    const { sendPushToUsers } = await import("@/lib/push");
+    const members = await db.studyGroupMember.findMany({
+      where: { groupId, userId: { not: user.id } },
+      select: { userId: true },
+    });
+    const groupName = await db.studyGroup.findUnique({
+      where: { id: groupId },
+      select: { name: true },
+    });
+    if (members.length > 0) {
+      await sendPushToUsers(
+        members.map((m) => m.userId),
+        {
+          title: `💬 ${groupName?.name ?? "Study group"}`,
+          body: `${user.name ?? "A member"}: ${text.slice(0, 120)}`,
+          url: "/",
+          tag: `group-${groupId}`,
+        }
+      );
+    }
+  } catch (pushErr: any) {
+    console.warn("[group-chat] push fan-out failed:", pushErr?.message);
+  }
+
   return NextResponse.json({
     message: {
       id: message.id,

@@ -50,7 +50,6 @@ export function StudyGroupScreen() {
   const [sending, setSending] = useState(false);
   const [copied, setCopied] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const pollTimerRef = useRef<any>(null);
   const lastFetchRef = useRef<string | null>(null);
 
   // Load group info + members + initial messages on mount
@@ -91,27 +90,66 @@ export function StudyGroupScreen() {
     })();
   }, [activeStudyGroupId]);
 
-  // Polling — fetch new messages every 3 seconds
-  const pollMessages = useCallback(async () => {
-    if (!activeStudyGroupId || !lastFetchRef.current) return;
-    try {
-      const r = await fetch(
-        `/api/study-groups/${activeStudyGroupId}/chat?since=${encodeURIComponent(lastFetchRef.current)}`
-      );
-      if (!r.ok) return;
-      const d = await r.json();
-      const newMsgs = d.messages ?? [];
-      if (newMsgs.length > 0) {
-        setMessages((prev) => [...prev, ...newMsgs]);
-      }
-      lastFetchRef.current = new Date().toISOString();
-    } catch { /* ignore polling errors */ }
-  }, [activeStudyGroupId]);
+  // Dedup merge — SSE stream, fallback polling, and initial load can overlap
+  const mergeMessages = useCallback((incoming: Message[]) => {
+    if (!incoming || incoming.length === 0) return;
+    setMessages((prev) => {
+      const known = new Set(prev.map((p) => p.id));
+      const fresh = incoming.filter((m) => !known.has(m.id));
+      if (fresh.length === 0) return prev;
+      return [...prev, ...fresh];
+    });
+  }, []);
 
+  // Phase 52 — real-time chat via SSE (/chat/stream). The server holds one
+  // connection open, polls the DB every 2s, and pushes new messages as they
+  // arrive. EventSource reconnects automatically (resume via Last-Event-ID);
+  // if it gives up entirely (proxy blocks SSE), we fall back to 3s polling.
   useEffect(() => {
-    pollTimerRef.current = setInterval(pollMessages, 3000);
-    return () => clearInterval(pollTimerRef.current);
-  }, [pollMessages]);
+    if (!activeStudyGroupId) return;
+    let es: EventSource | null = null;
+    let pollTimer: any = null;
+    let fallbackStarted = false;
+
+    const startPollingFallback = () => {
+      if (fallbackStarted) return;
+      fallbackStarted = true;
+      pollTimer = setInterval(async () => {
+        try {
+          const r = await fetch(`/api/study-groups/${activeStudyGroupId}/chat`);
+          if (!r.ok) return;
+          const d = await r.json();
+          mergeMessages(d.messages ?? []);
+        } catch { /* ignore polling errors */ }
+      }, 3000);
+    };
+
+    try {
+      es = new EventSource(`/api/study-groups/${activeStudyGroupId}/chat/stream`);
+      es.addEventListener("messages", (ev: MessageEvent) => {
+        try {
+          const d = JSON.parse(ev.data);
+          mergeMessages(d.messages ?? []);
+        } catch { /* ignore malformed events */ }
+      });
+      es.onerror = () => {
+        // readyState === CLOSED means EventSource stopped retrying
+        if (es && es.readyState === 2) {
+          try { es.close(); } catch { /* noop */ }
+          es = null;
+          startPollingFallback();
+        }
+      };
+    } catch {
+      // EventSource unavailable (very old browser) — poll instead
+      startPollingFallback();
+    }
+
+    return () => {
+      if (es) { try { es.close(); } catch { /* noop */ } }
+      if (pollTimer) clearInterval(pollTimer);
+    };
+  }, [activeStudyGroupId, mergeMessages]);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {

@@ -279,7 +279,7 @@ export function AITutorChat() {
     await loadConversations();
   };
 
-  // Send a message
+  // Send a message (Phase 52 — streaming via /api/tutor/chat/stream)
   const send = async (text?: string) => {
     const q = (text ?? input).trim();
     const img = pendingImage;
@@ -306,74 +306,192 @@ export function AITutorChat() {
       attachments: img ? [{ type: "image", url: img, caption: "Uploaded image" }] : undefined,
       createdAt: new Date().toISOString(),
     };
-    setMessages((m) => [...m, tempUserMsg]);
+    // Live placeholder assistant bubble — updated token-by-token as deltas arrive
+    const streamId = `stream-${Date.now()}`;
+    const liveMsg: ChatMsg = {
+      id: streamId,
+      role: "assistant",
+      content: "",
+      createdAt: new Date().toISOString(),
+    };
+    setMessages((m) => [...m, tempUserMsg, liveMsg]);
+
+    // Hide in-progress / completed <thinking> blocks while streaming
+    const liveDisplay = (acc: string): string => {
+      const open = acc.indexOf("<thinking>");
+      if (open === -1) return acc;
+      const close = acc.indexOf("</thinking>");
+      if (close !== -1) return (acc.slice(0, open) + acc.slice(close + 11)).replace(/^\s+/, "");
+      return acc.slice(0, open);
+    };
+
+    const requestBody = JSON.stringify({
+      conversationId: activeConversation?.id ?? null,
+      message: messageText,
+      image: img,
+      // Phase 45: keep replies short + skip image-search in Data Saver mode
+      dataSaver,
+      // Phase 47: route to the right buddy prompt builder
+      buddyId: activeBuddyId,
+    });
+
+    const finalizeStreamedMessage = (patch: Partial<ChatMsg>) => {
+      setMessages((m) => m.map((msg) => (msg.id === streamId ? { ...msg, ...patch } : msg)));
+    };
 
     try {
-      const r = await fetch("/api/tutor/chat", {
+      const r = await fetch("/api/tutor/chat/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          conversationId: activeConversation?.id ?? null,
-          message: messageText,
-          image: img,
-          // Phase 45: tell the backend to keep replies short and skip image-search
-          // when Data Saver mode is on.
-          dataSaver,
-          // Phase 47: tell the backend which buddy is active so it can route
-          // to the right system-prompt builder.
-          buddyId: activeBuddyId,
-        }),
+        body: requestBody,
       });
-      const d = await r.json();
-      if (!r.ok) {
+      const ct = r.headers.get("content-type") ?? "";
+
+      // JSON responses = errors (401 / 402 / 400 / 500) or unexpected fallback
+      if (!r.ok || ct.includes("application/json")) {
+        const d = await r.json().catch(() => ({} as any));
+        setMessages((m) => m.filter((msg) => msg.id !== streamId));
         if (d.needsUpgrade || r.status === 402) {
           setError(d.error ?? "Limit reached");
           setShowUpgrade(true);
-        } else {
-          throw new Error(d.error ?? "Failed");
+          return;
         }
-        return;
+        if (d.ok === false) {
+          // Graceful AI errors (e.g. disconnected Study Buddy) → shown as chat message
+          const errorMsg: ChatMsg = {
+            id: `error-${Date.now()}`,
+            role: "assistant",
+            content: d.error ?? "AI couldn't respond. Please try another Study Buddy.",
+            createdAt: new Date().toISOString(),
+          };
+          setMessages((m) => [...m, errorMsg]);
+          return;
+        }
+        throw new Error(d.error ?? "Failed");
       }
 
-      // Handle graceful errors returned as 200 with ok:false (e.g. disconnected Study Buddy)
-      if (d.ok === false) {
-        // Show the error as an AI message in the chat (not a red banner)
-        const errorMsg: ChatMsg = {
-          id: `error-${Date.now()}`,
-          role: "assistant",
-          content: d.error ?? "AI couldn't respond. Please try another Study Buddy.",
-          createdAt: new Date().toISOString(),
-        };
-        setMessages((m) => [...m, errorMsg]);
-        return;
-      }
+      // ---- SSE parse loop ----
+      const reader = r.body?.getReader();
+      if (!reader) throw new Error("Streaming not supported");
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let acc = "";
+      let gotDone = false;
 
-      const aiMsg: ChatMsg = {
-        id: `ai-${Date.now()}`,
-        role: "assistant",
-        content: d.reply,
-        attachments: d.attachments,
-        thinking: d.thinking,
-        proof: d.proof,
-        createdAt: new Date().toISOString(),
+      const handleEvent = (rawEvent: string) => {
+        let eventName = "message";
+        const dataLines: string[] = [];
+        for (const line of rawEvent.split("\n")) {
+          if (line.startsWith("event:")) eventName = line.slice(6).trim();
+          else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
+        }
+        if (dataLines.length === 0) return;
+        let payload: any;
+        try {
+          payload = JSON.parse(dataLines.join("\n"));
+        } catch {
+          return;
+        }
+        if (eventName === "delta") {
+          acc += payload.text ?? "";
+          finalizeStreamedMessage({ content: liveDisplay(acc) });
+        } else if (eventName === "done") {
+          gotDone = true;
+          finalizeStreamedMessage({
+            id: `ai-${Date.now()}`,
+            content: payload.reply ?? liveDisplay(acc),
+            attachments: payload.attachments,
+            thinking: payload.thinking,
+            proof: payload.proof,
+          });
+          if (payload.examGen) autoGenerateExam(payload.examGen);
+          if (!activeConversation && payload.conversationId) {
+            setActiveConversation({ id: payload.conversationId, title: q.slice(0, 50), updatedAt: new Date().toISOString() });
+          }
+        } else if (eventName === "error") {
+          gotDone = true;
+          setMessages((m) => {
+            const copy = m.filter((msg) => msg.id !== streamId);
+            copy.push({
+              id: `error-${Date.now()}`,
+              role: "assistant",
+              content: payload.error ?? "AI couldn't respond. Please try again.",
+              createdAt: new Date().toISOString(),
+            });
+            return copy;
+          });
+        }
       };
-      setMessages((m) => [...m, aiMsg]);
 
-      // If the AI included an examgen block, auto-generate the exam
-      if (d.examGen) {
-        autoGenerateExam(d.examGen);
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let sep: number;
+        while ((sep = buffer.indexOf("\n\n")) !== -1) {
+          const rawEvent = buffer.slice(0, sep);
+          buffer = buffer.slice(sep + 2);
+          if (rawEvent.trim()) handleEvent(rawEvent);
+        }
       }
 
-      if (!activeConversation) {
-        setActiveConversation({ id: d.conversationId, title: q.slice(0, 50), updatedAt: new Date().toISOString() });
-        await loadConversations();
-      } else {
-        // Update the conversation list to refresh last message preview
-        await loadConversations();
+      if (!gotDone && acc.trim()) {
+        // Stream ended without a done event — keep what we have
+        finalizeStreamedMessage({ id: `ai-${Date.now()}`, content: liveDisplay(acc) });
+      } else if (!gotDone && !acc.trim()) {
+        setMessages((m) => m.filter((msg) => msg.id !== streamId));
+        setError("AI didn't respond. Please try again.");
       }
+
+      await loadConversations();
     } catch (e: any) {
-      setError(e?.message ?? "Failed to send message");
-      setMessages((m) => m.filter((msg) => msg.id !== tempUserMsg.id));
+      // Streaming failed (network / unsupported) — fall back to the classic endpoint
+      try {
+        const r = await fetch("/api/tutor/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: requestBody,
+        });
+        const d = await r.json();
+        if (!r.ok) {
+          setMessages((m) => m.filter((msg) => msg.id !== streamId));
+          if (d.needsUpgrade || r.status === 402) {
+            setError(d.error ?? "Limit reached");
+            setShowUpgrade(true);
+          } else {
+            throw new Error(d.error ?? "Failed");
+          }
+          return;
+        }
+        if (d.ok === false) {
+          setMessages((m) => m.filter((msg) => msg.id !== streamId));
+          const errorMsg: ChatMsg = {
+            id: `error-${Date.now()}`,
+            role: "assistant",
+            content: d.error ?? "AI couldn't respond. Please try another Study Buddy.",
+            createdAt: new Date().toISOString(),
+          };
+          setMessages((m) => [...m, errorMsg]);
+          return;
+        }
+        finalizeStreamedMessage({
+          id: `ai-${Date.now()}`,
+          content: d.reply,
+          attachments: d.attachments,
+          thinking: d.thinking,
+          proof: d.proof,
+        });
+        if (d.examGen) autoGenerateExam(d.examGen);
+        if (!activeConversation) {
+          setActiveConversation({ id: d.conversationId, title: q.slice(0, 50), updatedAt: new Date().toISOString() });
+          await loadConversations();
+        } else {
+          await loadConversations();
+        }
+      } catch (e2: any) {
+        setError(e2?.message ?? "Failed to send message");
+        setMessages((m) => m.filter((msg) => msg.id !== streamId && msg.id !== tempUserMsg.id));
+      }
     } finally {
       setBusy(false);
     }

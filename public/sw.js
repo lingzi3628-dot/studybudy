@@ -1,5 +1,5 @@
 /**
- * StudyBuddy AI Service Worker v60 — Offline Mode
+ * StudyBuddy AI Service Worker v61 — Offline Mode + Web Push
  *
  * v23-v59 — prior upgrades.
  * v60 — Phase 51: Higher Education tracks + onboarding upgrade
@@ -10,9 +10,11 @@
  *   - AI Tutor default buddy set per track (dev for dev track, etc.)
  *   - Profile: new TrackSwitcher (move K-12 ↔ Higher-Ed anytime)
  *   - Per-track grade/level options (Beginner/Intermediate/Advanced/CDACC/etc.)
+ * v61 — Phase 52: Streaming AI tutor (SSE) + real-time group chat + Web Push
+ *   - push + notificationclick handlers for Web Push notifications
  */
 
-const CACHE_VERSION = "studybuddy-v60-offline";
+const CACHE_VERSION = "studybuddy-v61-offline";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const CONTENT_CACHE = `${CACHE_VERSION}-content`;
 const IMAGE_CACHE = `${CACHE_VERSION}-images`;
@@ -54,6 +56,55 @@ self.addEventListener("activate", (event) => {
     )
   );
   self.clients.claim();
+});
+
+// ============================================================
+// Phase 52 — Web Push notifications
+// ============================================================
+
+self.addEventListener("push", (event) => {
+  let payload = { title: "StudyBuddy AI", body: "You have a new notification", url: "/" };
+  try {
+    if (event.data) {
+      const parsed = event.data.json();
+      payload = { ...payload, ...parsed };
+    }
+  } catch {
+    // Plain-text push — show the raw text
+    if (event.data) payload.body = event.data.text();
+  }
+
+  event.waitUntil(
+    self.registration.showNotification(payload.title, {
+      body: payload.body,
+      icon: "/icon-192.png",
+      badge: "/icon-32.png",
+      tag: payload.tag || undefined,
+      renotify: !!payload.tag,
+      data: { url: payload.url || "/" },
+      vibrate: [80, 40, 80],
+    })
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const targetUrl = (event.notification.data && event.notification.data.url) || "/";
+
+  event.waitUntil(
+    (async () => {
+      const clientList = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      // Focus an existing window if one is open; navigate it if needed
+      for (const client of clientList) {
+        const u = new URL(client.url);
+        if (u.pathname === targetUrl || u.href === targetUrl) {
+          return client.focus();
+        }
+      }
+      // Otherwise open the target URL in a new window
+      return self.clients.openWindow(targetUrl);
+    })()
+  );
 });
 
 self.addEventListener("fetch", (event) => {

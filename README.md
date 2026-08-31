@@ -1,6 +1,8 @@
 # StudyBuddy AI
 
-A mobile-first, AI-powered study companion web app (PWA). Built with Next.js 16, TypeScript, Tailwind CSS, Clerk authentication, Neon Postgres, and the Z.ai GLM SDK.
+[![CI](https://github.com/lingzi3628-dot/studybudy/actions/workflows/ci.yml/badge.svg)](https://github.com/lingzi3628-dot/studybudy/actions/workflows/ci.yml)
+
+A mobile-first, AI-powered study companion web app (PWA). Built with Next.js 16, TypeScript, Tailwind CSS, custom JWT authentication (email + password), Neon Postgres, and the Z.ai GLM SDK.
 
 ## Features
 
@@ -15,15 +17,21 @@ A mobile-first, AI-powered study companion web app (PWA). Built with Next.js 16,
 - **Admin Panel** — manage users, AI providers, content (books/chapters/topics), and view logs
 - **BYOK Support** — users can paste their own OpenAI-compatible API key
 - **PWA** — installable, offline-capable, with app icons and manifest
+- **Streaming AI Tutor** — token-by-token replies via SSE (ChatGPT-style) *(Phase 52)*
+- **Real-time Group Chat** — SSE live stream with auto-reconnect + polling fallback *(Phase 52)*
+- **Web Push Notifications** — group messages and system alerts reach users even with the app closed *(Phase 52)*
+- **Weekly Parent Emails** — automated child progress digests via cron *(Phase 52)*
 
 ## Tech Stack
 
 - **Framework**: Next.js 16 (App Router) + TypeScript 5
 - **Styling**: Tailwind CSS 4 + shadcn/ui (New York style)
 - **Database**: Neon Postgres + Prisma ORM
-- **User Auth**: Clerk (email/password, Google OAuth, magic link)
-- **Admin Auth**: Custom JWT (HTTP-only cookie, bcrypt-hashed admin_users table, fully separate from Clerk)
+- **User Auth**: Custom JWT (HTTP-only cookie, bcrypt-hashed passwords, email OTP verification)
+- **Admin Auth**: Separate JWT (HTTP-only cookie, bcrypt-hashed admin_users table)
 - **AI**: Z.ai GLM SDK (platform fallback) + OpenAI-compatible admin-configured providers + BYOK
+- **Real-time**: Server-Sent Events (streaming AI tutor replies, live study-group chat)
+- **Push**: Web Push (VAPID) via the service worker
 - **Charts**: Recharts
 - **PDF Text Extraction**: pdf-parse
 - **Math Parsing**: mathjs
@@ -51,7 +59,7 @@ studybudy/
 │   ├── app/
 │   │   ├── api/                 # API routes
 │   │   │   ├── admin/           # Admin-only (protected by JWT)
-│   │   │   ├── user/            # User-only (protected by Clerk)
+│   │   │   ├── user/            # User-only (protected by JWT cookie)
 │   │   │   ├── study-sets/
 │   │   │   ├── generate/
 │   │   │   ├── topics/
@@ -171,14 +179,15 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
 ## Authentication
 
-### User Auth (Clerk)
+### User Auth (custom JWT)
 
-The app uses Clerk for all user authentication. Supported methods:
-- **Email + Password** (default)
-- **Continue with Google** (OAuth)
-- **Magic link / Email OTP**
+The app uses its own JWT auth (no third-party provider):
+- **Email + Password** with bcrypt hashing (`POST /api/auth/register`, `POST /api/auth/login`)
+- **Email verification OTP** required before using the app (sendmail via SMTP)
+- **Password reset** via emailed reset links
+- Session = HTTP-only `user_token` cookie signed with `ADMIN_JWT_SECRET`
 
-When `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` is set, the `AuthProvider` mounts `ClerkProvider` and sign-in/up screens activate. When not set, the app falls back to a demo user for local dev.
+All user API routes verify the session via `getCurrentUser()` (`src/lib/auth.ts`).
 
 ### Admin Auth (custom JWT, separate from Clerk)
 
@@ -189,11 +198,11 @@ The admin panel uses a **separate** authentication system:
 4. All `/api/admin/*` routes verify the JWT via `requireAdminJwt()` — no Clerk session required.
 5. Admin can change their password inside the admin panel (Account tab).
 
-The admin auth is **fully separate** from user auth. A regular Clerk user cannot access `/admin` routes — they need to log in with admin credentials separately.
+The admin auth is **fully separate** from user auth. A regular user cannot access `/api/admin/*` routes — they need to log in with admin credentials separately.
 
 ## API Routes
 
-### User routes (protected by Clerk — uses `getCurrentUser()`)
+### User routes (protected by JWT — uses `getCurrentUser()`)
 - `GET /api/user` — current user
 - `POST /api/user` — update profile
 - `POST /api/user/onboarding` — save onboarding answers
@@ -213,6 +222,10 @@ The admin auth is **fully separate** from user auth. A regular Clerk user cannot
 - `GET /api/review/queue` — due cards
 - `POST /api/review/submit` — submit review quality
 - `POST /api/tutor` — AI tutor chat
+- `POST /api/tutor/chat/stream` — AI tutor chat with SSE streaming (Phase 52)
+- `GET /api/study-groups/[id]/chat/stream` — live group chat via SSE (Phase 52)
+- `POST /api/push/subscribe` / `POST /api/push/unsubscribe` / `GET /api/push/status` — Web Push (Phase 52)
+- `GET|POST /api/cron/parent-digest` — weekly parent progress emails, CRON_SECRET-protected (Phase 52)
 - `POST /api/extract/file` — PDF/text upload + text extraction
 - `POST /api/study-sets/from-graph` — save graph as study set
 - `GET/POST /api/topics` + `GET /api/topics/[id]` — topic browse + details
@@ -242,9 +255,10 @@ The admin auth is **fully separate** from user auth. A regular Clerk user cannot
 
 The app is installable as a PWA:
 - `public/manifest.json` — name, icons, theme color, display mode
-- `public/sw.js` — service worker for offline caching of static assets
+- `public/sw.js` — service worker for offline caching + Web Push (push / notificationclick handlers)
 - `ServiceWorkerRegister.tsx` — registers the SW in production builds
 - App icons in 16x16, 32x32, 192x192, 512x512 PNG + 180x180 apple-touch-icon
+- **Web Push** — set `NEXT_PUBLIC_VAPID_PUBLIC_KEY` + `VAPID_PRIVATE_KEY` (generate with `npx web-push generate-vapid-keys`); users opt in via the bell panel
 
 To regenerate icons from the SVG source:
 
