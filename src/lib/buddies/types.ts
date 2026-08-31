@@ -11,9 +11,9 @@
  *   - A list of suggestion prompts (shown in the AI Tutor empty state)
  *   - A list of curriculum/knowledge bases the buddy is grounded in
  *
- * The existing StudyBuddy (Phase 1-46) becomes the first registered buddy.
- * Future phases (48-54) will register DevBuddy, DataBuddy, MLBuddy, WebBuddy,
- * BackendBuddy, ServerBuddy, TVETBuddy by adding their own definitions.
+ * Buddies registered so far: Study (1), Dev (48), Data (49), ML (50).
+ * Still stubs — full systems per ROADMAP.md: Web (54), Backend (55),
+ * Server (58), TVET (59). An AIBuddy (AI app-dev track) is planned for 56.
  */
 
 /**
@@ -86,16 +86,16 @@ export type BuddyCapability =
   | "python_run"        // Pyodide sandbox (Phase 46 / 48)
   | "js_run"            // QuickJS sandbox (Phase 48)
   | "go_run"            // Go compile sandbox (Phase 48)
-  | "sql_run"           // sql.js sandbox (Phase 52)
-  | "shell_run"         // Simulated shell (Phase 53)
+  | "sql_run"           // sql.js sandbox (Phase 55)
+  | "shell_run"         // Simulated shell (Phase 58)
   | "ml_train"          // TensorFlow.js (Phase 50)
   | "notebook"          // Jupyter-style cells (Phase 49)
-  | "web_preview"       // Iframe live preview (Phase 51)
-  | "api_test"          // Built-in HTTP client (Phase 52)
-  | "tvet_sim"          // TVET-specific simulators (Phase 54)
+  | "web_preview"       // Iframe live preview (Phase 54)
+  | "api_test"          // Built-in HTTP client (Phase 55)
+  | "tvet_sim"          // TVET-specific simulators (Phase 59)
   | "project_save"      // Can save its output as a Project
   | "code_files"        // Multi-file project editor (Phase 48+)
-  | "deploy"            // Deploy generated sites (Phase 51)
+  | "deploy"            // Deploy generated sites (Phase 54)
   | "document_upload";  // PDF/DOC/XLSX upload (Phase 37)
 
 export type BuddySuggestion = {

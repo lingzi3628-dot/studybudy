@@ -565,3 +565,21 @@ Stage Summary:
 - SSE chosen over WebSockets deliberately: works on Vercel serverless AND self-hosted Caddy without extra infra; EventSource auto-reconnect keeps it robust.
 - Deployment requirements: set SMTP_USER/SMTP_PASS (emails), CRON_SECRET (enables cron route auth), NEXT_PUBLIC_VAPID_PUBLIC_KEY + VAPID_PRIVATE_KEY (push) — all documented in .env.example.
 - SECURITY: the exposed Gmail app password + admin creds must be rotated (they lived in git history); recommend rotating the GitHub PAT used for this session too.
+
+---
+Task ID: roadmap-planning-53-59
+Agent: main
+Task: Plan the next development phases (53-59) targeting developer-track users (web dev, AI app dev, ML, backend, DevOps) — grounded in README.md, worklog.md, and the Phase 47 buddy stubs.
+
+Work Log:
+- Audited all documentation: README.md (Phase 52 state), worklog.md (Phases 28-52), src/lib/buddies/*.ts stubs (web/backend/server/tvet promised features + phase slots), android-build.md
+- Cross-checked stub promises vs shipped code: WebBuddy builder, BackendBuddy SQL/API tools, ServerBuddy shell, TVETBuddy simulators all still stubs; MLBuddy missing stub-promised MNIST + confusion matrix; VisualApiEditor.tsx exists but is wired nowhere (orphan)
+- Identified the "AI app dev" gap: no buddy teaches building AI-powered apps (prompts, RAG, agents, evals) — planned as new AIBuddy + track in Phase 56
+- Created ROADMAP.md: Phase 53 hardening sprint (Prisma migrations baseline — prisma/ has no migrations dir, db push --accept-data-loss on 102 models; SSE rate limiting; streak-reminder push cron; test wave 1) → 54 WebBuddy (three-pane builder, webgen spec, templates, Vercel deploy via encrypted user token) → 55 BackendBuddy (sql.js playground, OpenAPI editor absorbing VisualApiEditor, SSRF-safe HTTP proxy tester, ER visualizer, scaffolds) → 56 AIBuddy (prompt playground, in-browser RAG with TF.js USE embeddings, agent canvas, ship-it templates, aiapp track) → 57 MLBuddy 2.0 (MNIST/CNN, confusion matrix, CSV upload, notebook↔playground bridge, model export + model card) → 58 ServerBuddy (xterm.js simulated shell + simulated docker, Nginx validator, deploy runbooks) → 59 TVETBuddy (CDACC simulators per original plan)
+- Standing workstreams documented: M-Pesa Daraja monetization (web/backend/server/ml/ai are premium-gated), CI migration-drift check, credential rotation, docs freshness, Android TWA rebuild triggers
+- Renumbered stale stub phase fields to match reality: web 51→54, backend 52→55, server 53→58, tvet 54→59 (slots 51/52 were consumed by Higher-Ed tracks and the Phase 52 upgrade round); updated types.ts capability comments + header to match
+
+Stage Summary:
+- ROADMAP.md is the canonical Phase 53-59 plan; buddy stub comments/fields now point at the correct phases
+- Phase 53 (hardening) is the recommended next implementation session — migrations baseline is the single highest-risk debt
+- No runtime code changed in this commit (docs + type-level comments only); build/tests unaffected

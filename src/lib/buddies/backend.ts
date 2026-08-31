@@ -1,11 +1,11 @@
 /**
- * BackendBuddy — Phase 47 stub (full system shipped in Phase 52)
+ * BackendBuddy — Phase 47 stub (full system ships in Phase 55 — see ROADMAP.md)
  *
  * Audience: backend developers, full-stack engineers.
  * Specialty: API design, SQL, database modeling, server code.
  *
  * Phase 47 ships: buddy definition + picker wiring.
- * Phase 52 will add: SQL playground (sql.js WASM), OpenAPI editor,
+ * Phase 55 will add: SQL playground (sql.js WASM), OpenAPI editor,
  *   API tester (built-in HTTP client), schema visualizer (reuse ER
  *   diagram renderer from Phase 31), code generator (Express/FastAPI
  *   scaffolds from the schema).
@@ -35,7 +35,7 @@ export const backendBuddy: Buddy = {
   emoji: "⚙️",
   accentGradient: "from-rose-500 to-pink-500",
   accentText: "text-rose-600",
-  phase: 52,
+  phase: 55,
   plan: "premium",
   capabilities: [
     "sql_run", "api_test", "code_files",

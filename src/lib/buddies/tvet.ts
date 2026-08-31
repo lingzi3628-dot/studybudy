@@ -1,12 +1,12 @@
 /**
- * TVETBuddy — Phase 47 stub (full system shipped in Phase 54)
+ * TVETBuddy — Phase 47 stub (full system ships in Phase 59 — see ROADMAP.md)
  *
  * Audience: Kenyan TVET (Technical and Vocational Education and Training) students.
  * Specialty: electrical, mechanical, ICT, hospitality, business, automotive,
  * building & construction trades — grounded in Kenya's TVET (CDACC) syllabus.
  *
  * Phase 47 ships: buddy definition + picker wiring.
- * Phase 54 will add: TVET curriculum data (CDACC competencies), trade-specific
+ * Phase 59 will add: TVET curriculum data (CDACC competencies), trade-specific
  *   simulators (circuit builder, gear train, network topology, PLC ladder
  *   logic, etc.), skill checklists.
  */
@@ -35,7 +35,7 @@ export const tvetBuddy: Buddy = {
   emoji: "🔧",
   accentGradient: "from-amber-600 to-red-600",
   accentText: "text-amber-700",
-  phase: 54,
+  phase: 59,
   plan: "premium",
   capabilities: [
     "tvet_sim", "graph_drawing", "concept_maps", "step_by_step",

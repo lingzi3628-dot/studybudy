@@ -1,11 +1,11 @@
 /**
- * ServerBuddy — Phase 47 stub (full system shipped in Phase 53)
+ * ServerBuddy — Phase 47 stub (full system ships in Phase 58 — see ROADMAP.md)
  *
  * Audience: DevOps learners, sysadmins, junior backend devs.
  * Specialty: simulated Linux shell, Docker, Nginx, deployment runbooks.
  *
  * Phase 47 ships: buddy definition + picker wiring.
- * Phase 53 will add: xterm.js terminal + custom command interpreter
+ * Phase 58 will add: xterm.js terminal + custom command interpreter
  *   (fake filesystem, simulated docker/docker-compose), Nginx config
  *   editor with live validator, deployment wizard for AWS/Vercel/Railway.
  */
@@ -34,7 +34,7 @@ export const serverBuddy: Buddy = {
   emoji: "🖥️",
   accentGradient: "from-gray-700 to-gray-900",
   accentText: "text-gray-700",
-  phase: 53,
+  phase: 58,
   plan: "premium",
   capabilities: [
     "shell_run", "code_files",

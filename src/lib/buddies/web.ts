@@ -1,11 +1,11 @@
 /**
- * WebBuddy — Phase 47 stub (full system shipped in Phase 51)
+ * WebBuddy — Phase 47 stub (full system ships in Phase 54 — see ROADMAP.md)
  *
  * Audience: indie hackers, designers, non-technical founders.
  * Specialty: prompt → live website preview → deploy to Vercel.
  *
  * Phase 47 ships: buddy definition + picker wiring.
- * Phase 51 will add: WebBuilderScreen with three-pane UI
+ * Phase 54 will add: WebBuilderScreen with three-pane UI
  *   (prompt / code editor / live preview iframe), template library
  *   (landing, blog, dashboard, portfolio), Vercel deploy button.
  */
@@ -34,7 +34,7 @@ export const webBuddy: Buddy = {
   emoji: "🌐",
   accentGradient: "from-amber-500 to-orange-500",
   accentText: "text-amber-600",
-  phase: 51,
+  phase: 54,
   plan: "premium",
   capabilities: [
     "web_preview", "code_files", "deploy",
