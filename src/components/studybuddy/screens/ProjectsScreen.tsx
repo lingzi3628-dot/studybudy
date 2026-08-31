@@ -18,7 +18,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import {
-  ChevronLeft, Loader2, AlertCircle, FileCode2, Trash2, Plus, Star, Globe, Sparkles, Database, Brain,
+  ChevronLeft, Loader2, AlertCircle, FileCode2, Trash2, Plus, Star, Globe, Sparkles, Database, Brain, LayoutTemplate,
 } from "lucide-react";
 import { useApp } from "../store";
 import { isValidBuddyId } from "@/lib/buddies/registry";
@@ -153,6 +153,17 @@ export function ProjectsScreen() {
           >
             <Brain className="w-3.5 h-3.5" /> New Model
           </button>
+          {/* Phase 54 — New website (opens WebBuilderScreen) */}
+          <button
+            onClick={() => {
+              (useApp.getState() as any).setActiveProjectId(null);
+              setScreen("webBuilder");
+            }}
+            className="px-3 h-9 rounded-full bg-amber-600 text-white text-xs font-semibold flex items-center gap-1 hover:bg-amber-700"
+            title="Open the website builder (prompt → edit → preview → deploy)"
+          >
+            <LayoutTemplate className="w-3.5 h-3.5" /> New Website
+          </button>
           <button
             onClick={() => setScreen("tutor")}
             className="px-3 h-9 rounded-full bg-indigo-600 text-white text-xs font-semibold flex items-center gap-1 hover:bg-indigo-700"
@@ -260,10 +271,10 @@ export function ProjectsScreen() {
                         // Phase 49+ will add the per-buddy editors:
                         //   data → NotebookScreen (Phase 49)
                         //   ml → MLPlayground (Phase 50)
-                        //   web → WebBuilderScreen (Phase 51)
-                        //   backend → BackendBuddyScreen (Phase 52)
-                        //   server → ServerBuddyScreen (Phase 53)
-                        //   tvet → TVETBuddyScreen (Phase 54)
+                        //   web → WebBuilderScreen (Phase 54)
+                        //   backend → ships in Phase 55
+                        //   server → ships in Phase 58
+                        //   tvet → ships in Phase 59
                         onClick={() => {
                           const state = useApp.getState() as any;
                           if (p.buddyId === "dev") {
@@ -277,6 +288,10 @@ export function ProjectsScreen() {
                             // Phase 50 — ml projects route to MLPlaygroundScreen
                             state.setActiveProjectId(p.id);
                             setScreen("mlPlayground");
+                          } else if (p.buddyId === "web") {
+                            // Phase 54 — web projects route to WebBuilderScreen
+                            state.setActiveProjectId(p.id);
+                            setScreen("webBuilder");
                           } else if (p.conversationId) {
                             // No editor yet for this buddy — open AI Tutor with this conversation
                             setScreen("tutor");
@@ -314,7 +329,7 @@ export function ProjectsScreen() {
 
 function getPhaseForBuddy(buddyId: string): number {
   const phases: Record<string, number> = {
-    dev: 48, data: 49, ml: 50, web: 51, backend: 52, server: 53, tvet: 54,
+    dev: 48, data: 49, ml: 50, web: 54, backend: 55, server: 58, tvet: 59,
   };
   return phases[buddyId] ?? 48;
 }

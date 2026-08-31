@@ -50,6 +50,7 @@ export type Screen =
   | "devBuddy"
   | "notebook"
   | "mlPlayground"
+  | "webBuilder"
   | "higherEdHome";
 
 export type CreateOption =

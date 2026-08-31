@@ -1,5 +1,5 @@
 /**
- * StudyBuddy AI Service Worker v61 — Offline Mode + Web Push
+ * StudyBuddy AI Service Worker v62 — Offline Mode + Web Push
  *
  * v23-v59 — prior upgrades.
  * v60 — Phase 51: Higher Education tracks + onboarding upgrade
@@ -14,7 +14,7 @@
  *   - push + notificationclick handlers for Web Push notifications
  */
 
-const CACHE_VERSION = "studybuddy-v61-offline";
+const CACHE_VERSION = "studybuddy-v62-offline";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const CONTENT_CACHE = `${CACHE_VERSION}-content`;
 const IMAGE_CACHE = `${CACHE_VERSION}-images`;

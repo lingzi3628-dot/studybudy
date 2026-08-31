@@ -16,7 +16,7 @@
 import { useEffect, useState } from "react";
 import {
   Flame, Loader2, ChevronRight, FileCode2, Database, Brain, Globe,
-  Wrench, Code, Sparkles, FolderOpen,
+  Wrench, Code, Sparkles, FolderOpen, FlaskConical,
 } from "lucide-react";
 import { useApp } from "../store";
 import { api, type Progress as ProgressData } from "../api";
@@ -190,7 +190,17 @@ export function HigherEdHome() {
         {/* Quick tools */}
         <section className="mt-6">
           <h2 className="text-sm font-semibold text-gray-900 mb-3">Quick tools</h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2.5">
+            <button
+              onClick={() => setScreen("webBuilder")}
+              className="flex flex-col items-start gap-1.5 p-3 rounded-2xl bg-white border border-gray-200 hover:border-amber-300 hover:shadow-sm transition text-left"
+            >
+              <span className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
+                <Globe className="w-4 h-4" />
+              </span>
+              <p className="text-xs font-semibold text-gray-900">Website Builder</p>
+              <p className="text-[10px] text-gray-500">Prompt → live site</p>
+            </button>
             <button
               onClick={() => setScreen("devBuddy")}
               className="flex flex-col items-start gap-1.5 p-3 rounded-2xl bg-white border border-gray-200 hover:border-emerald-300 hover:shadow-sm transition text-left"
@@ -226,7 +236,7 @@ export function HigherEdHome() {
               className="flex flex-col items-start gap-1.5 p-3 rounded-2xl bg-white border border-gray-200 hover:border-rose-300 hover:shadow-sm transition text-left"
             >
               <span className="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center">
-                <Globe className="w-4 h-4" />
+                <FlaskConical className="w-4 h-4" />
               </span>
               <p className="text-xs font-semibold text-gray-900">Lab Simulator</p>
               <p className="text-[10px] text-gray-500">PhET interactive sims</p>
