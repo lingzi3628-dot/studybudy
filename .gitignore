@@ -65,3 +65,6 @@ server.log
 /db/*.db
 # Dev screenshots & deliverable dumps (kept locally, not committed)
 /download/*.png
+
+# sql.js WASM is copied from node_modules by scripts/copy-sql-wasm.mjs (predev/prebuild)
+public/sql-wasm.wasm

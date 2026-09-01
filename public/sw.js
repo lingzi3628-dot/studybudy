@@ -1,5 +1,5 @@
 /**
- * StudyBuddy AI Service Worker v63 — Offline Mode + Web Push
+ * StudyBuddy AI Service Worker v64 — Offline Mode + Web Push
  *
  * v23-v59 — prior upgrades.
  * v60 — Phase 51: Higher Education tracks + onboarding upgrade
@@ -12,9 +12,11 @@
  *   - Per-track grade/level options (Beginner/Intermediate/Advanced/CDACC/etc.)
  * v61 — Phase 52: Streaming AI tutor (SSE) + real-time group chat + Web Push
  *   - push + notificationclick handlers for Web Push notifications
+ * v64 — Phase 55: BackendBuddy (SQL playground, OpenAPI designer,
+ *   SSRF-guarded API tester, ER visualizer, Express/FastAPI scaffolds)
  */
 
-const CACHE_VERSION = "studybuddy-v63-offline";
+const CACHE_VERSION = "studybuddy-v64-offline";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const CONTENT_CACHE = `${CACHE_VERSION}-content`;
 const IMAGE_CACHE = `${CACHE_VERSION}-images`;

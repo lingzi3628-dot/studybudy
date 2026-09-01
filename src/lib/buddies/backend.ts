@@ -1,14 +1,16 @@
 /**
- * BackendBuddy — Phase 47 stub (full system ships in Phase 55 — see ROADMAP.md)
+ * BackendBuddy — SHIPPED in Phase 55 (see ROADMAP.md).
  *
  * Audience: backend developers, full-stack engineers.
  * Specialty: API design, SQL, database modeling, server code.
  *
- * Phase 47 ships: buddy definition + picker wiring.
- * Phase 55 will add: SQL playground (sql.js WASM), OpenAPI editor,
- *   API tester (built-in HTTP client), schema visualizer (reuse ER
- *   diagram renderer from Phase 31), code generator (Express/FastAPI
- *   scaffolds from the schema).
+ * Phase 55 workspace (BackendBuddyScreen):
+ *   - SQL playground (sql.js WASM): schema/seed/queries files, sample
+ *     schemas, per-statement result tables, live schema sidebar
+ *   - OpenAPI 3.1 endpoint designer → live YAML (validated)
+ *   - Express/FastAPI scaffold generation into project files
+ *   - API tester via the SSRF-guarded /api/tools/http proxy
+ *   - ER visualizer (sql.js schema or pasted Prisma schema)
  */
 
 import type { Buddy, BuddySuggestion } from "./types";

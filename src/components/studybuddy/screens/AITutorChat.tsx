@@ -730,8 +730,14 @@ export function AITutorChat() {
       state.setActiveProjectId?.(d.project.id);
       if (activeBuddyId === "dev") {
         state.setScreen("devBuddy");
+      } else if (activeBuddyId === "web") {
+        state.setScreen("webBuilder");
+      } else if (activeBuddyId === "backend") {
+        // Phase 55 — BackendBuddy has its own workspace now
+        state.setScreen("backendBuddy");
+      } else if (activeBuddyId === "ai") {
+        state.setScreen("promptPlayground");
       } else {
-        // Web/Backend editors ship in Phase 51/52 — for now route to devBuddy as a fallback
         state.setScreen("devBuddy");
       }
     } catch (e: any) {

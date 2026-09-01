@@ -51,6 +51,7 @@ export type Screen =
   | "notebook"
   | "mlPlayground"
   | "webBuilder"
+  | "backendBuddy"
   | "promptPlayground"
   | "higherEdHome";
 

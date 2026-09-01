@@ -11,9 +11,9 @@
  *   - A list of suggestion prompts (shown in the AI Tutor empty state)
  *   - A list of curriculum/knowledge bases the buddy is grounded in
  *
- * Buddies registered so far: Study (1), Dev (48), Data (49), ML (50).
- * Still stubs — full systems per ROADMAP.md: Web (54), Backend (55),
- * Server (58), TVET (59). An AIBuddy (AI app-dev track) is planned for 56.
+ * Buddies registered so far: Study (1), Dev (48), Data (49), ML (50),
+ * AIBuddy (56), WebBuddy (54), BackendBuddy (55).
+ * Still stubs — full systems per ROADMAP.md: Server (58), TVET (59).
  */
 
 /**

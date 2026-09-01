@@ -597,3 +597,24 @@ Work Log:
 Stage Summary:
 - 3 commits pushed to main: 6e5a01a, ffbf6ac, 748c777. Tests 63 → 130, lint 0 errors (7 pre-existing warnings), production build clean.
 - Production follow-ups: (1) baseline the live Neon DB once: `npx prisma migrate resolve --applied 0_init` (README documents it); (2) set CRON_SECRET + VAPID keys to activate the streak cron + push; (3) Next per roadmap: Phase 55 BackendBuddy, 57 MLBuddy 2.0, 58 ServerBuddy, 59 TVETBuddy.
+
+---
+Task ID: 4
+Agent: main (Super Z)
+Task: Rebuild lost work + Phase 55 BackendBuddy (workspace reset wiped unpushed Phases 55/57/58 and the deploy fix; user supplied a fresh PAT)
+
+Work Log:
+- Workspace reset wiped /home/z/studybudy (4 unpushed commits lost). Re-cloned at af55b2c; re-applied the Vercel deploy fix from context and pushed as c8b9d03 (conditional standalone + migrate-deploy.mjs self-baseline + package-standalone.mjs) — Vercel deploy unblocked.
+- Phase 55 rebuilt (commit this one): src/lib/sql-sandbox.ts (comment/string-aware statement splitter, per-statement reports, PRAGMA-based schema introspection, export/load roundtrip) + sql-samples.ts (blog / e-commerce / school, SQLite-flavored) — 16 tests incl. real sql.js WASM integration in vitest.
+- src/lib/openapi-designer.ts — endpoint model → OpenAPI 3.1 YAML emitter (yamlScalar quoting, path grouping, auto path-param declaration), structural validation, deterministic Express + FastAPI scaffolds — 19 tests.
+- src/lib/ssrf-guard.ts — private/loopback/link-local/CGNAT/multicast IPv4+IPv6 checks, inet_aton obfuscation decoding (2130706433, 127.1, 0x7f000001), special-use hostname blocklist — 54 tests.
+- src/app/api/tools/http/route.ts — first SSRF-guarded outbound proxy in the codebase: auth + 12 req/min sliding window, DNS re-check (anti-rebinding), manual redirect following with full re-validation per hop, method allowlist, 100 KB req / 1 MB resp caps, 15 s timeout.
+- src/lib/prisma-erd.ts — minimal Prisma model parser (columns, PKs incl. @@id, @relation fields/references pairs, back-relations skipped) — 8 tests.
+- BackendBuddyScreen (~1280 lines): CHAT | SQL | API Designer | API Tester | Schema ER | Files; mobile chat/work switcher; SSE chat identical to WebBuilder with file-block loading; save flow via POST /api/projects (buddyId "backend") / PUT files.
+- Wiring: store Screen union + page.tsx import/immersive/render; ProjectsScreen "New API Project" button + backend Open-route; HigherEdHome "SQL & API Sandbox" card (grid-cols-6); AITutorChat save-as-project now routes web → webBuilder, backend → backendBuddy, ai → promptPlayground (was a devBuddy fallback for all).
+- Housekeeping: sql.js + @types/sql.js deps, scripts/copy-sql-wasm.mjs (predev/prebuild), public/sql-wasm.wasm gitignored, sw v64, types.ts/backend.ts stub headers → SHIPPED, README feature bullet.
+- Verified: eslint 0 errors on all new files, vitest 227/227 (130 → 227), VERCEL=1 production build clean (189 pages).
+
+Stage Summary:
+- Deploy fix + Phase 55 pushed; first Vercel build after c8b9d03 self-baselines the Neon DB (P3005 resolved).
+- Remaining roadmap: Phase 57 MLBuddy 2.0, 58 ServerBuddy, 59 TVETBuddy (TVET sim engines were lost with the reset — rebuild from scratch when picked up).

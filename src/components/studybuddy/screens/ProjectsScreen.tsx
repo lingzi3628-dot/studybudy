@@ -166,6 +166,17 @@ export function ProjectsScreen() {
           >
             <LayoutTemplate className="w-3.5 h-3.5" /> New Website
           </button>
+          {/* Phase 55 — New backend project (opens BackendBuddyScreen) */}
+          <button
+            onClick={() => {
+              (useApp.getState() as any).setActiveProjectId(null);
+              setScreen("backendBuddy");
+            }}
+            className="px-3 h-9 rounded-full bg-rose-600 text-white text-xs font-semibold flex items-center gap-1 hover:bg-rose-700"
+            title="Open the SQL playground + API designer (schema → spec → test)"
+          >
+            <Database className="w-3.5 h-3.5" /> New API Project
+          </button>
           <button
             onClick={() => setScreen("tutor")}
             className="px-3 h-9 rounded-full bg-indigo-600 text-white text-xs font-semibold flex items-center gap-1 hover:bg-indigo-700"
@@ -294,6 +305,10 @@ export function ProjectsScreen() {
                             // Phase 54 — web projects route to WebBuilderScreen
                             state.setActiveProjectId(p.id);
                             setScreen("webBuilder");
+                          } else if (p.buddyId === "backend") {
+                            // Phase 55 — backend projects route to BackendBuddyScreen
+                            state.setActiveProjectId(p.id);
+                            setScreen("backendBuddy");
                           } else if (p.buddyId === "ai") {
                             // Phase 56 — ai projects route to the Prompt Playground
                             state.setActiveProjectId(p.id);
