@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000 2>&1 | tee dev.log",
-    "build": "prisma generate && (prisma migrate deploy || echo 'WARN: prisma migrate deploy failed — continuing (baselined DB or missing DATABASE_URL). See README → Database migrations.') && next build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/",
+    "build": "prisma generate && node scripts/migrate-deploy.mjs && next build && node scripts/package-standalone.mjs",
     "postinstall": "prisma generate",
     "start": "NODE_ENV=production bun .next/standalone/server.js 2>&1 | tee server.log",
     "lint": "eslint .",

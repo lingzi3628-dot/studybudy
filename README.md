@@ -164,8 +164,9 @@ Rules:
 - `db:push` still exists for throwaway experiments but no longer carries
   `--accept-data-loss`.
 - The build script runs `migrate deploy` warn-only (so builds without a
-  reachable DB don't break); run `bun run db:deploy` explicitly after deploying
-  if you prefer strictness.
+  reachable DB don't break) and **self-baselines once**: if it hits P3005
+  (database created with the old `db push` flow), it marks `0_init` as applied
+  via `migrate resolve` and retries — see `scripts/migrate-deploy.mjs`.
 
 ### Run in dev
 
