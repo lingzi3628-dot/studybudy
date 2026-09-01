@@ -16,6 +16,10 @@
  * TF.js library (~1.2MB) only loads when the user opens the MLPlayground.
  */
 
+// Import the digits demo (mnist-data imports only TYPES from here, so
+// there is no runtime circular dependency).
+import { DIGITS_DEMO } from "./mnist-data";
+
 // Lazy-load TF.js — returns the tf namespace once loaded
 let _tf: any = null;
 let _tfLoadPromise: Promise<any> | null = null;
@@ -83,6 +87,15 @@ export type PredictionResult = {
   predictions: number[][];
   predictedClasses: number[];
 };
+
+export function argmaxRow(row: number[]): number {
+  let maxIdx = 0;
+  let maxVal = row[0];
+  for (let i = 1; i < row.length; i++) {
+    if (row[i] > maxVal) { maxVal = row[i]; maxIdx = i; }
+  }
+  return maxIdx;
+}
 
 /**
  * Build a TF.js model from a ModelSpec.
@@ -235,6 +248,31 @@ export async function predict(
 }
 
 /**
+ * Run predictions on rows of flattened feature vectors, reshaping to 4D
+ * when the model expects image input (e.g. [28, 28, 1] for the digits
+ * CNN). Generalizes predict() for conv models — Phase 57.
+ */
+export async function predictFromFlat(
+  model: any,
+  rows: number[][],
+  inputShape?: number[]
+): Promise<PredictionResult> {
+  const tf = await getTF();
+  const isConv = !!inputShape && inputShape.length === 3;
+  const inputTensor = isConv
+    ? (tf.tensor2d(rows) as any).reshape([rows.length, ...inputShape])
+    : tf.tensor2d(rows);
+  const output = model.predict(inputTensor) as any;
+  const data = await output.array();
+  inputTensor.dispose();
+  output.dispose();
+
+  const predictions = data as number[][];
+  const predictedClasses = predictions.map(argmaxRow);
+  return { predictions, predictedClasses };
+}
+
+/**
  * Save a model to an in-memory JSON artifact.
  * Returns the topology + weights as a single JSON object that can be
  * persisted to the Project model.
@@ -251,6 +289,31 @@ export async function modelToJSON(model: any): Promise<any> {
   });
   await model.save(handler);
   return savedArtifact;
+}
+
+/**
+ * Capture the raw download-ready artifact: a model.json-shaped object
+ * (topology + weightsManifest pointing at "weights.bin") and the binary
+ * weight data. Unlike modelToJSON (used for Project persistence), this
+ * preserves the weights so the downloaded TFJS model can be reloaded.
+ */
+export async function modelToDownloadArtifact(
+  model: any
+): Promise<{ modelJson: any; weightData: ArrayBuffer }> {
+  const tf = await getTF();
+  let artifact: any = null;
+  const handler = tf.io.withSaveHandler(async (a: any) => {
+    artifact = a;
+    return { modelArtifactsInfo: { dateSaved: new Date(), modelTopologyType: "JSON", weightDataFormat: "float32" } };
+  });
+  await model.save(handler);
+  const modelJson = {
+    format: "tensorflowjs",
+    generatedBy: "StudyBuddy MLBuddy (Phase 57)",
+    modelTopology: artifact.modelTopology,
+    weightsManifest: [{ paths: ["weights.bin"], weights: artifact.weightSpecs }],
+  };
+  return { modelJson, weightData: artifact.weightData as ArrayBuffer };
 }
 
 /**
@@ -284,6 +347,11 @@ export type DemoDataset = {
   loss: string;
   modelSpec: ModelSpec;
   generateData: () => Promise<{ xs: number[][]; ys: number[][]; featureNames?: string[] }>;
+  /** Held-out evaluation set for the confusion matrix (Phase 57). Falls back to the training data when absent. */
+  generateEvalData?: () => Promise<{ xs: number[][]; ys: number[][] }>;
+  /** Suggested trainer defaults shown when the demo is picked. */
+  recommendedEpochs?: number;
+  recommendedBatchSize?: number;
 };
 
 /**
@@ -430,7 +498,7 @@ export const HOUSING_DEMO: DemoDataset = {
   },
 };
 
-export const DEMOS: DemoDataset[] = [XOR_DEMO, IRIS_DEMO, HOUSING_DEMO];
+export const DEMOS: DemoDataset[] = [XOR_DEMO, IRIS_DEMO, HOUSING_DEMO, DIGITS_DEMO];
 
 export function getDemoById(id: string): DemoDataset | undefined {
   return DEMOS.find((d) => d.id === id);

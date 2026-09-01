@@ -27,7 +27,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import {
   ChevronLeft, Play, Loader2, Plus, Save, RotateCcw, Code2, FileText,
-  Trash2, Square, AlertCircle, CheckCircle2, Database, Sparkles,
+  Trash2, Square, AlertCircle, CheckCircle2, Database, Sparkles, Brain,
 } from "lucide-react";
 import { useApp } from "../store";
 import { CodeEditor } from "./CodeEditor";
@@ -40,6 +40,7 @@ import {
   answerQuestion,
   type RagChunk,
 } from "@/lib/rag-engine";
+import { toCsv } from "@/lib/csv-dataset";
 
 type CellType = "code" | "markdown" | "rag";
 
@@ -102,7 +103,7 @@ function uuid(): string {
 }
 
 export function NotebookScreen() {
-  const { setScreen, activeProjectId, setActiveProjectId } = useApp() as any;
+  const { setScreen, activeProjectId, setActiveProjectId, notebookBridgeCell, setNotebookBridgeCell } = useApp() as any;
   const [notebook, setNotebook] = useState<Notebook>(STARTER_NOTEBOOK);
   const [title, setTitle] = useState("Untitled notebook");
   const [projectId, setProjectId] = useState<string | null>(activeProjectId);
@@ -168,6 +169,35 @@ export function NotebookScreen() {
     }));
     setDirty(true);
   }, []);
+
+  // Phase 57 — consume the ML Playground → Notebook bridge once loading
+  // settles: append the exported Keras training code as a new code cell.
+  useEffect(() => {
+    if (loading) return;
+    if (!notebookBridgeCell) return;
+    setNotebook((prev) => ({
+      ...prev,
+      cells: [
+        ...prev.cells,
+        {
+          id: `ml-bridge-md-${Date.now()}`,
+          type: "markdown" as const,
+          source: `## 🧠 From MLBuddy\n\n${notebookBridgeCell.label} — exported from the ML Playground. Paste your training data where marked, or load a dataset with \`load_dataset\`.`,
+          outputs: [],
+          executionCount: null,
+        },
+        {
+          id: `ml-bridge-code-${Date.now()}`,
+          type: "code" as const,
+          source: notebookBridgeCell.code,
+          outputs: [],
+          executionCount: null,
+        },
+      ],
+    }));
+    setNotebookBridgeCell(null);
+    setDirty(true);
+  }, [loading, notebookBridgeCell, setNotebookBridgeCell]);
 
   // Run a single code cell
   const runCell = useCallback(async (id: string) => {
@@ -687,9 +717,13 @@ function CellOutputView({ output }: { output: CellOutput }) {
           className="max-w-full rounded-lg bg-white border border-gray-200 my-1"
         />
       );
-    case "table":
+    case "table": {
+      // Phase 57 — offer a one-tap hand-off to the ML Playground when the
+      // table looks trainable (enough rows + at least 2 columns).
+      const trainable = output.rows.length >= 10 && output.columns.length >= 2;
       return (
         <div className="overflow-x-auto my-1">
+          {trainable && <TrainInPlaygroundButton output={output} />}
           <table className="text-xs border-collapse">
             <thead>
               <tr>
@@ -714,6 +748,7 @@ function CellOutputView({ output }: { output: CellOutput }) {
           </table>
         </div>
       );
+    }
     case "error":
       return (
         <div className="rounded-lg bg-rose-50 border border-rose-200 px-3 py-2 my-1">
@@ -752,4 +787,29 @@ function renderMarkdown(source: string): string {
   // Line breaks → paragraphs
   html = html.split(/\n\n+/).map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('');
   return html;
+}
+
+/**
+ * Phase 57 — one-tap hand-off from a dataframe table output to the ML
+ * Playground: serializes the table to CSV and hands it to the store; the
+ * playground consumes it on mount and opens the CSV configuration flow.
+ */
+function TrainInPlaygroundButton({ output }: { output: Extract<CellOutput, { type: "table" }> }) {
+  const { setScreen, setMlBridgeCsv } = useApp() as any;
+  return (
+    <button
+      onClick={() => {
+        const csv = toCsv(
+          output.columns.map(String),
+          output.rows
+        );
+        setMlBridgeCsv(csv);
+        setScreen("mlPlayground");
+      }}
+      className="mb-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-violet-700 bg-violet-100 hover:bg-violet-200 rounded-full px-2.5 py-1 transition"
+      title="Send this table to the ML Playground for training"
+    >
+      <Brain className="w-3 h-3" /> Train in Playground
+    </button>
+  );
 }

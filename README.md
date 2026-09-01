@@ -24,6 +24,7 @@ A mobile-first, AI-powered study companion web app (PWA). Built with Next.js 16,
 - **WebBuddy Website Builder** — prompt → generated HTML/CSS/JS files → live sandboxed preview (device toggles + console) → save/export ZIP → one-click Vercel deploy with your own token; 8 offline-first starter templates *(Phase 54)*
 - **BackendBuddy Workspace** — in-browser SQLite playground (sql.js WASM: schema/seed/queries files, one-tap sample schemas, result tables), OpenAPI 3.1 endpoint designer → live validated YAML, one-tap Express/FastAPI scaffolds, SSRF-guarded HTTP API tester (`/api/tools/http`), ER visualizer for sql.js or pasted Prisma schemas *(Phase 55)*
 - **AIBuddy — AI App Dev track** — new onboarding track + buddy for building AI apps: A/B Prompt Playground (temperature, latency, token estimates), in-browser RAG notebook cells (TF.js Universal Sentence Encoder embeddings + [chunk N] citations), Agent Builder (spec + runnable tool-calling loop), and 4 ship-it starter projects *(Phase 56)*
+- **MLBuddy 2.0** — Synthetic Digits (MNIST-style) CNN demo with a draw-your-own-digit inference pad (canvas → 28×28 MNIST normalization), confusion matrix + per-class precision/recall/F1 on held-out data, CSV dataset upload/paste (dtype profiling, feature/target picker, imputation, one-hot, z-score, train/test split), Notebook ↔ Playground bridge (dataframe → training, Keras code → notebook cell), and model export (TFJS model.json + weights.bin, Keras model.py, one-page model card) *(Phase 57)*
 
 ## Tech Stack
 

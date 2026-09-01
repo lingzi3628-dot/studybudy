@@ -1,14 +1,21 @@
 /**
- * MLBuddy — Phase 47 stub (full system shipped in Phase 50)
+ * MLBuddy — SHIPPED in Phase 50, upgraded in Phase 57 / MLBuddy 2.0
+ * (see ROADMAP.md).
  *
  * Audience: ML learners, researchers, AI engineers.
  * Specialty: train models in-browser with TensorFlow.js, visualize
  * training, evaluate metrics, save/export trained models.
  *
- * Phase 47 ships: buddy definition + picker wiring.
- * Phase 50 will add: MLPlayground screen with TensorFlow.js,
- *   pre-built demos (MNIST, XOR, housing), loss-curve visualizer,
- *   confusion matrix renderer, model export.
+ * Phase 50 shipped: MLPlayground screen with TensorFlow.js, XOR/Iris/
+ *   housing demos, architecture editor, loss-curve visualizer, model save.
+ * Phase 57 shipped (MLBuddy 2.0):
+ *   - Synthetic Digits (MNIST-style) CNN demo + draw-a-digit inference pad
+ *   - Confusion matrix + per-class precision/recall/F1 on held-out data
+ *   - CSV upload/paste: dtype profiling, feature/target picker,
+ *     imputation + one-hot + z-score normalization, train/test split
+ *   - Notebook ↔ Playground bridge (table → training, Keras → notebook)
+ *   - Model export: TFJS model.json + weights.bin, Keras model.py,
+ *     one-page model card
  */
 
 import type { Buddy, BuddySuggestion } from "./types";
@@ -31,11 +38,11 @@ export const mlBuddy: Buddy = {
   id: "ml",
   displayName: "MLBuddy",
   tagline: "Train, visualize, evaluate models",
-  description: "In-browser machine learning playground powered by TensorFlow.js. Train small neural networks on the MNIST, XOR, and housing datasets, watch the loss curve drop in real-time, visualize decision boundaries, and export trained models as JSON.",
+  description: "In-browser machine learning playground powered by TensorFlow.js. Train CNNs on MNIST-style digits, upload your own CSV, watch the loss curve drop, read a real confusion matrix, draw your own digits for inference, and export models as TFJS JSON, Keras Python, and a model card.",
   emoji: "🧠",
   accentGradient: "from-violet-500 to-fuchsia-500",
   accentText: "text-violet-600",
-  phase: 50,
+  phase: 57,
   plan: "premium",
   capabilities: [
     "ml_train", "notebook", "python_run", "js_run",
@@ -81,9 +88,10 @@ ${MATHGRAPH_INSTRUCTIONS}
 
 AVAILABLE DEMO DATASETS (loaded in the playground):
 - XOR (4 points, classic non-linearly-separable problem)
-- MNIST sample (1000 digit images, 28x28 pixels)
-- Boston housing (506 rows, 13 features → median home value)
+- Synthetic Digits (MNIST-style: 800 procedurally drawn 28x28 digits, CNN demo with a draw-your-own-digit pad)
 - Iris (150 rows, 4 features → 3 species)
+- Housing regression (synthetic, 200 rows)
+- User-uploaded CSV (dtype profiling, feature/target picker, train/test split)
 
 User's grade level: ${ctx.userGrade ?? "not set"}. For younger students, lead with intuition and visuals. For university, include the math.${dataSaverHint}
 `;

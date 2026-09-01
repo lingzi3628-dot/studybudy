@@ -108,6 +108,16 @@ interface AppState {
   activeProjectId: string | null;
   setActiveProjectId: (id: string | null) => void;
 
+  // Phase 57 — Notebook ↔ ML Playground bridge
+  // mlBridgeCsv: a CSV payload produced by a notebook table output, consumed
+  // (and cleared) by MLPlaygroundScreen on mount.
+  mlBridgeCsv: string | null;
+  setMlBridgeCsv: (csv: string | null) => void;
+  // notebookBridgeCell: Keras training code exported from MLPlayground,
+  // consumed (and cleared) by NotebookScreen on mount.
+  notebookBridgeCell: { code: string; label: string } | null;
+  setNotebookBridgeCell: (cell: { code: string; label: string } | null) => void;
+
   // create modal
   createOpen: boolean;
   openCreate: (option?: CreateOption) => void;
@@ -175,6 +185,12 @@ export const useApp = create<AppState>((set) => ({
   // Phase 48 — active project id (for DevBuddy / future Notebook / Web Builder)
   activeProjectId: null,
   setActiveProjectId: (id) => set({ activeProjectId: id }),
+
+  // Phase 57 — Notebook ↔ ML Playground bridge
+  mlBridgeCsv: null,
+  setMlBridgeCsv: (csv) => set({ mlBridgeCsv: csv }),
+  notebookBridgeCell: null,
+  setNotebookBridgeCell: (cell) => set({ notebookBridgeCell: cell }),
 
   createOpen: false,
   createOption: null,
