@@ -1,5 +1,5 @@
 /**
- * StudyBuddy AI Service Worker v66 — Offline Mode + Web Push
+ * StudyBuddy AI Service Worker v67 — Offline Mode + Web Push
  *
  * v23-v59 — prior upgrades.
  * v60 — Phase 51: Higher Education tracks + onboarding upgrade
@@ -18,9 +18,11 @@
  *   CSV dataset upload, notebook↔playground bridge, model export)
  * v66 — Phase 58: ServerBuddy (simulated shell + docker + nginx validator
  *   + deploy runbooks)
+ * v67 — Phase 59: TVETBuddy (circuit, gear, network, PLC simulators +
+ *   CDACC checklists)
  */
 
-const CACHE_VERSION = "studybuddy-v66-offline";
+const CACHE_VERSION = "studybuddy-v67-offline";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const CONTENT_CACHE = `${CACHE_VERSION}-content`;
 const IMAGE_CACHE = `${CACHE_VERSION}-images`;

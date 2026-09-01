@@ -1,14 +1,24 @@
 /**
- * TVETBuddy — Phase 47 stub (full system ships in Phase 59 — see ROADMAP.md)
+ * TVETBuddy — SHIPPED in Phase 59 (see ROADMAP.md).
  *
  * Audience: Kenyan TVET (Technical and Vocational Education and Training) students.
  * Specialty: electrical, mechanical, ICT, hospitality, business, automotive,
  * building & construction trades — grounded in Kenya's TVET (CDACC) syllabus.
  *
- * Phase 47 ships: buddy definition + picker wiring.
- * Phase 59 will add: TVET curriculum data (CDACC competencies), trade-specific
- *   simulators (circuit builder, gear train, network topology, PLC ladder
- *   logic, etc.), skill checklists.
+ * Phase 47 shipped: buddy definition + picker wiring.
+ * Phase 59 shipped (TVETBuddyScreen — the TVET workshop):
+ *   - Circuit builder: DC series/parallel solver with bulbs (brightness),
+ *     resistors, switches, ideal voltmeter/ammeter, short-circuit and
+ *     open-circuit detection, fuse/MCB sizing hint
+ *   - Gear train calculator: ratios, direction reversals, rpm/torque per
+ *     stage, idler-gear invariant, belt-drive companion
+ *   - Network planner: small-office LAN design with connectivity lint
+ *     (unreachable hosts, missing AP, duplicate IPs, AP overload) + IPv4
+ *     subnet calculator (/26 exam questions and friends)
+ *   - PLC ladder logic: scan-cycle simulation (XIC/XIO contacts, OTE
+ *     coils, seal-in latch), rung trace, preset start/stop + interlock
+ *   - CDACC skill checklists for 7 trades with safety gates and a
+ *     downloadable practical-assessment sheet
  */
 
 import type { Buddy, BuddySuggestion } from "./types";

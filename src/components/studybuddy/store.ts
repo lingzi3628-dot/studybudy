@@ -54,6 +54,7 @@ export type Screen =
   | "backendBuddy"
   | "promptPlayground"
   | "serverBuddy"
+  | "tvetBuddy"
   | "higherEdHome";
 
 export type CreateOption =

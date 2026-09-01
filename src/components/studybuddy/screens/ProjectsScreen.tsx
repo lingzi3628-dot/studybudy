@@ -18,7 +18,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import {
-  ChevronLeft, Loader2, AlertCircle, FileCode2, Trash2, Plus, Star, Globe, Sparkles, Database, Brain, LayoutTemplate, Server,
+  ChevronLeft, Loader2, AlertCircle, FileCode2, Trash2, Plus, Star, Globe, Sparkles, Database, Brain, LayoutTemplate, Server, Wrench,
 } from "lucide-react";
 import { useApp } from "../store";
 import { isValidBuddyId } from "@/lib/buddies/registry";
@@ -188,6 +188,17 @@ export function ProjectsScreen() {
           >
             <Server className="w-3.5 h-3.5" /> New Server Lab
           </button>
+          {/* Phase 59 — New TVET workshop (opens TVETBuddyScreen) */}
+          <button
+            onClick={() => {
+              (useApp.getState() as any).setActiveProjectId(null);
+              setScreen("tvetBuddy");
+            }}
+            className="px-3 h-9 rounded-full bg-amber-600 text-white text-xs font-semibold flex items-center gap-1 hover:bg-amber-500"
+            title="Open the TVET workshop (circuit, gears, network, PLC simulators + CDACC checklists)"
+          >
+            <Wrench className="w-3.5 h-3.5" /> TVET Workshop
+          </button>
           <button
             onClick={() => setScreen("tutor")}
             className="px-3 h-9 rounded-full bg-indigo-600 text-white text-xs font-semibold flex items-center gap-1 hover:bg-indigo-700"
@@ -328,6 +339,10 @@ export function ProjectsScreen() {
                             // Phase 58 — server projects route to ServerBuddyScreen
                             state.setActiveProjectId(p.id);
                             setScreen("serverBuddy");
+                          } else if (p.buddyId === "tvet") {
+                            // Phase 59 — tvet projects route to TVETBuddyScreen
+                            state.setActiveProjectId(p.id);
+                            setScreen("tvetBuddy");
                           } else if (p.conversationId) {
                             // No editor yet for this buddy — open AI Tutor with this conversation
                             setScreen("tutor");
