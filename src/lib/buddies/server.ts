@@ -1,13 +1,27 @@
 /**
- * ServerBuddy — Phase 47 stub (full system ships in Phase 58 — see ROADMAP.md)
+ * ServerBuddy — SHIPPED in Phase 58 (see ROADMAP.md).
  *
  * Audience: DevOps learners, sysadmins, junior backend devs.
  * Specialty: simulated Linux shell, Docker, Nginx, deployment runbooks.
  *
- * Phase 47 ships: buddy definition + picker wiring.
- * Phase 58 will add: xterm.js terminal + custom command interpreter
- *   (fake filesystem, simulated docker/docker-compose), Nginx config
- *   editor with live validator, deployment wizard for AWS/Vercel/Railway.
+ * Phase 47 shipped: buddy definition + picker wiring.
+ * Phase 58 shipped (ServerBuddyScreen — a fully simulated DevOps lab):
+ *   - Simulated shell over a fake filesystem (permissions, sudo, chown,
+ *     chmod, redirection, grep) with services + journals (systemctl,
+ *     journalctl, ps) — all client-side, nothing can break
+ *   - Simulated docker: real Dockerfile parsing (FROM/WORKDIR/COPY/RUN/
+ *     ENV/EXPOSE/CMD), build/run/ps/stop/rm/logs/images/pull, port-conflict
+ *     errors, plus a docker-compose subset (up/down/ps/logs)
+ *   - Nginx config editor + live "nginx -t" validator (missing semicolons,
+ *     unbalanced braces, duplicate vhosts, proxy_pass placement) with a
+ *     request-flow diagram; saved configs are validated by
+ *     `systemctl restart nginx` in the sim — broken configs fail to boot
+ *   - Deployment runbooks (Vercel, Railway, VPS+Caddy) with checkable
+ *     steps, generated artifacts (scripts, systemd units, Caddyfile)
+ *     saved into Projects, and a quiz gate before "deploy complete"
+ *   - curl answers only from within the sim (localhost services and
+ *     containers); external URLs point learners at the real SSRF-guarded
+ *     API tester in BackendBuddy
  */
 
 import type { Buddy, BuddySuggestion } from "./types";

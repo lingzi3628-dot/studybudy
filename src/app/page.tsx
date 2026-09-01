@@ -54,6 +54,7 @@ import { MLPlaygroundScreen } from "@/components/studybuddy/screens/MLPlayground
 import { WebBuilderScreen } from "@/components/studybuddy/screens/WebBuilderScreen";
 import { BackendBuddyScreen } from "@/components/studybuddy/screens/BackendBuddyScreen";
 import { PromptPlaygroundScreen } from "@/components/studybuddy/screens/PromptPlaygroundScreen";
+import { ServerBuddyScreen } from "@/components/studybuddy/screens/ServerBuddyScreen";
 import { HigherEdHome } from "@/components/studybuddy/screens/HigherEdHome";
 
 // Secret admin access code — type this word on the keyboard anywhere
@@ -180,7 +181,7 @@ export default function Page() {
   }, [setScreen]);
 
   // Immersive study modes have their own full-screen layout (no top bar / bottom nav).
-  const immersive = ["flashcards", "quiz", "graph", "language", "tutor", "path", "study", "admin", "adminLogin", "landing", "onboarding", "auth", "premium", "conceptMap", "earnCenter", "classroom", "schoolRegister", "schoolDashboard", "schoolSubject", "schoolTimedTest", "familyRegister", "familyChildLogin", "familyDashboard", "curriculumSubject", "curriculumTopic", "exam", "calendar", "timetable", "studyBuddy", "bookshelf", "printableExam", "examHub", "studyGroup", "codeRunner", "lab", "calculator", "projects", "devBuddy", "notebook", "mlPlayground", "webBuilder", "backendBuddy", "promptPlayground"];
+  const immersive = ["flashcards", "quiz", "graph", "language", "tutor", "path", "study", "admin", "adminLogin", "landing", "onboarding", "auth", "premium", "conceptMap", "earnCenter", "classroom", "schoolRegister", "schoolDashboard", "schoolSubject", "schoolTimedTest", "familyRegister", "familyChildLogin", "familyDashboard", "curriculumSubject", "curriculumTopic", "exam", "calendar", "timetable", "studyBuddy", "bookshelf", "printableExam", "examHub", "studyGroup", "codeRunner", "lab", "calculator", "projects", "devBuddy", "notebook", "mlPlayground", "webBuilder", "backendBuddy", "promptPlayground", "serverBuddy"];
 
   if (screen === "onboarding") {
     return (
@@ -257,6 +258,7 @@ export default function Page() {
         {screen === "webBuilder" && <WebBuilderScreen />}
         {screen === "backendBuddy" && <BackendBuddyScreen />}
         {screen === "promptPlayground" && <PromptPlaygroundScreen />}
+        {screen === "serverBuddy" && <ServerBuddyScreen />}
         <CreateModal />
       </div>
     );

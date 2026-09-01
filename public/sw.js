@@ -1,5 +1,5 @@
 /**
- * StudyBuddy AI Service Worker v65 — Offline Mode + Web Push
+ * StudyBuddy AI Service Worker v66 — Offline Mode + Web Push
  *
  * v23-v59 — prior upgrades.
  * v60 — Phase 51: Higher Education tracks + onboarding upgrade
@@ -16,9 +16,11 @@
  *   SSRF-guarded API tester, ER visualizer, Express/FastAPI scaffolds)
  * v65 — Phase 57: MLBuddy 2.0 (synthetic-digits CNN, confusion matrix,
  *   CSV dataset upload, notebook↔playground bridge, model export)
+ * v66 — Phase 58: ServerBuddy (simulated shell + docker + nginx validator
+ *   + deploy runbooks)
  */
 
-const CACHE_VERSION = "studybuddy-v65-offline";
+const CACHE_VERSION = "studybuddy-v66-offline";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const CONTENT_CACHE = `${CACHE_VERSION}-content`;
 const IMAGE_CACHE = `${CACHE_VERSION}-images`;

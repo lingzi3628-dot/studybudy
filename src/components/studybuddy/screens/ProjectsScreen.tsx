@@ -18,7 +18,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import {
-  ChevronLeft, Loader2, AlertCircle, FileCode2, Trash2, Plus, Star, Globe, Sparkles, Database, Brain, LayoutTemplate,
+  ChevronLeft, Loader2, AlertCircle, FileCode2, Trash2, Plus, Star, Globe, Sparkles, Database, Brain, LayoutTemplate, Server,
 } from "lucide-react";
 import { useApp } from "../store";
 import { isValidBuddyId } from "@/lib/buddies/registry";
@@ -177,6 +177,17 @@ export function ProjectsScreen() {
           >
             <Database className="w-3.5 h-3.5" /> New API Project
           </button>
+          {/* Phase 58 — New server lab (opens ServerBuddyScreen) */}
+          <button
+            onClick={() => {
+              (useApp.getState() as any).setActiveProjectId(null);
+              setScreen("serverBuddy");
+            }}
+            className="px-3 h-9 rounded-full bg-emerald-700 text-white text-xs font-semibold flex items-center gap-1 hover:bg-emerald-600"
+            title="Open the simulated DevOps lab (shell, Docker, Nginx, deploy runbooks)"
+          >
+            <Server className="w-3.5 h-3.5" /> New Server Lab
+          </button>
           <button
             onClick={() => setScreen("tutor")}
             className="px-3 h-9 rounded-full bg-indigo-600 text-white text-xs font-semibold flex items-center gap-1 hover:bg-indigo-700"
@@ -313,6 +324,10 @@ export function ProjectsScreen() {
                             // Phase 56 — ai projects route to the Prompt Playground
                             state.setActiveProjectId(p.id);
                             setScreen("promptPlayground");
+                          } else if (p.buddyId === "server") {
+                            // Phase 58 — server projects route to ServerBuddyScreen
+                            state.setActiveProjectId(p.id);
+                            setScreen("serverBuddy");
                           } else if (p.conversationId) {
                             // No editor yet for this buddy — open AI Tutor with this conversation
                             setScreen("tutor");

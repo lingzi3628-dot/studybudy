@@ -53,6 +53,7 @@ export type Screen =
   | "webBuilder"
   | "backendBuddy"
   | "promptPlayground"
+  | "serverBuddy"
   | "higherEdHome";
 
 export type CreateOption =

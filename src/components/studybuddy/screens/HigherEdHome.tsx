@@ -16,7 +16,7 @@
 import { useEffect, useState } from "react";
 import {
   Flame, Loader2, ChevronRight, FileCode2, Database, Brain, Globe,
-  Wrench, Code, Sparkles, FolderOpen, FlaskConical,
+  Wrench, Code, Sparkles, FolderOpen, FlaskConical, Server,
 } from "lucide-react";
 import { useApp } from "../store";
 import { api, type Progress as ProgressData } from "../api";
@@ -192,7 +192,7 @@ export function HigherEdHome() {
         {/* Quick tools */}
         <section className="mt-6">
           <h2 className="text-sm font-semibold text-gray-900 mb-3">Quick tools</h2>
-          <div className="grid grid-cols-2 md:grid-cols-6 gap-2.5">
+          <div className="grid grid-cols-2 md:grid-cols-7 gap-2.5">
             <button
               onClick={() => setScreen("webBuilder")}
               className="flex flex-col items-start gap-1.5 p-3 rounded-2xl bg-white border border-gray-200 hover:border-amber-300 hover:shadow-sm transition text-left"
@@ -243,6 +243,17 @@ export function HigherEdHome() {
               </span>
               <p className="text-xs font-semibold text-gray-900">ML Playground</p>
               <p className="text-[10px] text-gray-500">Train neural networks</p>
+            </button>
+            {/* Phase 58 — ServerBuddy simulated DevOps lab */}
+            <button
+              onClick={() => setScreen("serverBuddy")}
+              className="flex flex-col items-start gap-1.5 p-3 rounded-2xl bg-white border border-gray-200 hover:border-emerald-300 hover:shadow-sm transition text-left"
+            >
+              <span className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center">
+                <Server className="w-4 h-4" />
+              </span>
+              <p className="text-xs font-semibold text-gray-900">Server Lab</p>
+              <p className="text-[10px] text-gray-500">Shell · Docker · Nginx</p>
             </button>
             <button
               onClick={() => setScreen("lab")}
@@ -297,6 +308,7 @@ export function HigherEdHome() {
                       if (p.buddyId === "dev") setScreen("devBuddy");
                       else if (p.buddyId === "data") setScreen("notebook");
                       else if (p.buddyId === "ml") setScreen("mlPlayground");
+                      else if (p.buddyId === "server") setScreen("serverBuddy");
                       else setScreen("projects");
                     }}
                     className="text-left rounded-2xl bg-white border border-gray-200 shadow-sm hover:shadow-md transition p-3 flex items-center gap-3"
