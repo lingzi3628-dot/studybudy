@@ -282,20 +282,92 @@ export function WebBuilderScreen() {
           if (evType === "delta") {
             accumulated += data.text ?? "";
             setStreamBuf(accumulated);
+            // Phase 61f — auto-extract and load code into the editor in real-time
+            // as the AI writes it. This gives the "watching the AI code" experience.
+            const liveExtracted = extractCodeFiles(accumulated);
+            if (liveExtracted && liveExtracted.length > 0) {
+              const liveFiles: ProjectFile[] = liveExtracted.map((f, i) => ({
+                id: `temp-x${i}-${Date.now()}`,
+                path: f.path,
+                language: f.language,
+                content: f.content,
+                isEntry: /(^|\/)index\.html$/i.test(f.path) || (i === 0 && liveExtracted.length === 1 && f.path.endsWith(".html")),
+              }));
+              setFiles((prev) => {
+                const next = [...prev];
+                for (const f of liveFiles) {
+                  const idx = next.findIndex((p) => p.path === f.path);
+                  if (idx >= 0) {
+                    next[idx] = { ...next[idx], content: f.content };
+                  } else {
+                    next.push(f);
+                  }
+                }
+                return next;
+              });
+              // Auto-switch to preview pane when HTML is first detected
+              if (liveFiles.some((f) => f.path.endsWith(".html")) && pane !== "preview") {
+                // Don't auto-switch during streaming — wait until done
+              }
+            }
           } else if (evType === "done") {
             const extracted = extractCodeFiles(accumulated);
             setMessages((m) => [...m, { role: "assistant", text: data.reply ?? accumulated, files: extracted?.length ?? 0 }]);
             setStreamBuf("");
+            // Phase 61f — auto-load the final code into the editor + switch to preview
+            if (extracted && extracted.length > 0) {
+              const loaded: ProjectFile[] = extracted.map((f, i) => ({
+                id: `temp-x${i}-${Date.now()}`,
+                path: f.path,
+                language: f.language,
+                content: f.content,
+                isEntry: /(^|\/)index\.html$/i.test(f.path) || (i === 0 && extracted.length === 1 && f.path.endsWith(".html")),
+              }));
+              setFiles((prev) => {
+                const next = [...prev];
+                for (const f of loaded) {
+                  const idx = next.findIndex((p) => p.path === f.path);
+                  if (idx >= 0) {
+                    next[idx] = { ...next[idx], content: f.content };
+                  } else {
+                    next.push(f);
+                  }
+                }
+                return next;
+              });
+              // Auto-switch to preview so the user sees the result immediately
+              setPane("preview");
+            }
           } else if (evType === "error") {
             throw new Error(data.error ?? "AI error");
           }
         }
       }
       if (accumulated && !messages.some((m) => m.role === "assistant" && m.text === (streamBuf || accumulated))) {
-        // Stream ended without a done event — still show the reply.
+        // Stream ended without a done event — still show the reply + auto-load code.
         const extracted = extractCodeFiles(accumulated);
         setMessages((m) => [...m, { role: "assistant", text: accumulated, files: extracted?.length ?? 0 }]);
         setStreamBuf("");
+        // Phase 61f — auto-load code into editor + switch to preview
+        if (extracted && extracted.length > 0) {
+          const loaded: ProjectFile[] = extracted.map((f, i) => ({
+            id: `temp-x${i}-${Date.now()}`,
+            path: f.path,
+            language: f.language,
+            content: f.content,
+            isEntry: /(^|\/)index\.html$/i.test(f.path) || (i === 0 && extracted.length === 1 && f.path.endsWith(".html")),
+          }));
+          setFiles((prev) => {
+            const next = [...prev];
+            for (const f of loaded) {
+              const idx = next.findIndex((p) => p.path === f.path);
+              if (idx >= 0) next[idx] = { ...next[idx], content: f.content };
+              else next.push(f);
+            }
+            return next;
+          });
+          setPane("preview");
+        }
       }
     } catch (e: any) {
       if (e?.name !== "AbortError") {
