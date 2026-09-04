@@ -86,8 +86,8 @@ const TRACK_CONFIG: Record<string, {
     quickActions: [
       { label: "ML Playground", icon: Brain, screen: "mlPlayground", color: "bg-violet-50 text-violet-600", desc: "Train models" },
       { label: "Chatbot Trainer", icon: MessageCircle, screen: "chatbotPlayground", color: "bg-fuchsia-50 text-fuchsia-600", desc: "Train + chat + think" },
+      { label: "AI Templates", icon: Sparkles, screen: "aiTemplates", color: "bg-indigo-50 text-indigo-600", desc: "Start from a template" },
       { label: "Notebook", icon: Database, screen: "notebook", color: "bg-sky-50 text-sky-600", desc: "Data prep" },
-      { label: "Lab Simulator", icon: Globe, screen: "lab", color: "bg-rose-50 text-rose-600", desc: "Physics + chem sims" },
     ],
     buddyIds: ["ml", "data", "dev"],
   },
@@ -98,9 +98,9 @@ const TRACK_CONFIG: Record<string, {
     heroSubtitle: "Prompt playground, in-browser RAG, agent builder, model evals. Ship AI-powered apps without a backend.",
     quickActions: [
       { label: "Prompt Playground", icon: Bot, screen: "promptPlayground", color: "bg-fuchsia-50 text-fuchsia-600", desc: "Test prompts" },
+      { label: "AI Templates", icon: Sparkles, screen: "aiTemplates", color: "bg-indigo-50 text-indigo-600", desc: "Start from a template" },
       { label: "Code Editor", icon: Code, screen: "devBuddy", color: "bg-emerald-50 text-emerald-600", desc: "Build apps" },
       { label: "Web Builder", icon: Globe, screen: "webBuilder", color: "bg-amber-50 text-amber-600", desc: "Ship sites" },
-      { label: "Lab Simulator", icon: Globe, screen: "lab", color: "bg-rose-50 text-rose-600", desc: "Physics sims" },
     ],
     buddyIds: ["ai", "dev", "web", "backend"],
   },

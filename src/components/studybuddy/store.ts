@@ -57,7 +57,8 @@ export type Screen =
   | "tvetBuddy"
   | "higherEdHome"
   | "explore"
-  | "chatbotPlayground";
+  | "chatbotPlayground"
+  | "aiTemplates";
 
 export type CreateOption =
   | "upload"
