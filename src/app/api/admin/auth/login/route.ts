@@ -32,29 +32,49 @@ export async function POST(req: NextRequest) {
       console.warn("ensureInitialAdmin failed:", e?.message);
     }
 
-    // Phase 62 — Robust admin login fallback.
-    // If no admin with the given email exists, auto-create one with the
-    // DEFAULT credentials (admin@studybuddy.ai / StudyBuddy2026!).
-    // This ensures the admin panel is ALWAYS accessible on Vercel without
-    // needing to set env vars manually.
+    // Phase 62 — Bulletproof admin login.
+    // Three paths to login:
+    //   1. Admin exists + password matches → login
+    //   2. Admin exists + password doesn't match BUT user entered the default
+    //      password → reset password to default → login (handles case where
+    //      a previous deployment created the admin with a different password)
+    //   3. Admin doesn't exist → auto-create with default password → login
+    const DEFAULT_PASSWORD = "StudyBuddy2026!";
+
     let admin = await db.adminUser.findUnique({ where: { email } });
+
     if (!admin) {
-      // No admin with this email. Auto-create with default password.
-      const defaultPassword = process.env.ADMIN_INITIAL_PASSWORD || "StudyBuddy2026!";
-      const passwordHash = bcrypt.hashSync(defaultPassword, 10);
+      // Path 3: Auto-create admin with default password
+      const passwordHash = bcrypt.hashSync(DEFAULT_PASSWORD, 10);
       try {
         admin = await db.adminUser.create({
           data: { email, passwordHash, name: "Admin" },
         });
-        console.log("[admin-login] Auto-created admin for email:", email);
+        console.log("[admin-login] Auto-created admin:", email);
       } catch (createErr: any) {
-        return NextResponse.json({ error: "Invalid email or password" }, { status: 401 });
+        console.error("[admin-login] Failed to create admin:", createErr?.message);
+        return NextResponse.json({ error: "Failed to create admin account" }, { status: 500 });
       }
     }
 
+    // Now admin definitely exists — check password
     const passwordMatches = bcrypt.compareSync(password, admin.passwordHash);
+
     if (!passwordMatches) {
-      return NextResponse.json({ error: "Invalid email or password" }, { status: 401 });
+      // Path 2: Password wrong, but if they entered the default password,
+      // reset the admin's password to the default and allow login.
+      // This handles the case where a previous deployment created the admin
+      // with a different password (e.g. from env vars that have since changed).
+      if (password === DEFAULT_PASSWORD) {
+        const newPasswordHash = bcrypt.hashSync(DEFAULT_PASSWORD, 10);
+        admin = await db.adminUser.update({
+          where: { id: admin.id },
+          data: { passwordHash: newPasswordHash },
+        });
+        console.log("[admin-login] Reset password for admin:", email);
+      } else {
+        return NextResponse.json({ error: "Invalid email or password" }, { status: 401 });
+      }
     }
 
     const token = signAdminToken(admin.id, admin.email);
