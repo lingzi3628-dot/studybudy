@@ -103,6 +103,24 @@ export function ProjectsScreen() {
     }
   };
 
+  // Phase 60 — Toggle a project's public/private status.
+  // When made public, it appears in the Explore marketplace for all users.
+  const handleTogglePublic = async (id: string, currentPublic: boolean) => {
+    try {
+      const r = await fetch(`/api/projects/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isPublic: !currentPublic }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      setProjects((prev) =>
+        prev.map((p) => (p.id === id ? { ...p, isPublic: !currentPublic } : p))
+      );
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to update visibility");
+    }
+  };
+
   return (
     <div className="md:px-8 md:py-6">
       <div className="max-w-md mx-auto px-4 pt-4 pb-28 md:max-w-5xl md:px-0 md:pb-8">
@@ -353,6 +371,19 @@ export function ProjectsScreen() {
                         className="flex-1 px-2.5 h-8 rounded-lg bg-indigo-50 text-indigo-700 text-xs font-semibold hover:bg-indigo-100 transition"
                       >
                         Open
+                      </button>
+                      {/* Phase 60 — Share/Unshare toggle: makes the project visible in Explore */}
+                      <button
+                        onClick={() => handleTogglePublic(p.id, p.isPublic)}
+                        aria-label={p.isPublic ? "Make private" : "Share to Explore"}
+                        title={p.isPublic ? "Make private (remove from Explore)" : "Share to Explore (make public)"}
+                        className={`w-8 h-8 rounded-lg transition flex items-center justify-center ${
+                          p.isPublic
+                            ? "bg-emerald-50 text-emerald-600 hover:bg-emerald-100"
+                            : "bg-gray-50 text-gray-400 hover:bg-emerald-50 hover:text-emerald-600"
+                        }`}
+                      >
+                        <Globe className="w-3.5 h-3.5" />
                       </button>
                       <button
                         onClick={() => handleDelete(p.id, p.title)}
