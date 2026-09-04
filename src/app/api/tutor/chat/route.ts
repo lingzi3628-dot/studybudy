@@ -48,9 +48,20 @@ export async function POST(req: NextRequest) {
   const imageDataUrl = (body?.image ?? "").toString().trim() || null;
   // Phase 45: Data Saver mode
   const dataSaver = !!body?.dataSaver;
-  // Phase 47: Buddy routing
+  // Phase 47/61: Buddy routing — if the client sends a buddyId, use it.
+  // If not, fall back to the user's track to pick the right default buddy.
+  // This ensures the AI Tutor persona matches the user's education track
+  // even if the client doesn't explicitly send buddyId.
+  const TRACK_TO_BUDDY: Record<string, string> = {
+    k12: "study", dev: "dev", data: "data", ml: "ml",
+    aiapp: "ai", tvet: "tvet", server: "server",
+    backend: "backend", web: "web", mixed: "study",
+  };
   const requestedBuddyId = (body?.buddyId ?? "").toString().trim();
-  const buddyId = isValidBuddyId(requestedBuddyId) ? requestedBuddyId : DEFAULT_BUDDY_ID;
+  const trackDefaultBuddy = TRACK_TO_BUDDY[user.track ?? "k12"] ?? "study";
+  const buddyId = isValidBuddyId(requestedBuddyId)
+    ? requestedBuddyId
+    : (isValidBuddyId(trackDefaultBuddy) ? trackDefaultBuddy : DEFAULT_BUDDY_ID);
   const buddy = getBuddy(buddyId);
 
   if (!userMessage && !imageDataUrl) {

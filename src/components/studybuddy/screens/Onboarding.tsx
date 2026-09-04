@@ -265,40 +265,107 @@ export function Onboarding() {
       </div>
 
       <div className="flex-1 px-4 overflow-y-auto pb-32">
-        {/* Phase 51 — Step 0: Pick your track */}
+        {/* Phase 61 — Step 0: Pick your path (K-12 vs Higher Education), then sub-track */}
         {step === 0 && (
           <section>
             <h1 className="text-2xl font-bold text-gray-900 mt-4">What do you want to learn?</h1>
             <p className="text-sm text-gray-500 mt-1">
-              Pick a track — each one opens a different world of AI buddies and tools. You can change this later.
+              Choose your path — each one opens a different world. You can switch anytime.
             </p>
-            <div className="mt-6 space-y-3">
-              {TRACKS.map((t) => {
-                const selected = track === t.key;
-                return (
-                  <button
-                    key={t.key}
-                    onClick={() => onTrackSelect(t.key)}
-                    className={`w-full text-left p-4 rounded-2xl border-2 transition-all ${
-                      selected ? "border-indigo-600 bg-indigo-50" : "border-gray-200 bg-white hover:border-indigo-300"
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${t.accent} flex items-center justify-center text-2xl flex-shrink-0 shadow-md`}>
-                        {t.emoji}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-base font-semibold text-gray-900">{t.label}</p>
-                        <p className="text-xs text-gray-500 mt-0.5">{t.desc}</p>
-                      </div>
-                      {selected && <Check className="w-5 h-5 text-indigo-600 flex-shrink-0" />}
+
+            {/* Two main paths */}
+            <div className="mt-6 grid grid-cols-1 gap-3">
+              {/* K-12 Path */}
+              <button
+                onClick={() => onTrackSelect("k12")}
+                className={`w-full text-left p-4 rounded-2xl border-2 transition-all ${
+                  track === "k12" ? "border-indigo-600 bg-indigo-50" : "border-gray-200 bg-white hover:border-indigo-300"
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center text-3xl flex-shrink-0 shadow-md">
+                    📚
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-base font-bold text-gray-900">K-12 School</p>
+                    <p className="text-xs text-gray-500 mt-0.5">Kenya CBC / KCSE / KPSEA / KJSEA — from PP1 to Form 4</p>
+                    <div className="flex items-center gap-1 mt-1">
+                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 font-medium">Lessons</span>
+                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 font-medium">Exams</span>
+                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 font-medium">Flashcards</span>
+                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 font-medium">Graphs</span>
                     </div>
-                  </button>
-                );
-              })}
+                  </div>
+                  {track === "k12" && <Check className="w-5 h-5 text-indigo-600 flex-shrink-0" />}
+                </div>
+              </button>
+
+              {/* Higher Education Path — expandable */}
+              <div className={`rounded-2xl border-2 transition-all ${
+                track && track !== "k12" ? "border-emerald-600 bg-emerald-50/30" : "border-gray-200 bg-white"
+              }`}>
+                <div className="p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-3xl flex-shrink-0 shadow-md">
+                      🎓
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-base font-bold text-gray-900">Higher Education & Beyond</p>
+                      <p className="text-xs text-gray-500 mt-0.5">Coding, Data Science, ML, AI, TVET, Server/DevOps — pick your specialty</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Sub-tracks for Higher Ed */}
+                <div className="px-4 pb-4 grid grid-cols-2 gap-2">
+                  {TRACKS.filter(t => t.key !== "k12" && t.key !== "mixed").map((t) => {
+                    const selected = track === t.key;
+                    return (
+                      <button
+                        key={t.key}
+                        onClick={() => onTrackSelect(t.key)}
+                        className={`text-left p-2.5 rounded-xl border transition-all ${
+                          selected ? "border-emerald-600 bg-emerald-50" : "border-gray-200 bg-white hover:border-emerald-300"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${t.accent} flex items-center justify-center text-base flex-shrink-0`}>
+                            {t.emoji}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-bold text-gray-900">{t.label}</p>
+                            <p className="text-[10px] text-gray-500 line-clamp-1">{t.desc}</p>
+                          </div>
+                          {selected && <Check className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Mixed */}
+              <button
+                onClick={() => onTrackSelect("mixed")}
+                className={`w-full text-left p-3 rounded-2xl border-2 transition-all ${
+                  track === "mixed" ? "border-rose-600 bg-rose-50" : "border-gray-200 bg-white hover:border-rose-300"
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-rose-500 to-pink-500 flex items-center justify-center text-xl flex-shrink-0">
+                    🎯
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold text-gray-900">Multiple interests</p>
+                    <p className="text-[11px] text-gray-500">Show me everything — I'll pick per task</p>
+                  </div>
+                  {track === "mixed" && <Check className="w-4 h-4 text-rose-600 flex-shrink-0" />}
+                </div>
+              </button>
             </div>
+
             <p className="mt-4 text-xs text-center text-gray-400">
-              💡 Each track unlocks different AI buddies — DevBuddy for code, DataBuddy for notebooks, MLBuddy for ML, TVETBuddy for trades.
+              💡 Each track unlocks different AI buddies, tools, and a custom home screen.
             </p>
           </section>
         )}

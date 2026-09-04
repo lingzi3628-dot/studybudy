@@ -86,7 +86,7 @@ const TRACK_CONFIG: Record<string, {
     quickActions: [
       { label: "ML Playground", icon: Brain, screen: "mlPlayground", color: "bg-violet-50 text-violet-600", desc: "Train models" },
       { label: "Notebook", icon: Database, screen: "notebook", color: "bg-sky-50 text-sky-600", desc: "Data prep" },
-      { label: "Code Editor", icon: Code, screen: "devBuddy", color: "bg-emerald-50 text-emerald-600", desc: "Custom code" },
+      { label: "Lab Simulator", icon: Globe, screen: "lab", color: "bg-rose-50 text-rose-600", desc: "Physics + chem sims" },
       { label: "Explore", icon: Globe, screen: "explore", color: "bg-indigo-50 text-indigo-600", desc: "Public models" },
     ],
     buddyIds: ["ml", "data", "dev"],
@@ -100,7 +100,7 @@ const TRACK_CONFIG: Record<string, {
       { label: "Prompt Playground", icon: Bot, screen: "promptPlayground", color: "bg-fuchsia-50 text-fuchsia-600", desc: "Test prompts" },
       { label: "Code Editor", icon: Code, screen: "devBuddy", color: "bg-emerald-50 text-emerald-600", desc: "Build apps" },
       { label: "Web Builder", icon: Globe, screen: "webBuilder", color: "bg-amber-50 text-amber-600", desc: "Ship sites" },
-      { label: "Explore", icon: Globe, screen: "explore", color: "bg-indigo-50 text-indigo-600", desc: "AI projects" },
+      { label: "Lab Simulator", icon: Globe, screen: "lab", color: "bg-rose-50 text-rose-600", desc: "Physics sims" },
     ],
     buddyIds: ["ai", "dev", "web", "backend"],
   },
