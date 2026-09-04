@@ -186,11 +186,24 @@ export async function POST(req: NextRequest) {
       thinkingSteps = split.steps;
     } catch (e: any) {
       await refundTokens(user.id, "tutor", deduct.costTokens);
+      // Phase 62 — Clean up error messages for the user.
+      // Raw API errors (429 rate limit, 500 server error) are confusing.
+      // Replace with friendly messages + actionable suggestions.
+      let friendlyError = e?.message ?? "AI couldn't respond right now. Please try again.";
+      const errMsg = String(e?.message ?? "").toLowerCase();
+      if (errMsg.includes("429") || errMsg.includes("rate limit") || errMsg.includes("rate_limited")) {
+        friendlyError = "The AI model is currently rate-limited (too many requests). Please try again in a minute, or switch to 'Study Buddy Free' model in the dropdown above (no rate limits).";
+      } else if (errMsg.includes("500") || errMsg.includes("502") || errMsg.includes("503")) {
+        friendlyError = "The AI provider is temporarily unavailable. Please try again in a moment.";
+      } else if (errMsg.includes("timeout")) {
+        friendlyError = "The AI took too long to respond. Please try a shorter message or try again.";
+      } else if (errMsg.includes("configuration") || errMsg.includes(".z-ai-config")) {
+        friendlyError = "The AI service is not fully configured. Please contact support or try the 'Study Buddy Free' model.";
+      }
       // Return 200 (not 500) so the client shows the error as a chat message
-      // instead of a network error.
       return NextResponse.json({
         ok: false,
-        error: e?.message ?? "AI couldn't respond right now. Please try again.",
+        error: friendlyError,
       });
     }
 

@@ -469,7 +469,15 @@ export async function* streamAI(
   try {
     content = await callAI(messages, null, ctx);
   } catch (e: any) {
-    throw e;
+    // Phase 62 — if callAI fails (e.g. all providers rate-limited + platform error),
+    // try the platform GLM directly one more time with a simpler prompt.
+    console.warn("callAI failed in stream, trying direct platform fallback:", e?.message);
+    try {
+      content = await callPlatformAI(messages, { userId, route, temperature: ctx?.temperature });
+    } catch (e2: any) {
+      // Last resort: return a friendly error message instead of throwing
+      content = `⚠️ I'm having trouble connecting right now. This might be due to rate limits on the AI provider. Please try again in a moment, or switch to "Study Buddy Free" model (no rate limits).`;
+    }
   }
   if (content) yield content;
 }
