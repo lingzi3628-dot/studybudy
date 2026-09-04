@@ -18,6 +18,8 @@
  * Everything here is synchronous and pure — fully unit-testable.
  */
 
+import { WEB_BACKEND_SCRIPT } from "./web-backend";
+
 export type PreviewFile = {
   path: string;
   content: string;
@@ -111,6 +113,17 @@ export function buildPreviewDocument(files: PreviewFile[]): string | null {
     html = html.replace(/<head[^>]*>/i, (m) => `${m}\n${CONSOLE_BRIDGE_SNIPPET}`);
   } else {
     html = `${CONSOLE_BRIDGE_SNIPPET}\n${html}`;
+  }
+
+  // 4) Phase 61c — Inject the Web Backend (db, auth, api) so user apps
+  //    can store data, authenticate users, and make API calls.
+  //    The script is injected BEFORE the user's own scripts so `window.db`
+  //    is available when their code runs.
+  const WEB_BACKEND_TAG = `<script>\n${WEB_BACKEND_SCRIPT}\n</script>`;
+  if (/<head[^>]*>/i.test(html)) {
+    html = html.replace(/<\/head>/i, `${WEB_BACKEND_TAG}\n</head>`);
+  } else {
+    html = `${WEB_BACKEND_TAG}\n${html}`;
   }
 
   return html;
