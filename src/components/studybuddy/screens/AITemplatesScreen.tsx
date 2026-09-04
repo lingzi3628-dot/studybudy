@@ -580,14 +580,11 @@ export function AITemplatesScreen() {
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const d = await r.json();
 
-      // Route to the DevBuddyScreen (code editor) which loads project files
-      // from /api/projects/[id]. This shows the README.md + training_data.json
-      // so the user can read the instructions and see the starter code.
-      // For chatbot template, also route to DevBuddy first so they can read
-      // the README, then they can open ChatbotPlayground separately.
+      // Route to the template's designated screen (NOT always DevBuddy)
+      // Chatbot templates → chatbotPlayground, ML templates → mlPlayground, etc.
       const state = (useApp as any).getState();
       state.setActiveProjectId?.(d.project.id);
-      setScreen("devBuddy" as any);
+      setScreen((template.screen || "devBuddy") as any);
     } catch (e: any) {
       alert(`Failed to create project: ${e?.message}`);
       setCreating(null);

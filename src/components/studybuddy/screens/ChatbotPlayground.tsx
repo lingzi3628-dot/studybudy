@@ -148,7 +148,7 @@ type TabType = "train" | "chat" | "tools" | "analytics" | "deploy";
 type MatchingMode = "tfidf" | "keyword" | "fuzzy" | "hybrid";
 
 export function ChatbotPlayground() {
-  const { setScreen } = useApp();
+  const { setScreen, activeProjectId } = useApp() as any;
   const [trainingData, setTrainingData] = useState<TrainingPair[]>(STARTER_DATA);
   const [newInput, setNewInput] = useState("");
   const [newOutput, setNewOutput] = useState("");
@@ -167,6 +167,7 @@ export function ChatbotPlayground() {
   const [copied, setCopied] = useState(false);
   const [importText, setImportText] = useState("");
   const [showImport, setShowImport] = useState(false);
+  const [loadedFromTemplate, setLoadedFromTemplate] = useState<string | null>(null);
   const [stats, setStats] = useState<{ coverage: number; avgResponseTime: number; totalChats: number; intents: string[] }>({
     coverage: 0, avgResponseTime: 0, totalChats: 0, intents: [],
   });
@@ -183,6 +184,64 @@ export function ChatbotPlayground() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatMessages]);
+
+  // Phase 62 — Load training data from a Project when activeProjectId is set
+  // (e.g. when a template is used or a saved project is opened)
+  useEffect(() => {
+    if (!activeProjectId) return;
+    (async () => {
+      try {
+        const r = await fetch(`/api/projects/${activeProjectId}`);
+        if (!r.ok) return;
+        const d = await r.json();
+        const project = d.project;
+        if (!project) return;
+        // Look for a training_data.json file in the project
+        const dataFile = project.files?.find((f: any) =>
+          f.path === "training_data.json" || f.path.endsWith("training_data.json")
+        );
+        if (dataFile) {
+          const parsed = JSON.parse(dataFile.content);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            const loaded: TrainingPair[] = parsed.map((p: any, i: number) => ({
+              id: `loaded-${i}-${Date.now()}`,
+              input: String(p.input || p.question || p.q || ""),
+              output: String(p.output || p.answer || p.a || p.response || ""),
+              intent: p.intent || p.category || undefined,
+            })).filter((p: TrainingPair) => p.input && p.output);
+            if (loaded.length > 0) {
+              setTrainingData(loaded);
+              setIsTrained(false);
+              setLoadedFromTemplate(project.title);
+              // Auto-train after loading
+              setTimeout(() => {
+                setIsTraining(true);
+                const vocab = buildVocab(loaded);
+                const idf = computeIDF(loaded, vocab);
+                const vectors = loaded.map((p) => tfidfVector(p.input, vocab, idf));
+                const intents = new Map<string, TrainingPair[]>();
+                for (const p of loaded) {
+                  const intent = p.intent || "general";
+                  if (!intents.has(intent)) intents.set(intent, []);
+                  intents.get(intent)!.push(p);
+                }
+                modelRef.current = { vocab, idf, vectors, pairs: loaded, intents };
+                setStats({ coverage: 0, avgResponseTime: 0, totalChats: 0, intents: Array.from(intents.keys()) });
+                setIsTrained(true);
+                setIsTraining(false);
+                // Auto-switch to chat tab so user can start chatting immediately
+                setActiveTab("chat");
+              }, 500);
+              // Clear the toast after 5 seconds
+              setTimeout(() => setLoadedFromTemplate(null), 5000);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("Failed to load training data from project:", e);
+      }
+    })();
+  }, [activeProjectId]);
 
   // Add training pair
   const addPair = () => {
@@ -472,6 +531,12 @@ export function ChatbotPlayground() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Template loaded toast */}
+      {loadedFromTemplate && (
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-emerald-600 text-white px-4 py-2 rounded-full shadow-lg text-xs font-semibold flex items-center gap-2 animate-pulse">
+          <Sparkles className="w-3.5 h-3.5" /> Loaded "{loadedFromTemplate}" — training data ready! Auto-switching to chat…
+        </div>
+      )}
       {/* Header */}
       <header className="bg-white border-b border-gray-200 px-4 h-14 flex items-center gap-3 sticky top-0 z-20">
         <button onClick={() => setScreen("home")} className="text-gray-500 hover:text-gray-900">
