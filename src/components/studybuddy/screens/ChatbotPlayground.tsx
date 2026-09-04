@@ -303,6 +303,58 @@ export function ChatbotPlayground() {
     }
   };
 
+  // Phase 62 — Generate training data using AI (StudyBuddy)
+  // User describes a topic → AI generates up to 50 Q&A pairs
+  const [generateTopic, setGenerateTopic] = useState("");
+  const [generateCount, setGenerateCount] = useState(20);
+  const [generating, setGenerating] = useState(false);
+  const [showGenerate, setShowGenerate] = useState(false);
+
+  const generateTrainingData = async () => {
+    const topic = generateTopic.trim();
+    if (!topic || generating) return;
+    setGenerating(true);
+    try {
+      const r = await fetch("/api/tutor/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: `Generate ${generateCount} question-and-answer pairs for a chatbot about: ${topic}. Format as a JSON array: [{"input": "user question", "output": "bot answer", "intent": "category"}]. Output ONLY the JSON array, no markdown, no explanation.`,
+          buddyId: "ml",
+        }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const d = await r.json();
+      const reply = d.reply || "";
+
+      // Extract JSON array from the reply
+      const jsonMatch = reply.match(/\[[\s\S]*\]/);
+      if (!jsonMatch) throw new Error("AI didn't return valid JSON. Try again with a more specific topic.");
+
+      const parsed = JSON.parse(jsonMatch[0]);
+      if (!Array.isArray(parsed)) throw new Error("AI didn't return a JSON array.");
+
+      const generated: TrainingPair[] = parsed.slice(0, generateCount).map((p: any, i: number) => ({
+        id: `gen-${Date.now()}-${i}`,
+        input: String(p.input || p.question || p.q || "").trim(),
+        output: String(p.output || p.answer || p.a || p.response || "").trim(),
+        intent: String(p.intent || p.category || topic.toLowerCase().split(/\s+/)[0]).trim() || undefined,
+      })).filter((p: TrainingPair) => p.input && p.output);
+
+      if (generated.length === 0) throw new Error("No valid Q&A pairs generated. Try again.");
+
+      setTrainingData((prev) => [...prev, ...generated]);
+      setIsTrained(false);
+      setShowGenerate(false);
+      setGenerateTopic("");
+      alert(`✓ Generated ${generated.length} Q&A pairs about "${topic}"! Total: ${trainingData.length + generated.length}. Click Train to use them.`);
+    } catch (e: any) {
+      alert(`Generation failed: ${e?.message}. Make sure you have tokens available.`);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
   // Export training data
   const exportData = (format: "json" | "csv") => {
     let content = "";
