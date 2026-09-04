@@ -222,6 +222,12 @@ export function Onboarding() {
       //    Phase 22d: the learning path is now created inside each
       //    curriculum subject via the chatbot, not during onboarding.
       await fetch("/api/onboarding/complete", { method: "POST" }).catch(() => {});
+
+      // Phase 61 — save the track to localStorage so page.tsx routes to the
+      // correct Home IMMEDIATELY after onboarding (no flash of K-12 dashboard).
+      if (track) {
+        try { localStorage.setItem("studybuddy_user_track", track); } catch { /* ignore */ }
+      }
     } catch (e) {
       console.warn("Onboarding save failed", e);
     } finally {
