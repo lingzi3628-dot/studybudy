@@ -57,6 +57,7 @@ import { PromptPlaygroundScreen } from "@/components/studybuddy/screens/PromptPl
 import { ServerBuddyScreen } from "@/components/studybuddy/screens/ServerBuddyScreen";
 import { TVETBuddyScreen } from "@/components/studybuddy/screens/TVETBuddyScreen";
 import { HigherEdHome } from "@/components/studybuddy/screens/HigherEdHome";
+import { TrackHome } from "@/components/studybuddy/screens/TrackHome";
 import { ExploreScreen } from "@/components/studybuddy/screens/ExploreScreen";
 
 // Secret admin access code — type this word on the keyboard anywhere
@@ -276,11 +277,13 @@ export default function Page() {
         <TopBar />
         <DesktopTopBar />
         <main>
-          {/* Phase 51 — Home screen routes based on the user's education track.
-              K-12 users see the existing PathDashboard. Higher-ed track users
-              (dev, data, ml, tvet, mixed) see the new HigherEdHome. */}
+          {/* Phase 61 — Home screen routes based on the user's education track.
+              K-12 users see the existing PathDashboard. All other tracks
+              (dev, data, ml, aiapp, tvet, server, backend, web, mixed) see
+              the new TrackHome — a track-specific home with hero, quick actions,
+              embedded AI Tutor, and recent projects. */}
           {screen === "home" && userTrack === "k12" && <PathDashboard />}
-          {screen === "home" && userTrack !== "k12" && <HigherEdHome />}
+          {screen === "home" && userTrack !== "k12" && <TrackHome track={userTrack} />}
           {screen === "search" && <Search />}
           {screen === "progress" && <Progress />}
           {screen === "profile" && <Profile />}

@@ -28,6 +28,7 @@ import { api } from "../api";
 import { getUILang, setUILang, type Lang } from "@/lib/i18n";
 import { useI18n } from "@/lib/useI18n";
 import { setPreferredTTSLang } from "./voice-mode";
+import { TrackSwitchModal, ALL_TRACKS } from "./TrackSwitchModal";
 import { VisualApiEditor } from "./VisualApiEditor";
 
 const languages = ["English", "Kiswahili", "Chinese", "French", "Spanish", "Arabic"];
@@ -54,6 +55,7 @@ export function Profile() {
   const [email, setEmail] = useState("");
   const [plan, setPlan] = useState<"free" | "pro">("free");
   const [saving, setSaving] = useState(false);
+  const [showTrackModal, setShowTrackModal] = useState(false);  // Phase 61
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isFamilyParent, setIsFamilyParent] = useState(false);
@@ -268,8 +270,22 @@ export function Profile() {
           <div className="rounded-2xl bg-white border border-gray-200 shadow-sm divide-y divide-gray-100">
             {/* Grade switcher — user can change grade anytime */}
             <GradeSwitcher currentGrade={userGrade} />
-            {/* Phase 51 — Track switcher: lets the user move K-12 ↔ Higher-Ed */}
-            <TrackSwitcher currentTrack={userTrack} onTrackChange={(t) => setUserTrack(t)} />
+            {/* Phase 61 — Track switcher: opens the beautiful TrackSwitchModal */}
+            <button
+              onClick={() => setShowTrackModal(true)}
+              className="w-full p-4 flex items-center gap-3 hover:bg-gray-50 text-left"
+            >
+              <span className="w-9 h-9 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                <Sparkles className="w-4 h-4" />
+              </span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-900">Education track</p>
+                <p className="text-xs text-gray-500">
+                  Current: {ALL_TRACKS.find(t => t.key === userTrack)?.emoji} {ALL_TRACKS.find(t => t.key === userTrack)?.label}
+                </p>
+              </div>
+              <ChevronRight className="w-4 h-4 text-gray-400" />
+            </button>
             <div className="p-4 flex items-center gap-3">
               <span className="w-9 h-9 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center">
                 <Languages className="w-4 h-4" />
@@ -475,6 +491,14 @@ export function Profile() {
           StudyBuddy AI · v1.0.0
         </p>
       </div>
+
+      {/* Phase 61 — Track Switch Modal */}
+      <TrackSwitchModal
+        open={showTrackModal}
+        onClose={() => setShowTrackModal(false)}
+        currentTrack={userTrack}
+        onTrackChanged={(t) => setUserTrack(t)}
+      />
     </div>
   );
 }

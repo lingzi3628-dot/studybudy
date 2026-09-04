@@ -22,7 +22,7 @@
  *   CDACC checklists)
  */
 
-const CACHE_VERSION = "studybuddy-v68-offline";
+const CACHE_VERSION = "studybuddy-v69-offline";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const CONTENT_CACHE = `${CACHE_VERSION}-content`;
 const IMAGE_CACHE = `${CACHE_VERSION}-images`;
