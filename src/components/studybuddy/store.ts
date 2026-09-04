@@ -55,7 +55,8 @@ export type Screen =
   | "promptPlayground"
   | "serverBuddy"
   | "tvetBuddy"
-  | "higherEdHome";
+  | "higherEdHome"
+  | "explore";
 
 export type CreateOption =
   | "upload"

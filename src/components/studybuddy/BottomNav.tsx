@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Home, Search, Plus, BarChart3, User, Users, Lock, Calendar } from "lucide-react";
+import { Home, Search, Plus, BarChart3, User, Users, Lock, Calendar, Compass } from "lucide-react";
 import { useApp, type Screen } from "./store";
 import { useI18n } from "@/lib/useI18n";
 
@@ -194,6 +194,7 @@ export function Sidebar() {
   const items: { key: Screen; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
     { key: "home", label: t("nav.home"), icon: Home },
     { key: "search", label: t("nav.search"), icon: Search },
+    { key: "explore", label: "Explore", icon: Compass },
     { key: "progress", label: t("nav.progress"), icon: BarChart3 },
     { key: "calendar", label: t("nav.calendar"), icon: Calendar },
     ...(isFamilyParent && !isFamilyChild
