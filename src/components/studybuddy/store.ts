@@ -56,7 +56,8 @@ export type Screen =
   | "serverBuddy"
   | "tvetBuddy"
   | "higherEdHome"
-  | "explore";
+  | "explore"
+  | "chatbotPlayground";
 
 export type CreateOption =
   | "upload"

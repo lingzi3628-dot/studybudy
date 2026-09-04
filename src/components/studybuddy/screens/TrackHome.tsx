@@ -27,7 +27,7 @@ import { useEffect, useState } from "react";
 import {
   Flame, Loader2, ChevronRight, FileCode2, Database, Brain, Globe,
   Wrench, Code, Sparkles, FolderOpen, ArrowRight, Bot, Cpu, Network,
-  GitBranch, Play, Server, Zap, BookOpen,
+  GitBranch, Play, Server, Zap, BookOpen, MessageCircle,
 } from "lucide-react";
 import { useApp } from "../store";
 import { api, type Progress as ProgressData } from "../api";
@@ -82,12 +82,12 @@ const TRACK_CONFIG: Record<string, {
     heroGradient: "from-violet-600 to-fuchsia-600",
     heroEmoji: "🧠",
     heroTitle: "Train neural networks in your browser.",
-    heroSubtitle: "TensorFlow.js with WebGL acceleration. XOR, Iris, MNIST, housing — train, visualize, evaluate. No GPU server needed.",
+    heroSubtitle: "TensorFlow.js with WebGL acceleration. XOR, Iris, MNIST, housing — train, visualize, evaluate. Build chatbots and watch them think.",
     quickActions: [
       { label: "ML Playground", icon: Brain, screen: "mlPlayground", color: "bg-violet-50 text-violet-600", desc: "Train models" },
+      { label: "Chatbot Trainer", icon: MessageCircle, screen: "chatbotPlayground", color: "bg-fuchsia-50 text-fuchsia-600", desc: "Train + chat + think" },
       { label: "Notebook", icon: Database, screen: "notebook", color: "bg-sky-50 text-sky-600", desc: "Data prep" },
       { label: "Lab Simulator", icon: Globe, screen: "lab", color: "bg-rose-50 text-rose-600", desc: "Physics + chem sims" },
-      { label: "Explore", icon: Globe, screen: "explore", color: "bg-indigo-50 text-indigo-600", desc: "Public models" },
     ],
     buddyIds: ["ml", "data", "dev"],
   },
