@@ -23,7 +23,7 @@
 
 import { useEffect, useRef } from "react";
 import { EditorState, type Extension } from "@codemirror/state";
-import { EditorView, lineNumbers, highlightActiveLine } from "@codemirror/view";
+import { EditorView, lineNumbers, highlightActiveLine, keymap } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { indentUnit } from "@codemirror/language";
 import { oneDark } from "@codemirror/theme-one-dark";
@@ -168,8 +168,8 @@ export function CodeEditor({
         },
       }),
       EditorState.readOnly.of(readOnly),
-      ...defaultKeymap,
-      ...historyKeymap,
+      keymap.of(defaultKeymap),
+      keymap.of(historyKeymap),
     ];
 
     const state = EditorState.create({
