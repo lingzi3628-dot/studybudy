@@ -178,6 +178,10 @@ export function TrackSwitchModal({
       // 2. Clear the stored AI Tutor buddy so the new track's default kicks in
       try { localStorage.removeItem("studybuddy_active_buddy"); } catch { /* ignore */ }
 
+      // 2b. Save the new track to localStorage so page.tsx routes to the correct
+      // Home IMMEDIATELY on reload — no flash of the K-12 dashboard.
+      try { localStorage.setItem("studybuddy_user_track", trackKey); } catch { /* ignore */ }
+
       // 3. Notify the parent
       onTrackChanged?.(trackKey);
 

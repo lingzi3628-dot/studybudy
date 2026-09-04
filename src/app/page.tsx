@@ -68,19 +68,34 @@ const ADMIN_SECRET = "adminorg";
 export default function Page() {
   const { screen, setScreen, darkMode } = useApp();
   const keyBuffer = useRef("");
-  // Phase 51 — user's education track (k12 | dev | data | ml | tvet | mixed)
-  // Drives which Home screen we render. Fetched once on mount.
-  const [userTrack, setUserTrack] = useState<string>("k12");
+  // Phase 61 — user's education track (k12 | dev | data | ml | aiapp | tvet | server | backend | web | mixed)
+  // Drives which Home screen we render.
+  // Initialize from localStorage FIRST (synchronous) so the routing is correct
+  // immediately on page load — no flash of the wrong dashboard while the
+  // /api/auth/me fetch is in flight. The fetch then verifies/syncs with the
+  // server in case the user logged in on a different device.
+  const [userTrack, setUserTrack] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("studybuddy_user_track");
+      if (stored && stored !== "k12") return stored;
+    }
+    return "k12";
+  });
 
-  // Phase 51 — fetch the user's track from /api/auth/me on mount.
-  // We don't block the UI on this — the default "k12" is used until
-  // the fetch resolves, then we re-render with the correct Home.
+  // Phase 61 — fetch the user's track from /api/auth/me on mount to verify
+  // the localStorage value matches the server (in case they switched tracks
+  // on another device). Also updates localStorage when the server says
+  // something different.
   useEffect(() => {
     fetch("/api/auth/me")
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
-        if (d?.user?.track && d.user.track !== "k12") {
-          setUserTrack(d.user.track);
+        if (d?.user?.track) {
+          const serverTrack = d.user.track;
+          // Update localStorage so the next page load is instant
+          try { localStorage.setItem("studybuddy_user_track", serverTrack); } catch { /* ignore */ }
+          // Only update state if it changed (avoids unnecessary re-renders)
+          setUserTrack((prev) => (prev !== serverTrack ? serverTrack : prev));
         }
       })
       .catch(() => {});
