@@ -599,6 +599,9 @@ export function ChatbotPlayground() {
         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isTrained ? "bg-emerald-50 text-emerald-600" : "bg-gray-100 text-gray-500"}`}>
           {isTrained ? `● ${trainingData.length} pairs trained` : "○ Not trained"}
         </span>
+        <button onClick={() => setScreen("dataLab" as any)} className="px-3 h-9 rounded-full bg-fuchsia-600 text-white text-xs font-semibold flex items-center gap-1 hover:bg-fuchsia-700">
+          <Database className="w-3.5 h-3.5" /> Data Lab
+        </button>
         <button onClick={saveProject} className="px-3 h-9 rounded-full bg-violet-600 text-white text-xs font-semibold flex items-center gap-1 hover:bg-violet-700">
           <Save className="w-3.5 h-3.5" /> Save
         </button>

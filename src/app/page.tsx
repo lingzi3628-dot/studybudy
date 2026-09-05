@@ -61,6 +61,7 @@ import { TrackHome } from "@/components/studybuddy/screens/TrackHome";
 import { ExploreScreen } from "@/components/studybuddy/screens/ExploreScreen";
 import { ChatbotPlayground } from "@/components/studybuddy/screens/ChatbotPlayground";
 import { AITemplatesScreen } from "@/components/studybuddy/screens/AITemplatesScreen";
+import { DataLabScreen } from "@/components/studybuddy/screens/DataLabScreen";
 
 // Secret admin access code — type this word on the keyboard anywhere
 // in the app to unlock the admin login screen.
@@ -201,7 +202,7 @@ export default function Page() {
   }, [setScreen]);
 
   // Immersive study modes have their own full-screen layout (no top bar / bottom nav).
-  const immersive = ["flashcards", "quiz", "graph", "language", "tutor", "path", "study", "admin", "adminLogin", "landing", "onboarding", "auth", "premium", "conceptMap", "earnCenter", "classroom", "schoolRegister", "schoolDashboard", "schoolSubject", "schoolTimedTest", "familyRegister", "familyChildLogin", "familyDashboard", "curriculumSubject", "curriculumTopic", "exam", "calendar", "timetable", "studyBuddy", "bookshelf", "printableExam", "examHub", "studyGroup", "codeRunner", "lab", "calculator", "projects", "devBuddy", "notebook", "mlPlayground", "webBuilder", "backendBuddy", "promptPlayground", "serverBuddy", "tvetBuddy", "explore", "chatbotPlayground", "aiTemplates"];
+  const immersive = ["flashcards", "quiz", "graph", "language", "tutor", "path", "study", "admin", "adminLogin", "landing", "onboarding", "auth", "premium", "conceptMap", "earnCenter", "classroom", "schoolRegister", "schoolDashboard", "schoolSubject", "schoolTimedTest", "familyRegister", "familyChildLogin", "familyDashboard", "curriculumSubject", "curriculumTopic", "exam", "calendar", "timetable", "studyBuddy", "bookshelf", "printableExam", "examHub", "studyGroup", "codeRunner", "lab", "calculator", "projects", "devBuddy", "notebook", "mlPlayground", "webBuilder", "backendBuddy", "promptPlayground", "serverBuddy", "tvetBuddy", "explore", "chatbotPlayground", "aiTemplates", "dataLab"];
 
   if (screen === "onboarding") {
     return (
@@ -283,6 +284,7 @@ export default function Page() {
         {screen === "explore" && <ExploreScreen />}
         {screen === "chatbotPlayground" && <ChatbotPlayground />}
         {screen === "aiTemplates" && <AITemplatesScreen />}
+        {screen === "dataLab" && <DataLabScreen />}
         <CreateModal />
       </div>
     );

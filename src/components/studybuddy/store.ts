@@ -58,7 +58,8 @@ export type Screen =
   | "higherEdHome"
   | "explore"
   | "chatbotPlayground"
-  | "aiTemplates";
+  | "aiTemplates"
+  | "dataLab";
 
 export type CreateOption =
   | "upload"
