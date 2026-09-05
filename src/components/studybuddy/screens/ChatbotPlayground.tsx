@@ -163,7 +163,14 @@ export function ChatbotPlayground() {
     } catch {}
     return STARTER_DATA;
   });
-  const [showWelcome, setShowWelcome] = useState(true); // Phase 64 — welcome screen
+  const [showWelcome, setShowWelcome] = useState(() => {
+    // Phase 64 — Only show welcome on FIRST visit (not after refresh or returning)
+    // Check sessionStorage — if "chatbot_welcomed" is set, skip welcome
+    if (typeof window !== "undefined") {
+      return sessionStorage.getItem("chatbot_welcomed") !== "1";
+    }
+    return true;
+  });
   const [newInput, setNewInput] = useState("");
   const [newOutput, setNewOutput] = useState("");
   const [newIntent, setNewIntent] = useState("");
@@ -212,6 +219,33 @@ export function ChatbotPlayground() {
       setIsTrained(false); // need to retrain
     }
   }, [chatbotTrainingData]);
+
+  // Phase 64 — AUTO-TRAIN when training data changes.
+  // This fixes the "bot forgets / never learns" issue. Whenever the training
+  // data changes (from DataLab dump, manual add, import, or template load),
+  // the bot automatically trains so the user can immediately chat.
+  useEffect(() => {
+    if (trainingData.length === 0 || isTraining) return;
+    // Auto-train (no button click needed)
+    const autoTrain = async () => {
+      setIsTraining(true);
+      await new Promise((r) => setTimeout(r, 300)); // brief delay for UX
+      const vocab = buildVocab(trainingData);
+      const idf = computeIDF(trainingData, vocab);
+      const vectors = trainingData.map((p) => tfidfVector(p.input, vocab, idf));
+      const intents = new Map<string, TrainingPair[]>();
+      for (const p of trainingData) {
+        const intent = p.intent || "general";
+        if (!intents.has(intent)) intents.set(intent, []);
+        intents.get(intent)!.push(p);
+      }
+      modelRef.current = { vocab, idf, vectors, pairs: trainingData, intents };
+      setStats({ coverage: 0, avgResponseTime: 0, totalChats: 0, intents: Array.from(intents.keys()) });
+      setIsTrained(true);
+      setIsTraining(false);
+    };
+    autoTrain();
+  }, [trainingData.length]); // Only re-train when pair COUNT changes (not on every edit)
 
   // Phase 62 — Load training data from a Project when activeProjectId is set
   // (e.g. when a template is used or a saved project is opened)
@@ -653,7 +687,10 @@ export function ChatbotPlayground() {
             </div>
 
             <button
-              onClick={() => setShowWelcome(false)}
+              onClick={() => {
+                sessionStorage.setItem("chatbot_welcomed", "1");
+                setShowWelcome(false);
+              }}
               className="w-full h-12 rounded-full bg-violet-600 text-white text-sm font-bold mt-6 hover:bg-violet-700 transition"
             >
               🚀 Start Building

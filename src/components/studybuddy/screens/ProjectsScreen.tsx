@@ -338,9 +338,15 @@ export function ProjectsScreen() {
                             state.setActiveProjectId(p.id);
                             setScreen("notebook");
                           } else if (p.buddyId === "ml") {
-                            // Phase 50 — ml projects route to MLPlaygroundScreen
+                            // Phase 64 — ml projects check if it's a chatbot (has training_data.json)
+                            // or an ML model (has model.json). Route accordingly.
                             state.setActiveProjectId(p.id);
-                            setScreen("mlPlayground");
+                            // Check the entry file to decide
+                            if (p.entryFile && (p.entryFile.includes("training_data") || p.entryFile.includes("chatbot") || p.tags?.includes("chatbot"))) {
+                              setScreen("chatbotPlayground");
+                            } else {
+                              setScreen("mlPlayground");
+                            }
                           } else if (p.buddyId === "web") {
                             // Phase 54 — web projects route to WebBuilderScreen
                             state.setActiveProjectId(p.id);
