@@ -50,9 +50,22 @@ const SYNONYMS: Record<string, string[]> = {
 };
 
 export function DataLabScreen() {
-  const { setScreen } = useApp();
+  const { setScreen, chatbotTrainingData, setChatbotTrainingData, addChatbotTrainingPairs } = useApp() as any;
   const [activeTab, setActiveTab] = useState<TabType>("dump");
-  const [pairs, setPairs] = useState<TrainingPair[]>([]);
+  // Phase 64 — Use shared store data (synced with ChatbotPlayground + localStorage)
+  const [pairs, setPairs] = useState<TrainingPair[]>(() => {
+    if (chatbotTrainingData && chatbotTrainingData.length > 0) return chatbotTrainingData;
+    try {
+      const stored = localStorage.getItem("studybuddy_chatbot_data");
+      if (stored) { const p = JSON.parse(stored); if (Array.isArray(p) && p.length > 0) return p; }
+    } catch {}
+    return [];
+  });
+
+  // Sync local pairs → shared store whenever pairs change
+  const syncToStore = useCallback((newPairs: TrainingPair[]) => {
+    setChatbotTrainingData(newPairs);
+  }, [setChatbotTrainingData]);
   const [dumpContent, setDumpContent] = useState("");
   const [dumping, setDumping] = useState(false);
   const [importText, setImportText] = useState("");
@@ -85,7 +98,11 @@ export function DataLabScreen() {
         output: String(p.output || p.answer || "").trim(),
         intent: String(p.intent || p.category || "general").trim(),
       })).filter((p: TrainingPair) => p.input && p.output);
-      setPairs((prev) => [...prev, ...generated]);
+      setPairs((prev) => {
+        const updated = [...prev, ...generated];
+        syncToStore(updated); // Phase 64 — sync to shared store
+        return updated;
+      });
       setDumpContent("");
       alert(`✓ Generated ${generated.length} Q&A pairs from your content! Total: ${pairs.length + generated.length}`);
     } catch (e: any) {
@@ -118,7 +135,11 @@ export function DataLabScreen() {
           }
         }
       }
-      setPairs((prev) => [...prev, ...imported]);
+      setPairs((prev) => {
+        const updated = [...prev, ...imported];
+        syncToStore(updated); // Phase 64 — sync to shared store
+        return updated;
+      });
       setImportText("");
       alert(`✓ Imported ${imported.length} pairs!`);
     } catch (e: any) { alert(`Import failed: ${e?.message}`); }

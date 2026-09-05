@@ -114,6 +114,11 @@ interface AppState {
   activeProjectId: string | null;
   setActiveProjectId: (id: string | null) => void;
 
+  // Phase 64 — shared chatbot training data between DataLab + ChatbotPlayground
+  chatbotTrainingData: Array<{ id: string; input: string; output: string; intent?: string }>;
+  setChatbotTrainingData: (data: Array<{ id: string; input: string; output: string; intent?: string }>) => void;
+  addChatbotTrainingPairs: (pairs: Array<{ id: string; input: string; output: string; intent?: string }>) => void;
+
   // Phase 57 — Notebook ↔ ML Playground bridge
   // mlBridgeCsv: a CSV payload produced by a notebook table output, consumed
   // (and cleared) by MLPlaygroundScreen on mount.
@@ -191,6 +196,22 @@ export const useApp = create<AppState>((set) => ({
   // Phase 48 — active project id (for DevBuddy / future Notebook / Web Builder)
   activeProjectId: null,
   setActiveProjectId: (id) => set({ activeProjectId: id }),
+
+  // Phase 64 — shared chatbot training data (persists to localStorage)
+  chatbotTrainingData: [],
+  setChatbotTrainingData: (data) => {
+    try { localStorage.setItem("studybuddy_chatbot_data", JSON.stringify(data)); } catch {}
+    set({ chatbotTrainingData: data });
+  },
+  addChatbotTrainingPairs: (pairs) => {
+    set((state) => {
+      const existing = new Set(state.chatbotTrainingData.map((p) => p.input));
+      const newPairs = pairs.filter((p) => !existing.has(p.input));
+      const updated = [...state.chatbotTrainingData, ...newPairs];
+      try { localStorage.setItem("studybuddy_chatbot_data", JSON.stringify(updated)); } catch {}
+      return { chatbotTrainingData: updated };
+    });
+  },
 
   // Phase 57 — Notebook ↔ ML Playground bridge
   mlBridgeCsv: null,

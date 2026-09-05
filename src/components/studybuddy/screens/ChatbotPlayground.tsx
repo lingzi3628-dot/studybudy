@@ -148,8 +148,22 @@ type TabType = "train" | "chat" | "tools" | "analytics" | "deploy" | "brain" | "
 type MatchingMode = "tfidf" | "keyword" | "fuzzy" | "hybrid";
 
 export function ChatbotPlayground() {
-  const { setScreen, activeProjectId } = useApp() as any;
-  const [trainingData, setTrainingData] = useState<TrainingPair[]>(STARTER_DATA);
+  const { setScreen, activeProjectId, chatbotTrainingData, setChatbotTrainingData, addChatbotTrainingPairs } = useApp() as any;
+  const [trainingData, setTrainingData] = useState<TrainingPair[]>(() => {
+    // Phase 64 — Load from shared Zustand store (which persists to localStorage)
+    // This ensures data from DataLab (Dump Content, Import, Augment) is visible here
+    if (chatbotTrainingData && chatbotTrainingData.length > 0) return chatbotTrainingData;
+    // Try localStorage directly (in case store hasn't loaded yet)
+    try {
+      const stored = localStorage.getItem("studybuddy_chatbot_data");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return STARTER_DATA;
+  });
+  const [showWelcome, setShowWelcome] = useState(true); // Phase 64 — welcome screen
   const [newInput, setNewInput] = useState("");
   const [newOutput, setNewOutput] = useState("");
   const [newIntent, setNewIntent] = useState("");
@@ -184,6 +198,20 @@ export function ChatbotPlayground() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatMessages]);
+
+  // Phase 64 — Sync training data to the shared Zustand store + localStorage
+  // whenever it changes. This ensures DataLab and ChatbotPlayground share data.
+  useEffect(() => {
+    setChatbotTrainingData(trainingData);
+  }, [trainingData, setChatbotTrainingData]);
+
+  // Phase 64 — Listen for training data changes from DataLab (via store)
+  useEffect(() => {
+    if (chatbotTrainingData && chatbotTrainingData.length > 0 && chatbotTrainingData.length !== trainingData.length) {
+      setTrainingData(chatbotTrainingData);
+      setIsTrained(false); // need to retrain
+    }
+  }, [chatbotTrainingData]);
 
   // Phase 62 — Load training data from a Project when activeProjectId is set
   // (e.g. when a template is used or a saved project is opened)
@@ -580,6 +608,67 @@ export function ChatbotPlayground() {
   };
 
   const accuracy = stats.totalChats > 0 ? (stats.coverage / stats.totalChats * 100).toFixed(1) : "0";
+
+  // Phase 64 — Welcome screen for first-time users
+  if (showWelcome && !activeProjectId) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-violet-600 via-fuchsia-600 to-purple-700 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white rounded-3xl shadow-2xl overflow-hidden">
+          <div className="p-6 text-center">
+            <div className="w-20 h-20 mx-auto rounded-3xl bg-gradient-to-br from-violet-500 to-fuchsia-500 flex items-center justify-center text-4xl mb-4">
+              🤖
+            </div>
+            <h1 className="text-2xl font-bold text-gray-900">Welcome to AI & Machine Learning</h1>
+            <p className="text-sm text-gray-500 mt-2">Build, train, and deploy your own AI chatbot — no coding required.</p>
+
+            <div className="mt-6 space-y-3 text-left">
+              <div className="flex items-start gap-3 p-3 rounded-xl bg-violet-50">
+                <span className="text-2xl">🎓</span>
+                <div>
+                  <p className="text-sm font-bold text-gray-900">1. Train your bot</p>
+                  <p className="text-xs text-gray-500">Add Q&A pairs, or use Data Lab to dump content and let AI generate training data.</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3 p-3 rounded-xl bg-fuchsia-50">
+                <span className="text-2xl">💬</span>
+                <div>
+                  <p className="text-sm font-bold text-gray-900">2. Chat with your bot</p>
+                  <p className="text-xs text-gray-500">Watch it think in real-time — see tokenization, intent detection, and confidence scores.</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3 p-3 rounded-xl bg-indigo-50">
+                <span className="text-2xl">🧠</span>
+                <div>
+                  <p className="text-sm font-bold text-gray-900">3. Watch the brain grow</p>
+                  <p className="text-xs text-gray-500">See neural nodes, connections, and learning stages as you add more data.</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3 p-3 rounded-xl bg-emerald-50">
+                <span className="text-2xl">🚀</span>
+                <div>
+                  <p className="text-sm font-bold text-gray-900">4. Deploy your bot</p>
+                  <p className="text-xs text-gray-500">Generate a shareable URL with a flowing StudyBuddy watermark.</p>
+                </div>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setShowWelcome(false)}
+              className="w-full h-12 rounded-full bg-violet-600 text-white text-sm font-bold mt-6 hover:bg-violet-700 transition"
+            >
+              🚀 Start Building
+            </button>
+            <button
+              onClick={() => { setScreen("aiTemplates" as any); }}
+              className="w-full h-10 rounded-full bg-gray-100 text-gray-600 text-xs font-semibold mt-2 hover:bg-gray-200 transition"
+            >
+              📋 Browse AI Templates (start from a pre-built bot)
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
