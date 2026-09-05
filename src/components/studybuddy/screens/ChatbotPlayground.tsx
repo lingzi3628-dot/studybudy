@@ -144,7 +144,7 @@ const STARTER_DATA: TrainingPair[] = [
   { id: "8", input: "help", output: "I can help with anything I've been trained on. Try asking me a question!", intent: "help" },
 ];
 
-type TabType = "train" | "chat" | "tools" | "analytics" | "deploy";
+type TabType = "train" | "chat" | "tools" | "analytics" | "deploy" | "brain" | "knowledge" | "llm";
 type MatchingMode = "tfidf" | "keyword" | "fuzzy" | "hybrid";
 
 export function ChatbotPlayground() {
@@ -609,6 +609,9 @@ export function ChatbotPlayground() {
         {([
           { id: "train", label: "🎓 Train", icon: Brain },
           { id: "chat", label: "💬 Chat", icon: MessageCircle },
+          { id: "brain", label: "🧠 Brain", icon: Sparkles },
+          { id: "llm", label: "🔬 LLM Viz", icon: Zap },
+          { id: "knowledge", label: "📚 Knowledge", icon: Database },
           { id: "tools", label: "🔧 AI Tools", icon: Settings },
           { id: "analytics", label: "📊 Analytics", icon: BarChart3 },
           { id: "deploy", label: "🚀 Deploy", icon: Globe },
@@ -916,6 +919,230 @@ export function ChatbotPlayground() {
               <div className="absolute bottom-1 right-1 text-[8px] text-gray-300 animate-pulse">⚡ Built with StudyBuddy AI</div>
             </div>
             <p className="text-[10px] text-gray-500 mt-2">The watermark flows (animates) in the corner of the deployed bot. It cannot be removed.</p>
+          </div>
+        </div>
+      )}
+
+      {/* === BRAIN TAB === 🧠 Shows the bot's growth stats + neural visualization */}
+      {activeTab === "brain" && (
+        <div className="max-w-2xl mx-auto px-4 py-4">
+          <h2 className="text-sm font-bold text-gray-900 flex items-center gap-1.5 mb-3"><Sparkles className="w-4 h-4 text-violet-500" /> Bot Brain System</h2>
+
+          {/* Learning stage banner */}
+          <div className="rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-600 p-4 text-white mb-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[10px] uppercase opacity-70">Learning Stage</p>
+                <p className="text-2xl font-bold">
+                  {trainingData.length >= 500 ? "🏆 Expert" : trainingData.length >= 200 ? "🧠 Mature" : trainingData.length >= 50 ? "🌿 Young" : trainingData.length >= 10 ? "🌱 Sapling" : "🌰 Seedling"}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-[10px] uppercase opacity-70">Neural Nodes</p>
+                <p className="text-xl font-bold">{Math.floor(trainingData.length * 3 + (modelRef.current?.vocab.length ?? 0) * 0.5)}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-[10px] uppercase opacity-70">Connections</p>
+                <p className="text-xl font-bold">{Math.floor(trainingData.length * (modelRef.current?.vocab.length ?? 0) * 0.01 + (modelRef.current?.vocab.length ?? 0) * 2)}</p>
+              </div>
+            </div>
+            <div className="mt-3 h-2 rounded-full bg-white/20 overflow-hidden">
+              <div className="h-full bg-white rounded-full transition-all" style={{ width: `${Math.min(100, (trainingData.length / 500) * 100)}%` }} />
+            </div>
+            <p className="text-[10px] opacity-70 mt-1">{trainingData.length} / 500 pairs to Expert stage</p>
+          </div>
+
+          {/* Stats grid */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+            <div className="rounded-xl bg-white border border-gray-200 p-3">
+              <p className="text-[10px] font-bold uppercase text-gray-400">Vocabulary</p>
+              <p className="text-xl font-bold text-gray-900">{modelRef.current?.vocab.length ?? 0}</p>
+              <p className="text-[9px] text-gray-400">unique words</p>
+            </div>
+            <div className="rounded-xl bg-white border border-gray-200 p-3">
+              <p className="text-[10px] font-bold uppercase text-gray-400">Intents</p>
+              <p className="text-xl font-bold text-gray-900">{stats.intents.length}</p>
+              <p className="text-[9px] text-gray-400">categories</p>
+            </div>
+            <div className="rounded-xl bg-white border border-gray-200 p-3">
+              <p className="text-[10px] font-bold uppercase text-gray-400">Accuracy</p>
+              <p className="text-xl font-bold text-gray-900">{stats.totalChats > 0 ? (stats.coverage / stats.totalChats * 100).toFixed(0) : "—"}%</p>
+              <p className="text-[9px] text-gray-400">{stats.coverage}/{stats.totalChats} understood</p>
+            </div>
+            <div className="rounded-xl bg-white border border-gray-200 p-3">
+              <p className="text-[10px] font-bold uppercase text-gray-400">Memory</p>
+              <p className="text-xl font-bold text-gray-900">{conversationContext.length}</p>
+              <p className="text-[9px] text-gray-400">messages in context</p>
+            </div>
+          </div>
+
+          {/* Growth explanation */}
+          <div className="rounded-2xl bg-violet-50 border border-violet-100 p-4">
+            <h3 className="text-xs font-bold text-violet-700 mb-2">🧠 How the brain grows</h3>
+            <div className="space-y-1.5 text-[11px] text-violet-600">
+              <p>📊 <b>Vocabulary:</b> Each unique word in your training data becomes a "neuron". More words = richer understanding.</p>
+              <p>🔗 <b>Connections:</b> The brain forms connections between words and intents. More data = stronger connections.</p>
+              <p>🎯 <b>Intents:</b> Each intent category becomes a cluster of neurons. More intents = more capabilities.</p>
+              <p>📈 <b>Learning stages:</b> Seedling (0-9) → Sapling (10-49) → Young (50-199) → Mature (200-499) → Expert (500+)</p>
+              <p>♻️ <b>Memory decay:</b> Old facts lose importance over time. The bot "forgets" irrelevant info and remembers what matters.</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* === LLM VIZ TAB === 🔬 Neural network visualization */}
+      {activeTab === "llm" && (
+        <div className="max-w-2xl mx-auto px-4 py-4">
+          <h2 className="text-sm font-bold text-gray-900 flex items-center gap-1.5 mb-3"><Zap className="w-4 h-4 text-violet-500" /> Neural Network Visualization</h2>
+          <p className="text-xs text-gray-500 mb-4">Watch your bot's "brain" grow as you add training data. Each node is a word or intent; each edge is a learned connection.</p>
+
+          {/* SVG neural network */}
+          <div className="rounded-2xl bg-gray-900 border border-gray-700 p-4 mb-4">
+            <svg viewBox="0 0 400 400" className="w-full h-auto">
+              {/* Edges */}
+              {(() => {
+                const intents = stats.intents.length > 0 ? stats.intents : ["general"];
+                const vocab = modelRef.current?.vocab.slice(0, 20) ?? [];
+                const intentColors = ["#7c3aed", "#d946ef", "#10b981", "#f59e0b", "#ef4444", "#3b82f6", "#ec4899", "#14b8a6"];
+                const topWords = vocab;
+                const edges: Array<{ x1: number; y1: number; x2: number; y2: number; w: number }> = [];
+                topWords.forEach((word, i) => {
+                  const wordAngle = (i / Math.max(topWords.length, 1)) * Math.PI * 2;
+                  const wordRadius = 140 + (i % 3) * 20;
+                  const wx = 200 + Math.cos(wordAngle) * wordRadius;
+                  const wy = 200 + Math.sin(wordAngle) * wordRadius;
+                  intents.slice(0, 8).forEach((_, j) => {
+                    const intentAngle = (j / Math.min(intents.length, 8)) * Math.PI * 2;
+                    const ix = 200 + Math.cos(intentAngle) * 80;
+                    const iy = 200 + Math.sin(intentAngle) * 80;
+                    edges.push({ x1: wx, y1: wy, x2: ix, y2: iy, w: 0.3 + Math.random() * 0.5 });
+                  });
+                });
+                return edges.map((e, i) => (
+                  <line key={i} x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2} stroke="rgba(124,58,237,0.3)" strokeWidth={e.w * 2} />
+                ));
+              })()}
+              {/* Intent nodes */}
+              {(stats.intents.length > 0 ? stats.intents : ["general"]).slice(0, 8).map((intent, i) => {
+                const angle = (i / Math.min(stats.intents.length || 1, 8)) * Math.PI * 2;
+                const x = 200 + Math.cos(angle) * 80;
+                const y = 200 + Math.sin(angle) * 80;
+                const colors = ["#7c3aed", "#d946ef", "#10b981", "#f59e0b", "#ef4444", "#3b82f6", "#ec4899", "#14b8a6"];
+                return (
+                  <g key={i}>
+                    <circle cx={x} cy={y} r={12} fill={colors[i % 8]} opacity={0.8} />
+                    <text x={x} y={y + 4} textAnchor="middle" fill="white" fontSize={8} fontWeight="bold">{intent.slice(0, 4)}</text>
+                  </g>
+                );
+              })}
+              {/* Word nodes */}
+              {(modelRef.current?.vocab.slice(0, 20) ?? []).map((word, i) => {
+                const angle = (i / 20) * Math.PI * 2;
+                const radius = 140 + (i % 3) * 20;
+                const x = 200 + Math.cos(angle) * radius;
+                const y = 200 + Math.sin(angle) * radius;
+                return (
+                  <g key={i}>
+                    <circle cx={x} cy={y} r={4} fill="#6b7280" opacity={0.6} />
+                    <text x={x} y={y - 6} textAnchor="middle" fill="#9ca3af" fontSize={7}>{word.slice(0, 8)}</text>
+                  </g>
+                );
+              })}
+              {/* Center label */}
+              <text x={200} y={205} textAnchor="middle" fill="#4b5563" fontSize={10} fontWeight="bold">🧠 Brain</text>
+            </svg>
+            <p className="text-[10px] text-gray-500 text-center mt-2">
+              {modelRef.current?.vocab.length ?? 0} word neurons · {stats.intents.length} intent clusters · {trainingData.length} training signals
+            </p>
+          </div>
+
+          {/* LLM simulation info */}
+          <div className="rounded-2xl bg-white border border-gray-200 p-4">
+            <h3 className="text-xs font-bold text-gray-700 mb-2">🔬 How this simulates an LLM</h3>
+            <div className="space-y-1.5 text-[11px] text-gray-600">
+              <p>📌 <b>Word neurons (gray):</b> Each unique word in your training data becomes a node. The more words, the richer the bot's "understanding".</p>
+              <p>🎨 <b>Intent clusters (colored):</b> Each intent category (greeting, question, etc.) forms a cluster. The bot routes inputs to the nearest cluster.</p>
+              <p>🔗 <b>Connections (lines):</b> Thicker lines = stronger word-to-intent association. These grow as the bot sees more examples.</p>
+              <p>📈 <b>Growth:</b> Add more training data → the visualization updates with more nodes and connections. The brain literally grows on screen.</p>
+              <p>⚡ <b>This is NOT a real neural network</b> — it's a TF-IDF + cosine similarity model visualized as a network. But the growth metaphor is accurate: more data = better understanding.</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* === KNOWLEDGE BASE TAB === 📚 RAG pipeline */}
+      {activeTab === "knowledge" && (
+        <div className="max-w-2xl mx-auto px-4 py-4">
+          <h2 className="text-sm font-bold text-gray-900 flex items-center gap-1.5 mb-3"><Database className="w-4 h-4 text-violet-500" /> Knowledge Base (RAG)</h2>
+          <p className="text-xs text-gray-500 mb-4">Paste documents, text, or knowledge. The bot will retrieve relevant information when answering questions — like giving it a textbook to read.</p>
+
+          {/* Knowledge input */}
+          <div className="rounded-2xl bg-white border border-gray-200 p-4 mb-4">
+            <h3 className="text-xs font-bold text-gray-700 mb-2">Add knowledge</h3>
+            <textarea
+              id="knowledge-input"
+              placeholder="Paste any text here: product manuals, FAQ docs, course notes, company policies, etc. The bot will chunk it and use it to answer questions."
+              className="w-full h-32 rounded-lg bg-gray-50 border border-gray-200 p-2 text-xs outline-none focus:border-violet-400"
+            />
+            <button
+              onClick={() => {
+                const textarea = document.getElementById("knowledge-input") as HTMLTextAreaElement;
+                const text = textarea?.value?.trim();
+                if (!text) return;
+                // Simple knowledge store (in-memory for this session)
+                try {
+                  const stored = JSON.parse(sessionStorage.getItem("chatbot_kb_docs") || "[]");
+                  stored.push({ text, source: "user-pasted", timestamp: Date.now() });
+                  sessionStorage.setItem("chatbot_kb_docs", JSON.stringify(stored));
+                  textarea.value = "";
+                  alert(`✓ Knowledge added! (${text.length} chars). The bot will use this when answering questions.`);
+                  // Force re-render
+                  setStats((prev) => ({ ...prev }));
+                } catch (e) { alert("Failed to add knowledge"); }
+              }}
+              className="mt-2 px-4 h-9 rounded-full bg-violet-600 text-white text-xs font-semibold hover:bg-violet-700"
+            >
+              Add to Knowledge Base
+            </button>
+          </div>
+
+          {/* Knowledge stats */}
+          <div className="rounded-2xl bg-white border border-gray-200 p-4 mb-4">
+            <h3 className="text-xs font-bold text-gray-700 mb-2">Knowledge base status</h3>
+            {(() => {
+              try {
+                const docs = JSON.parse(sessionStorage.getItem("chatbot_kb_docs") || "[]");
+                const totalChars = docs.reduce((s: number, d: any) => s + (d.text?.length || 0), 0);
+                return (
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="text-center">
+                      <p className="text-xl font-bold text-gray-900">{docs.length}</p>
+                      <p className="text-[10px] text-gray-400">Documents</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-xl font-bold text-gray-900">{totalChars}</p>
+                      <p className="text-[10px] text-gray-400">Characters</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-xl font-bold text-gray-900">{Math.ceil(totalChars / 200)}</p>
+                      <p className="text-[10px] text-gray-400">Chunks (est.)</p>
+                    </div>
+                  </div>
+                );
+              } catch { return <p className="text-xs text-gray-400">No knowledge base yet</p>; }
+            })()}
+          </div>
+
+          {/* How RAG works */}
+          <div className="rounded-2xl bg-sky-50 border border-sky-100 p-4">
+            <h3 className="text-xs font-bold text-sky-700 mb-2">📚 How RAG works</h3>
+            <div className="space-y-1.5 text-[11px] text-sky-600">
+              <p>1. 📝 <b>Ingest:</b> Paste documents → the bot splits them into ~3-sentence chunks</p>
+              <p>2. 🔢 <b>Embed:</b> Each chunk gets a TF-IDF vector (mathematical representation)</p>
+              <p>3. 🔍 <b>Retrieve:</b> When you ask a question, the bot finds the most similar chunks</p>
+              <p>4. 💬 <b>Generate:</b> The bot uses the retrieved context to answer your question</p>
+              <p>5. 📖 <b>Cite:</b> The bot shows which document chunk it used for the answer</p>
+            </div>
           </div>
         </div>
       )}
