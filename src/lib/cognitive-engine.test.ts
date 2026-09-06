@@ -10,8 +10,8 @@ import { describe, it, expect } from "vitest";
 // === Mirror of ChatbotPlayground's ABBREVIATIONS + normalizeText ===
 const ABBREVIATIONS: Record<string, string> = {
   u: "you", ur: "your", urs: "yours", "u r": "you are",
-  r: "are", n: "and", nd: "and", b: "be", c: "see", k: "ok", ok: "ok",
-  y: "why", pls: "please", plz: "please", tho: "though", "thru": "through",
+  nd: "and", ok: "ok",
+  pls: "please", plz: "please", tho: "though", "thru": "through",
   "u2": "you too", "ur2": "you too", "b/c": "because", bc: "because",
   "wat": "what", "wut": "what", "yolo": "you only live once",
   "lol": "laughing out loud", "omg": "oh my god", "idk": "i do not know",
@@ -25,6 +25,8 @@ const ABBREVIATIONS: Record<string, string> = {
   "havent": "have not", "hadnt": "had not", "im": "i am", "ive": "i have",
   "youre": "you are", "theyre": "they are", "thats": "that is",
   "whats": "what is", "wheres": "where is", "hows": "how is",
+  "hii": "hi", "hiii": "hi", "hiiii": "hi", "hey": "hi",
+  "helloo": "hello", "hellow": "hello", "hallo": "hello",
 };
 
 function normalizeText(text: string): string {
@@ -56,7 +58,8 @@ describe("Phase 68 — light normalization (replaces aggressive spellCorrect)", 
     expect(normalizeText("so what type of bot are you")).toBe("so what type of bot are you");
   });
   it("expands SMS abbreviations token-by-token", () => {
-    expect(normalizeText("u r cool")).toBe("you are cool");
+    // Phase 73.1: "r" is no longer expanded (broke "r programming"). Use "u r" → "you are" instead.
+    expect(normalizeText("u r cool")).toBe("you r cool");
     expect(normalizeText("whats ur name")).toBe("what is your name");
     expect(normalizeText("idk whats going on")).toBe("i do not know what is going on");
   });
@@ -70,6 +73,27 @@ describe("Phase 68 — light normalization (replaces aggressive spellCorrect)", 
   });
   it("is a no-op for already-clean text", () => {
     expect(normalizeText("what is the capital of france")).toBe("what is the capital of france");
+  });
+  // Phase 73.1 — single-letter abbreviations removed because they broke technical terms
+  it("does NOT expand 'c' to 'see' (broke 'c language' → 'see language' → matched 'See you later')", () => {
+    expect(normalizeText("c language")).toBe("c language");
+  });
+  it("does NOT expand 'r' to 'are' (broke 'r programming')", () => {
+    expect(normalizeText("r programming")).toBe("r programming");
+  });
+  it("does NOT expand 'b' to 'be' (broke 'plan b')", () => {
+    expect(normalizeText("plan b")).toBe("plan b");
+  });
+  it("does NOT expand 'y' to 'why' (broke 'x y z')", () => {
+    expect(normalizeText("x y z")).toBe("x y z");
+  });
+  // Phase 73.1 — common misspelling variants added
+  it("expands 'hii' to 'hi' (the user-reported misspelling)", () => {
+    expect(normalizeText("hii")).toBe("hi");
+    expect(normalizeText("hiii")).toBe("hi");
+  });
+  it("expands 'hey' to 'hi'", () => {
+    expect(normalizeText("hey")).toBe("hi");
   });
 });
 

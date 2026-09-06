@@ -161,8 +161,12 @@ function levenshtein(a: string, b: string): number {
  *  we do — no edit-distance spell correction, no vocab lookups. */
 const ABBREVIATIONS: Record<string, string> = {
   u: "you", ur: "your", urs: "yours", "u r": "you are",
-  r: "are", n: "and", nd: "and", b: "be", c: "see", k: "ok", ok: "ok",
-  y: "why", pls: "please", plz: "please", tho: "though", "thru": "through",
+  // Phase 73.1: REMOVED single-letter abbreviations (c→see, b→be, r→are, y→why,
+  // n→and, k→ok) — they broke "c language", "r programming", "plan b", etc.
+  // Single letters are ambiguous (could be programming languages, variables,
+  // musical notes, etc.) and expanding them caused more harm than good.
+  nd: "and", ok: "ok",
+  pls: "please", plz: "please", tho: "though", "thru": "through",
   "u2": "you too", "ur2": "you too", "b/c": "because", bc: "because",
   "wat": "what", "wut": "what", "yolo": "you only live once",
   "lol": "laughing out loud", "omg": "oh my god", "idk": "i do not know",
@@ -176,6 +180,9 @@ const ABBREVIATIONS: Record<string, string> = {
   "havent": "have not", "hadnt": "had not", "im": "i am", "ive": "i have",
   "youre": "you are", "theyre": "they are", "thats": "that is",
   "whats": "what is", "wheres": "where is", "hows": "how is",
+  // Phase 73.1: common misspelling variants (edit distance 1) for greeting words
+  "hii": "hi", "hiii": "hi", "hiiii": "hi", "hey": "hi",
+  "helloo": "hello", "hellow": "hello", "hallo": "hello",
 };
 
 /** Light, context-safe text normalization — replaces the old aggressive
@@ -971,7 +978,17 @@ export function ChatbotPlayground() {
     const bestScore = best?.score ?? 0;
     const isConfident = best && bestScore >= confidenceThreshold;
 
-    if (isConfident) {
+    // Phase 73.1 — RAG-first detection. Even when Q&A retrieval succeeds, if
+    // the user is clearly asking about the knowledge base, OR the retrieval
+    // score is marginal (between threshold and threshold+0.2), we skip the
+    // Q&A answer and run the full RAG + generative flow instead. This fixes
+    // the bug where "can you check your knowledge base" retrieved the
+    // capabilities Q&A pair at 41% and returned it without consulting the KB.
+    const asksAboutKnowledge = /\b(knowledge|document|kb|wiki|manual|textbook|notes?|according to|what do you know|check your|search your)\b/i.test(text);
+    const marginalMatch = isConfident && bestScore < confidenceThreshold + 0.2;
+    const shouldUseRag = ragEnabled && knowledgeSources.length > 0 && (asksAboutKnowledge || marginalMatch) && generativeFallback;
+
+    if (isConfident && !shouldUseRag) {
       thinkingSteps.push({ step: "7. Select best match", detail: `Best: "${best.pair.input}" (score: ${bestScore.toFixed(4)} ≥ threshold ${confidenceThreshold})` });
 
       // Context-aware response (if memory is on and there's conversation history)
@@ -987,7 +1004,12 @@ export function ChatbotPlayground() {
         source: "retrieval",
       }]);
     } else {
-      thinkingSteps.push({ step: "7. No confident match", detail: `Best score ${bestScore.toFixed(4)} < threshold ${confidenceThreshold}` });
+      // Either not confident, OR confident but RAG-first kicked in.
+      if (isConfident && shouldUseRag) {
+        thinkingSteps.push({ step: "7. RAG-first override", detail: `Q&A match found ("${best.pair.input}" at ${bestScore.toFixed(2)}) but ${asksAboutKnowledge ? "user asks about knowledge base" : "match is marginal"} — consulting RAG instead` });
+      } else {
+        thinkingSteps.push({ step: "7. No confident match", detail: `Best score ${bestScore.toFixed(4)} < threshold ${confidenceThreshold}` });
+      }
 
       // Phase 68 — generative fallback.
       let replyText = "I'm not sure how to answer that. Could you rephrase, or add a training example for it?";
@@ -1104,7 +1126,7 @@ export function ChatbotPlayground() {
 
     // Update stats — count retrieval hits as "understood".
     setStats((prev) => ({
-      coverage: prev.coverage + (isConfident ? 1 : 0),
+      coverage: prev.coverage + (isConfident && !shouldUseRag ? 1 : 0),
       avgResponseTime: (prev.avgResponseTime * prev.totalChats + responseTime) / (prev.totalChats + 1),
       totalChats: prev.totalChats + 1,
       intents: prev.intents,
@@ -3035,7 +3057,7 @@ const MEMORY = ${memory};
 const DELAY = ${delay};
 // Phase 68 — light normalization only (lowercase + strip punct + collapse ws).
 // No aggressive spell-correction — see ChatbotPlayground.tsx for rationale.
-const ABBREV = { u:'you',ur:'your',r:'are',n:'and',pls:'please',plz:'please',tho:'though',wat:'what',wut:'what',y:'why',k:'ok',c:'see',b:'be',gonna:'going to',wanna:'want to',dont:'do not',cant:'cannot',wont:'will not',im:'i am',youre:'you are',thats:'that is',whats:'what is',idk:'i do not know' };
+const ABBREV = { u:'you',ur:'your',pls:'please',plz:'please',tho:'though',wat:'what',wut:'what',gonna:'going to',wanna:'want to',dont:'do not',cant:'cannot',wont:'will not',im:'i am',youre:'you are',thats:'that is',whats:'what is',idk:'i do not know',hii:'hi',hiii:'hi',hey:'hi',helloo:'hello',hallo:'hello' };
 function normalize(t){const toks=t.toLowerCase().replace(/[^\\w\\s']/g,' ').split(/\\s+/).filter(Boolean);return toks.map(w=>ABBREV[w]||w).join(' ').replace(/\\s+/g,' ').trim();}
 const normInputs = TRAINING_DATA.map(p => normalize(p.input));
 const vocab = [...new Set(normInputs.flatMap(s => s.split(/\\s+/).filter(w=>w.length>1)))];

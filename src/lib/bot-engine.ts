@@ -54,8 +54,10 @@ function tokenize(text: string): string[] {
 
 const ABBREVIATIONS: Record<string, string> = {
   u: "you", ur: "your", urs: "yours", "u r": "you are",
-  r: "are", n: "and", nd: "and", b: "be", c: "see", k: "ok", ok: "ok",
-  y: "why", pls: "please", plz: "please", tho: "though", "thru": "through",
+  // Phase 73.1: REMOVED single-letter abbreviations (c→see, b→be, r→are, y→why,
+  // n→and, k→ok) — they broke "c language", "r programming", "plan b", etc.
+  nd: "and", ok: "ok",
+  pls: "please", plz: "please", tho: "though", "thru": "through",
   "wat": "what", "wut": "what", "yolo": "you only live once",
   "lol": "laughing out loud", "omg": "oh my god", "idk": "i do not know",
   "tbh": "to be honest", "imo": "in my opinion", "imho": "in my honest opinion",
@@ -68,6 +70,9 @@ const ABBREVIATIONS: Record<string, string> = {
   "havent": "have not", "hadnt": "had not", "im": "i am", "ive": "i have",
   "youre": "you are", "theyre": "they are", "thats": "that is",
   "whats": "what is", "wheres": "where is", "hows": "how is",
+  // Phase 73.1: common misspelling variants for greeting words
+  "hii": "hi", "hiii": "hi", "hiiii": "hi", "hey": "hi",
+  "helloo": "hello", "hellow": "hello", "hallo": "hello",
 };
 
 function normalizeText(text: string): string {
@@ -229,8 +234,15 @@ export async function runBot(
   const bestScore = best?.score ?? 0;
   const top3 = scores.slice(0, 3).map((s) => ({ input: s.pair.input, score: s.score }));
 
+  // Phase 73.1 — RAG-first detection. Even when Q&A retrieval succeeds, if
+  // the user is clearly asking about the knowledge base, OR the retrieval
+  // score is marginal, skip the Q&A answer and run RAG + generative instead.
+  const asksAboutKnowledge = /\b(knowledge|document|kb|wiki|manual|textbook|notes?|according to|what do you know|check your|search your)\b/i.test(userMessage);
+  const marginalMatch = best && bestScore >= config.threshold && bestScore < config.threshold + 0.2;
+  const shouldUseRag = knowledgeChunks.length > 0 && config.generativeFallback && (asksAboutKnowledge || marginalMatch);
+
   // Decision: retrieve / generate / fallback.
-  if (best && bestScore >= config.threshold) {
+  if (best && bestScore >= config.threshold && !shouldUseRag) {
     return {
       reply: best.pair.output,
       source: "retrieval",
