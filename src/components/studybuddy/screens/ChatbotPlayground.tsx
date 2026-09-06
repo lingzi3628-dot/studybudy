@@ -401,7 +401,7 @@ export function ChatbotPlayground() {
   const [connectError, setConnectError] = useState<string | null>(null);
   // Phase 72 — Knowledge sources (RAG)
   const [knowledgeSources, setKnowledgeSources] = useState<Array<{ id: string; type: string; title: string; source: string | null; chunkCount: number; charCount: number; createdAt: string }>>([]);
-  const [kbTab, setKbTab] = useState<"url" | "github" | "file" | "text">("text");
+  const [kbTab, setKbTab] = useState<"url" | "github" | "file" | "text" | "packs">("text");
   const [kbUrl, setKbUrl] = useState("");
   const [kbGithub, setKbGithub] = useState("");
   const [kbText, setKbText] = useState("");
@@ -409,6 +409,11 @@ export function ChatbotPlayground() {
   const [ingesting, setIngesting] = useState(false);
   const [ingestError, setIngestError] = useState<string | null>(null);
   const [ragEnabled, setRagEnabled] = useState(true);
+  // Phase 73.2 — Knowledge packs marketplace
+  const [knowledgePacks, setKnowledgePacks] = useState<Array<{ id: string; name: string; description: string; category: string; icon: string; sources: string[]; estimatedChars: number }>>([]);
+  const [packCategory, setPackCategory] = useState<string>("education");
+  const [addingPack, setAddingPack] = useState<string | null>(null); // which pack ID is being added
+  const [packError, setPackError] = useState<string | null>(null);
   // Phase 73 — Plugins
   const [botPlugins, setBotPlugins] = useState<Array<{ id: string; name: string; type: string; description: string; config: any; enabled: boolean; callCount: number; lastCalledAt: string | null }>>([]);
   const [availableBuiltin, setAvailableBuiltin] = useState<Array<{ name: string; description: string; triggerExamples: string[] }>>([]);
@@ -1354,6 +1359,36 @@ export function ChatbotPlayground() {
       await fetch(`/api/knowledge-sources/${id}`, { method: "DELETE" });
       setKnowledgeSources((prev) => prev.filter((s) => s.id !== id));
     } catch {}
+  };
+
+  // Phase 73.2 — Knowledge pack handlers
+  const loadKnowledgePacks = async () => {
+    try {
+      const r = await fetch("/api/knowledge-sources/pack");
+      const d = await r.json();
+      if (r.ok && Array.isArray(d.packs)) setKnowledgePacks(d.packs);
+    } catch {}
+  };
+
+  const addKnowledgePack = async (packId: string) => {
+    setAddingPack(packId);
+    setPackError(null);
+    try {
+      const r = await fetch("/api/knowledge-sources/pack", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ packId, botId: connectBotId ?? undefined }),
+      });
+      const d = await r.json();
+      if (!r.ok) {
+        setPackError(d?.error || "Failed to add pack");
+      } else {
+        loadKnowledgeSources();
+      }
+    } catch (e: any) {
+      setPackError(e?.message || "Network error");
+    }
+    setAddingPack(null);
   };
 
   // Phase 73 — Plugin handlers
@@ -2843,9 +2878,9 @@ export function ChatbotPlayground() {
 
           {/* Source type tabs */}
           <div className="flex gap-1 mb-3">
-            {(["text", "url", "github", "file"] as const).map((t) => (
-              <button key={t} onClick={() => setKbTab(t)} className={`flex-1 h-8 rounded-full text-xs font-semibold ${kbTab === t ? "bg-violet-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
-                {t === "text" && "📝 Text"} {t === "url" && "🌐 URL"} {t === "github" && "🐙 GitHub"} {t === "file" && "📎 File"}
+            {(["text", "url", "github", "file", "packs"] as const).map((t) => (
+              <button key={t} onClick={() => { setKbTab(t); if (t === "packs" && knowledgePacks.length === 0) loadKnowledgePacks(); }} className={`flex-1 h-8 rounded-full text-xs font-semibold ${kbTab === t ? "bg-violet-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+                {t === "text" && "📝 Text"} {t === "url" && "🌐 URL"} {t === "github" && "🐙 GitHub"} {t === "file" && "📎 File"} {t === "packs" && "📦 Data & Knowledge"}
               </button>
             ))}
           </div>
@@ -2884,6 +2919,58 @@ export function ChatbotPlayground() {
                 <input type="file" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadKnowledgeFile(f); e.target.value = ""; }} accept=".pdf,.docx,.txt,.md,.csv,.json" className="w-full text-xs file:mr-2 file:py-1.5 file:px-3 file:rounded-full file:border-0 file:bg-violet-50 file:text-violet-700 file:font-semibold file:text-xs hover:file:bg-violet-100" />
                 <p className="text-[10px] text-gray-400 mt-2">Supports PDF, DOCX, TXT, MD, CSV, JSON. Max 10 MB. The file is parsed server-side, chunked, and stored in your knowledge base.</p>
                 {ingesting && <p className="text-[11px] text-violet-600 mt-2 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Uploading + parsing…</p>}
+              </>
+            )}
+            {kbTab === "packs" && (
+              <>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-[11px] text-gray-500">Pre-built knowledge packs from Wikipedia + public docs. One click to add — the bot fetches, chunks, and stores everything.</p>
+                  <button onClick={loadKnowledgePacks} className="text-[10px] text-violet-600 hover:text-violet-800 font-semibold flex-shrink-0">↻ Refresh</button>
+                </div>
+                {/* Category filter */}
+                <div className="flex flex-wrap gap-1 mb-3">
+                  {["education", "programming", "science", "history", "languages", "general"].map((cat) => (
+                    <button key={cat} onClick={() => setPackCategory(cat)} className={`px-2.5 h-6 rounded-full text-[10px] font-semibold ${packCategory === cat ? "bg-violet-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+                      {cat === "education" && "🎓 Education"}
+                      {cat === "programming" && "💻 Programming"}
+                      {cat === "science" && "🔬 Science"}
+                      {cat === "history" && "📜 History"}
+                      {cat === "languages" && "📖 Languages"}
+                      {cat === "general" && "🧠 General"}
+                    </button>
+                  ))}
+                </div>
+                {/* Pack cards */}
+                {knowledgePacks.length === 0 ? (
+                  <p className="text-xs text-gray-400 text-center py-4 flex items-center justify-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Loading packs…</p>
+                ) : (
+                  <div className="space-y-2 max-h-80 overflow-y-auto">
+                    {knowledgePacks.filter((p) => p.category === packCategory).map((pack) => {
+                      const alreadyAdded = knowledgeSources.some((s) => s.title.includes(pack.name));
+                      return (
+                        <div key={pack.id} className="flex items-start gap-2 p-2.5 rounded-lg bg-gray-50 border border-gray-100">
+                          <span className="text-xl flex-shrink-0">{pack.icon}</span>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <p className="text-xs font-bold text-gray-900">{pack.name}</p>
+                              <span className="text-[9px] text-gray-400">{pack.sources.length} sources · ~{(pack.estimatedChars / 1000).toFixed(0)}k chars</span>
+                            </div>
+                            <p className="text-[10px] text-gray-500 mt-0.5">{pack.description}</p>
+                          </div>
+                          <button
+                            onClick={() => addKnowledgePack(pack.id)}
+                            disabled={addingPack === pack.id || alreadyAdded}
+                            className="flex-shrink-0 px-2.5 h-7 rounded-full bg-violet-600 text-white text-[10px] font-semibold hover:bg-violet-700 disabled:opacity-40 flex items-center gap-1"
+                          >
+                            {addingPack === pack.id ? <><Loader2 className="w-2.5 h-2.5 animate-spin" /> Adding…</> : alreadyAdded ? "✓ Added" : "+ Add"}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {packError && <p className="mt-2 text-[11px] text-rose-600 bg-rose-50 border border-rose-100 rounded-lg p-2">⚠ {packError}</p>}
+                {addingPack && <p className="mt-2 text-[11px] text-violet-600 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Fetching Wikipedia articles — this takes 10-30 seconds (each article is fetched + chunked)…</p>}
               </>
             )}
             {ingestError && <p className="mt-2 text-[11px] text-rose-600 bg-rose-50 border border-rose-100 rounded-lg p-2">⚠ {ingestError}</p>}

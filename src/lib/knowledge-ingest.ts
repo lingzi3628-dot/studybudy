@@ -374,3 +374,132 @@ export async function ingestFile(
     chunkCount: chunks.length,
   };
 }
+
+// === Wikipedia article ingestion (Phase 73.2) ===
+//
+// Fetches Wikipedia articles via the REST API and combines them into a
+// single IngestionResult. Used by knowledge packs.
+//
+// API: https://en.wikipedia.org/api/rest_v1/page/html/{title}
+// Returns full HTML which we strip to text via htmlToText().
+
+const WIKIPEDIA_REST = "https://en.wikipedia.org/api/rest_v1/page/html";
+const MAX_CHARS_PER_ARTICLE = 8_000;
+
+/**
+ * Fetch a single Wikipedia article, strip to text, cap at MAX_CHARS_PER_ARTICLE.
+ * Returns null if the article doesn't exist or fetch fails.
+ */
+async function fetchWikipediaArticle(title: string): Promise<string | null> {
+  const url = `${WIKIPEDIA_REST}/${encodeURIComponent(title.replace(/ /g, "_"))}`;
+  try {
+    const result = await safeFetch(url, {
+      accept: "text/html",
+      timeoutMs: 10_000,
+      maxBytes: 2_000_000,
+    });
+    const text = htmlToText(result.body);
+    if (!text || text.length < 50) return null;
+    // Strip the Wikipedia boilerplate at the top (usually "From Wikipedia, the free encyclopedia").
+    const cleaned = text.replace(/^From Wikipedia.*?\n/i, "").trim();
+    return cleaned.slice(0, MAX_CHARS_PER_ARTICLE);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Ingest a knowledge pack: fetch all Wikipedia articles in the pack,
+ * combine them into a single IngestionResult with "---" separators.
+ *
+ * Articles that fail to fetch are silently skipped (the pack still succeeds
+ * as long as at least 1 article loads).
+ */
+export async function ingestWikipediaArticles(
+  packName: string,
+  articleTitles: string[],
+): Promise<IngestionResult> {
+  const parts: string[] = [];
+  let succeeded = 0;
+
+  // Fetch articles sequentially (Wikipedia rate-limits aggressive parallel requests).
+  for (const title of articleTitles) {
+    const text = await fetchWikipediaArticle(title);
+    if (text) {
+      parts.push(`## ${title}\n\n${text}`);
+      succeeded++;
+    }
+  }
+
+  if (parts.length === 0) {
+    throw new Error(`Could not fetch any Wikipedia articles for pack "${packName}". The Wikipedia API may be rate-limiting or the articles don't exist.`);
+  }
+
+  const contentText = parts.join("\n\n---\n\n").slice(0, MAX_CONTENT_CHARS);
+  const chunks = chunkText(contentText).map((t, i) => ({ index: i, text: t }));
+
+  return {
+    title: packName,
+    source: `Wikipedia pack (${succeeded}/${articleTitles.length} articles)`,
+    contentText,
+    chunks,
+    charCount: contentText.length,
+    chunkCount: chunks.length,
+  };
+}
+
+/**
+ * Ingest a knowledge pack that mixes Wikipedia articles + URLs.
+ * Wikipedia titles are fetched via the REST API; URLs are fetched via ingestUrl.
+ */
+export async function ingestKnowledgePack(
+  packName: string,
+  sources: string[],
+): Promise<IngestionResult> {
+  const wikiTitles: string[] = [];
+  const urls: string[] = [];
+
+  for (const s of sources) {
+    if (s.startsWith("http://") || s.startsWith("https://")) {
+      urls.push(s);
+    } else {
+      wikiTitles.push(s);
+    }
+  }
+
+  const parts: string[] = [];
+
+  // Fetch Wikipedia articles.
+  if (wikiTitles.length > 0) {
+    for (const title of wikiTitles) {
+      const text = await fetchWikipediaArticle(title);
+      if (text) parts.push(`## ${title}\n\n${text}`);
+    }
+  }
+
+  // Fetch URLs.
+  for (const url of urls) {
+    try {
+      const result = await ingestUrl(url);
+      parts.push(`## ${result.title}\n\n${result.contentText}`);
+    } catch {
+      // Skip failed URLs.
+    }
+  }
+
+  if (parts.length === 0) {
+    throw new Error(`Could not fetch any content for pack "${packName}".`);
+  }
+
+  const contentText = parts.join("\n\n---\n\n").slice(0, MAX_CONTENT_CHARS);
+  const chunks = chunkText(contentText).map((t, i) => ({ index: i, text: t }));
+
+  return {
+    title: packName,
+    source: `Knowledge pack (${parts.length}/${sources.length} sources)`,
+    contentText,
+    chunks,
+    charCount: contentText.length,
+    chunkCount: chunks.length,
+  };
+}
