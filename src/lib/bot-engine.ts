@@ -234,15 +234,21 @@ export async function runBot(
   const bestScore = best?.score ?? 0;
   const top3 = scores.slice(0, 3).map((s) => ({ input: s.pair.input, score: s.score }));
 
-  // Phase 73.1 — RAG-first detection. Even when Q&A retrieval succeeds, if
-  // the user is clearly asking about the knowledge base, OR the retrieval
-  // score is marginal, skip the Q&A answer and run RAG + generative instead.
+  // Phase 73.4 — Short-query protection + follow-up detection.
+  const tokenCount = tokenize(normalized).length;
+  const isShortQuery = tokenCount <= 2;
+  const effectiveThreshold = isShortQuery ? Math.max(config.threshold + 0.25, 0.65) : config.threshold;
+  const followUpWords = new Set(["no", "yes", "ok", "okay", "sure", "yeah", "nope", "yep", "yup", "eg", "like", "example", "what", "how", "why", "so", "well", "hmm", "huh", "cool", "nice", "great", "wow", "really", "and", "but", "or"]);
+  const isFollowUp = isShortQuery && normalized.split(/\s+/).every((w) => followUpWords.has(w));
+
+  // Phase 73.1 — RAG-first detection.
   const asksAboutKnowledge = /\b(knowledge|document|kb|wiki|manual|textbook|notes?|according to|what do you know|check your|search your)\b/i.test(userMessage);
-  const marginalMatch = best && bestScore >= config.threshold && bestScore < config.threshold + 0.2;
+  const marginalMatch = best && bestScore >= effectiveThreshold && bestScore < effectiveThreshold + 0.15;
   const shouldUseRag = knowledgeChunks.length > 0 && config.generativeFallback && (asksAboutKnowledge || marginalMatch);
+  const shouldUseGenerative = isFollowUp && config.generativeFallback;
 
   // Decision: retrieve / generate / fallback.
-  if (best && bestScore >= config.threshold && !shouldUseRag) {
+  if (best && bestScore >= effectiveThreshold && !shouldUseRag && !shouldUseGenerative) {
     return {
       reply: best.pair.output,
       source: "retrieval",

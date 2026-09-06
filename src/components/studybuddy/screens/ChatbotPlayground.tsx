@@ -301,9 +301,9 @@ type MatchingMode = "tfidf" | "keyword" | "fuzzy" | "hybrid" | "semantic";
  *  matches AND missed matches. These defaults were tuned on the Phase 62
  *  failing-examples corpus ("boring", "can you code", "hii", etc.). */
 const MODE_DEFAULT_THRESHOLD: Record<MatchingMode, number> = {
-  tfidf: 0.30,
-  hybrid: 0.30,
-  keyword: 0.20,
+  tfidf: 0.40,
+  hybrid: 0.45,
+  keyword: 0.25,
   fuzzy: 0.60,
   semantic: 0.65,
 };
@@ -349,7 +349,7 @@ export function ChatbotPlayground() {
   const [chatInput, setChatInput] = useState("");
   const [isTraining, setIsTraining] = useState(false);
   const [isTrained, setIsTrained] = useState(false);
-  const [confidenceThreshold, setConfidenceThreshold] = useState(0.30);
+  const [confidenceThreshold, setConfidenceThreshold] = useState(0.45);
   const [thinkingDelay, setThinkingDelay] = useState(3); // seconds
   const [matchingMode, setMatchingModeRaw] = useState<MatchingMode>("hybrid");
   const [generativeFallback, setGenerativeFallback] = useState(true); // Phase 68
@@ -981,20 +981,37 @@ export function ChatbotPlayground() {
     const best = scores[0];
     const responseTime = Date.now() - startTime;
     const bestScore = best?.score ?? 0;
-    const isConfident = best && bestScore >= confidenceThreshold;
+
+    // Phase 73.4 — Short-query protection. Very short messages (≤2 tokens)
+    // like "no", "yes", "ok", "eg" produce spurious high TF-IDF scores because
+    // there are so few terms to compare. Require a MUCH higher threshold for
+    // these — effectively forcing them through the generative path with
+    // conversation context.
+    const tokenCount = tokenize(normalized).length;
+    const isShortQuery = tokenCount <= 2;
+    const effectiveThreshold = isShortQuery ? Math.max(confidenceThreshold + 0.25, 0.65) : confidenceThreshold;
+    const isConfident = best && bestScore >= effectiveThreshold;
+
+    // Phase 73.4 — Follow-up detection. Words like "no", "yes", "ok", "eg",
+    // "what", "how", "why", "like", "example", "sure", "yeah", "nope" are
+    // follow-ups that reference previous context. For these, we always go
+    // generative with conversation history — never return a stored Q&A answer.
+    const followUpWords = new Set(["no", "yes", "ok", "okay", "sure", "yeah", "nope", "yep", "yup", "no", "eg", "like", "example", "what", "how", "why", "so", "well", "hmm", "huh", "cool", "nice", "great", "wow", "really", "and", "but", "or"]);
+    const isFollowUp = isShortQuery && normalized.split(/\s+/).every((w) => followUpWords.has(w));
 
     // Phase 73.1 — RAG-first detection. Even when Q&A retrieval succeeds, if
     // the user is clearly asking about the knowledge base, OR the retrieval
-    // score is marginal (between threshold and threshold+0.2), we skip the
-    // Q&A answer and run the full RAG + generative flow instead. This fixes
-    // the bug where "can you check your knowledge base" retrieved the
-    // capabilities Q&A pair at 41% and returned it without consulting the KB.
+    // score is marginal (between threshold and threshold+0.15), we skip the
+    // Q&A answer and run the full RAG + generative flow instead.
     const asksAboutKnowledge = /\b(knowledge|document|kb|wiki|manual|textbook|notes?|according to|what do you know|check your|search your)\b/i.test(text);
-    const marginalMatch = isConfident && bestScore < confidenceThreshold + 0.2;
+    const marginalMatch = isConfident && bestScore < effectiveThreshold + 0.15;
     const shouldUseRag = ragEnabled && knowledgeSources.length > 0 && (asksAboutKnowledge || marginalMatch) && generativeFallback;
 
-    if (isConfident && !shouldUseRag) {
-      thinkingSteps.push({ step: "7. Select best match", detail: `Best: "${best.pair.input}" (score: ${bestScore.toFixed(4)} ≥ threshold ${confidenceThreshold})` });
+    // Phase 73.4 — Follow-ups always go generative with conversation context.
+    const shouldUseGenerative = isFollowUp && generativeFallback;
+
+    if (isConfident && !shouldUseRag && !shouldUseGenerative) {
+      thinkingSteps.push({ step: "7. Select best match", detail: `Best: "${best.pair.input}" (score: ${bestScore.toFixed(4)} ≥ threshold ${effectiveThreshold}${isShortQuery ? " [short-query raised]" : ""})` });
 
       // Context-aware response (if memory is on and there's conversation history)
       let responseText = best.pair.output;
@@ -1010,10 +1027,14 @@ export function ChatbotPlayground() {
       }]);
     } else {
       // Either not confident, OR confident but RAG-first kicked in.
-      if (isConfident && shouldUseRag) {
+      if (isFollowUp) {
+        thinkingSteps.push({ step: "7. Follow-up detected", detail: `"${text}" is a follow-up word — using conversation history + generative` });
+      } else if (isConfident && shouldUseRag) {
         thinkingSteps.push({ step: "7. RAG-first override", detail: `Q&A match found ("${best.pair.input}" at ${bestScore.toFixed(2)}) but ${asksAboutKnowledge ? "user asks about knowledge base" : "match is marginal"} — consulting RAG instead` });
+      } else if (isShortQuery) {
+        thinkingSteps.push({ step: "7. Short query → generative", detail: `Best score ${bestScore.toFixed(4)} < short-query threshold ${effectiveThreshold.toFixed(2)} — using conversation context` });
       } else {
-        thinkingSteps.push({ step: "7. No confident match", detail: `Best score ${bestScore.toFixed(4)} < threshold ${confidenceThreshold}` });
+        thinkingSteps.push({ step: "7. No confident match", detail: `Best score ${bestScore.toFixed(4)} < threshold ${effectiveThreshold}` });
       }
 
       // Phase 68 — generative fallback.
@@ -1076,7 +1097,16 @@ export function ChatbotPlayground() {
             ? `${ragChunkCount} relevant knowledge chunks were retrieved — use these as primary context for your answer. Cite them as [Knowledge N] where N is the chunk number.`
             : "",
         ].filter(Boolean).join(" ");
+        // Phase 73.4 — Build conversation history for follow-up understanding.
+        // The last 3-4 messages give the LLM context to understand "no", "eg",
+        // "write a simple one", etc.
+        const recentMessages = chatMessages.slice(-4).map((m) => `${m.role === "user" ? "User" : "Bot"}: ${m.text}`).join("\n");
+        const conversationBlock = (isFollowUp || isShortQuery) && recentMessages
+          ? `Recent conversation:\n${recentMessages}\n`
+          : "";
+
         const userPrompt = [
+          conversationBlock,
           ragBlock ? `Retrieved knowledge:\n${ragBlock}\n` : "",
           contextBlock ? `Retrieved Q&A (weak):\n${contextBlock}\n` : "",
           `User message: ${text}`,
@@ -1131,12 +1161,12 @@ export function ChatbotPlayground() {
 
     // Update stats — count retrieval hits as "understood".
     setStats((prev) => ({
-      coverage: prev.coverage + (isConfident && !shouldUseRag ? 1 : 0),
+      coverage: prev.coverage + (isConfident && !shouldUseRag && !shouldUseGenerative ? 1 : 0),
       avgResponseTime: (prev.avgResponseTime * prev.totalChats + responseTime) / (prev.totalChats + 1),
       totalChats: prev.totalChats + 1,
       intents: prev.intents,
     }));
-  }, [chatInput, confidenceThreshold, matchingMode, thinkingDelay, botMemory, conversationContext, generativeFallback, personaPrompt, ragEnabled, knowledgeSources]);
+  }, [chatInput, confidenceThreshold, matchingMode, thinkingDelay, botMemory, conversationContext, generativeFallback, personaPrompt, ragEnabled, knowledgeSources, chatMessages]);
 
   // Deploy the bot (generates a standalone HTML file with watermark)
   const deployBot = () => {
@@ -2765,7 +2795,7 @@ export function ChatbotPlayground() {
         </div>
       )}
 
-      {/* === BRAIN TAB === 🧠 Shows the bot's growth stats + neural visualization */}
+      {/* === BRAIN TAB — Phase 73.4 redesigned with model parameters === */}
       {activeTab === "brain" && (
         <div className="max-w-2xl mx-auto px-4 py-4">
           <h2 className="text-sm font-bold text-gray-900 flex items-center gap-1.5 mb-3"><Sparkles className="w-4 h-4 text-violet-500" /> Bot Brain System</h2>
@@ -2776,7 +2806,7 @@ export function ChatbotPlayground() {
               <div>
                 <p className="text-[10px] uppercase opacity-70">Learning Stage</p>
                 <p className="text-2xl font-bold">
-                  {trainingData.length >= 500 ? "🏆 Expert" : trainingData.length >= 200 ? "🧠 Mature" : trainingData.length >= 50 ? "🌿 Young" : trainingData.length >= 10 ? "🌱 Sapling" : "🌰 Seedling"}
+                  {trainingData.length >= 500 ? "Expert" : trainingData.length >= 200 ? "Mature" : trainingData.length >= 50 ? "Young" : trainingData.length >= 10 ? "Sapling" : "Seedling"}
                 </p>
               </div>
               <div className="text-right">
@@ -2794,39 +2824,98 @@ export function ChatbotPlayground() {
             <p className="text-[10px] opacity-70 mt-1">{trainingData.length} / 500 pairs to Expert stage</p>
           </div>
 
-          {/* Stats grid */}
+          {/* Model Parameters — the new section */}
+          <div className="rounded-2xl bg-white border border-gray-200 p-4 mb-4">
+            <h3 className="text-xs font-bold text-gray-700 mb-3 flex items-center gap-1.5"><Settings className="w-3.5 h-3.5 text-violet-500" /> Model Parameters</h3>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5">
+              <div className="rounded-lg bg-gray-50 p-2.5">
+                <p className="text-[9px] font-bold uppercase text-gray-400">Training Pairs</p>
+                <p className="text-lg font-bold text-gray-900">{trainingData.length}</p>
+              </div>
+              <div className="rounded-lg bg-gray-50 p-2.5">
+                <p className="text-[9px] font-bold uppercase text-gray-400">Test Pairs</p>
+                <p className="text-lg font-bold text-gray-900">{trainingData.filter((p) => p.isTest).length}</p>
+              </div>
+              <div className="rounded-lg bg-gray-50 p-2.5">
+                <p className="text-[9px] font-bold uppercase text-gray-400">Vocabulary</p>
+                <p className="text-lg font-bold text-gray-900">{modelRef.current?.vocab.length ?? 0}</p>
+              </div>
+              <div className="rounded-lg bg-gray-50 p-2.5">
+                <p className="text-[9px] font-bold uppercase text-gray-400">Intents</p>
+                <p className="text-lg font-bold text-gray-900">{stats.intents.length}</p>
+              </div>
+              <div className="rounded-lg bg-gray-50 p-2.5">
+                <p className="text-[9px] font-bold uppercase text-gray-400">Matching Mode</p>
+                <p className="text-sm font-bold text-violet-600 capitalize">{matchingMode}</p>
+              </div>
+              <div className="rounded-lg bg-gray-50 p-2.5">
+                <p className="text-[9px] font-bold uppercase text-gray-400">Threshold</p>
+                <p className="text-lg font-bold text-gray-900">{confidenceThreshold.toFixed(2)}</p>
+              </div>
+              {matchingMode === "semantic" && (
+                <div className="rounded-lg bg-violet-50 p-2.5">
+                  <p className="text-[9px] font-bold uppercase text-violet-400">Embedding Dim</p>
+                  <p className="text-lg font-bold text-violet-900">512</p>
+                </div>
+              )}
+              {matchingMode === "semantic" && (
+                <div className="rounded-lg bg-violet-50 p-2.5">
+                  <p className="text-[9px] font-bold uppercase text-violet-400">Embeddings</p>
+                  <p className="text-lg font-bold text-violet-900">{modelRef.current?.embeddings.length ?? 0}</p>
+                </div>
+              )}
+              <div className="rounded-lg bg-gray-50 p-2.5">
+                <p className="text-[9px] font-bold uppercase text-gray-400">TF-IDF Vectors</p>
+                <p className="text-lg font-bold text-gray-900">{modelRef.current?.vectors.length ?? 0}</p>
+              </div>
+              <div className="rounded-lg bg-gray-50 p-2.5">
+                <p className="text-[9px] font-bold uppercase text-gray-400">Knowledge Chunks</p>
+                <p className="text-lg font-bold text-gray-900">{knowledgeSources.reduce((s, k) => s + k.chunkCount, 0)}</p>
+              </div>
+              <div className="rounded-lg bg-gray-50 p-2.5">
+                <p className="text-[9px] font-bold uppercase text-gray-400">Plugins</p>
+                <p className="text-lg font-bold text-gray-900">{botPlugins.filter((p) => p.enabled).length}/{botPlugins.length}</p>
+              </div>
+              <div className="rounded-lg bg-gray-50 p-2.5">
+                <p className="text-[9px] font-bold uppercase text-gray-400">Generative FB</p>
+                <p className="text-sm font-bold text-gray-900">{generativeFallback ? "On" : "Off"}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Performance stats */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-            <div className="rounded-xl bg-white border border-gray-200 p-3">
-              <p className="text-[10px] font-bold uppercase text-gray-400">Vocabulary</p>
-              <p className="text-xl font-bold text-gray-900">{modelRef.current?.vocab.length ?? 0}</p>
-              <p className="text-[9px] text-gray-400">unique words</p>
-            </div>
-            <div className="rounded-xl bg-white border border-gray-200 p-3">
-              <p className="text-[10px] font-bold uppercase text-gray-400">Intents</p>
-              <p className="text-xl font-bold text-gray-900">{stats.intents.length}</p>
-              <p className="text-[9px] text-gray-400">categories</p>
-            </div>
             <div className="rounded-xl bg-white border border-gray-200 p-3">
               <p className="text-[10px] font-bold uppercase text-gray-400">Accuracy</p>
               <p className="text-xl font-bold text-gray-900">{stats.totalChats > 0 ? (stats.coverage / stats.totalChats * 100).toFixed(0) : "—"}%</p>
               <p className="text-[9px] text-gray-400">{stats.coverage}/{stats.totalChats} understood</p>
             </div>
             <div className="rounded-xl bg-white border border-gray-200 p-3">
+              <p className="text-[10px] font-bold uppercase text-gray-400">Avg Response</p>
+              <p className="text-xl font-bold text-gray-900">{stats.avgResponseTime > 0 ? (stats.avgResponseTime / 1000).toFixed(1) : "—"}s</p>
+              <p className="text-[9px] text-gray-400">per message</p>
+            </div>
+            <div className="rounded-xl bg-white border border-gray-200 p-3">
               <p className="text-[10px] font-bold uppercase text-gray-400">Memory</p>
               <p className="text-xl font-bold text-gray-900">{conversationContext.length}</p>
               <p className="text-[9px] text-gray-400">messages in context</p>
+            </div>
+            <div className="rounded-xl bg-white border border-gray-200 p-3">
+              <p className="text-[10px] font-bold uppercase text-gray-400">Review Queue</p>
+              <p className="text-xl font-bold text-gray-900">{reviewLog.length}</p>
+              <p className="text-[9px] text-gray-400">items to review</p>
             </div>
           </div>
 
           {/* Growth explanation */}
           <div className="rounded-2xl bg-violet-50 border border-violet-100 p-4">
-            <h3 className="text-xs font-bold text-violet-700 mb-2">🧠 How the brain grows</h3>
+            <h3 className="text-xs font-bold text-violet-700 mb-2">How the brain grows</h3>
             <div className="space-y-1.5 text-[11px] text-violet-600">
-              <p>📊 <b>Vocabulary:</b> Each unique word in your training data becomes a "neuron". More words = richer understanding.</p>
-              <p>🔗 <b>Connections:</b> The brain forms connections between words and intents. More data = stronger connections.</p>
-              <p>🎯 <b>Intents:</b> Each intent category becomes a cluster of neurons. More intents = more capabilities.</p>
-              <p>📈 <b>Learning stages:</b> Seedling (0-9) → Sapling (10-49) → Young (50-199) → Mature (200-499) → Expert (500+)</p>
-              <p>♻️ <b>Memory decay:</b> Old facts lose importance over time. The bot "forgets" irrelevant info and remembers what matters.</p>
+              <p><b>Vocabulary:</b> Each unique word in your training data becomes a "neuron". More words = richer understanding.</p>
+              <p><b>Connections:</b> The brain forms connections between words and intents. More data = stronger connections.</p>
+              <p><b>Intents:</b> Each intent category becomes a cluster of neurons. More intents = more capabilities.</p>
+              <p><b>Learning stages:</b> Seedling (0-9) → Sapling (10-49) → Young (50-199) → Mature (200-499) → Expert (500+)</p>
+              <p><b>Memory decay:</b> Old facts lose importance over time. The bot "forgets" irrelevant info and remembers what matters.</p>
             </div>
           </div>
         </div>
@@ -2934,7 +3023,7 @@ export function ChatbotPlayground() {
           <div className="flex gap-1 mb-3">
             {(["text", "url", "github", "file", "packs"] as const).map((t) => (
               <button key={t} onClick={() => { setKbTab(t); if (t === "packs" && knowledgePacks.length === 0) loadKnowledgePacks(); }} className={`flex-1 h-8 rounded-full text-xs font-semibold ${kbTab === t ? "bg-violet-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
-                {t === "text" && "📝 Text"} {t === "url" && "🌐 URL"} {t === "github" && "🐙 GitHub"} {t === "file" && "📎 File"} {t === "packs" && "📦 Data & Knowledge"}
+                {t === "text" && "Text"} {t === "url" && "URL"} {t === "github" && "GitHub"} {t === "file" && "File"} {t === "packs" && "Data & Knowledge"}
               </button>
             ))}
           </div>
@@ -2985,12 +3074,12 @@ export function ChatbotPlayground() {
                 <div className="flex flex-wrap gap-1 mb-3">
                   {["education", "programming", "science", "history", "languages", "general"].map((cat) => (
                     <button key={cat} onClick={() => setPackCategory(cat)} className={`px-2.5 h-6 rounded-full text-[10px] font-semibold ${packCategory === cat ? "bg-violet-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
-                      {cat === "education" && "🎓 Education"}
-                      {cat === "programming" && "💻 Programming"}
-                      {cat === "science" && "🔬 Science"}
-                      {cat === "history" && "📜 History"}
-                      {cat === "languages" && "📖 Languages"}
-                      {cat === "general" && "🧠 General"}
+                      {cat === "education" && "Education"}
+                      {cat === "programming" && "Programming"}
+                      {cat === "science" && "Science"}
+                      {cat === "history" && "History"}
+                      {cat === "languages" && "Languages"}
+                      {cat === "general" && "General"}
                     </button>
                   ))}
                 </div>
@@ -3003,7 +3092,7 @@ export function ChatbotPlayground() {
                       const alreadyAdded = knowledgeSources.some((s) => s.title.includes(pack.name));
                       return (
                         <div key={pack.id} className="flex items-start gap-2 p-2.5 rounded-lg bg-gray-50 border border-gray-100">
-                          <span className="text-xl flex-shrink-0">{pack.icon}</span>
+                          <span className="w-9 h-9 rounded-lg bg-gradient-to-br from-violet-100 to-fuchsia-100 flex items-center justify-center flex-shrink-0 text-sm font-bold text-violet-700 uppercase">{pack.icon}</span>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
                               <p className="text-xs font-bold text-gray-900">{pack.name}</p>
@@ -3039,8 +3128,8 @@ export function ChatbotPlayground() {
               <div className="space-y-2 max-h-64 overflow-y-auto">
                 {knowledgeSources.map((src) => (
                   <div key={src.id} className="flex items-start gap-2 p-2 rounded-lg bg-gray-50 border border-gray-100">
-                    <span className="flex-shrink-0 text-base">
-                      {src.type === "url" && "🌐"} {src.type === "github" && "🐙"} {src.type === "file" && "📎"} {src.type === "text" && "📝"}
+                    <span className="w-7 h-7 rounded-md bg-gray-100 flex items-center justify-center flex-shrink-0 text-[9px] font-bold text-gray-600 uppercase">
+                      {src.type === "url" ? "URL" : src.type === "github" ? "GH" : src.type === "file" ? "FILE" : src.type === "pack" ? "PK" : "TXT"}
                     </span>
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-semibold text-gray-900 truncate">{src.title}</p>
