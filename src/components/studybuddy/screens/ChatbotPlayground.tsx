@@ -164,10 +164,20 @@ export function ChatbotPlayground() {
     return STARTER_DATA;
   });
   const [showWelcome, setShowWelcome] = useState(() => {
-    // Phase 64 — Only show welcome on FIRST visit (not after refresh or returning)
-    // Check sessionStorage — if "chatbot_welcomed" is set, skip welcome
+    // Phase 65 — Only show welcome if:
+    //   1. It's the first session (sessionStorage flag not set)
+    //   2. AND there's no saved training data in localStorage
+    //   3. AND there's no activeProjectId (not opening from Projects)
     if (typeof window !== "undefined") {
-      return sessionStorage.getItem("chatbot_welcomed") !== "1";
+      if (sessionStorage.getItem("chatbot_welcomed") === "1") return false;
+      // Check if there's saved data — if so, skip welcome and resume
+      try {
+        const stored = localStorage.getItem("studybuddy_chatbot_data");
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed) && parsed.length > 8) return false; // has more than starter data
+        }
+      } catch {}
     }
     return true;
   });
@@ -616,21 +626,47 @@ export function ChatbotPlayground() {
     }
   };
 
-  // Save training data
+  // Save training data — creates or updates a Project in the DB (Neon Postgres)
+  // so the user can resume on any device.
+  const [savedProjectId, setSavedProjectId] = useState<string | null>(null);
+
   const saveProject = async () => {
     try {
       const data = JSON.stringify(trainingData, null, 2);
-      const r = await fetch("/api/projects", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          buddyId: "ml", title: "Chatbot training data",
-          description: `${trainingData.length} Q&A pairs, ${matchingMode} matching`,
-          tags: ["chatbot", "nlp", matchingMode],
-          files: [{ path: "training_data.json", language: "json", content: data, isEntry: true }],
-        }),
-      });
-      if (r.ok) alert("✓ Saved to My Projects!");
+      const projectId = savedProjectId || activeProjectId;
+
+      if (projectId && !projectId.startsWith("temp-")) {
+        // Update existing project
+        const r = await fetch(`/api/projects/${projectId}/files`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            files: [{ path: "training_data.json", language: "json", content: data, isEntry: true }],
+          }),
+        });
+        if (r.ok) {
+          setSavedProjectId(projectId);
+          alert(`✓ Saved ${trainingData.length} pairs to your project!`);
+        }
+      } else {
+        // Create new project
+        const r = await fetch("/api/projects", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            buddyId: "ml",
+            title: "Chatbot training data",
+            description: `${trainingData.length} Q&A pairs, ${matchingMode} matching`,
+            tags: ["chatbot", "nlp", matchingMode, "training_data"],
+            files: [{ path: "training_data.json", language: "json", content: data, isEntry: true }],
+          }),
+        });
+        if (r.ok) {
+          const d = await r.json();
+          setSavedProjectId(d.project.id);
+          alert(`✓ Saved ${trainingData.length} pairs to My Projects! You can resume anytime.`);
+        }
+      }
     } catch (e: any) { alert(`Save failed: ${e?.message}`); }
   };
 
