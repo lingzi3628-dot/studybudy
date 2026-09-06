@@ -1,17 +1,26 @@
 "use client";
 
 /**
- * ChatbotPlayground — Phase 62
+ * ChatbotPlayground — Phase 62 + Phase 68 hybrid response upgrade
  *
- * Upgraded chatbot builder with:
+ * Hybrid retrieval + generative chatbot builder with:
  *   - Large dataset support (up to 100k Q&A pairs via CSV/JSON import)
  *   - Multi-training (train multiple intents/categories)
  *   - Bot memory (remembers conversation context)
  *   - AI tools: intent detection, entity extraction, sentiment analysis,
- *     response ranking, spell correction
+ *     response ranking, LIGHT text normalization (no aggressive spell correct)
+ *   - FIVE matching modes: TF-IDF, keyword, fuzzy (Levenshtein), hybrid,
+ *     SEMANTIC (Universal Sentence Encoder embeddings — in-browser, ~25MB
+ *     one-time download, understands meaning not just word overlap)
+ *   - GENERATIVE FALLBACK: when no training example clears the threshold,
+ *     the bot calls an LLM (/api/ai/playground) with the top-3 retrieved
+ *     Q&A pairs as context. If the LLM is unavailable, an honest "I don't
+ *     know" reply is returned instead of a wrong stored answer.
+ *   - Confidence + source display on every bot reply (retrieval / generative / fallback)
+ *   - Continuous learning loop: low-confidence & generated turns are logged
+ *     to a Review Queue so the bot owner can convert them into new training pairs.
  *   - Deploy bot: generates a shareable URL with a flowing StudyBuddy watermark
  *   - Rate-limit thinking delay (3-4 second "thinking" animation before reply)
- *   - Multiple training modes: TF-IDF, keyword matching, fuzzy matching
  *   - Analytics: accuracy, coverage, response time, confusion matrix
  *   - Export: training data as CSV/JSON, deployed bot as standalone HTML
  */
@@ -26,8 +35,31 @@ import { useApp } from "../store";
 
 // === Types ===
 type TrainingPair = { id: string; input: string; output: string; intent?: string };
-type ChatMessage = { role: "user" | "bot"; text: string; thinking?: ThinkingStep[]; sentiment?: string; intent?: string; confidence?: number; responseTime?: number };
+type ChatMessage = {
+  role: "user" | "bot";
+  text: string;
+  thinking?: ThinkingStep[];
+  sentiment?: string;
+  intent?: string;
+  confidence?: number;
+  responseTime?: number;
+  /** Where the reply came from — drives the colored source badge. */
+  source?: "retrieval" | "generative" | "fallback";
+  /** When source === "generative": the LLM model that produced the reply. */
+  model?: string;
+};
 type ThinkingStep = { step: string; detail: string; data?: any };
+
+/** A low-confidence or generated turn queued for the bot owner's review. */
+type ReviewItem = {
+  id: string;
+  input: string;
+  bestScore: number;
+  source: "generative" | "fallback";
+  topMatches: Array<{ input: string; score: number }>;
+  generatedReply?: string;
+  timestamp: number;
+};
 
 // === NLP Engine ===
 function tokenize(text: string): string[] {
@@ -69,7 +101,9 @@ function cosineSim(a: number[], b: number[]): number {
   return d > 0 ? dot / d : 0;
 }
 
-// Levenshtein distance for fuzzy matching / spell correction
+// Levenshtein distance — used ONLY by the explicit "fuzzy" matching mode.
+// (Phase 68: removed the aggressive spell-corrector that used this against the
+// vocab on every query — it produced gibberish like "boring" → "morning".)
 function levenshtein(a: string, b: string): number {
   const m = a.length, n = b.length;
   const dp: number[][] = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
@@ -81,6 +115,74 @@ function levenshtein(a: string, b: string): number {
     }
   }
   return dp[m][n];
+}
+
+/** Common SMS-style abbreviations. We expand these so "u" doesn't match the
+ *  letter "u" in another training input. This is the ONLY text-level rewrite
+ *  we do — no edit-distance spell correction, no vocab lookups. */
+const ABBREVIATIONS: Record<string, string> = {
+  u: "you", ur: "your", urs: "yours", "u r": "you are",
+  r: "are", n: "and", nd: "and", b: "be", c: "see", k: "ok", ok: "ok",
+  y: "why", pls: "please", plz: "please", tho: "though", "thru": "through",
+  "u2": "you too", "ur2": "you too", "b/c": "because", bc: "because",
+  "wat": "what", "wut": "what", "yolo": "you only live once",
+  "lol": "laughing out loud", "omg": "oh my god", "idk": "i do not know",
+  "tbh": "to be honest", "imo": "in my opinion", "imho": "in my honest opinion",
+  "gonna": "going to", "wanna": "want to", "gotta": "got to",
+  "dunno": "do not know", "kinda": "kind of", "sorta": "sort of",
+  "couldnt": "could not", "wouldnt": "would not", "shouldnt": "should not",
+  "dont": "do not", "doesnt": "does not", "didnt": "did not",
+  "cant": "cannot", "wont": "will not", "isnt": "is not", "arent": "are not",
+  "wasnt": "was not", "werent": "were not", "hasnt": "has not",
+  "havent": "have not", "hadnt": "had not", "im": "i am", "ive": "i have",
+  "youre": "you are", "theyre": "they are", "thats": "that is",
+  "whats": "what is", "wheres": "where is", "hows": "how is",
+};
+
+/** Light, context-safe text normalization — replaces the old aggressive
+ *  spellCorrect(). Steps:
+ *    1. lowercase  2. expand SMS abbreviations  3. strip punctuation
+ *    4. collapse whitespace
+ *  We deliberately do NOT correct misspellings against the vocab — semantic
+ *  embedding mode handles misspellings naturally, and the surface modes
+ *  (tfidf/keyword/hybrid) are more honest returning "no match" than
+ *  returning a wrong match driven by a hallucinated correction. */
+function normalizeText(text: string): string {
+  let t = text.toLowerCase();
+  // Expand abbreviations — token-by-token so we don't rewrite substrings.
+  // Apostrophes are stripped from each token so "i'm" matches the "im" key.
+  const tokens = t.replace(/[^\w\s']/g, " ").split(/\s+/).filter(Boolean);
+  const expanded = tokens.map((tok) => ABBREVIATIONS[tok.replace(/'/g, "")] ?? tok);
+  return expanded.join(" ").replace(/\s+/g, " ").trim();
+}
+
+// === Semantic embedding (Universal Sentence Encoder) ===
+// Lazily loaded from the rag-engine — same model the Notebook RAG cells use.
+// ~25MB one-time download, cached by the browser thereafter.
+type Embedder = { embed: (texts: string[]) => Promise<number[][]> };
+let _embedder: Embedder | null = null;
+let _embedderLoading: Promise<Embedder> | null = null;
+async function ensureEmbedder(): Promise<Embedder> {
+  if (_embedder) return _embedder;
+  if (_embedderLoading) return _embedderLoading;
+  _embedderLoading = (async () => {
+    const mod = await import("@/lib/rag-engine");
+    const e: Embedder = {
+      async embed(texts: string[]) {
+        return mod.embedTexts(texts);
+      },
+    };
+    _embedder = e;
+    return e;
+  })();
+  return _embedderLoading;
+}
+
+function cosineSimVec(a: number[], b: number[]): number {
+  let dot = 0, ma = 0, mb = 0;
+  for (let i = 0; i < a.length; i++) { dot += a[i] * b[i]; ma += a[i] * a[i]; mb += b[i] * b[i]; }
+  const d = Math.sqrt(ma) * Math.sqrt(mb);
+  return d > 0 ? dot / d : 0;
 }
 
 // Simple sentiment: count positive/negative words
@@ -144,8 +246,21 @@ const STARTER_DATA: TrainingPair[] = [
   { id: "8", input: "help", output: "I can help with anything I've been trained on. Try asking me a question!", intent: "help" },
 ];
 
-type TabType = "train" | "chat" | "tools" | "analytics" | "deploy" | "brain" | "knowledge" | "llm";
-type MatchingMode = "tfidf" | "keyword" | "fuzzy" | "hybrid";
+type TabType = "train" | "chat" | "tools" | "analytics" | "deploy" | "brain" | "knowledge" | "llm" | "review";
+type MatchingMode = "tfidf" | "keyword" | "fuzzy" | "hybrid" | "semantic";
+
+/** Per-mode default confidence thresholds.
+ *  TF-IDF / hybrid cosine sims sit in a different range than USE embedding
+ *  cosine sims, so a single 0.15 threshold (Phase 62) caused both wrong
+ *  matches AND missed matches. These defaults were tuned on the Phase 62
+ *  failing-examples corpus ("boring", "can you code", "hii", etc.). */
+const MODE_DEFAULT_THRESHOLD: Record<MatchingMode, number> = {
+  tfidf: 0.30,
+  hybrid: 0.30,
+  keyword: 0.20,
+  fuzzy: 0.60,
+  semantic: 0.65,
+};
 
 export function ChatbotPlayground() {
   const { setScreen, activeProjectId, chatbotTrainingData, setChatbotTrainingData, addChatbotTrainingPairs } = useApp() as any;
@@ -188,9 +303,20 @@ export function ChatbotPlayground() {
   const [chatInput, setChatInput] = useState("");
   const [isTraining, setIsTraining] = useState(false);
   const [isTrained, setIsTrained] = useState(false);
-  const [confidenceThreshold, setConfidenceThreshold] = useState(0.15);
+  const [confidenceThreshold, setConfidenceThreshold] = useState(0.30);
   const [thinkingDelay, setThinkingDelay] = useState(3); // seconds
-  const [matchingMode, setMatchingMode] = useState<MatchingMode>("hybrid");
+  const [matchingMode, setMatchingModeRaw] = useState<MatchingMode>("hybrid");
+  const [generativeFallback, setGenerativeFallback] = useState(true); // Phase 68
+  const [embeddingProgress, setEmbeddingProgress] = useState<string | null>(null); // "loading model…" / "embedding 42/120…"
+  const [reviewLog, setReviewLog] = useState<ReviewItem[]>(() => {
+    // Resume the continuous-learning queue from localStorage so it survives reloads.
+    if (typeof window === "undefined") return [];
+    try {
+      const raw = localStorage.getItem("studybuddy_chatbot_review");
+      if (raw) { const p = JSON.parse(raw); if (Array.isArray(p)) return p; }
+    } catch {}
+    return [];
+  });
   const [activeTab, setActiveTab] = useState<TabType>("train");
   const [botMemory, setBotMemory] = useState<boolean>(true);
   const [conversationContext, setConversationContext] = useState<string[]>([]);
@@ -209,12 +335,40 @@ export function ChatbotPlayground() {
     vectors: number[][];
     pairs: TrainingPair[];
     intents: Map<string, TrainingPair[]>;
+    /** Pre-computed USE embeddings for semantic mode (one row per pair). */
+    embeddings: number[][];
+    /** The mode the embeddings were last computed for — invalidates on mode swap. */
+    embeddingsMode: MatchingMode | null;
   } | null>(null);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatMessages]);
+
+  // Persist the review queue whenever it changes.
+  useEffect(() => {
+    try { localStorage.setItem("studybuddy_chatbot_review", JSON.stringify(reviewLog.slice(-100))); } catch {}
+  }, [reviewLog]);
+
+  // Phase 68 — When the matching mode changes, snap the threshold back to that
+  // mode's default — UNLESS the user has manually tweaked the slider. We track
+  // that with a ref so the slider still feels free once the user touches it.
+  const userTouchedThreshold = useRef(false);
+  const setMatchingMode = useCallback((mode: MatchingMode) => {
+    setMatchingModeRaw(mode);
+    if (!userTouchedThreshold.current) setConfidenceThreshold(MODE_DEFAULT_THRESHOLD[mode]);
+    // Semantic mode needs its own embedding index; force a retrain so the
+    // embeddings get computed before the user sends a message.
+    setIsTrained(false);
+  }, []);
+
+  // Mark the threshold slider as "user-tweaked" so subsequent mode swaps
+  // don't override their choice.
+  const onThresholdChange = useCallback((v: number) => {
+    userTouchedThreshold.current = true;
+    setConfidenceThreshold(v);
+  }, []);
 
   // Phase 64 — Sync training data to the shared Zustand store + localStorage
   // whenever it changes. This ensures DataLab and ChatbotPlayground share data.
@@ -249,13 +403,41 @@ export function ChatbotPlayground() {
         if (!intents.has(intent)) intents.set(intent, []);
         intents.get(intent)!.push(p);
       }
-      modelRef.current = { vocab, idf, vectors, pairs: trainingData, intents };
+      // Phase 68 — Pre-compute USE embeddings if the user picked semantic mode.
+      let embeddings: number[][] = [];
+      let embeddingsMode: MatchingMode | null = null;
+      if (matchingMode === "semantic") {
+        try {
+          setEmbeddingProgress("Loading embedding model (one-time, ~25MB)…");
+          const embedder = await ensureEmbedder();
+          setEmbeddingProgress(`Embedding ${trainingData.length} inputs…`);
+          // USE embeds in batches internally; for >5k inputs we chunk to keep the
+          // UI responsive and surface progress.
+          const BATCH = 256;
+          embeddings = [];
+          for (let i = 0; i < trainingData.length; i += BATCH) {
+            const slice = trainingData.slice(i, i + BATCH).map((p) => p.input);
+            const vecs = await embedder.embed(slice);
+            embeddings.push(...vecs);
+            setEmbeddingProgress(`Embedding ${Math.min(i + BATCH, trainingData.length)}/${trainingData.length}…`);
+          }
+          embeddingsMode = "semantic";
+        } catch (e) {
+          console.warn("Embedding failed, falling back to tfidf vectors for semantic mode", e);
+          // Fall back to using the tfidf vectors as a degraded semantic index —
+          // better than blocking the user out of chat entirely.
+          embeddings = vectors;
+          embeddingsMode = "semantic";
+        }
+      }
+      setEmbeddingProgress(null);
+      modelRef.current = { vocab, idf, vectors, pairs: trainingData, intents, embeddings, embeddingsMode };
       setStats({ coverage: 0, avgResponseTime: 0, totalChats: 0, intents: Array.from(intents.keys()) });
       setIsTrained(true);
       setIsTraining(false);
     };
     autoTrain();
-  }, [trainingData.length]); // Only re-train when pair COUNT changes (not on every edit)
+  }, [trainingData.length, matchingMode]); // Re-train when pair count OR mode changes
 
   // Phase 62 — Load training data from a Project when activeProjectId is set
   // (e.g. when a template is used or a saved project is opened)
@@ -297,7 +479,7 @@ export function ChatbotPlayground() {
                   if (!intents.has(intent)) intents.set(intent, []);
                   intents.get(intent)!.push(p);
                 }
-                modelRef.current = { vocab, idf, vectors, pairs: loaded, intents };
+                modelRef.current = { vocab, idf, vectors, pairs: loaded, intents, embeddings: [], embeddingsMode: null };
                 setStats({ coverage: 0, avgResponseTime: 0, totalChats: 0, intents: Array.from(intents.keys()) });
                 setIsTrained(true);
                 setIsTraining(false);
@@ -459,7 +641,28 @@ export function ChatbotPlayground() {
       if (!intents.has(intent)) intents.set(intent, []);
       intents.get(intent)!.push(p);
     }
-    modelRef.current = { vocab, idf, vectors, pairs: trainingData, intents };
+    let embeddings: number[][] = [];
+    let embeddingsMode: MatchingMode | null = null;
+    if (matchingMode === "semantic") {
+      try {
+        setEmbeddingProgress("Loading embedding model (one-time, ~25MB)…");
+        const embedder = await ensureEmbedder();
+        setEmbeddingProgress(`Embedding ${trainingData.length} inputs…`);
+        const BATCH = 256;
+        for (let i = 0; i < trainingData.length; i += BATCH) {
+          const slice = trainingData.slice(i, i + BATCH).map((p) => p.input);
+          const vecs = await embedder.embed(slice);
+          embeddings.push(...vecs);
+          setEmbeddingProgress(`Embedding ${Math.min(i + BATCH, trainingData.length)}/${trainingData.length}…`);
+        }
+        embeddingsMode = "semantic";
+      } catch (e) {
+        embeddings = vectors;
+        embeddingsMode = "semantic";
+      }
+    }
+    setEmbeddingProgress(null);
+    modelRef.current = { vocab, idf, vectors, pairs: trainingData, intents, embeddings, embeddingsMode };
     setStats({
       coverage: 0,
       avgResponseTime: 0,
@@ -468,9 +671,9 @@ export function ChatbotPlayground() {
     });
     setIsTrained(true);
     setIsTraining(false);
-  }, [trainingData]);
+  }, [trainingData, matchingMode]);
 
-  // Send a message to the chatbot
+  // Send a message to the chatbot — Phase 68 hybrid retrieval + generative flow.
   const sendMessage = useCallback(async () => {
     const text = chatInput.trim();
     if (!text || !modelRef.current) return;
@@ -483,9 +686,10 @@ export function ChatbotPlayground() {
       setConversationContext((prev) => [...prev.slice(-4), text]); // keep last 5 messages
     }
 
-    // Thinking delay (rate limit)
+    // Thinking delay (rate limit) — runs in parallel with embedding lookup
+    // when in semantic mode so the user doesn't pay both costs.
     const startTime = Date.now();
-    await new Promise((r) => setTimeout(r, thinkingDelay * 1000));
+    const thinkingPromise = new Promise((r) => setTimeout(r, thinkingDelay * 1000));
 
     const model = modelRef.current;
     const thinkingSteps: ThinkingStep[] = [];
@@ -494,10 +698,17 @@ export function ChatbotPlayground() {
     const tokens = tokenize(text);
     thinkingSteps.push({ step: "1. Tokenize input", detail: `Split "${text}" into ${tokens.length} tokens`, data: tokens });
 
-    // Step 2: Spell correction
-    const corrected = spellCorrect(text, model.vocab);
-    if (corrected !== text.toLowerCase().replace(/[^\w\s]/g, " ").trim()) {
-      thinkingSteps.push({ step: "2. Spell correction", detail: `Corrected to: "${corrected}"`, data: [corrected] });
+    // Step 2: Light normalization (replaces the old aggressive spellCorrect).
+    //   - Lowercases, expands SMS abbreviations (u→you, dont→do not, etc.),
+    //     strips punctuation, collapses whitespace.
+    //   - Does NOT correct misspellings against the vocab — semantic mode
+    //     handles those naturally, and surface modes are better off returning
+    //     "no match" than a hallucinated correction.
+    const normalized = normalizeText(text);
+    if (normalized !== text.toLowerCase().replace(/[^\w\s]/g, " ").trim()) {
+      thinkingSteps.push({ step: "2. Normalize text", detail: `Normalized to: "${normalized}"`, data: [normalized] });
+    } else {
+      thinkingSteps.push({ step: "2. Normalize text", detail: `No abbreviations/punctuation to fix` });
     }
 
     // Step 3: Entity extraction
@@ -516,7 +727,7 @@ export function ChatbotPlayground() {
       const intentScores = new Map<string, number>();
       for (const [intent, pairs] of model.intents) {
         const intentVecs = pairs.map((p) => tfidfVector(p.input, model.vocab, model.idf));
-        const inputVec = tfidfVector(corrected, model.vocab, model.idf);
+        const inputVec = tfidfVector(normalized, model.vocab, model.idf);
         const sims = intentVecs.map((v) => cosineSim(inputVec, v));
         const avg = sims.reduce((s, v) => s + v, 0) / Math.max(sims.length, 1);
         intentScores.set(intent, avg);
@@ -526,48 +737,80 @@ export function ChatbotPlayground() {
       thinkingSteps.push({ step: "5. Intent detection", detail: `Detected intent: ${detectedIntent}`, data: sorted.slice(0, 3).map(([i, s]) => `${i}: ${s.toFixed(4)}`) });
     }
 
-    // Step 6: Match against training data
-    const inputVec = tfidfVector(corrected, model.vocab, model.idf);
+    // Step 6: Match against training data — semantic mode uses USE embeddings,
+    //   surface modes use TF-IDF / keyword / Levenshtein as before.
     let scores: Array<{ pair: TrainingPair; score: number; index: number }> = [];
 
-    if (matchingMode === "tfidf" || matchingMode === "hybrid") {
-      scores = model.vectors.map((v, i) => ({ pair: model.pairs[i], score: cosineSim(inputVec, v), index: i }));
-    } else if (matchingMode === "keyword") {
-      const inputTokens = new Set(tokens);
-      scores = model.pairs.map((p, i) => {
-        const pairTokens = new Set(tokenize(p.input));
-        const overlap = Array.from(inputTokens).filter((t) => pairTokens.has(t)).length;
-        return { pair: p, score: overlap / Math.max(inputTokens.size + pairTokens.size - overlap, 1), index: i };
-      });
-    } else if (matchingMode === "fuzzy") {
-      scores = model.pairs.map((p, i) => {
-        const dist = levenshtein(corrected, p.input.toLowerCase());
-        const maxLen = Math.max(corrected.length, p.input.length);
-        return { pair: p, score: 1 - dist / Math.max(maxLen, 1), index: i };
-      });
-    }
-
-    // Hybrid mode: combine TF-IDF + keyword scores
-    if (matchingMode === "hybrid") {
-      const inputTokens = new Set(tokens);
-      const keywordScores = model.pairs.map((p) => {
-        const pairTokens = new Set(tokenize(p.input));
-        const overlap = Array.from(inputTokens).filter((t) => pairTokens.has(t)).length;
-        return overlap / Math.max(inputTokens.size + pairTokens.size - overlap, 1);
-      });
-      scores = scores.map((s, i) => ({ ...s, score: s.score * 0.7 + keywordScores[i] * 0.3 }));
+    if (matchingMode === "semantic") {
+      // Use pre-computed embeddings. If they're missing/stale (user swapped
+      // modes mid-session), fall back to tfidf vectors with a warning.
+      if (model.embeddingsMode === "semantic" && model.embeddings.length === model.pairs.length) {
+        try {
+          const embedder = await ensureEmbedder();
+          const [userVec] = await embedder.embed([normalized]);
+          scores = model.pairs.map((p, i) => ({
+            pair: p,
+            score: cosineSimVec(userVec, model.embeddings[i]),
+            index: i,
+          }));
+          thinkingSteps.push({ step: "5. Embed query", detail: `Encoded query with USE → ${userVec.length}-dim vector` });
+        } catch (e: any) {
+          thinkingSteps.push({ step: "5. Embed query", detail: `Embedding failed: ${e?.message ?? e} — falling back to TF-IDF` });
+          const inputVec = tfidfVector(normalized, model.vocab, model.idf);
+          scores = model.vectors.map((v, i) => ({ pair: model.pairs[i], score: cosineSim(inputVec, v), index: i }));
+        }
+      } else {
+        thinkingSteps.push({ step: "5. Embed query", detail: `Embeddings not ready (mode=${model.embeddingsMode ?? "null"}) — using TF-IDF vectors as fallback` });
+        const inputVec = tfidfVector(normalized, model.vocab, model.idf);
+        scores = model.vectors.map((v, i) => ({ pair: model.pairs[i], score: cosineSim(inputVec, v), index: i }));
+      }
+    } else {
+      const inputVec = tfidfVector(normalized, model.vocab, model.idf);
+      if (matchingMode === "tfidf" || matchingMode === "hybrid") {
+        scores = model.vectors.map((v, i) => ({ pair: model.pairs[i], score: cosineSim(inputVec, v), index: i }));
+      } else if (matchingMode === "keyword") {
+        const inputTokens = new Set(tokens);
+        scores = model.pairs.map((p, i) => {
+          const pairTokens = new Set(tokenize(p.input));
+          const overlap = Array.from(inputTokens).filter((t) => pairTokens.has(t)).length;
+          return { pair: p, score: overlap / Math.max(inputTokens.size + pairTokens.size - overlap, 1), index: i };
+        });
+      } else if (matchingMode === "fuzzy") {
+        scores = model.pairs.map((p, i) => {
+          const dist = levenshtein(normalized, p.input.toLowerCase());
+          const maxLen = Math.max(normalized.length, p.input.length);
+          return { pair: p, score: 1 - dist / Math.max(maxLen, 1), index: i };
+        });
+      }
+      // Hybrid mode: combine TF-IDF + keyword scores
+      if (matchingMode === "hybrid") {
+        const inputTokens = new Set(tokens);
+        const keywordScores = model.pairs.map((p) => {
+          const pairTokens = new Set(tokenize(p.input));
+          const overlap = Array.from(inputTokens).filter((t) => pairTokens.has(t)).length;
+          return overlap / Math.max(inputTokens.size + pairTokens.size - overlap, 1);
+        });
+        scores = scores.map((s, i) => ({ ...s, score: s.score * 0.7 + keywordScores[i] * 0.3 }));
+      }
     }
 
     scores.sort((a, b) => b.score - a.score);
     const top3 = scores.slice(0, 3);
-    thinkingSteps.push({ step: `${matchingMode === "hybrid" ? "6" : "5"}. Match training data`, detail: `Compared against ${model.pairs.length} examples`, data: top3.map((s) => ({ input: s.pair.input, score: s.score.toFixed(4), intent: s.pair.intent || "general" })) });
+    thinkingSteps.push({ step: "6. Match training data", detail: `Compared against ${model.pairs.length} examples using ${matchingMode}`, data: top3.map((s) => ({ input: s.pair.input, score: s.score.toFixed(4), intent: s.pair.intent || "general" })) });
 
-    // Step 7: Select best match
+    // Wait for the thinking-delay timer to finish (it ran in parallel with
+    // any embedding work above). This keeps the visible "thinking…" animation
+    // honest — it always lasts at least thinkingDelay seconds.
+    await thinkingPromise;
+
+    // Step 7: Decide — retrieve (score ≥ threshold) OR generate (fallback).
     const best = scores[0];
     const responseTime = Date.now() - startTime;
+    const bestScore = best?.score ?? 0;
+    const isConfident = best && bestScore >= confidenceThreshold;
 
-    if (best && best.score >= confidenceThreshold) {
-      thinkingSteps.push({ step: `${matchingMode === "hybrid" ? "7" : "6"}. Select best match`, detail: `Best: "${best.pair.input}" (score: ${best.score.toFixed(4)} ≥ threshold ${confidenceThreshold})` });
+    if (isConfident) {
+      thinkingSteps.push({ step: "7. Select best match", detail: `Best: "${best.pair.input}" (score: ${bestScore.toFixed(4)} ≥ threshold ${confidenceThreshold})` });
 
       // Context-aware response (if memory is on and there's conversation history)
       let responseText = best.pair.output;
@@ -578,25 +821,88 @@ export function ChatbotPlayground() {
       setChatMessages((prev) => [...prev, {
         role: "bot", text: responseText, thinking: thinkingSteps,
         sentiment: sentiment.label, intent: detectedIntent,
-        confidence: best.score, responseTime,
+        confidence: bestScore, responseTime,
+        source: "retrieval",
       }]);
     } else {
-      thinkingSteps.push({ step: `${matchingMode === "hybrid" ? "7" : "6"}. No confident match`, detail: `Best score ${best?.score.toFixed(4) ?? 0} < threshold ${confidenceThreshold}` });
+      thinkingSteps.push({ step: "7. No confident match", detail: `Best score ${bestScore.toFixed(4)} < threshold ${confidenceThreshold}` });
+
+      // Phase 68 — generative fallback.
+      let replyText = "I'm not sure how to answer that. Could you rephrase, or add a training example for it?";
+      let source: "generative" | "fallback" = "fallback";
+      let modelName: string | undefined = undefined;
+
+      if (generativeFallback) {
+        thinkingSteps.push({ step: "8. Generative fallback", detail: `Calling LLM with top-${top3.length} retrieved Q&A as context…` });
+        try {
+          const contextBlock = top3
+            .map((s, i) => `Q${i + 1}: ${s.pair.input}\nA${i + 1}: ${s.pair.output}`)
+            .join("\n");
+          const systemPrompt = [
+            "You are a friendly chatbot. Answer the user's message.",
+            "If any of the retrieved Q&A pairs below are clearly relevant, build on them.",
+            "If none are relevant, answer from your own knowledge — don't force a connection.",
+            "Keep replies short (1–3 sentences) and conversational. No markdown headings.",
+            bestScore > 0
+              ? `Best retrieval score was ${bestScore.toFixed(2)} (below the ${confidenceThreshold} threshold), so treat the retrieved pairs as weak hints only.`
+              : `No training examples matched at all.`,
+          ].join(" ");
+          const userPrompt = `Retrieved context (weak):\n${contextBlock || "(none)"}\n\nUser message: ${text}`;
+
+          const r = await fetch("/api/ai/playground", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ systemPrompt, userPrompt, temperature: 0.6 }),
+          });
+          if (r.ok) {
+            const d = await r.json();
+            const out: string = (d?.output ?? "").trim();
+            if (out.length > 0) {
+              replyText = out;
+              source = "generative";
+              modelName = d?.model ?? "ai-playground";
+              thinkingSteps.push({ step: "9. LLM replied", detail: `Generated ${out.length} chars via ${modelName}`, data: [out.slice(0, 120) + (out.length > 120 ? "…" : "")] });
+            } else {
+              thinkingSteps.push({ step: "9. LLM empty", detail: `API returned empty output — using canned fallback` });
+            }
+          } else {
+            thinkingSteps.push({ step: "9. LLM unavailable", detail: `HTTP ${r.status} — using canned fallback` });
+          }
+        } catch (e: any) {
+          thinkingSteps.push({ step: "9. LLM error", detail: `${e?.message ?? e} — using canned fallback` });
+        }
+      } else {
+        thinkingSteps.push({ step: "8. Generative fallback disabled", detail: `Returning canned "I don't know" reply` });
+      }
+
       setChatMessages((prev) => [...prev, {
-        role: "bot", text: "I'm sorry, I don't understand that yet. Add more training data to help me learn!",
-        thinking: thinkingSteps, sentiment: "neutral", intent: "fallback",
-        confidence: best?.score ?? 0, responseTime,
+        role: "bot", text: replyText, thinking: thinkingSteps,
+        sentiment: sentiment.label, intent: detectedIntent,
+        confidence: bestScore, responseTime,
+        source, model: modelName,
       }]);
+
+      // Continuous-learning loop — queue this turn for review.
+      const reviewItem: ReviewItem = {
+        id: `rev-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        input: text,
+        bestScore,
+        source,
+        topMatches: top3.map((s) => ({ input: s.pair.input, score: s.score })),
+        generatedReply: source === "generative" ? replyText : undefined,
+        timestamp: Date.now(),
+      };
+      setReviewLog((prev) => [...prev.slice(-49), reviewItem]); // keep last 50
     }
 
-    // Update stats
+    // Update stats — count retrieval hits as "understood".
     setStats((prev) => ({
-      coverage: prev.coverage + (best && best.score >= confidenceThreshold ? 1 : 0),
+      coverage: prev.coverage + (isConfident ? 1 : 0),
       avgResponseTime: (prev.avgResponseTime * prev.totalChats + responseTime) / (prev.totalChats + 1),
       totalChats: prev.totalChats + 1,
       intents: prev.intents,
     }));
-  }, [chatInput, confidenceThreshold, matchingMode, thinkingDelay, botMemory, conversationContext]);
+  }, [chatInput, confidenceThreshold, matchingMode, thinkingDelay, botMemory, conversationContext, generativeFallback]);
 
   // Deploy the bot (generates a standalone HTML file with watermark)
   const deployBot = () => {
@@ -774,6 +1080,7 @@ export function ChatbotPlayground() {
         {([
           { id: "train", label: "🎓 Train", icon: Brain },
           { id: "chat", label: "💬 Chat", icon: MessageCircle },
+          { id: "review", label: `📝 Review${reviewLog.length > 0 ? ` (${reviewLog.length})` : ""}`, icon: FileText },
           { id: "brain", label: "🧠 Brain", icon: Sparkles },
           { id: "llm", label: "🔬 LLM Viz", icon: Zap },
           { id: "knowledge", label: "📚 Knowledge", icon: Database },
@@ -863,18 +1170,29 @@ export function ChatbotPlayground() {
               <div className="flex items-center gap-3">
                 <label className="text-xs text-gray-500 w-32">Matching mode:</label>
                 <select value={matchingMode} onChange={(e) => setMatchingMode(e.target.value as MatchingMode)} className="text-xs bg-white border border-gray-200 rounded-lg px-2 py-1 outline-none">
+                  <option value="semantic">Semantic (USE embeddings) — recommended</option>
                   <option value="hybrid">Hybrid (TF-IDF + Keyword)</option>
                   <option value="tfidf">TF-IDF only</option>
                   <option value="keyword">Keyword matching</option>
                   <option value="fuzzy">Fuzzy (Levenshtein)</option>
                 </select>
               </div>
+              {matchingMode === "semantic" && (
+                <p className="text-[10px] text-violet-600 ml-32 -mt-2">Uses the Universal Sentence Encoder (~25MB one-time download, cached after). Understands meaning, not just word overlap.</p>
+              )}
+              {/* Embedding progress (semantic mode only) */}
+              {embeddingProgress && (
+                <div className="ml-32 -mt-1 flex items-center gap-2 text-[11px] text-violet-600">
+                  <Loader2 className="w-3 h-3 animate-spin" /> {embeddingProgress}
+                </div>
+              )}
               {/* Confidence threshold */}
               <div className="flex items-center gap-3">
                 <label className="text-xs text-gray-500 w-32">Confidence threshold:</label>
-                <input type="range" min={0} max={1} step={0.05} value={confidenceThreshold} onChange={(e) => setConfidenceThreshold(parseFloat(e.target.value))} className="flex-1" />
+                <input type="range" min={0} max={1} step={0.05} value={confidenceThreshold} onChange={(e) => onThresholdChange(parseFloat(e.target.value))} className="flex-1" />
                 <span className="text-xs font-mono text-gray-700 w-10">{confidenceThreshold.toFixed(2)}</span>
               </div>
+              <p className="text-[10px] text-gray-400 ml-32 -mt-2">Default for {matchingMode}: {MODE_DEFAULT_THRESHOLD[matchingMode].toFixed(2)} — below this, the bot generates a reply instead of retrieving one.</p>
               {/* Thinking delay */}
               <div className="flex items-center gap-3">
                 <label className="text-xs text-gray-500 w-32 flex items-center gap-1"><Clock className="w-3 h-3" /> Thinking delay:</label>
@@ -889,11 +1207,19 @@ export function ChatbotPlayground() {
                 </button>
                 <span className="text-[10px] text-gray-400">Remember last 5 messages for context</span>
               </div>
+              {/* Generative fallback (Phase 68) */}
+              <div className="flex items-center gap-3">
+                <label className="text-xs text-gray-500 w-32 flex items-center gap-1"><Sparkles className="w-3 h-3" /> Generative fallback:</label>
+                <button onClick={() => setGenerativeFallback(!generativeFallback)} className={`relative w-11 h-6 rounded-full transition ${generativeFallback ? "bg-violet-600" : "bg-gray-300"}`}>
+                  <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${generativeFallback ? "translate-x-5" : ""}`} />
+                </button>
+                <span className="text-[10px] text-gray-400">When no training example clears the threshold, ask the LLM (with top-3 retrieved Q&A as context).</span>
+              </div>
             </div>
             <button onClick={train} disabled={isTraining || trainingData.length === 0} className="w-full h-10 rounded-full bg-violet-600 text-white text-sm font-semibold flex items-center justify-center gap-1.5 hover:bg-violet-700 disabled:opacity-50 mt-4">
               {isTraining ? <><Loader2 className="w-4 h-4 animate-spin" /> Training…</> : <><Brain className="w-4 h-4" /> Train Chatbot ({trainingData.length} pairs)</>}
             </button>
-            {isTrained && <p className="text-xs text-emerald-600 text-center mt-2">✓ Trained! Vocab: {modelRef.current?.vocab.length ?? 0} words · Intents: {stats.intents.length}</p>}
+            {isTrained && <p className="text-xs text-emerald-600 text-center mt-2">✓ Trained! Vocab: {modelRef.current?.vocab.length ?? 0} words · Intents: {stats.intents.length}{matchingMode === "semantic" ? ` · Embeddings: ${modelRef.current?.embeddings.length ?? 0}` : ""}</p>}
           </div>
         </div>
       )}
@@ -918,11 +1244,23 @@ export function ChatbotPlayground() {
                 <div className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                   <div className={`max-w-[80%] rounded-2xl px-3 py-2 text-sm ${msg.role === "user" ? "bg-indigo-600 text-white" : "bg-white border border-gray-200 text-gray-900"}`}>
                     {msg.role === "bot" && (
-                      <div className="flex items-center gap-1.5 mb-1 text-[10px]">
+                      <div className="flex items-center gap-1.5 mb-1 text-[10px] flex-wrap">
                         <span className="font-bold text-violet-500 flex items-center gap-0.5"><Brain className="w-3 h-3" /> BOT</span>
+                        {/* Phase 68 — source badge: green=retrieval, sky=generative, gray=fallback */}
+                        {msg.source === "retrieval" && (
+                          <span className="px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-semibold border border-emerald-100">Retrieved</span>
+                        )}
+                        {msg.source === "generative" && (
+                          <span className="px-1.5 py-0.5 rounded-full bg-sky-50 text-sky-700 font-semibold border border-sky-100 flex items-center gap-0.5">
+                            <Sparkles className="w-2.5 h-2.5" /> Generated{msg.model ? ` · ${msg.model}` : ""}
+                          </span>
+                        )}
+                        {msg.source === "fallback" && (
+                          <span className="px-1.5 py-0.5 rounded-full bg-gray-50 text-gray-500 font-semibold border border-gray-200">Fallback</span>
+                        )}
                         {msg.intent && <span className="px-1 py-0.5 rounded-full bg-violet-50 text-violet-600 font-medium">{msg.intent}</span>}
                         {msg.sentiment && <span className="px-1 py-0.5 rounded-full bg-gray-50 text-gray-500">{msg.sentiment}</span>}
-                        {msg.confidence !== undefined && <span className="text-gray-400">{(msg.confidence * 100).toFixed(0)}%</span>}
+                        {msg.confidence !== undefined && <span className="text-gray-400">{(msg.confidence * 100).toFixed(0)}% match</span>}
                         {msg.responseTime && <span className="text-gray-400">{(msg.responseTime / 1000).toFixed(1)}s</span>}
                       </div>
                     )}
@@ -1047,6 +1385,87 @@ export function ChatbotPlayground() {
               <div className="flex items-center justify-between text-xs"><span className="text-gray-500">Matching mode</span><span className="font-mono text-gray-900">{matchingMode}</span></div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* === REVIEW TAB — Phase 68 continuous-learning loop === */}
+      {activeTab === "review" && (
+        <div className="max-w-2xl mx-auto px-4 py-4">
+          <div className="rounded-2xl bg-violet-50 border border-violet-100 p-4 mb-4">
+            <h2 className="text-sm font-bold text-violet-900 flex items-center gap-1.5 mb-2">
+              <FileText className="w-4 h-4" /> Review Queue — Continuous Learning Loop
+            </h2>
+            <p className="text-xs text-violet-700 leading-relaxed">
+              Every time the bot can't confidently retrieve an answer, the turn lands here. Convert
+              these into new Q&amp;A pairs to teach the bot what it should have said — the next time
+              a similar question comes in, retrieval will hit instead of the LLM. Items in the queue
+              are persisted in your browser, so you can come back to them tomorrow.
+            </p>
+          </div>
+
+          {reviewLog.length === 0 ? (
+            <div className="text-center py-12 text-gray-400">
+              <FileText className="w-10 h-10 mx-auto mb-2" />
+              <p className="text-sm">No items to review yet.</p>
+              <p className="text-xs mt-1">Items appear here automatically when the bot uses generative fallback or canned fallback.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {reviewLog.slice().reverse().map((item) => (
+                <div key={item.id} className="rounded-2xl bg-white border border-gray-200 p-3">
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-gray-700">User said:</p>
+                      <p className="text-sm text-gray-900 mt-0.5">{item.input}</p>
+                    </div>
+                    <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                      {item.source === "generative"
+                        ? <span className="px-1.5 py-0.5 rounded-full bg-sky-50 text-sky-700 text-[10px] font-semibold border border-sky-100 flex items-center gap-0.5"><Sparkles className="w-2.5 h-2.5" /> Generated</span>
+                        : <span className="px-1.5 py-0.5 rounded-full bg-gray-50 text-gray-500 text-[10px] font-semibold border border-gray-200">Fallback</span>}
+                      <span className="text-[10px] text-gray-400">{(item.bestScore * 100).toFixed(0)}% best</span>
+                      <span className="text-[10px] text-gray-400">{new Date(item.timestamp).toLocaleString()}</span>
+                    </div>
+                  </div>
+
+                  {item.generatedReply && (
+                    <div className="mb-2 p-2 rounded-lg bg-sky-50 border border-sky-100">
+                      <p className="text-[10px] font-bold text-sky-700 mb-0.5">LLM REPLY (use as the answer? edit if needed):</p>
+                      <p className="text-xs text-sky-900">{item.generatedReply}</p>
+                    </div>
+                  )}
+
+                  {item.topMatches.length > 0 && (
+                    <details className="mb-2">
+                      <summary className="text-[10px] text-gray-500 cursor-pointer hover:text-gray-700">Top-3 retrieved (weak):</summary>
+                      <div className="mt-1 space-y-0.5">
+                        {item.topMatches.map((m, i) => (
+                          <p key={i} className="text-[10px] text-gray-500 pl-2">• {(m.score * 100).toFixed(0)}% — "{m.input}"</p>
+                        ))}
+                      </div>
+                    </details>
+                  )}
+
+                  <ReviewActions
+                    item={item}
+                    onAdd={(input, output) => {
+                      setTrainingData((prev) => [...prev, {
+                        id: Date.now().toString(),
+                        input, output,
+                      }]);
+                      setReviewLog((prev) => prev.filter((r) => r.id !== item.id));
+                    }}
+                    onDismiss={() => setReviewLog((prev) => prev.filter((r) => r.id !== item.id))}
+                  />
+                </div>
+              ))}
+              <button
+                onClick={() => { if (confirm("Clear the entire review queue?")) setReviewLog([]); }}
+                className="w-full h-9 rounded-full bg-gray-100 text-gray-600 text-xs font-semibold hover:bg-gray-200"
+              >
+                Clear all
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -1316,6 +1735,65 @@ export function ChatbotPlayground() {
 }
 
 /**
+ * ReviewActions — small inline form for converting a ReviewItem into a new
+ * training pair. Defaults the answer to the LLM-generated reply (if any) so
+ * the user can one-click-accept; otherwise they type a fresh answer.
+ */
+function ReviewActions({
+  item,
+  onAdd,
+  onDismiss,
+}: {
+  item: ReviewItem;
+  onAdd: (input: string, output: string) => void;
+  onDismiss: () => void;
+}) {
+  const [output, setOutput] = useState(item.generatedReply ?? "");
+  const [editingInput, setEditingInput] = useState(false);
+  const [input, setInput] = useState(item.input);
+  return (
+    <div className="border-t border-gray-100 pt-2 mt-1">
+      {editingInput ? (
+        <input
+          type="text"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          className="w-full h-8 rounded-lg bg-gray-50 border border-gray-200 px-2 text-xs mb-1.5 outline-none focus:border-violet-400"
+        />
+      ) : (
+        <button
+          onClick={() => setEditingInput(true)}
+          className="text-[10px] text-gray-400 hover:text-violet-600 mb-1.5"
+        >
+          ✎ edit input
+        </button>
+      )}
+      <textarea
+        value={output}
+        onChange={(e) => setOutput(e.target.value)}
+        placeholder="Type the answer the bot should have given…"
+        className="w-full h-16 rounded-lg bg-gray-50 border border-gray-200 p-2 text-xs outline-none focus:border-violet-400 mb-2"
+      />
+      <div className="flex gap-2">
+        <button
+          onClick={() => { if (input.trim() && output.trim()) onAdd(input.trim(), output.trim()); }}
+          disabled={!input.trim() || !output.trim()}
+          className="flex-1 h-8 rounded-full bg-violet-600 text-white text-xs font-semibold hover:bg-violet-700 disabled:opacity-40 flex items-center justify-center gap-1"
+        >
+          <Plus className="w-3 h-3" /> Add as training pair
+        </button>
+        <button
+          onClick={onDismiss}
+          className="px-3 h-8 rounded-full bg-gray-100 text-gray-600 text-xs font-semibold hover:bg-gray-200"
+        >
+          Dismiss
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Generate a standalone HTML file for the deployed chatbot.
  * Includes all training data, the NLP engine, and a flowing StudyBuddy watermark.
  */
@@ -1326,6 +1804,9 @@ function generateDeployedBotHTML(
   delay: number
 ): string {
   const dataJson = JSON.stringify(trainingData.map(({ id, ...rest }) => rest));
+  // Clamp the deployed-bot threshold to the Phase 68 minimum so a stale saved
+  // 0.15 from a Phase 62 project doesn't ship to the deployed page.
+  const safeThreshold = Math.max(threshold, 0.30);
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1340,7 +1821,10 @@ function generateDeployedBotHTML(
   .msg { margin-bottom: 12px; max-width: 80%; padding: 10px 14px; border-radius: 16px; font-size: 14px; line-height: 1.4; }
   .user { background: #4f46e5; color: white; margin-left: auto; }
   .bot { background: white; border: 1px solid #e5e7eb; }
-  .bot .meta { font-size: 10px; color: #7c3aed; font-weight: bold; margin-bottom: 4px; }
+  .bot .meta { font-size: 10px; color: #7c3aed; font-weight: bold; margin-bottom: 4px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .badge { padding: 1px 6px; border-radius: 999px; font-weight: 700; font-size: 9px; }
+  .badge-retrieved { background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
+  .badge-fallback { background: #f3f4f6; color: #6b7280; border: 1px solid #e5e7eb; }
   .thinking { margin: 4px 0 8px 20px; padding: 8px; background: #1f2937; border-radius: 8px; font-size: 11px; color: #9ca3af; max-width: 85%; }
   .thinking .step { margin-bottom: 4px; }
   .thinking .step-title { color: #d1d5db; font-weight: 600; }
@@ -1364,12 +1848,17 @@ function generateDeployedBotHTML(
   <div class="watermark">⚡ Built with StudyBuddy AI</div>
 <script>
 const TRAINING_DATA = ${dataJson};
-const THRESHOLD = ${threshold};
+const THRESHOLD = ${safeThreshold};
 const MEMORY = ${memory};
 const DELAY = ${delay};
-const vocab = [...new Set(TRAINING_DATA.flatMap(p => p.input.toLowerCase().replace(/[^\\w\\s]/g,' ').split(/\\s+/).filter(w=>w.length>1)))];
-const idf = new Map(vocab.map(w => { const df = TRAINING_DATA.filter(p => new Set(p.input.toLowerCase().split(/\\W+/)).has(w)).length; return [w, Math.log((TRAINING_DATA.length+1)/(df+1))+1]; }));
-const vectors = TRAINING_DATA.map(p => { const t = p.input.toLowerCase().replace(/[^\\w\\s]/g,' ').split(/\\s+/).filter(w=>w.length>1); const tf = new Map(); t.forEach(w=>tf.set(w,(tf.get(w)||0)+1)); return vocab.map(w => (tf.get(w)||0)/Math.max(t.length,1) * (idf.get(w)||1)); });
+// Phase 68 — light normalization only (lowercase + strip punct + collapse ws).
+// No aggressive spell-correction — see ChatbotPlayground.tsx for rationale.
+const ABBREV = { u:'you',ur:'your',r:'are',n:'and',pls:'please',plz:'please',tho:'though',wat:'what',wut:'what',y:'why',k:'ok',c:'see',b:'be',gonna:'going to',wanna:'want to',dont:'do not',cant:'cannot',wont:'will not',im:'i am',youre:'you are',thats:'that is',whats:'what is',idk:'i do not know' };
+function normalize(t){const toks=t.toLowerCase().replace(/[^\\w\\s']/g,' ').split(/\\s+/).filter(Boolean);return toks.map(w=>ABBREV[w]||w).join(' ').replace(/\\s+/g,' ').trim();}
+const normInputs = TRAINING_DATA.map(p => normalize(p.input));
+const vocab = [...new Set(normInputs.flatMap(s => s.split(/\\s+/).filter(w=>w.length>1)))];
+const idf = new Map(vocab.map(w => { const df = normInputs.filter(s => new Set(s.split(/\\s+/)).has(w)).length; return [w, Math.log((TRAINING_DATA.length+1)/(df+1))+1]; }));
+const vectors = normInputs.map(s => { const t = s.split(/\\s+/).filter(w=>w.length>1); const tf = new Map(); t.forEach(w=>tf.set(w,(tf.get(w)||0)+1)); return vocab.map(w => (tf.get(w)||0)/Math.max(t.length,1) * (idf.get(w)||1)); });
 function cosine(a,b){let d=0,ma=0,mb=0;for(let i=0;i<a.length;i++){d+=a[i]*b[i];ma+=a[i]*a[i];mb+=b[i]*b[i]}return Math.sqrt(ma)*Math.sqrt(mb)>0?d/(Math.sqrt(ma)*Math.sqrt(mb)):0}
 let context = [];
 function send() {
@@ -1380,16 +1869,17 @@ function send() {
   chat.innerHTML += '<div class="msg bot"><div class="typing">🤔 thinking...</div></div>';
   chat.scrollTop = chat.scrollHeight;
   setTimeout(() => {
-    const tokens = text.toLowerCase().replace(/[^\\w\\s]/g,' ').split(/\\s+/).filter(w=>w.length>1);
+    const norm = normalize(text);
+    const tokens = norm.split(/\\s+/).filter(w=>w.length>1);
     const tf = new Map(); tokens.forEach(w=>tf.set(w,(tf.get(w)||0)+1));
     const inputVec = vocab.map(w => (tf.get(w)||0)/Math.max(tokens.length,1) * (idf.get(w)||1));
     const scores = vectors.map((v,i) => ({ pair: TRAINING_DATA[i], score: cosine(inputVec, v) })).sort((a,b)=>b.score-a.score);
     const best = scores[0];
     const lastBot = chat.querySelector('.bot:last-child');
     if(best && best.score >= THRESHOLD) {
-      lastBot.innerHTML = '<div class="meta">🤖 BOT · '+(best.score*100).toFixed(0)+'% confidence</div>'+best.pair.output;
+      lastBot.innerHTML = '<div class="meta"><span class="badge badge-retrieved">RETRIEVED</span> '+(best.score*100).toFixed(0)+'% match</div>'+best.pair.output;
     } else {
-      lastBot.innerHTML = '<div class="meta">🤖 BOT · fallback</div>I\\'m sorry, I don\\'t understand that yet.';
+      lastBot.innerHTML = '<div class="meta"><span class="badge badge-fallback">FALLBACK</span> '+(best?((best.score*100).toFixed(0))+'% best':'no match')+'</div>I\\'m not sure how to answer that. Could you rephrase, or add a training example for it?';
     }
     chat.scrollTop = chat.scrollHeight;
   }, DELAY * 1000);
