@@ -1618,47 +1618,55 @@ export function ChatbotPlayground() {
           <Sparkles className="w-3.5 h-3.5" /> Loaded "{loadedFromTemplate}" — training data ready! Auto-switching to chat…
         </div>
       )}
-      {/* Header */}
-      <header className="bg-white border-b border-gray-200 px-4 h-14 flex items-center gap-3 sticky top-0 z-20">
-        <button onClick={() => setScreen("home")} className="text-gray-500 hover:text-gray-900">
-          <ChevronLeft className="w-5 h-5" />
+      {/* Header — Phase 73.3 redesign */}
+      <header className="bg-white border-b border-gray-200 px-4 h-14 flex items-center gap-2.5 sticky top-0 z-20">
+        <button onClick={() => setScreen("home")} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-600 transition">
+          <ChevronLeft className="w-4 h-4" />
         </button>
-        <Bot className="w-5 h-5 text-violet-500 flex-shrink-0" />
-        <h1 className="text-sm font-bold text-gray-900 flex-1">Chatbot Builder</h1>
-        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isTrained ? "bg-emerald-50 text-emerald-600" : "bg-gray-100 text-gray-500"}`}>
-          {isTrained ? `● ${trainingData.length} pairs trained` : "○ Not trained"}
-        </span>
-        <button onClick={() => setScreen("dataLab" as any)} className="px-3 h-9 rounded-full bg-fuchsia-600 text-white text-xs font-semibold flex items-center gap-1 hover:bg-fuchsia-700">
-          <Database className="w-3.5 h-3.5" /> Data Lab
+        <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-500 flex items-center justify-center flex-shrink-0 shadow-sm">
+          <Bot className="w-4 h-4 text-white" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <h1 className="text-sm font-bold text-gray-900 leading-tight">Chatbot Builder</h1>
+          <div className="flex items-center gap-1">
+            <span className={`w-1.5 h-1.5 rounded-full ${isTrained ? "bg-emerald-500 animate-pulse" : "bg-gray-300"}`} />
+            <p className="text-[10px] text-gray-500 truncate">{isTrained ? `${trainingData.length} pairs · ${matchingMode} · ${stats.intents.length} intents` : "Not trained yet"}</p>
+          </div>
+        </div>
+        <button onClick={() => setScreen("dataLab" as any)} className="px-2.5 h-8 rounded-full bg-fuchsia-50 text-fuchsia-600 text-[11px] font-semibold flex items-center gap-1 hover:bg-fuchsia-100 transition">
+          <Database className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Data Lab</span>
         </button>
-        <button onClick={saveProject} className="px-3 h-9 rounded-full bg-violet-600 text-white text-xs font-semibold flex items-center gap-1 hover:bg-violet-700">
-          <Save className="w-3.5 h-3.5" /> Save
+        <button onClick={saveProject} className="px-2.5 h-8 rounded-full bg-violet-600 text-white text-[11px] font-semibold flex items-center gap-1 hover:bg-violet-700 transition shadow-sm">
+          <Save className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Save</span>
         </button>
       </header>
 
-      {/* Tab bar */}
-      <div className="flex border-b border-gray-200 bg-white overflow-x-auto no-scrollbar">
+      {/* Tab bar — Phase 73.3 redesign (pill-style, scrollable) */}
+      <div className="flex gap-1 px-3 py-2 bg-white border-b border-gray-200 overflow-x-auto no-scrollbar">
         {([
-          { id: "train", label: "🎓 Train", icon: Brain },
-          { id: "chat", label: "💬 Chat", icon: MessageCircle },
-          { id: "review", label: `📝 Review${reviewLog.length > 0 ? ` (${reviewLog.length})` : ""}`, icon: FileText },
-          { id: "evaluate", label: "✅ Evaluate", icon: BarChart3 },
-          { id: "connect", label: "🔌 Connect", icon: Link2 },
-          { id: "brain", label: "🧠 Brain", icon: Sparkles },
-          { id: "llm", label: "🔬 LLM Viz", icon: Zap },
-          { id: "knowledge", label: "📚 Knowledge", icon: Database },
-          { id: "plugins", label: "🔌 Plugins", icon: Zap },
-          { id: "tools", label: "🔧 AI Tools", icon: Settings },
-          { id: "analytics", label: "📊 Analytics", icon: BarChart3 },
-          { id: "deploy", label: "🚀 Deploy", icon: Globe },
-        ] as Array<{ id: TabType; label: string; icon: any }>).map((tab) => {
-          const Icon = tab.icon;
+          { id: "train", label: "Train", icon: Brain, emoji: "🎓" },
+          { id: "chat", label: "Chat", icon: MessageCircle, emoji: "💬" },
+          { id: "review", label: `Review${reviewLog.length > 0 ? ` (${reviewLog.length})` : ""}`, icon: FileText, emoji: "📝" },
+          { id: "evaluate", label: "Evaluate", icon: BarChart3, emoji: "✅" },
+          { id: "knowledge", label: "Knowledge", icon: Database, emoji: "📚" },
+          { id: "plugins", label: "Plugins", icon: Zap, emoji: "🔌" },
+          { id: "connect", label: "Connect", icon: Link2, emoji: "📡" },
+          { id: "deploy", label: "Deploy", icon: Globe, emoji: "🚀" },
+          { id: "brain", label: "Brain", icon: Sparkles, emoji: "🧠" },
+          { id: "llm", label: "LLM Viz", icon: Zap, emoji: "🔬" },
+          { id: "tools", label: "AI Tools", icon: Settings, emoji: "🔧" },
+          { id: "analytics", label: "Analytics", icon: BarChart3, emoji: "📊" },
+        ] as Array<{ id: TabType; label: string; icon: any; emoji: string }>).map((tab) => {
+          const active = activeTab === tab.id;
+          const disabled = tab.id !== "train" && !isTrained;
           return (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id)} disabled={tab.id !== "train" && !isTrained}
-              className={`flex-shrink-0 px-4 py-2.5 text-sm font-semibold border-b-2 transition flex items-center gap-1 ${
-                activeTab === tab.id ? "border-violet-600 text-violet-600" : "border-transparent text-gray-500"
-              } ${!isTrained && tab.id !== "train" ? "opacity-40 cursor-not-allowed" : ""}`}>
-              <Icon className="w-3.5 h-3.5" /> {tab.label}
+            <button key={tab.id} onClick={() => setActiveTab(tab.id)} disabled={disabled}
+              className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition flex items-center gap-1 ${
+                active ? "bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white shadow-sm" :
+                disabled ? "bg-gray-50 text-gray-300 cursor-not-allowed" :
+                "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              }`}>
+              <span className="text-sm">{tab.emoji}</span> {tab.label}
             </button>
           );
         })}
@@ -1859,72 +1867,118 @@ export function ChatbotPlayground() {
         </div>
       )}
 
-      {/* === CHAT TAB === */}
+      {/* === CHAT TAB — Phase 73.3 redesign === */}
       {activeTab === "chat" && (
-        <div className="max-w-2xl mx-auto px-4 py-4 flex flex-col" style={{ minHeight: "calc(100vh - 120px)" }}>
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-xs text-gray-500">Mode: {matchingMode} · Delay: {thinkingDelay}s · Memory: {botMemory ? "On" : "Off"}</p>
-            <button onClick={clearChat} className="text-xs text-gray-400 hover:text-rose-500">Clear chat</button>
+        <div className="max-w-2xl mx-auto px-4 py-4 flex flex-col" style={{ minHeight: "calc(100vh - 130px)" }}>
+          {/* Chat sub-header */}
+          <div className="flex items-center justify-between mb-3 px-1">
+            <div className="flex items-center gap-2 text-[11px] text-gray-500">
+              <span className={`px-2 py-0.5 rounded-full font-medium ${matchingMode === "semantic" ? "bg-violet-50 text-violet-600" : "bg-gray-100 text-gray-500"}`}>{matchingMode}</span>
+              <span>·</span>
+              <span>{thinkingDelay}s delay</span>
+              <span>·</span>
+              <span>{botMemory ? "🧠 memory on" : "🚫 memory off"}</span>
+              {ragEnabled && knowledgeSources.length > 0 && <><span>·</span><span className="text-emerald-600">📚 RAG on</span></>}
+            </div>
+            <button onClick={clearChat} className="text-[11px] text-gray-400 hover:text-rose-500 font-medium transition">Clear</button>
           </div>
-          <div className="flex-1 overflow-y-auto space-y-3 pb-4">
+
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto space-y-4 pb-4">
             {chatMessages.length === 0 && (
-              <div className="text-center py-12 text-gray-400">
-                <MessageCircle className="w-10 h-10 mx-auto mb-2" />
-                <p className="text-sm">Start chatting with your bot!</p>
-                <p className="text-xs mt-1">Thinking delay: {thinkingDelay}s · The AI will "think" before each reply.</p>
+              <div className="text-center py-16">
+                <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br from-violet-100 to-fuchsia-100 flex items-center justify-center mb-4">
+                  <MessageCircle className="w-8 h-8 text-violet-500" />
+                </div>
+                <p className="text-sm font-semibold text-gray-900 mb-1">Chat with your bot</p>
+                <p className="text-xs text-gray-500 mb-4">Watch it think in real-time — see tokenization, intent detection, RAG retrieval, and confidence scores.</p>
+                <div className="flex flex-wrap justify-center gap-2">
+                  {["hello", "what can you do", "tell me a joke"].map((s) => (
+                    <button key={s} onClick={() => { setChatInput(s); }} className="px-3 py-1.5 rounded-full bg-white border border-gray-200 text-xs text-gray-600 hover:border-violet-300 hover:text-violet-600 transition">
+                      {s}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
             {chatMessages.map((msg, i) => (
-              <div key={i}>
-                <div className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                  <div className={`max-w-[80%] rounded-2xl px-3 py-2 text-sm ${msg.role === "user" ? "bg-indigo-600 text-white" : "bg-white border border-gray-200 text-gray-900"}`}>
+              <div key={i} className={`flex gap-2.5 ${msg.role === "user" ? "flex-row-reverse" : ""}`}>
+                {/* Avatar */}
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold ${msg.role === "user" ? "bg-indigo-500 text-white" : "bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white"}`}>
+                  {msg.role === "user" ? "You" : <Bot className="w-4 h-4" />}
+                </div>
+                {/* Message bubble */}
+                <div className={`max-w-[78%] ${msg.role === "user" ? "items-end" : "items-start"} flex flex-col`}>
+                  <div className={`rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${msg.role === "user" ? "bg-indigo-600 text-white rounded-tr-md" : "bg-white border border-gray-200 text-gray-900 rounded-tl-md shadow-sm"}`}>
                     {msg.role === "bot" && (
-                      <div className="flex items-center gap-1.5 mb-1 text-[10px] flex-wrap">
-                        <span className="font-bold text-violet-500 flex items-center gap-0.5"><Brain className="w-3 h-3" /> BOT</span>
-                        {/* Phase 68 — source badge: green=retrieval, sky=generative, gray=fallback */}
+                      <div className="flex items-center gap-1.5 mb-1.5 text-[10px] flex-wrap">
+                        {/* Source badge — the hero element */}
                         {msg.source === "retrieval" && (
-                          <span className="px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-semibold border border-emerald-100">Retrieved</span>
+                          <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold border border-emerald-200">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> Retrieved
+                          </span>
                         )}
                         {msg.source === "generative" && (
-                          <span className="px-1.5 py-0.5 rounded-full bg-sky-50 text-sky-700 font-semibold border border-sky-100 flex items-center gap-0.5">
-                            <Sparkles className="w-2.5 h-2.5" /> Generated{msg.model ? ` · ${msg.model}` : ""}
+                          <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full bg-sky-50 text-sky-700 font-bold border border-sky-200">
+                            <Sparkles className="w-2.5 h-2.5" /> Generated
                           </span>
                         )}
                         {msg.source === "fallback" && (
-                          <span className="px-1.5 py-0.5 rounded-full bg-gray-50 text-gray-500 font-semibold border border-gray-200">Fallback</span>
+                          <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-bold border border-gray-200">
+                            <span className="w-1.5 h-1.5 rounded-full bg-gray-400" /> Fallback
+                          </span>
                         )}
-                        {msg.intent && <span className="px-1 py-0.5 rounded-full bg-violet-50 text-violet-600 font-medium">{msg.intent}</span>}
-                        {msg.sentiment && <span className="px-1 py-0.5 rounded-full bg-gray-50 text-gray-500">{msg.sentiment}</span>}
-                        {msg.confidence !== undefined && <span className="text-gray-400">{(msg.confidence * 100).toFixed(0)}% match</span>}
-                        {msg.responseTime && <span className="text-gray-400">{(msg.responseTime / 1000).toFixed(1)}s</span>}
+                        {/* Confidence bar */}
+                        {msg.confidence !== undefined && msg.source !== "fallback" && (
+                          <div className="flex items-center gap-1">
+                            <div className="w-12 h-1 rounded-full bg-gray-200 overflow-hidden">
+                              <div className={`h-full rounded-full ${msg.confidence >= 0.7 ? "bg-emerald-500" : msg.confidence >= 0.4 ? "bg-amber-500" : "bg-rose-500"}`} style={{ width: `${Math.max(msg.confidence * 100, 5)}%` }} />
+                            </div>
+                            <span className="text-gray-400 font-mono">{(msg.confidence * 100).toFixed(0)}%</span>
+                          </div>
+                        )}
+                        {/* Meta tags */}
+                        {msg.intent && msg.intent !== "general" && <span className="px-1.5 py-0.5 rounded bg-violet-50 text-violet-600 font-medium">{msg.intent}</span>}
+                        {msg.responseTime && <span className="text-gray-300">{(msg.responseTime / 1000).toFixed(1)}s</span>}
+                        {msg.model && msg.source === "generative" && <span className="text-gray-300 truncate max-w-[80px]">{msg.model}</span>}
                       </div>
                     )}
-                    {msg.text}
+                    <p className="whitespace-pre-wrap">{msg.text}</p>
                   </div>
+                  {/* Thinking process — collapsible */}
+                  {msg.thinking && msg.thinking.length > 0 && (
+                    <ThinkingProcess steps={msg.thinking} delay={thinkingDelay} />
+                  )}
                 </div>
-                {msg.thinking && (
-                  <div className="mt-1.5 ml-4 rounded-xl bg-gray-900 border border-gray-700 p-2.5 max-w-[90%]">
-                    <p className="text-[10px] font-bold text-gray-400 uppercase mb-1.5 flex items-center gap-1"><Zap className="w-3 h-3 text-amber-400" /> Thinking process ({thinkingDelay}s delay)</p>
-                    {msg.thinking.map((step, j) => (
-                      <div key={j} className="mb-1.5 last:mb-0">
-                        <p className="text-[11px] font-semibold text-gray-300">{step.step}</p>
-                        <p className="text-[10px] text-gray-500">{step.detail}</p>
-                        {step.data && Array.isArray(step.data) && step.data.length > 0 && (
-                          <div className="mt-1 space-y-0.5">{step.data.slice(0, 5).map((item: any, k: number) => (
-                            <p key={k} className="text-[10px] font-mono text-gray-600 pl-2">{typeof item === "string" ? item : JSON.stringify(item)}</p>
-                          ))}</div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
             ))}
             <div ref={chatEndRef} />
           </div>
-          <div className="flex items-center gap-2 pt-2 border-t border-gray-200">
-            <input type="text" value={chatInput} onChange={(e) => setChatInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }} placeholder="Type a message…" className="flex-1 h-10 rounded-full bg-white border border-gray-200 px-4 text-sm outline-none focus:border-violet-400" />
-            <button onClick={sendMessage} disabled={!chatInput.trim()} className="w-10 h-10 rounded-full bg-violet-600 text-white flex items-center justify-center disabled:opacity-40 hover:bg-violet-700"><Send className="w-4 h-4" /></button>
+          {/* Input area */}
+          <div className="pt-3 border-t border-gray-200">
+            <div className="relative flex items-end gap-2">
+              <div className="flex-1 relative">
+                <textarea
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+                  placeholder="Type a message…  (Enter to send, Shift+Enter for newline)"
+                  rows={1}
+                  className="w-full min-h-[40px] max-h-32 resize-none rounded-2xl bg-white border border-gray-200 pl-4 pr-12 py-2.5 text-sm outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 transition"
+                  style={{ height: "auto" }}
+                />
+                {chatInput.length > 0 && (
+                  <span className="absolute right-3 bottom-2.5 text-[9px] text-gray-300 font-mono">{chatInput.length}</span>
+                )}
+              </div>
+              <button
+                onClick={sendMessage}
+                disabled={!chatInput.trim()}
+                className="w-10 h-10 rounded-full bg-gradient-to-br from-violet-600 to-fuchsia-600 text-white flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed hover:shadow-lg hover:scale-105 transition flex-shrink-0 shadow-sm"
+              >
+                <Send className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -3019,6 +3073,56 @@ export function ChatbotPlayground() {
               <p>6. 📖 <b>Cite:</b> The LLM cites chunks as [Knowledge N] in its answer</p>
             </div>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * ThinkingProcess — collapsible panel showing the bot's step-by-step
+ * reasoning. Collapsed by default on mobile, expanded on desktop.
+ */
+function ThinkingProcess({ steps, delay }: { steps: ThinkingStep[]; delay: number }) {
+  const [expanded, setExpanded] = useState(false);
+  const [expandedStep, setExpandedStep] = useState<number | null>(null);
+  return (
+    <div className="mt-1.5 max-w-full">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-[10px] font-bold text-gray-500 uppercase transition"
+      >
+        <Zap className="w-3 h-3 text-amber-500" />
+        Thinking process ({steps.length} steps · {delay}s)
+        <span className={`transition-transform ${expanded ? "rotate-90" : ""}`}>›</span>
+      </button>
+      {expanded && (
+        <div className="mt-1.5 rounded-xl bg-gray-900 border border-gray-700 p-3 space-y-2 max-h-80 overflow-y-auto">
+          {steps.map((step, j) => (
+            <div key={j} className="border-l-2 border-gray-700 pl-2.5">
+              <div
+                className="flex items-center gap-1.5 cursor-pointer"
+                onClick={() => setExpandedStep(expandedStep === j ? null : j)}
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-violet-500 flex-shrink-0" />
+                <p className="text-[11px] font-semibold text-gray-200 flex-1">{step.step}</p>
+                {step.data && Array.isArray(step.data) && step.data.length > 0 && (
+                  <span className="text-[9px] text-gray-500">{step.data.length} items</span>
+                )}
+              </div>
+              <p className="text-[10px] text-gray-400 mt-0.5">{step.detail}</p>
+              {step.data && Array.isArray(step.data) && step.data.length > 0 && expandedStep === j && (
+                <div className="mt-1 space-y-0.5 bg-gray-800 rounded p-1.5">
+                  {step.data.slice(0, 8).map((item: any, k: number) => (
+                    <p key={k} className="text-[10px] font-mono text-gray-400">
+                      {typeof item === "string" ? item : JSON.stringify(item)}
+                    </p>
+                  ))}
+                  {step.data.length > 8 && <p className="text-[9px] text-gray-600">+{step.data.length - 8} more</p>}
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       )}
     </div>
