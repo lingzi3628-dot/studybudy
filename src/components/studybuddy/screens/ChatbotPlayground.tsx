@@ -549,27 +549,35 @@ export function ChatbotPlayground() {
   // Phase 64 — Sync training data to the shared Zustand store + localStorage
   // whenever it changes. This ensures DataLab and ChatbotPlayground share data.
   // Phase 73.5 — removed setChatbotTrainingData from deps (Zustand actions are
-  // stable references — including it caused the effect to fire on every render
-  // when the store returned a new object, triggering an infinite update loop).
+  // stable references). Using a ref guard to prevent the sync from re-triggering
+  // when the store echoes back the same data we just wrote.
+  const lastSyncedRef = useRef<TrainingPair[] | null>(null);
+  const lastTrainedFingerprint = useRef<string>("");
+  const lastTrainedMode = useRef<MatchingMode | "">("");
   useEffect(() => {
+    // Skip if we already synced this exact array reference (prevents loop).
+    if (lastSyncedRef.current === trainingData) return;
+    lastSyncedRef.current = trainingData;
     setChatbotTrainingData(trainingData);
   }, [trainingData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Phase 64 — Listen for training data changes from DataLab (via store)
-  // Phase 73.5 — added trainingData.length to deps to fix stale closure bug.
-  // Before, trainingData.length was captured at effect creation time and never
-  // updated. When the localStorage-loading effect set trainingData from
-  // STARTER_DATA (8 pairs) to saved data (173 pairs), this watcher still saw
-  // length=8, so it kept calling setTrainingData(chatbotTrainingData) in an
-  // infinite loop (React error #185). Now, trainingData.length is in deps so
-  // the effect re-runs when the length changes, sees the current length, and
-  // the length-equality check breaks the loop.
+  // Phase 73.5 — reference comparison + ref guard to break the sync loop.
+  // The store's setChatbotTrainingData(data) sets chatbotTrainingData = data
+  // (same reference as trainingData). So after sync, chatbotTrainingData ===
+  // trainingData. The watcher checks this reference equality and skips if they
+  // match — breaking the cycle. Only fires when DataLab writes NEW data (a
+  // different reference with a different length).
   useEffect(() => {
-    if (chatbotTrainingData && chatbotTrainingData.length > 0 && chatbotTrainingData.length !== trainingData.length) {
-      setTrainingData(chatbotTrainingData);
-      setIsTrained(false); // need to retrain
-    }
-  }, [chatbotTrainingData, trainingData.length]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!chatbotTrainingData || chatbotTrainingData.length === 0) return;
+    // Skip if same reference (our own sync echo) or same length (no change).
+    if (chatbotTrainingData === trainingData) return;
+    if (chatbotTrainingData.length === trainingData.length) return;
+    // DataLab wrote new data — update local state.
+    lastSyncedRef.current = chatbotTrainingData;
+    setTrainingData(chatbotTrainingData);
+    setIsTrained(false);
+  }, [chatbotTrainingData, trainingData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Phase 64 — AUTO-TRAIN when training data changes.
   // This fixes the "bot forgets / never learns" issue. Whenever the training
@@ -577,6 +585,13 @@ export function ChatbotPlayground() {
   // the bot automatically trains so the user can immediately chat.
   useEffect(() => {
     if (trainingData.length === 0 || isTraining) return;
+    // Phase 73.5 — guard against re-training when trainingData reference
+    // changes but content doesn't (e.g. from the sync loop). Use a ref to
+    // track the last trained length + a content fingerprint.
+    const fingerprint = `${trainingData.length}:${trainingData[0]?.input ?? ""}:${trainingData[trainingData.length - 1]?.input ?? ""}`;
+    if (lastTrainedFingerprint.current === fingerprint && lastTrainedMode.current === matchingMode) return;
+    lastTrainedFingerprint.current = fingerprint;
+    lastTrainedMode.current = matchingMode;
     // Auto-train (no button click needed)
     const autoTrain = async () => {
       setIsTraining(true);
