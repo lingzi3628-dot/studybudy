@@ -369,7 +369,7 @@ export function ChatbotPlayground() {
   const [connectError, setConnectError] = useState<string | null>(null);
   // Phase 72 — Knowledge sources (RAG)
   const [knowledgeSources, setKnowledgeSources] = useState<Array<{ id: string; type: string; title: string; source: string | null; chunkCount: number; charCount: number; createdAt: string }>>([]);
-  const [kbTab, setKbTab] = useState<"url" | "github" | "file" | "text" | "packs">("text");
+  const [kbTab, setKbTab] = useState<"url" | "github" | "file" | "text" | "packs" | "hf">("text");
   const [kbUrl, setKbUrl] = useState("");
   const [kbGithub, setKbGithub] = useState("");
   const [kbText, setKbText] = useState("");
@@ -382,6 +382,12 @@ export function ChatbotPlayground() {
   const [packCategory, setPackCategory] = useState<string>("education");
   const [addingPack, setAddingPack] = useState<string | null>(null); // which pack ID is being added
   const [packError, setPackError] = useState<string | null>(null);
+  // Phase 74.1 — Hugging Face datasets
+  const [hfQuery, setHfQuery] = useState("");
+  const [hfResults, setHfResults] = useState<Array<{ id: string; author: string; description: string; downloads: number; likes: number; tags: string[] }>>([]);
+  const [hfSearching, setHfSearching] = useState(false);
+  const [hfIngesting, setHfIngesting] = useState<string | null>(null); // which dataset ID is being ingested
+  const [hfError, setHfError] = useState<string | null>(null);
   // Phase 73 — Plugins
   const [botPlugins, setBotPlugins] = useState<Array<{ id: string; name: string; type: string; description: string; config: any; enabled: boolean; callCount: number; lastCalledAt: string | null }>>([]);
   const [availableBuiltin, setAvailableBuiltin] = useState<Array<{ name: string; description: string; triggerExamples: string[] }>>([]);
@@ -1453,6 +1459,58 @@ export function ChatbotPlayground() {
       setPackError(e?.message || "Network error");
     }
     setAddingPack(null);
+  };
+
+  // Phase 74.1 — Hugging Face dataset handlers
+  const searchHF = async () => {
+    const q = hfQuery.trim();
+    if (!q) return;
+    setHfSearching(true);
+    setHfError(null);
+    try {
+      const r = await fetch(`/api/knowledge-sources/huggingface?q=${encodeURIComponent(q)}`);
+      const d = await r.json();
+      if (r.ok && Array.isArray(d.datasets)) {
+        setHfResults(d.datasets);
+      } else {
+        setHfError(d?.error || "Search failed");
+      }
+    } catch (e: any) {
+      setHfError(e?.message || "Network error");
+    }
+    setHfSearching(false);
+  };
+
+  const ingestHF = async (datasetId: string) => {
+    setHfIngesting(datasetId);
+    setHfError(null);
+    try {
+      const r = await fetch("/api/knowledge-sources/huggingface", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ datasetId, botId: connectBotId ?? undefined }),
+      });
+      const d = await r.json();
+      if (!r.ok) {
+        setHfError(d?.error || "Failed to ingest dataset");
+      } else {
+        loadKnowledgeSources();
+        // If Q&A pairs were found, offer to add them as training data.
+        if (d.qaPairs && d.qaPairs.length > 0) {
+          if (confirm(`Found ${d.qaPairCount} Q&A pairs in this dataset. Add them as training data too?`)) {
+            const newPairs = d.qaPairs.map((qa: any, i: number) => ({
+              id: `hf-${Date.now()}-${i}`,
+              input: qa.input,
+              output: qa.output,
+            }));
+            setTrainingData((prev) => [...prev, ...newPairs]);
+          }
+        }
+      }
+    } catch (e: any) {
+      setHfError(e?.message || "Network error");
+    }
+    setHfIngesting(null);
   };
 
   // Phase 73 — Plugin handlers
@@ -3055,9 +3113,9 @@ export function ChatbotPlayground() {
 
           {/* Source type tabs */}
           <div className="flex gap-1 mb-3">
-            {(["text", "url", "github", "file", "packs"] as const).map((t) => (
+            {(["text", "url", "github", "file", "packs", "hf"] as const).map((t) => (
               <button key={t} onClick={() => { setKbTab(t); if (t === "packs" && knowledgePacks.length === 0) loadKnowledgePacks(); }} className={`flex-1 h-8 rounded-full text-xs font-semibold ${kbTab === t ? "bg-violet-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
-                {t === "text" && "Text"} {t === "url" && "URL"} {t === "github" && "GitHub"} {t === "file" && "File"} {t === "packs" && "Data & Knowledge"}
+                {t === "text" && "Text"} {t === "url" && "URL"} {t === "github" && "GitHub"} {t === "file" && "File"} {t === "packs" && "Packs"} {t === "hf" && "HuggingFace"}
               </button>
             ))}
           </div>
@@ -3150,6 +3208,50 @@ export function ChatbotPlayground() {
                 {addingPack && <p className="mt-2 text-[11px] text-violet-600 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Fetching Wikipedia articles — this takes 10-30 seconds (each article is fetched + chunked)…</p>}
               </>
             )}
+            {kbTab === "hf" && (
+              <>
+                <p className="text-[11px] text-gray-500 mb-2">Search millions of Hugging Face datasets by keyword. One click to ingest — the bot fetches, cleans, dedupes, and chunks the data automatically. If the dataset has Q&A columns (input/output, question/answer), you can add them as training pairs too.</p>
+                <div className="flex gap-1.5 mb-3">
+                  <input
+                    type="text"
+                    value={hfQuery}
+                    onChange={(e) => setHfQuery(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") searchHF(); }}
+                    placeholder="Search datasets... (e.g. 'squad', 'openai humaneval', 'medical qa')"
+                    className="flex-1 h-9 rounded-lg bg-gray-50 border border-gray-200 px-3 text-xs outline-none focus:border-violet-400"
+                  />
+                  <button onClick={searchHF} disabled={hfSearching || !hfQuery.trim()} className="px-3 h-9 rounded-full bg-violet-600 text-white text-xs font-semibold hover:bg-violet-700 disabled:opacity-40 flex items-center gap-1">
+                    {hfSearching ? <><Loader2 className="w-3 h-3 animate-spin" /> Searching…</> : "Search"}
+                  </button>
+                </div>
+                {hfResults.length > 0 && (
+                  <div className="space-y-1.5 max-h-80 overflow-y-auto">
+                    {hfResults.map((ds) => (
+                      <div key={ds.id} className="flex items-start gap-2 p-2.5 rounded-lg bg-gray-50 border border-gray-100">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-bold text-gray-900 truncate">{ds.id}</p>
+                          <p className="text-[10px] text-gray-500 line-clamp-2">{ds.description}</p>
+                          <div className="flex items-center gap-2 mt-0.5 text-[9px] text-gray-400">
+                            <span>{ds.downloads.toLocaleString()} downloads</span>
+                            <span>{ds.likes} likes</span>
+                            {ds.tags.slice(0, 3).map((tag) => <span key={tag} className="px-1 py-0.5 rounded bg-gray-100 text-gray-500">{tag}</span>)}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => ingestHF(ds.id)}
+                          disabled={hfIngesting === ds.id}
+                          className="flex-shrink-0 px-2.5 h-7 rounded-full bg-violet-600 text-white text-[10px] font-semibold hover:bg-violet-700 disabled:opacity-40 flex items-center gap-1"
+                        >
+                          {hfIngesting === ds.id ? <><Loader2 className="w-2.5 h-2.5 animate-spin" /> Ingesting…</> : "+ Ingest"}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {hfError && <p className="mt-2 text-[11px] text-rose-600 bg-rose-50 border border-rose-100 rounded-lg p-2">⚠ {hfError}</p>}
+                {hfIngesting && <p className="mt-2 text-[11px] text-violet-600 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Fetching + cleaning dataset (10-30 seconds for large datasets)…</p>}
+              </>
+            )}
             {ingestError && <p className="mt-2 text-[11px] text-rose-600 bg-rose-50 border border-rose-100 rounded-lg p-2">⚠ {ingestError}</p>}
           </div>
 
@@ -3163,7 +3265,7 @@ export function ChatbotPlayground() {
                 {knowledgeSources.map((src) => (
                   <div key={src.id} className="flex items-start gap-2 p-2 rounded-lg bg-gray-50 border border-gray-100">
                     <span className="w-7 h-7 rounded-md bg-gray-100 flex items-center justify-center flex-shrink-0 text-[9px] font-bold text-gray-600 uppercase">
-                      {src.type === "url" ? "URL" : src.type === "github" ? "GH" : src.type === "file" ? "FILE" : src.type === "pack" ? "PK" : "TXT"}
+                      {src.type === "url" ? "URL" : src.type === "github" ? "GH" : src.type === "file" ? "FILE" : src.type === "pack" ? "PK" : src.type === "huggingface" ? "HF" : "TXT"}
                     </span>
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-semibold text-gray-900 truncate">{src.title}</p>
