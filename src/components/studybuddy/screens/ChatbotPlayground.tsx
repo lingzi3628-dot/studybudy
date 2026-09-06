@@ -392,6 +392,16 @@ export function ChatbotPlayground() {
   const [slackSigningSecret, setSlackSigningSecret] = useState("");
   const [connecting, setConnecting] = useState<string | null>(null); // which platform is connecting
   const [connectError, setConnectError] = useState<string | null>(null);
+  // Phase 72 — Knowledge sources (RAG)
+  const [knowledgeSources, setKnowledgeSources] = useState<Array<{ id: string; type: string; title: string; source: string | null; chunkCount: number; charCount: number; createdAt: string }>>([]);
+  const [kbTab, setKbTab] = useState<"url" | "github" | "file" | "text">("text");
+  const [kbUrl, setKbUrl] = useState("");
+  const [kbGithub, setKbGithub] = useState("");
+  const [kbText, setKbText] = useState("");
+  const [kbTitle, setKbTitle] = useState("");
+  const [ingesting, setIngesting] = useState(false);
+  const [ingestError, setIngestError] = useState<string | null>(null);
+  const [ragEnabled, setRagEnabled] = useState(true);
   const [copied, setCopied] = useState(false);
   const [importText, setImportText] = useState("");
   const [showImport, setShowImport] = useState(false);
@@ -981,21 +991,66 @@ export function ChatbotPlayground() {
 
       if (generativeFallback) {
         thinkingSteps.push({ step: "8. Generative fallback", detail: `Calling LLM with top-${top3.length} retrieved Q&A as context…` });
-        try {
-          const contextBlock = top3
-            .map((s, i) => `Q${i + 1}: ${s.pair.input}\nA${i + 1}: ${s.pair.output}`)
-            .join("\n");
-          // Phase 69 — persona prompt drives the tone. Falls back to the default
-          // template if the user cleared the textarea.
-          const persona = personaPrompt.trim() || PERSONA_TEMPLATES[0].prompt;
-          const systemPrompt = [
-            persona,
-            bestScore > 0
-              ? `Best retrieval score was ${bestScore.toFixed(2)} (below the ${confidenceThreshold} threshold), so treat the retrieved pairs as weak hints only.`
-              : `No training examples matched at all.`,
-          ].join(" ");
-          const userPrompt = `Retrieved context (weak):\n${contextBlock || "(none)"}\n\nUser message: ${text}`;
 
+        // Phase 72 — RAG retrieval from knowledge sources (client-side USE).
+        let ragBlock = "";
+        let ragChunkCount = 0;
+        if (ragEnabled && knowledgeSources.length > 0) {
+          thinkingSteps.push({ step: "8a. RAG retrieval", detail: `Retrieving from ${knowledgeSources.length} knowledge source(s)…` });
+          try {
+            // Load full chunks for each source (the list endpoint doesn't return chunks).
+            const chunkPromises = knowledgeSources.map(async (src) => {
+              const r = await fetch(`/api/knowledge-sources/${src.id}`);
+              if (!r.ok) return [];
+              const d = await r.json();
+              const chunks = d.source?.chunks || [];
+              return chunks.map((c: any) => ({ text: c.text, title: src.title }));
+            });
+            const allChunks = (await Promise.all(chunkPromises)).flat();
+            if (allChunks.length > 0) {
+              // Embed query + chunks with USE.
+              const embedder = await ensureEmbedder();
+              const [queryVec] = await embedder.embed([normalized]);
+              const chunkTexts = allChunks.map((c: any) => c.text).slice(0, 500);
+              const chunkVecs = await embedder.embed(chunkTexts);
+              const scored = chunkTexts.map((t: string, i: number) => ({
+                text: t,
+                title: (allChunks[i] as any)?.title,
+                score: cosineSimVec(queryVec, chunkVecs[i]),
+              })).sort((a, b) => b.score - a.score).slice(0, 4).filter((c) => c.score > 0.15);
+              ragChunkCount = scored.length;
+              if (scored.length > 0) {
+                ragBlock = scored.map((c, i) => `[Knowledge ${i + 1}]${c.title ? ` (${c.title}):` : ":"}\n${c.text}`).join("\n\n");
+                thinkingSteps.push({ step: "8b. RAG retrieved", detail: `${scored.length} relevant chunks (top score ${scored[0].score.toFixed(2)})`, data: scored.map((c) => `${(c.score * 100).toFixed(0)}% — ${c.text.slice(0, 60)}…`) });
+              }
+            }
+          } catch (e: any) {
+            thinkingSteps.push({ step: "8a. RAG retrieval", detail: `RAG failed: ${e?.message || e} — continuing without knowledge context` });
+          }
+        }
+
+        const contextBlock = top3
+          .map((s, i) => `Q${i + 1}: ${s.pair.input}\nA${i + 1}: ${s.pair.output}`)
+          .join("\n");
+        // Phase 69 — persona prompt drives the tone. Falls back to the default
+        // template if the user cleared the textarea.
+        const persona = personaPrompt.trim() || PERSONA_TEMPLATES[0].prompt;
+        const systemPrompt = [
+          persona,
+          bestScore > 0
+            ? `Best retrieval score was ${bestScore.toFixed(2)} (below the ${confidenceThreshold} threshold), so treat the retrieved pairs as weak hints only.`
+            : `No training examples matched at all.`,
+          ragChunkCount > 0
+            ? `${ragChunkCount} relevant knowledge chunks were retrieved — use these as primary context for your answer. Cite them as [Knowledge N] where N is the chunk number.`
+            : "",
+        ].filter(Boolean).join(" ");
+        const userPrompt = [
+          ragBlock ? `Retrieved knowledge:\n${ragBlock}\n` : "",
+          contextBlock ? `Retrieved Q&A (weak):\n${contextBlock}\n` : "",
+          `User message: ${text}`,
+        ].filter(Boolean).join("\n");
+
+        try {
           const r = await fetch("/api/ai/playground", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -1008,7 +1063,7 @@ export function ChatbotPlayground() {
               replyText = out;
               source = "generative";
               modelName = d?.model ?? "ai-playground";
-              thinkingSteps.push({ step: "9. LLM replied", detail: `Generated ${out.length} chars via ${modelName}`, data: [out.slice(0, 120) + (out.length > 120 ? "…" : "")] });
+              thinkingSteps.push({ step: "9. LLM replied", detail: `Generated ${out.length} chars via ${modelName}${ragChunkCount > 0 ? ` + ${ragChunkCount} RAG chunks` : ""}`, data: [out.slice(0, 120) + (out.length > 120 ? "…" : "")] });
             } else {
               thinkingSteps.push({ step: "9. LLM empty", detail: `API returned empty output — using canned fallback` });
             }
@@ -1049,7 +1104,7 @@ export function ChatbotPlayground() {
       totalChats: prev.totalChats + 1,
       intents: prev.intents,
     }));
-  }, [chatInput, confidenceThreshold, matchingMode, thinkingDelay, botMemory, conversationContext, generativeFallback, personaPrompt]);
+  }, [chatInput, confidenceThreshold, matchingMode, thinkingDelay, botMemory, conversationContext, generativeFallback, personaPrompt, ragEnabled, knowledgeSources]);
 
   // Deploy the bot (generates a standalone HTML file with watermark)
   const deployBot = () => {
@@ -1210,6 +1265,67 @@ export function ChatbotPlayground() {
       const r = await fetch(`/api/deployed-bots/${connectBotId}/integrations`, { method: "PUT" });
       const d = await r.json();
       if (r.ok) setApiKeyVal(d.apiKey);
+    } catch {}
+  };
+
+  // Phase 72 — Knowledge source handlers
+  const loadKnowledgeSources = async () => {
+    try {
+      const r = await fetch(`/api/knowledge-sources${connectBotId ? `?botId=${connectBotId}` : ""}`);
+      const d = await r.json();
+      if (r.ok && Array.isArray(d.sources)) setKnowledgeSources(d.sources);
+    } catch {}
+  };
+
+  const ingestKnowledge = async (type: "url" | "github" | "file" | "text") => {
+    setIngesting(true);
+    setIngestError(null);
+    try {
+      if (type === "file") {
+        // Handled by fileInputRef onChange — this shouldn't be called directly.
+        return;
+      }
+      const body: any = { type, botId: connectBotId ?? undefined };
+      if (type === "url") body.url = kbUrl;
+      else if (type === "github") body.repo = kbGithub;
+      else if (type === "text") { body.text = kbText; body.title = kbTitle || "Pasted text"; }
+      const r = await fetch("/api/knowledge-sources", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const d = await r.json();
+      if (!r.ok) setIngestError(d?.error || "Ingestion failed");
+      else {
+        if (type === "url") setKbUrl("");
+        if (type === "github") setKbGithub("");
+        if (type === "text") { setKbText(""); setKbTitle(""); }
+        loadKnowledgeSources();
+      }
+    } catch (e: any) { setIngestError(e?.message); }
+    setIngesting(false);
+  };
+
+  const uploadKnowledgeFile = async (file: File) => {
+    setIngesting(true);
+    setIngestError(null);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      if (connectBotId) form.append("botId", connectBotId);
+      const r = await fetch("/api/knowledge-sources/upload", { method: "POST", body: form });
+      const d = await r.json();
+      if (!r.ok) setIngestError(d?.error || "Upload failed");
+      else loadKnowledgeSources();
+    } catch (e: any) { setIngestError(e?.message); }
+    setIngesting(false);
+  };
+
+  const deleteKnowledgeSource = async (id: string) => {
+    if (!confirm("Delete this knowledge source?")) return;
+    try {
+      await fetch(`/api/knowledge-sources/${id}`, { method: "DELETE" });
+      setKnowledgeSources((prev) => prev.filter((s) => s.id !== id));
     } catch {}
   };
 
@@ -2459,75 +2575,110 @@ export function ChatbotPlayground() {
       {/* === KNOWLEDGE BASE TAB === 📚 RAG pipeline */}
       {activeTab === "knowledge" && (
         <div className="max-w-2xl mx-auto px-4 py-4">
-          <h2 className="text-sm font-bold text-gray-900 flex items-center gap-1.5 mb-3"><Database className="w-4 h-4 text-violet-500" /> Knowledge Base (RAG)</h2>
-          <p className="text-xs text-gray-500 mb-4">Paste documents, text, or knowledge. The bot will retrieve relevant information when answering questions — like giving it a textbook to read.</p>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-bold text-gray-900 flex items-center gap-1.5"><Database className="w-4 h-4 text-violet-500" /> Knowledge Base (RAG)</h2>
+            <button onClick={loadKnowledgeSources} className="text-[11px] text-violet-600 hover:text-violet-800 font-semibold">↻ Refresh</button>
+          </div>
+          <p className="text-xs text-gray-500 mb-4">Add documents from URLs, GitHub repos, files, or raw text. The bot retrieves relevant chunks and uses them as context when answering — like giving it a textbook to read.</p>
 
-          {/* Knowledge input */}
-          <div className="rounded-2xl bg-white border border-gray-200 p-4 mb-4">
-            <h3 className="text-xs font-bold text-gray-700 mb-2">Add knowledge</h3>
-            <textarea
-              id="knowledge-input"
-              placeholder="Paste any text here: product manuals, FAQ docs, course notes, company policies, etc. The bot will chunk it and use it to answer questions."
-              className="w-full h-32 rounded-lg bg-gray-50 border border-gray-200 p-2 text-xs outline-none focus:border-violet-400"
-            />
-            <button
-              onClick={() => {
-                const textarea = document.getElementById("knowledge-input") as HTMLTextAreaElement;
-                const text = textarea?.value?.trim();
-                if (!text) return;
-                // Simple knowledge store (in-memory for this session)
-                try {
-                  const stored = JSON.parse(sessionStorage.getItem("chatbot_kb_docs") || "[]");
-                  stored.push({ text, source: "user-pasted", timestamp: Date.now() });
-                  sessionStorage.setItem("chatbot_kb_docs", JSON.stringify(stored));
-                  textarea.value = "";
-                  alert(`✓ Knowledge added! (${text.length} chars). The bot will use this when answering questions.`);
-                  // Force re-render
-                  setStats((prev) => ({ ...prev }));
-                } catch (e) { alert("Failed to add knowledge"); }
-              }}
-              className="mt-2 px-4 h-9 rounded-full bg-violet-600 text-white text-xs font-semibold hover:bg-violet-700"
-            >
-              Add to Knowledge Base
+          {/* RAG toggle */}
+          <div className="rounded-2xl bg-white border border-gray-200 p-3 mb-4 flex items-center gap-3">
+            <label className="text-xs text-gray-500 flex items-center gap-1"><Sparkles className="w-3 h-3" /> RAG retrieval:</label>
+            <button onClick={() => setRagEnabled(!ragEnabled)} className={`relative w-11 h-6 rounded-full transition ${ragEnabled ? "bg-violet-600" : "bg-gray-300"}`}>
+              <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${ragEnabled ? "translate-x-5" : ""}`} />
             </button>
+            <span className="text-[10px] text-gray-400">When on, the bot retrieves knowledge chunks before generating a reply.</span>
           </div>
 
-          {/* Knowledge stats */}
+          {/* Source type tabs */}
+          <div className="flex gap-1 mb-3">
+            {(["text", "url", "github", "file"] as const).map((t) => (
+              <button key={t} onClick={() => setKbTab(t)} className={`flex-1 h-8 rounded-full text-xs font-semibold ${kbTab === t ? "bg-violet-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+                {t === "text" && "📝 Text"} {t === "url" && "🌐 URL"} {t === "github" && "🐙 GitHub"} {t === "file" && "📎 File"}
+              </button>
+            ))}
+          </div>
+
+          {/* Input panel */}
           <div className="rounded-2xl bg-white border border-gray-200 p-4 mb-4">
-            <h3 className="text-xs font-bold text-gray-700 mb-2">Knowledge base status</h3>
-            {(() => {
-              try {
-                const docs = JSON.parse(sessionStorage.getItem("chatbot_kb_docs") || "[]");
-                const totalChars = docs.reduce((s: number, d: any) => s + (d.text?.length || 0), 0);
-                return (
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="text-center">
-                      <p className="text-xl font-bold text-gray-900">{docs.length}</p>
-                      <p className="text-[10px] text-gray-400">Documents</p>
+            {kbTab === "text" && (
+              <>
+                <input type="text" value={kbTitle} onChange={(e) => setKbTitle(e.target.value)} placeholder="Title (optional, e.g. 'Course notes — Chapter 5')" className="w-full h-9 rounded-lg bg-gray-50 border border-gray-200 px-3 text-xs outline-none focus:border-violet-400 mb-2" />
+                <textarea value={kbText} onChange={(e) => setKbText(e.target.value)} placeholder="Paste any text: product manuals, FAQ docs, course notes, company policies, etc." className="w-full h-32 rounded-lg bg-gray-50 border border-gray-200 p-2 text-xs outline-none focus:border-violet-400 mb-2" />
+                <button onClick={() => ingestKnowledge("text")} disabled={ingesting || kbText.trim().length < 10} className="w-full h-9 rounded-full bg-violet-600 text-white text-xs font-semibold hover:bg-violet-700 disabled:opacity-40 flex items-center justify-center gap-1">
+                  {ingesting ? <><Loader2 className="w-3 h-3 animate-spin" /> Ingesting…</> : <>Add to Knowledge Base</>}
+                </button>
+              </>
+            )}
+            {kbTab === "url" && (
+              <>
+                <input type="url" value={kbUrl} onChange={(e) => setKbUrl(e.target.value)} placeholder="https://example.com/docs" className="w-full h-9 rounded-lg bg-gray-50 border border-gray-200 px-3 text-xs outline-none focus:border-violet-400 mb-2" />
+                <p className="text-[10px] text-gray-400 mb-2">Fetches the page, strips HTML to text, chunks it (~1200 chars each). SSRF-protected — private/internal IPs are blocked.</p>
+                <button onClick={() => ingestKnowledge("url")} disabled={ingesting || !kbUrl.trim()} className="w-full h-9 rounded-full bg-violet-600 text-white text-xs font-semibold hover:bg-violet-700 disabled:opacity-40 flex items-center justify-center gap-1">
+                  {ingesting ? <><Loader2 className="w-3 h-3 animate-spin" /> Fetching…</> : <>Ingest URL</>}
+                </button>
+              </>
+            )}
+            {kbTab === "github" && (
+              <>
+                <input type="text" value={kbGithub} onChange={(e) => setKbGithub(e.target.value)} placeholder="https://github.com/owner/repo  or  owner/repo  or  owner/repo/tree/main/docs" className="w-full h-9 rounded-lg bg-gray-50 border border-gray-200 px-3 text-xs outline-none focus:border-violet-400 mb-2" />
+                <p className="text-[10px] text-gray-400 mb-2">Fetches the README + up to 20 files from <code>docs/</code> (or the specified path). Public repos only.</p>
+                <button onClick={() => ingestKnowledge("github")} disabled={ingesting || !kbGithub.trim()} className="w-full h-9 rounded-full bg-violet-600 text-white text-xs font-semibold hover:bg-violet-700 disabled:opacity-40 flex items-center justify-center gap-1">
+                  {ingesting ? <><Loader2 className="w-3 h-3 animate-spin" /> Fetching…</> : <>Ingest GitHub Repo</>}
+                </button>
+              </>
+            )}
+            {kbTab === "file" && (
+              <>
+                <input type="file" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadKnowledgeFile(f); e.target.value = ""; }} accept=".pdf,.docx,.txt,.md,.csv,.json" className="w-full text-xs file:mr-2 file:py-1.5 file:px-3 file:rounded-full file:border-0 file:bg-violet-50 file:text-violet-700 file:font-semibold file:text-xs hover:file:bg-violet-100" />
+                <p className="text-[10px] text-gray-400 mt-2">Supports PDF, DOCX, TXT, MD, CSV, JSON. Max 10 MB. The file is parsed server-side, chunked, and stored in your knowledge base.</p>
+                {ingesting && <p className="text-[11px] text-violet-600 mt-2 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Uploading + parsing…</p>}
+              </>
+            )}
+            {ingestError && <p className="mt-2 text-[11px] text-rose-600 bg-rose-50 border border-rose-100 rounded-lg p-2">⚠ {ingestError}</p>}
+          </div>
+
+          {/* Source list */}
+          <div className="rounded-2xl bg-white border border-gray-200 p-4 mb-4">
+            <h3 className="text-xs font-bold text-gray-700 mb-2">Knowledge sources ({knowledgeSources.length})</h3>
+            {knowledgeSources.length === 0 ? (
+              <p className="text-xs text-gray-400 text-center py-3">No knowledge sources yet. Add one above.</p>
+            ) : (
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {knowledgeSources.map((src) => (
+                  <div key={src.id} className="flex items-start gap-2 p-2 rounded-lg bg-gray-50 border border-gray-100">
+                    <span className="flex-shrink-0 text-base">
+                      {src.type === "url" && "🌐"} {src.type === "github" && "🐙"} {src.type === "file" && "📎"} {src.type === "text" && "📝"}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-gray-900 truncate">{src.title}</p>
+                      {src.source && <p className="text-[10px] text-gray-500 truncate">{src.source}</p>}
+                      <p className="text-[10px] text-gray-400 mt-0.5">{src.chunkCount} chunks · {src.charCount.toLocaleString()} chars · {new Date(src.createdAt).toLocaleDateString()}</p>
                     </div>
-                    <div className="text-center">
-                      <p className="text-xl font-bold text-gray-900">{totalChars}</p>
-                      <p className="text-[10px] text-gray-400">Characters</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-xl font-bold text-gray-900">{Math.ceil(totalChars / 200)}</p>
-                      <p className="text-[10px] text-gray-400">Chunks (est.)</p>
-                    </div>
+                    <button onClick={() => deleteKnowledgeSource(src.id)} className="text-gray-400 hover:text-rose-500 flex-shrink-0"><Trash2 className="w-3.5 h-3.5" /></button>
                   </div>
-                );
-              } catch { return <p className="text-xs text-gray-400">No knowledge base yet</p>; }
-            })()}
+                ))}
+              </div>
+            )}
+            {knowledgeSources.length > 0 && (
+              <div className="mt-2 pt-2 border-t border-gray-100 grid grid-cols-3 gap-2 text-center">
+                <div><p className="text-lg font-bold text-gray-900">{knowledgeSources.length}</p><p className="text-[10px] text-gray-400">Sources</p></div>
+                <div><p className="text-lg font-bold text-gray-900">{knowledgeSources.reduce((s, k) => s + k.chunkCount, 0)}</p><p className="text-[10px] text-gray-400">Total chunks</p></div>
+                <div><p className="text-lg font-bold text-gray-900">{(knowledgeSources.reduce((s, k) => s + k.charCount, 0) / 1000).toFixed(1)}k</p><p className="text-[10px] text-gray-400">Total chars</p></div>
+              </div>
+            )}
           </div>
 
           {/* How RAG works */}
           <div className="rounded-2xl bg-sky-50 border border-sky-100 p-4">
             <h3 className="text-xs font-bold text-sky-700 mb-2">📚 How RAG works</h3>
             <div className="space-y-1.5 text-[11px] text-sky-600">
-              <p>1. 📝 <b>Ingest:</b> Paste documents → the bot splits them into ~3-sentence chunks</p>
-              <p>2. 🔢 <b>Embed:</b> Each chunk gets a TF-IDF vector (mathematical representation)</p>
-              <p>3. 🔍 <b>Retrieve:</b> When you ask a question, the bot finds the most similar chunks</p>
-              <p>4. 💬 <b>Generate:</b> The bot uses the retrieved context to answer your question</p>
-              <p>5. 📖 <b>Cite:</b> The bot shows which document chunk it used for the answer</p>
+              <p>1. 📝 <b>Ingest:</b> Add a URL, GitHub repo, file, or paste text — the server extracts clean text</p>
+              <p>2. ✂️ <b>Chunk:</b> Text is split into ~1200-char chunks with 180-char overlap</p>
+              <p>3. 🔢 <b>Embed:</b> When you ask a question, chunks are embedded with USE (same model as semantic mode)</p>
+              <p>4. 🔍 <b>Retrieve:</b> Top-4 most similar chunks are found via cosine similarity</p>
+              <p>5. 💬 <b>Generate:</b> Chunks are passed to the LLM as context alongside the weak Q&A matches</p>
+              <p>6. 📖 <b>Cite:</b> The LLM cites chunks as [Knowledge N] in its answer</p>
             </div>
           </div>
         </div>

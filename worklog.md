@@ -758,3 +758,31 @@ Stage Summary:
 - REST API keys unlock Zapier/Make.com/n8n automation — the bot becomes a building block, not just a chat widget.
 - Discord + WhatsApp not implemented (Discord needs a persistent WebSocket gateway — doesn't fit serverless; WhatsApp needs Meta Business verification). Documented as future work.
 - This completes the 4-phase confidence roadmap: Train (69) → Build (68+69) → Deploy (70) → Connect (71). Users can now go from "I have some Q&A" to "my bot is live on Telegram + my website + Claude Desktop" in one session.
+
+---
+Task ID: phase-72-knowledge-rag
+Agent: main (Super Z)
+Task: Phase 72 — Knowledge Base Ingestion + RAG (URL scraping, GitHub repos, file uploads, text paste → chunk → retrieve → LLM context)
+
+Work Log:
+- PRISMA: new BotKnowledgeSource model (id, userId, botId?, type, title, source?, contentText @db.Text, chunks JSON, chunkCount, charCount, status, timestamps). Back-relations on User + DeployedBot. Migration: prisma/migrations/20260906100000_phase72_knowledge/migration.sql. Stores chunks as JSON array [{index, text}] — embeddings are computed at query time (client: USE, server: TF-IDF) to avoid storing 512-dim vectors per chunk.
+- LIB: src/lib/knowledge-ingest.ts (380 lines) — pure ingestion pipeline:
+  * `ingestUrl(url)` — SSRF-guarded fetch (reuses Phase 55's assertSafeUrl + DNS lookup + private-IP check), follows redirects with re-validation, 5MB/15s caps. HTML → text via `htmlToText()` (regex-based, strips script/style/nav/header/footer/aside, decodes entities, preserves paragraph structure). JSON → recursive text extraction.
+  * `ingestGithub(repoUrl)` — resolves github.com/owner/repo[/path] URLs, fetches README (tries main → master) + up to 20 files from docs/ (or specified path) via raw.githubusercontent.com + GitHub API. All fetches SSRF-guarded.
+  * `ingestText(text, title)` — chunks raw text (reuses chunkText from rag-engine: 1200-char, 180-overlap, paragraph-aware).
+  * `ingestFile(filename, mimeType, buffer)` — PDF (pdf-parse), DOCX (mammoth), TXT/MD/CSV/JSON/code (UTF-8). JSON files are recursively flattened to text.
+  * `htmlToText(html)` — zero-dep HTML cleaner (no cheerio needed). Strips blocks, preserves structure, decodes 15+ HTML entities.
+- API: src/app/api/knowledge-sources/route.ts — GET (list by user, optional botId filter) + POST (create from url/github/text with pre-flight validation). src/app/api/knowledge-sources/[id]/route.ts — GET (full chunks for RAG retrieval) + DELETE (owner-scoped). src/app/api/knowledge-sources/upload/route.ts — POST (multipart file upload, 10MB cap, parses via ingestFile).
+- BOT-ENGINE RAG: src/lib/bot-engine.ts `runBot()` now accepts optional `knowledgeChunks: KnowledgeChunkForBot[]`. Before generative fallback, does TF-IDF retrieval against the chunks (top-4, score >0.05), includes them as "[Knowledge N]" blocks in the LLM context. System prompt instructs the LLM to use knowledge chunks as primary context and cite them. BotReply now includes `ragChunks` in the response.
+- DEPLOYED BOT RAG: /api/embed/[slug]/messages loads the bot's knowledge sources from DB, flattens chunks (capped at 500 for performance), passes to runBot. So deployed bots now do server-side RAG — when retrieval misses the Q&A pairs, the LLM gets knowledge-base context.
+- PLAYGROUND RAG: ChatbotPlayground sendMessage now does client-side RAG using USE embeddings (same model as semantic mode). Before generative fallback: loads full chunks from each knowledge source via GET /api/knowledge-sources/[id], embeds query + chunks with USE, retrieves top-4 (cosine >0.15), passes to /api/ai/playground as "[Knowledge N]" context. Thinking-process panel shows "8a. RAG retrieval" + "8b. RAG retrieved" steps with chunk scores. RAG toggle in Knowledge tab lets users disable it.
+- KNOWLEDGE TAB UI: completely rewritten. 4 source-type tabs (📝 Text / 🌐 URL / 🐙 GitHub / 📎 File), each with appropriate input + ingest button + loading state. Source list with type icons, title, source URL, chunk/char counts, delete button. Aggregate stats (sources / total chunks / total chars). "How RAG works" panel updated to reflect the actual 6-step pipeline. RAG on/off toggle.
+- Build: clean (Compiled successfully in 51s, 193/193 pages — +2 for new API routes). Tests: 451/451 pass. Lint: 0 errors.
+
+Stage Summary:
+- Phase 72 shipped — the chatbot can now answer from external knowledge, not just manually-added Q&A pairs.
+- URL scraping is SSRF-safe (DNS rebinding protected, private IPs blocked, redirect re-validation).
+- GitHub ingestion fetches README + docs/ — perfect for "ingest this library's documentation" use cases.
+- File upload handles PDF + DOCX + TXT + MD + CSV + JSON — reuses existing pdf-parse + mammoth deps.
+- RAG runs both client-side (USE embeddings, playground) AND server-side (TF-IDF, deployed bots) — same knowledge base, different retrieval engines depending on runtime.
+- Next: Phase 73 (Plugin/Tool system — bot calls external APIs) + Phase 74 (Code sandbox in chat). These are the remaining pieces from the user's spec.

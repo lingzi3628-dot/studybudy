@@ -110,6 +110,8 @@ model User {
   pushSubscriptions     PushSubscription[]
   // Phase 70 — server-backed deployed chatbots
   deployedBots          DeployedBot[]
+  // Phase 72 — knowledge base sources (RAG)
+  knowledgeSources      BotKnowledgeSource[]
 
   // Relations for search settings are handled in SearchSettings model
 }
@@ -2049,9 +2051,47 @@ model DeployedBot {
   project       Project?           @relation(fields: [projectId], references: [id], onDelete: SetNull)
   messages      DeployedBotMessage[]
   integrations  BotIntegration[]
+  knowledgeSources BotKnowledgeSource[]
 
   @@index([userId, status])
   @@index([status])
+}
+
+// === Phase 72 — Knowledge Base / RAG ===
+//
+// A knowledge source is a document the bot can retrieve from at chat time.
+// Sources are ingested from URLs, GitHub repos, file uploads, or raw text.
+// The ingestion pipeline: extract text → chunk (~1200 chars, 180 overlap)
+// → store chunks as JSON. At query time, chunks are retrieved (client:
+// USE cosine, server: TF-IDF cosine) and passed to the LLM as context.
+//
+// Links to DeployedBot optionally — sources without a botId belong to the
+// user's playground (loaded by userId).
+
+model BotKnowledgeSource {
+  id        String   @id @default(uuid())
+  userId    String
+  botId     String?   // null = playground-only; set = linked to a DeployedBot
+  type      String    // "url" | "github" | "file" | "text"
+  title     String    // display name (filename, URL host, repo name, "Pasted text")
+  source    String?   // the original URL / repo path / filename
+  // Full extracted text (capped at 500k chars — ~100 pages).
+  contentText String  @db.Text
+  // Chunks as JSON: [{ index, text }] — embeddings are computed client-side
+  // at query time (USE via TF.js) to avoid storing 512-dim vectors per chunk.
+  chunks    Json
+  chunkCount Int   @default(0)
+  charCount  Int   @default(0)
+  status    String   @default("active")  // "active" | "processing" | "failed"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bot       DeployedBot? @relation(fields: [botId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([botId])
+  @@index([userId, botId])
 }
 
 // === Phase 71 — Platform integrations ===

@@ -29,6 +29,12 @@ export type BotConfig = {
   generativeFallback: boolean;
 };
 
+export type KnowledgeChunkForBot = {
+  index: number;
+  text: string;
+  sourceTitle?: string;
+};
+
 export type BotReply = {
   reply: string;
   source: "retrieval" | "generative" | "fallback";
@@ -36,6 +42,8 @@ export type BotReply = {
   matchedInput: string | null;
   topMatches: Array<{ input: string; score: number }>;
   responseMs: number;
+  /** Phase 72 — RAG chunks retrieved from knowledge sources, if any. */
+  ragChunks?: Array<{ text: string; score: number; sourceTitle?: string }>;
 };
 
 // === NLP primitives (mirror ChatbotPlayground) ===
@@ -134,6 +142,7 @@ export async function runBot(
   trainingPairs: BotTrainingPair[],
   config: BotConfig,
   ownerUserId: string,
+  knowledgeChunks: KnowledgeChunkForBot[] = [],
 ): Promise<BotReply> {
   const started = Date.now();
   const normalized = normalizeText(userMessage);
@@ -200,11 +209,34 @@ export async function runBot(
     };
   }
 
+  // Phase 72 — RAG retrieval from knowledge sources.
+  // TF-IDF retrieve top-k chunks from the knowledge base. These get passed
+  // to the LLM as additional context alongside the weak Q&A matches.
+  let ragChunks: Array<{ text: string; score: number; sourceTitle?: string }> = [];
+  if (knowledgeChunks.length > 0) {
+    const chunkTexts = knowledgeChunks.map((c) => c.text);
+    const chunkVocab = buildVocab(chunkTexts.map((t) => ({ input: t })));
+    const chunkIdf = computeIDF(chunkTexts.map((t) => ({ input: t })), chunkVocab);
+    const queryVec = tfidfVector(normalized, chunkVocab, chunkIdf);
+    ragChunks = knowledgeChunks
+      .map((c, i) => ({
+        text: c.text,
+        score: cosineSim(queryVec, tfidfVector(c.text, chunkVocab, chunkIdf)),
+        sourceTitle: c.sourceTitle,
+      }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 4) // top-4 chunks
+      .filter((c) => c.score > 0.05); // drop zero-overlap chunks
+  }
+
   // Generative fallback.
   if (config.generativeFallback) {
     const contextBlock = top3
       .map((s, i) => `Q${i + 1}: ${s.input}\nA${i + 1}: ${pairsForModel.find((p) => p.input === s.input)?.output ?? ""}`)
       .join("\n");
+    const ragBlock = ragChunks.length > 0
+      ? ragChunks.map((c, i) => `[Knowledge ${i + 1}]${c.sourceTitle ? ` (${c.sourceTitle}):` : ":"}\n${c.text}`).join("\n\n")
+      : "";
     const persona = (config.personaPrompt?.trim() || DEFAULT_PERSONA);
     const messages: ChatMessage[] = [
       {
@@ -214,11 +246,18 @@ export async function runBot(
           bestScore > 0
             ? `Best retrieval score was ${bestScore.toFixed(2)} (below the ${config.threshold} threshold), so treat the retrieved pairs as weak hints only.`
             : `No training examples matched at all.`,
-        ].join(" "),
+          ragChunks.length > 0
+            ? `${ragChunks.length} relevant knowledge chunks were retrieved — use these as primary context for your answer. Cite them as [Knowledge N] where N is the chunk number.`
+            : "",
+        ].filter(Boolean).join(" "),
       },
       {
         role: "user",
-        content: `Retrieved context (weak):\n${contextBlock || "(none)"}\n\nUser message: ${userMessage}`,
+        content: [
+          ragBlock ? `Retrieved knowledge:\n${ragBlock}\n` : "",
+          contextBlock ? `Retrieved Q&A (weak):\n${contextBlock}\n` : "",
+          `User message: ${userMessage}`,
+        ].filter(Boolean).join("\n"),
       },
     ];
     try {
@@ -237,6 +276,7 @@ export async function runBot(
           matchedInput: null,
           topMatches: top3,
           responseMs: Date.now() - started,
+          ragChunks,
         };
       }
     } catch (e) {
@@ -252,6 +292,7 @@ export async function runBot(
     matchedInput: null,
     topMatches: top3,
     responseMs: Date.now() - started,
+    ragChunks,
   };
 }
 

@@ -126,7 +126,20 @@ export async function POST(
     generativeFallback: bot.generativeFallback,
   };
 
-  const result = await runBot(message, trainingPairs, config, bot.userId);
+  // Phase 72 — Load the bot's knowledge sources for RAG.
+  const knowledgeSources = await db.botKnowledgeSource.findMany({
+    where: { botId: bot.id, status: "active" },
+    select: { chunks: true, title: true },
+  }).catch(() => []);
+  const knowledgeChunks = knowledgeSources
+    .flatMap((s) => (s.chunks as Array<{ index: number; text: string }>).map((c) => ({
+      index: c.index,
+      text: c.text,
+      sourceTitle: s.title,
+    })))
+    .slice(0, 500); // cap at 500 chunks for performance
+
+  const result = await runBot(message, trainingPairs, config, bot.userId, knowledgeChunks);
 
   // Log the message (async — don't block the reply).
   const visitorHash = await hashVisitorIp(ip);
