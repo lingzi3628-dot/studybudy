@@ -310,38 +310,18 @@ const MODE_DEFAULT_THRESHOLD: Record<MatchingMode, number> = {
 
 export function ChatbotPlayground() {
   const { setScreen, activeProjectId, chatbotTrainingData, setChatbotTrainingData, addChatbotTrainingPairs } = useApp() as any;
+  // Phase 73.5 — Hydration fix: all state initializers return defaults (no
+  // localStorage reads). localStorage is loaded in a useEffect after mount
+  // so the server-rendered HTML matches the client's first render. This
+  // fixes React error #418 (hydration mismatch).
   const [trainingData, setTrainingData] = useState<TrainingPair[]>(() => {
-    // Phase 64 — Load from shared Zustand store (which persists to localStorage)
-    // This ensures data from DataLab (Dump Content, Import, Augment) is visible here
+    // Only use the Zustand store value if it's already populated (it's
+    // also hydration-safe — the store initializes to [] on both server
+    // and client, then loads from localStorage in its own persist effect).
     if (chatbotTrainingData && chatbotTrainingData.length > 0) return chatbotTrainingData;
-    // Try localStorage directly (in case store hasn't loaded yet)
-    try {
-      const stored = localStorage.getItem("studybuddy_chatbot_data");
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-    } catch {}
     return STARTER_DATA;
   });
-  const [showWelcome, setShowWelcome] = useState(() => {
-    // Phase 65 — Only show welcome if:
-    //   1. It's the first session (sessionStorage flag not set)
-    //   2. AND there's no saved training data in localStorage
-    //   3. AND there's no activeProjectId (not opening from Projects)
-    if (typeof window !== "undefined") {
-      if (sessionStorage.getItem("chatbot_welcomed") === "1") return false;
-      // Check if there's saved data — if so, skip welcome and resume
-      try {
-        const stored = localStorage.getItem("studybuddy_chatbot_data");
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          if (Array.isArray(parsed) && parsed.length > 8) return false; // has more than starter data
-        }
-      } catch {}
-    }
-    return true;
-  });
+  const [showWelcome, setShowWelcome] = useState(true);
   const [newInput, setNewInput] = useState("");
   const [newOutput, setNewOutput] = useState("");
   const [newIntent, setNewIntent] = useState("");
@@ -353,13 +333,9 @@ export function ChatbotPlayground() {
   const [thinkingDelay, setThinkingDelay] = useState(3); // seconds
   const [matchingMode, setMatchingModeRaw] = useState<MatchingMode>("hybrid");
   const [generativeFallback, setGenerativeFallback] = useState(true); // Phase 68
-  const [embeddingProgress, setEmbeddingProgress] = useState<string | null>(null); // "loading model…" / "embedding 42/120…"
+  const [embeddingProgress, setEmbeddingProgress] = useState<string | null>(null);
   // Phase 69 — persona prompt (drives generative fallback tone)
-  const [personaPrompt, setPersonaPrompt] = useState<string>(() => {
-    if (typeof window === "undefined") return PERSONA_TEMPLATES[0].prompt;
-    try { return localStorage.getItem("studybuddy_chatbot_persona") || PERSONA_TEMPLATES[0].prompt; }
-    catch { return PERSONA_TEMPLATES[0].prompt; }
-  });
+  const [personaPrompt, setPersonaPrompt] = useState<string>(PERSONA_TEMPLATES[0].prompt);
   // Phase 69 — evaluation results (null = not yet run)
   const [evalResult, setEvalResult] = useState<EvalResult | null>(null);
   const [evalRunning, setEvalRunning] = useState(false);
@@ -371,15 +347,7 @@ export function ChatbotPlayground() {
   // Phase 69 — live preview in Train tab
   const [previewInput, setPreviewInput] = useState("");
   const [previewResult, setPreviewResult] = useState<LivePreviewResult | null>(null);
-  const [reviewLog, setReviewLog] = useState<ReviewItem[]>(() => {
-    // Resume the continuous-learning queue from localStorage so it survives reloads.
-    if (typeof window === "undefined") return [];
-    try {
-      const raw = localStorage.getItem("studybuddy_chatbot_review");
-      if (raw) { const p = JSON.parse(raw); if (Array.isArray(p)) return p; }
-    } catch {}
-    return [];
-  });
+  const [reviewLog, setReviewLog] = useState<ReviewItem[]>([]);
   const [activeTab, setActiveTab] = useState<TabType>("train");
   const [botMemory, setBotMemory] = useState<boolean>(true);
   const [conversationContext, setConversationContext] = useState<string[]>([]);
@@ -443,6 +411,46 @@ export function ChatbotPlayground() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatMessages]);
+
+  // Phase 73.5 — Hydration-safe localStorage load. Runs ONCE after mount,
+  // replacing the defaults with saved values. Because this is in a useEffect,
+  // the server render and the client's first render both use the defaults,
+  // avoiding the hydration mismatch (React error #418).
+  useEffect(() => {
+    // Load training data from localStorage (if Zustand store hasn't already).
+    try {
+      const stored = localStorage.getItem("studybuddy_chatbot_data");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setTrainingData((prev) => prev === STARTER_DATA ? parsed : prev);
+        }
+      }
+    } catch {}
+    // Load persona prompt.
+    try {
+      const savedPersona = localStorage.getItem("studybuddy_chatbot_persona");
+      if (savedPersona) setPersonaPrompt(savedPersona);
+    } catch {}
+    // Load review queue.
+    try {
+      const raw = localStorage.getItem("studybuddy_chatbot_review");
+      if (raw) { const p = JSON.parse(raw); if (Array.isArray(p) && p.length > 0) setReviewLog(p); }
+    } catch {}
+    // Determine whether to show the welcome screen.
+    try {
+      if (sessionStorage.getItem("chatbot_welcomed") === "1") {
+        setShowWelcome(false);
+      } else {
+        const stored = localStorage.getItem("studybuddy_chatbot_data");
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed) && parsed.length > 8) setShowWelcome(false);
+        }
+      }
+      sessionStorage.setItem("chatbot_welcomed", "1");
+    } catch {}
+  }, []);
 
   // Persist the review queue whenever it changes.
   useEffect(() => {
