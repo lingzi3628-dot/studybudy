@@ -548,17 +548,28 @@ export function ChatbotPlayground() {
 
   // Phase 64 — Sync training data to the shared Zustand store + localStorage
   // whenever it changes. This ensures DataLab and ChatbotPlayground share data.
+  // Phase 73.5 — removed setChatbotTrainingData from deps (Zustand actions are
+  // stable references — including it caused the effect to fire on every render
+  // when the store returned a new object, triggering an infinite update loop).
   useEffect(() => {
     setChatbotTrainingData(trainingData);
-  }, [trainingData, setChatbotTrainingData]);
+  }, [trainingData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Phase 64 — Listen for training data changes from DataLab (via store)
+  // Phase 73.5 — added trainingData.length to deps to fix stale closure bug.
+  // Before, trainingData.length was captured at effect creation time and never
+  // updated. When the localStorage-loading effect set trainingData from
+  // STARTER_DATA (8 pairs) to saved data (173 pairs), this watcher still saw
+  // length=8, so it kept calling setTrainingData(chatbotTrainingData) in an
+  // infinite loop (React error #185). Now, trainingData.length is in deps so
+  // the effect re-runs when the length changes, sees the current length, and
+  // the length-equality check breaks the loop.
   useEffect(() => {
     if (chatbotTrainingData && chatbotTrainingData.length > 0 && chatbotTrainingData.length !== trainingData.length) {
       setTrainingData(chatbotTrainingData);
       setIsTrained(false); // need to retrain
     }
-  }, [chatbotTrainingData]);
+  }, [chatbotTrainingData, trainingData.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Phase 64 — AUTO-TRAIN when training data changes.
   // This fixes the "bot forgets / never learns" issue. Whenever the training
