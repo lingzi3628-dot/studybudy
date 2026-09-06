@@ -285,7 +285,7 @@ const STARTER_DATA: TrainingPair[] = [
   { id: "8", input: "help", output: "I can help with anything I've been trained on. Try asking me a question!", intent: "help" },
 ];
 
-type TabType = "train" | "chat" | "tools" | "analytics" | "deploy" | "brain" | "knowledge" | "llm" | "review" | "evaluate" | "connect";
+type TabType = "train" | "chat" | "tools" | "analytics" | "deploy" | "brain" | "knowledge" | "llm" | "review" | "evaluate" | "connect" | "plugins";
 type MatchingMode = "tfidf" | "keyword" | "fuzzy" | "hybrid" | "semantic";
 
 /** Per-mode default confidence thresholds.
@@ -402,6 +402,11 @@ export function ChatbotPlayground() {
   const [ingesting, setIngesting] = useState(false);
   const [ingestError, setIngestError] = useState<string | null>(null);
   const [ragEnabled, setRagEnabled] = useState(true);
+  // Phase 73 — Plugins
+  const [botPlugins, setBotPlugins] = useState<Array<{ id: string; name: string; type: string; description: string; config: any; enabled: boolean; callCount: number; lastCalledAt: string | null }>>([]);
+  const [availableBuiltin, setAvailableBuiltin] = useState<Array<{ name: string; description: string; triggerExamples: string[] }>>([]);
+  const [httpPluginForm, setHttpPluginForm] = useState({ name: "", url: "", method: "POST", bodyTemplate: '{"query":"{{message}}"}', responsePath: "", description: "" });
+  const [mcpPluginForm, setMcpPluginForm] = useState({ name: "", serverUrl: "", toolName: "chat_with_bot", description: "" });
   const [copied, setCopied] = useState(false);
   const [importText, setImportText] = useState("");
   const [showImport, setShowImport] = useState(false);
@@ -1329,6 +1334,100 @@ export function ChatbotPlayground() {
     } catch {}
   };
 
+  // Phase 73 — Plugin handlers
+  const loadPlugins = async () => {
+    if (!connectBotId) return;
+    try {
+      const r = await fetch(`/api/deployed-bots/${connectBotId}/plugins`);
+      const d = await r.json();
+      if (r.ok) {
+        setBotPlugins(d.plugins || []);
+        setAvailableBuiltin(d.availableBuiltin || []);
+      }
+    } catch {}
+  };
+
+  const addBuiltinPlugin = async (builtinName: string) => {
+    if (!connectBotId) return;
+    try {
+      const r = await fetch(`/api/deployed-bots/${connectBotId}/plugins`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "builtin", name: builtinName, config: { builtinName } }),
+      });
+      if (r.ok) loadPlugins();
+    } catch {}
+  };
+
+  const addHttpPlugin = async () => {
+    if (!connectBotId || !httpPluginForm.name.trim() || !httpPluginForm.url.trim()) return;
+    try {
+      const r = await fetch(`/api/deployed-bots/${connectBotId}/plugins`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "http",
+          name: httpPluginForm.name.trim(),
+          description: httpPluginForm.description.trim() || `HTTP ${httpPluginForm.method} to ${httpPluginForm.url}`,
+          config: {
+            method: httpPluginForm.method,
+            url: httpPluginForm.url.trim(),
+            bodyTemplate: httpPluginForm.bodyTemplate,
+            responsePath: httpPluginForm.responsePath.trim() || undefined,
+          },
+        }),
+      });
+      if (r.ok) {
+        setHttpPluginForm({ name: "", url: "", method: "POST", bodyTemplate: '{"query":"{{message}}"}', responsePath: "", description: "" });
+        loadPlugins();
+      }
+    } catch {}
+  };
+
+  const addMcpPlugin = async () => {
+    if (!connectBotId || !mcpPluginForm.name.trim() || !mcpPluginForm.serverUrl.trim()) return;
+    try {
+      const r = await fetch(`/api/deployed-bots/${connectBotId}/plugins`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "mcp",
+          name: mcpPluginForm.name.trim(),
+          description: mcpPluginForm.description.trim() || `MCP tool: ${mcpPluginForm.toolName}`,
+          config: {
+            serverUrl: mcpPluginForm.serverUrl.trim(),
+            toolName: mcpPluginForm.toolName.trim() || "chat_with_bot",
+          },
+        }),
+      });
+      if (r.ok) {
+        setMcpPluginForm({ name: "", serverUrl: "", toolName: "chat_with_bot", description: "" });
+        loadPlugins();
+      }
+    } catch {}
+  };
+
+  const togglePlugin = async (pluginId: string, enabled: boolean) => {
+    if (!connectBotId) return;
+    try {
+      await fetch(`/api/deployed-bots/${connectBotId}/plugins`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pluginId, enabled: !enabled }),
+      });
+      setBotPlugins((prev) => prev.map((p) => p.id === pluginId ? { ...p, enabled: !enabled } : p));
+    } catch {}
+  };
+
+  const deletePlugin = async (pluginId: string) => {
+    if (!connectBotId) return;
+    if (!confirm("Delete this plugin?")) return;
+    try {
+      await fetch(`/api/deployed-bots/${connectBotId}/plugins?pluginId=${pluginId}`, { method: "DELETE" });
+      setBotPlugins((prev) => prev.filter((p) => p.id !== pluginId));
+    } catch {}
+  };
+
   const copyUrl = () => {
     if (deployedUrl) {
       navigator.clipboard.writeText(deployedUrl);
@@ -1491,6 +1590,7 @@ export function ChatbotPlayground() {
           { id: "brain", label: "🧠 Brain", icon: Sparkles },
           { id: "llm", label: "🔬 LLM Viz", icon: Zap },
           { id: "knowledge", label: "📚 Knowledge", icon: Database },
+          { id: "plugins", label: "🔌 Plugins", icon: Zap },
           { id: "tools", label: "🔧 AI Tools", icon: Settings },
           { id: "analytics", label: "📊 Analytics", icon: BarChart3 },
           { id: "deploy", label: "🚀 Deploy", icon: Globe },
@@ -2420,6 +2520,135 @@ export function ChatbotPlayground() {
               {connectError && (
                 <div className="rounded-lg bg-rose-50 border border-rose-200 p-2 text-[11px] text-rose-700 mb-4">⚠ {connectError}</div>
               )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* === PLUGINS TAB — Phase 73 tool system === */}
+      {activeTab === "plugins" && (
+        <div className="max-w-2xl mx-auto px-4 py-4">
+          <div className="rounded-2xl bg-violet-50 border border-violet-100 p-4 mb-4">
+            <h2 className="text-sm font-bold text-violet-900 flex items-center gap-1.5 mb-1.5"><Zap className="w-4 h-4" /> Plugins & Tools</h2>
+            <p className="text-xs text-violet-700 leading-relaxed">
+              Give your bot extra capabilities. When a user's message matches a plugin's triggers, the bot calls the plugin and includes the result in its answer. Plugins run before the generative fallback.
+            </p>
+          </div>
+
+          {/* Bot selector */}
+          <div className="rounded-2xl bg-white border border-gray-200 p-4 mb-4">
+            <label className="text-xs font-bold text-gray-700 mb-1.5 block">Select a deployed bot</label>
+            {!connectBotId && (
+              <p className="text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded-lg p-2">Select a bot in the Connect tab first, then come back here to manage its plugins.</p>
+            )}
+            <div className="flex items-center gap-2 mt-1">
+              <select
+                value={connectBotId ?? ""}
+                onChange={(e) => { setConnectBotId(e.target.value); if (e.target.value) loadPlugins(); }}
+                className="flex-1 h-9 rounded-lg bg-gray-50 border border-gray-200 px-2 text-xs outline-none focus:border-violet-400"
+              >
+                <option value="">— Select a bot —</option>
+                {cloudBot && <option value={cloudBot.id}>{cloudBot.slug} (just deployed)</option>}
+                {cloudBots.filter((b) => b.id !== cloudBot?.id).map((b) => (
+                  <option key={b.id} value={b.id}>{b.slug} — {b.name}</option>
+                ))}
+              </select>
+              <button onClick={loadCloudBots} className="px-3 h-9 rounded-lg bg-gray-100 text-gray-600 text-xs font-semibold hover:bg-gray-200">↻</button>
+              {connectBotId && <button onClick={loadPlugins} className="px-3 h-9 rounded-lg bg-violet-600 text-white text-xs font-semibold hover:bg-violet-700">Load plugins</button>}
+            </div>
+          </div>
+
+          {connectBotId && (
+            <>
+              {/* Active plugins */}
+              <div className="rounded-2xl bg-white border border-gray-200 p-4 mb-4">
+                <h3 className="text-xs font-bold text-gray-700 mb-2">Active plugins ({botPlugins.length})</h3>
+                {botPlugins.length === 0 ? (
+                  <p className="text-xs text-gray-400 text-center py-3">No plugins yet. Add one below.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {botPlugins.map((p) => (
+                      <div key={p.id} className="flex items-start gap-2 p-2 rounded-lg bg-gray-50 border border-gray-100">
+                        <span className="flex-shrink-0 text-base">
+                          {p.type === "builtin" && "⚙️"} {p.type === "http" && "🌐"} {p.type === "mcp" && "🔌"}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-semibold text-gray-900">{p.name} <span className="text-[9px] text-gray-400 uppercase">{p.type}</span></p>
+                          <p className="text-[10px] text-gray-500">{p.description}</p>
+                          <p className="text-[10px] text-gray-400 mt-0.5">{p.callCount} calls{p.lastCalledAt ? ` · last ${new Date(p.lastCalledAt).toLocaleDateString()}` : ""}</p>
+                        </div>
+                        <button onClick={() => togglePlugin(p.id, p.enabled)} className={`flex-shrink-0 relative w-9 h-5 rounded-full transition ${p.enabled ? "bg-emerald-500" : "bg-gray-300"}`}>
+                          <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${p.enabled ? "translate-x-4" : ""}`} />
+                        </button>
+                        <button onClick={() => deletePlugin(p.id)} className="text-gray-400 hover:text-rose-500 flex-shrink-0"><Trash2 className="w-3.5 h-3.5" /></button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Built-in plugins */}
+              <div className="rounded-2xl bg-white border border-gray-200 p-4 mb-4">
+                <h3 className="text-xs font-bold text-gray-700 mb-2">Built-in plugins (zero config)</h3>
+                <div className="space-y-1.5">
+                  {availableBuiltin.map((p) => {
+                    const alreadyAdded = botPlugins.some((bp) => bp.name === p.name);
+                    return (
+                      <div key={p.name} className="flex items-start gap-2 p-2 rounded-lg bg-gray-50 border border-gray-100">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-semibold text-gray-900">{p.name}</p>
+                          <p className="text-[10px] text-gray-500">{p.description}</p>
+                          <p className="text-[9px] text-gray-400 mt-0.5">Triggers: {p.triggerExamples.slice(0, 2).join(", ")}</p>
+                        </div>
+                        <button
+                          onClick={() => addBuiltinPlugin(p.name)}
+                          disabled={alreadyAdded}
+                          className="flex-shrink-0 px-2 h-6 rounded-full bg-violet-600 text-white text-[10px] font-semibold hover:bg-violet-700 disabled:opacity-40"
+                        >
+                          {alreadyAdded ? "✓ Added" : "+ Add"}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Custom HTTP plugin */}
+              <div className="rounded-2xl bg-white border border-gray-200 p-4 mb-4">
+                <h3 className="text-xs font-bold text-gray-700 mb-2">Custom HTTP plugin</h3>
+                <p className="text-[11px] text-gray-500 mb-2">Call any REST API. <code className="bg-gray-100 px-1 rounded">{`{{message}}`}</code> in the body template is replaced with the user's message. <code className="bg-gray-100 px-1 rounded">responsePath</code> extracts a field from the JSON response (e.g. <code className="bg-gray-100 px-1 rounded">result.answer</code>).</p>
+                <input type="text" value={httpPluginForm.name} onChange={(e) => setHttpPluginForm({ ...httpPluginForm, name: e.target.value })} placeholder="Plugin name (e.g. 'weather')" className="w-full h-9 rounded-lg bg-gray-50 border border-gray-200 px-3 text-xs outline-none focus:border-violet-400 mb-1.5" />
+                <input type="text" value={httpPluginForm.url} onChange={(e) => setHttpPluginForm({ ...httpPluginForm, url: e.target.value })} placeholder="https://api.example.com/search" className="w-full h-9 rounded-lg bg-gray-50 border border-gray-200 px-3 text-xs font-mono outline-none focus:border-violet-400 mb-1.5" />
+                <div className="flex gap-1.5 mb-1.5">
+                  <select value={httpPluginForm.method} onChange={(e) => setHttpPluginForm({ ...httpPluginForm, method: e.target.value })} className="w-24 h-9 rounded-lg bg-gray-50 border border-gray-200 px-2 text-xs outline-none">
+                    <option>POST</option><option>GET</option>
+                  </select>
+                  <input type="text" value={httpPluginForm.responsePath} onChange={(e) => setHttpPluginForm({ ...httpPluginForm, responsePath: e.target.value })} placeholder="responsePath (optional, e.g. result.answer)" className="flex-1 h-9 rounded-lg bg-gray-50 border border-gray-200 px-3 text-xs font-mono outline-none focus:border-violet-400" />
+                </div>
+                <textarea value={httpPluginForm.bodyTemplate} onChange={(e) => setHttpPluginForm({ ...httpPluginForm, bodyTemplate: e.target.value })} placeholder='Body template (POST only). Use {{message}} for the user input.' className="w-full h-16 rounded-lg bg-gray-50 border border-gray-200 p-2 text-xs font-mono outline-none focus:border-violet-400 mb-2" />
+                <button onClick={addHttpPlugin} disabled={!httpPluginForm.name.trim() || !httpPluginForm.url.trim()} className="w-full h-8 rounded-full bg-violet-600 text-white text-xs font-semibold hover:bg-violet-700 disabled:opacity-40">+ Add HTTP Plugin</button>
+              </div>
+
+              {/* MCP client plugin */}
+              <div className="rounded-2xl bg-white border border-gray-200 p-4 mb-4">
+                <h3 className="text-xs font-bold text-gray-700 mb-2">MCP client (connect to external MCP server)</h3>
+                <p className="text-[11px] text-gray-500 mb-2">Connect to any MCP server (e.g. another StudyBuddy bot's <code className="bg-gray-100 px-1 rounded">/api/mcp/[slug]</code> URL, or any MCP-compatible tool). The bot calls the specified tool and includes the result.</p>
+                <input type="text" value={mcpPluginForm.name} onChange={(e) => setMcpPluginForm({ ...mcpPluginForm, name: e.target.value })} placeholder="Plugin name (e.g. 'other-bot')" className="w-full h-9 rounded-lg bg-gray-50 border border-gray-200 px-3 text-xs outline-none focus:border-violet-400 mb-1.5" />
+                <input type="text" value={mcpPluginForm.serverUrl} onChange={(e) => setMcpPluginForm({ ...mcpPluginForm, serverUrl: e.target.value })} placeholder="https://studybuddy.ai/api/mcp/abc123def456" className="w-full h-9 rounded-lg bg-gray-50 border border-gray-200 px-3 text-xs font-mono outline-none focus:border-violet-400 mb-1.5" />
+                <input type="text" value={mcpPluginForm.toolName} onChange={(e) => setMcpPluginForm({ ...mcpPluginForm, toolName: e.target.value })} placeholder="Tool name (default: chat_with_bot)" className="w-full h-9 rounded-lg bg-gray-50 border border-gray-200 px-3 text-xs font-mono outline-none focus:border-violet-400 mb-2" />
+                <button onClick={addMcpPlugin} disabled={!mcpPluginForm.name.trim() || !mcpPluginForm.serverUrl.trim()} className="w-full h-8 rounded-full bg-violet-600 text-white text-xs font-semibold hover:bg-violet-700 disabled:opacity-40">+ Add MCP Plugin</button>
+              </div>
+
+              {/* How plugins work */}
+              <div className="rounded-2xl bg-sky-50 border border-sky-100 p-4">
+                <h3 className="text-xs font-bold text-sky-700 mb-2">🔌 How plugins work</h3>
+                <div className="space-y-1.5 text-[11px] text-sky-600">
+                  <p>1. 🔍 <b>Detect:</b> When a message arrives, the bot checks each enabled plugin's triggers</p>
+                  <p>2. ⚡ <b>Call:</b> Matching plugins are called (up to 2 at once, 10-15s timeout each)</p>
+                  <p>3. 💬 <b>Answer:</b> Plugin results are included in the LLM context as authoritative data</p>
+                  <p>4. 📊 <b>Stats:</b> Call counts + last-called timestamps are tracked per plugin</p>
+                </div>
+              </div>
             </>
           )}
         </div>

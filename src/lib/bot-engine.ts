@@ -143,9 +143,41 @@ export async function runBot(
   config: BotConfig,
   ownerUserId: string,
   knowledgeChunks: KnowledgeChunkForBot[] = [],
+  plugins: Array<{ name: string; type: string; description: string; config: any; enabled: boolean }> = [],
+  onPluginCalled?: (pluginName: string, success: boolean) => void,
 ): Promise<BotReply> {
   const started = Date.now();
   const normalized = normalizeText(userMessage);
+
+  // Phase 73 — Plugin detection + execution.
+  // Check if any enabled plugin is relevant to this message. If so, call it
+  // BEFORE the retrieval/generation flow — the plugin result gets included
+  // in the LLM context.
+  let pluginResults: Array<{ name: string; output: string; success: boolean }> = [];
+  if (plugins.length > 0) {
+    try {
+      const { detectRelevantPlugins, executePlugin } = await import("@/lib/plugins/executor");
+      const relevant = detectRelevantPlugins(userMessage, plugins as any);
+      if (relevant.length > 0) {
+        // Execute up to 2 plugins (cap to avoid latency).
+        const toCall = relevant.slice(0, 2);
+        const results = await Promise.all(
+          toCall.map((p) => executePlugin(p as any, userMessage)),
+        );
+        pluginResults = results.map((r) => ({
+          name: r.pluginName,
+          output: r.output,
+          success: r.success,
+        }));
+        // Fire callbacks for stats updates.
+        for (const r of results) {
+          onPluginCalled?.(r.pluginName, r.success);
+        }
+      }
+    } catch (e) {
+      console.warn("[bot-engine] plugin execution failed:", e);
+    }
+  }
 
   // Hold out test pairs (mirrors ChatbotPlayground Phase 69).
   const trainPairs = trainingPairs.filter((p) => !p.isTest);
@@ -237,6 +269,9 @@ export async function runBot(
     const ragBlock = ragChunks.length > 0
       ? ragChunks.map((c, i) => `[Knowledge ${i + 1}]${c.sourceTitle ? ` (${c.sourceTitle}):` : ":"}\n${c.text}`).join("\n\n")
       : "";
+    const pluginBlock = pluginResults.length > 0
+      ? pluginResults.map((p) => `[Plugin: ${p.name}${p.success ? "" : " (failed)"}]\n${p.output}`).join("\n\n")
+      : "";
     const persona = (config.personaPrompt?.trim() || DEFAULT_PERSONA);
     const messages: ChatMessage[] = [
       {
@@ -249,11 +284,15 @@ export async function runBot(
           ragChunks.length > 0
             ? `${ragChunks.length} relevant knowledge chunks were retrieved — use these as primary context for your answer. Cite them as [Knowledge N] where N is the chunk number.`
             : "",
+          pluginResults.length > 0
+            ? `${pluginResults.length} plugin(s) were called and returned results — use these as factual data for your answer. Plugin results are authoritative (they come from external tools/APIs).`
+            : "",
         ].filter(Boolean).join(" "),
       },
       {
         role: "user",
         content: [
+          pluginBlock ? `Plugin results:\n${pluginBlock}\n` : "",
           ragBlock ? `Retrieved knowledge:\n${ragBlock}\n` : "",
           contextBlock ? `Retrieved Q&A (weak):\n${contextBlock}\n` : "",
           `User message: ${userMessage}`,

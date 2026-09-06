@@ -2052,6 +2052,7 @@ model DeployedBot {
   messages      DeployedBotMessage[]
   integrations  BotIntegration[]
   knowledgeSources BotKnowledgeSource[]
+  plugins       BotPlugin[]
 
   @@index([userId, status])
   @@index([status])
@@ -2153,4 +2154,43 @@ model DeployedBotMessage {
   @@index([botId, createdAt])
   @@index([botId, source])
   @@index([createdAt])
+}
+
+// === Phase 73 — Plugin / Tool System ===
+//
+// A plugin gives the bot an extra capability — calling an external API,
+// running a calculation, searching the web, etc. The bot detects when a
+// plugin is relevant to a user's message, calls it, and includes the
+// result in the LLM context.
+//
+// Plugin types:
+//   "builtin"  — built-in plugin (calculator, web_search, datetime). config
+//                is empty — the plugin code lives in src/lib/plugins/.
+//   "http"     — custom HTTP plugin. config: { method, url, headers, bodyTemplate,
+//                responsePath }. The bot interpolates {{message}} into the body
+//                and extracts responsePath from the JSON response.
+//   "mcp"      — MCP client. config: { serverUrl }. The bot connects to an
+//                external MCP server and can call any of its tools.
+//
+// One bot can have many plugins. @@unique([botId, name]) prevents duplicates.
+
+model BotPlugin {
+  id        String   @id @default(uuid())
+  botId     String
+  name      String   // display name + unique per bot
+  type      String   // "builtin" | "http" | "mcp"
+  description String  // what the plugin does (shown to the LLM)
+  // Builtin: which built-in plugin. HTTP: {method, url, headers, bodyTemplate, responsePath}.
+  // MCP: {serverUrl, toolName}.
+  config    Json
+  enabled   Boolean  @default(true)
+  callCount Int      @default(0)
+  lastCalledAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bot        DeployedBot @relation(fields: [botId], references: [id], onDelete: Cascade)
+
+  @@unique([botId, name])
+  @@index([botId])
 }

@@ -786,3 +786,45 @@ Stage Summary:
 - File upload handles PDF + DOCX + TXT + MD + CSV + JSON — reuses existing pdf-parse + mammoth deps.
 - RAG runs both client-side (USE embeddings, playground) AND server-side (TF-IDF, deployed bots) — same knowledge base, different retrieval engines depending on runtime.
 - Next: Phase 73 (Plugin/Tool system — bot calls external APIs) + Phase 74 (Code sandbox in chat). These are the remaining pieces from the user's spec.
+
+---
+Task ID: phase-73-plugins-tools
+Agent: main (Super Z)
+Task: Phase 73 — Plugin/Tool system (bot calls external tools: calculator, web search, custom HTTP, MCP client)
+
+Work Log:
+- PRISMA: new BotPlugin model (id, botId, name, type, description, config JSON, enabled, callCount, lastCalledAt, timestamps). @@unique([botId, name]). Back-relation on DeployedBot. Migration: prisma/migrations/20260906110000_phase73_plugins/migration.sql. Three plugin types: "builtin" (code in registry.ts), "http" (custom REST API call), "mcp" (connect to external MCP server).
+- LIB: src/lib/plugins/registry.ts — 3 built-in plugins with trigger regexes:
+  * calculator — evaluates math expressions (strips non-math chars, Function() eval, finite check). Triggers: "calculate", "what is 2+2", "15 * 23", "5 plus 3".
+  * web_search — calls z-ai-web-dev-sdk functions.invoke("web_search") (same as tutor engine). Returns top-5 results with title + snippet. Triggers: "search for", "google", "what's the latest", "news about", "weather in", "price of".
+  * datetime — returns current date/time with timezone. Triggers: "what time is it", "today's date", "current time", "now".
+  * detectRelevantBuiltinPlugins(message) — returns matching plugins by testing trigger regexes.
+  * listBuiltinPluginsForUI() — returns name + description + trigger examples for the UI.
+- LIB: src/lib/plugins/executor.ts — executePlugin(plugin, message) dispatches by type:
+  * builtin → calls the built-in plugin code from registry.ts
+  * http → fetch(config.url, {method, headers, body with {{message}} interpolated}), extracts responsePath from JSON, 10s timeout
+  * mcp → POSTs JSON-RPC tools/call to the external MCP server URL, parses content blocks
+  * detectRelevantPlugins(message, plugins) — for builtin: uses trigger regexes; for http/mcp: keyword match on name + description words
+- API: src/app/api/deployed-bots/[id]/plugins/route.ts:
+  * GET — list plugins (sensitive config fields like API keys/tokens masked) + available built-in catalog
+  * POST — create plugin. Builtin: auto-fills name + description from registry. HTTP: validates url. MCP: validates serverUrl. Handles P2002 unique constraint (duplicate name → 409).
+  * DELETE — delete by pluginId query param
+  * PATCH — toggle enabled/disabled
+- BOT-ENGINE: runBot() now accepts optional `plugins` + `onPluginCalled` callback params. Before retrieval/generation: detects relevant plugins, executes up to 2 in parallel (Promise.all), includes results as "[Plugin: name]\noutput" blocks in the LLM context. System prompt: "Plugin results are authoritative (they come from external tools/APIs)." onPluginCalled fires after each plugin for stats updates.
+- DEPLOYED BOT: /api/embed/[slug]/messages loads the bot's enabled plugins from DB, passes to runBot with a callback that increments callCount + updates lastCalledAt (fire-and-forget).
+- UI: new "🔌 Plugins" tab (between Knowledge and AI Tools). Bot selector → 4 sections:
+  1. Active plugins — list with type icon, name, description, call count, enable/disable toggle, delete
+  2. Built-in plugins — one-click add (calculator/web_search/datetime), shows trigger examples, greys out already-added
+  3. Custom HTTP plugin — form with name, URL, method (POST/GET), responsePath, bodyTemplate (with {{message}} interpolation help)
+  4. MCP client — form with name, serverUrl, toolName. Can connect to any MCP server (including another StudyBuddy bot's /api/mcp/[slug] URL)
+  + "How plugins work" info panel
+- Build: clean (Compiled successfully in 51s, 193/193 pages). Tests: 451/451 pass. Lint: 0 errors.
+
+Stage Summary:
+- Phase 73 shipped — the bot can now CALL external tools during a conversation, not just answer from its training data.
+- Built-in plugins (calculator, web search, datetime) need zero config — one click to enable.
+- Custom HTTP plugins let users connect any REST API (weather, stock prices, custom internal tools).
+- MCP client lets bots call other bots — bot A can use bot B as a tool via bot B's /api/mcp/[slug] endpoint. This enables bot composition.
+- Plugins run BEFORE the generative fallback, so the LLM gets the plugin result as authoritative context. If a plugin fails, the error is included but the bot still generates a reply.
+- Plugin relevance detection is keyword-based (fast, free). A future version could use LLM function-calling for more sophisticated routing.
+- Next: Phase 74 — Code sandbox in chat (bot runs Python/JS code snippets during conversation). This is the last piece from the user's original spec.

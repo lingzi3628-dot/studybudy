@@ -139,7 +139,20 @@ export async function POST(
     })))
     .slice(0, 500); // cap at 500 chunks for performance
 
-  const result = await runBot(message, trainingPairs, config, bot.userId, knowledgeChunks);
+  // Phase 73 — Load the bot's enabled plugins.
+  const plugins = await db.botPlugin.findMany({
+    where: { botId: bot.id, enabled: true },
+    select: { name: true, type: true, description: true, config: true, enabled: true },
+  }).catch(() => []);
+
+  const result = await runBot(message, trainingPairs, config, bot.userId, knowledgeChunks, plugins as any, async (pluginName, success) => {
+    // Update plugin call stats (fire-and-forget).
+    db.botPlugin.updateMany({
+      where: { botId: bot.id, name: pluginName },
+      data: { callCount: { increment: 1 }, lastCalledAt: new Date() },
+    }).catch(() => {});
+    void success;
+  });
 
   // Log the message (async — don't block the reply).
   const visitorHash = await hashVisitorIp(ip);
