@@ -113,12 +113,79 @@ const datetimePlugin: BuiltinPlugin = {
   },
 };
 
+// === Built-in: Code Runner (Phase 74) ===
+
+const codeRunnerPlugin: BuiltinPlugin = {
+  name: "code_runner",
+  description: "Runs Python or JavaScript code snippets and returns the output. Use when the user asks to 'run', 'execute', or 'calculate' code, or provides a code block.",
+  triggers: [
+    /\brun\s+(?:this\s+)?(?:code|script|program)\b/i,
+    /\bexecute\s+(?:this\s+)?(?:code|script)\b/i,
+    /\bcalculate\s+this\b/i,
+    /\beval(?:uate)?\s+(?:this\s+)?(?:code|expression)\b/i,
+    /\bshow\s+me\s+(?:the\s+)?(?:output|result)\b/i,
+    /\bwhat\s+(?:does|is)\s+(?:this\s+)?(?:code|program)\s+(?:do|output|return)\b/i,
+    /```(?:python|javascript|js|py)\b/i, // markdown code block
+  ],
+  async execute(message: string): Promise<string> {
+    // Dynamic import — code-sandbox uses Node modules (vm, child_process).
+    const { runCode, detectCodeLanguage, extractCodeBlock } = await import("@/lib/code-sandbox");
+
+    // Extract code from a markdown code block if present.
+    const block = extractCodeBlock(message);
+    let language: "javascript" | "python" | null = null;
+    let code = "";
+
+    if (block) {
+      code = block.code;
+      if (block.language) {
+        language = block.language === "python" || block.language === "py" ? "python" :
+                   block.language === "javascript" || block.language === "js" ? "javascript" : null;
+      }
+    }
+
+    // If no language detected from the block, detect from the message.
+    if (!language) {
+      language = detectCodeLanguage(message);
+    }
+
+    // If still no language, default to Python (most common for tutor bots).
+    if (!language) {
+      language = "python";
+    }
+
+    // If no code extracted, try to extract everything after "run" or the code block.
+    if (!code) {
+      const match = message.match(/(?:run|execute|eval(?:uate)?)\s+(?:this\s+)?(?:code|script|expression)?:?\s*([\s\S]+)/i);
+      code = match?.[1]?.trim() || "";
+    }
+
+    if (!code) {
+      return "No code found to execute. Provide code in a markdown block (```python ... ```) or after 'run this code:'.";
+    }
+
+    try {
+      const result = await runCode(language, code);
+      const output: string[] = [];
+      if (result.stdout) output.push(`Output:\n${result.stdout}`);
+      if (result.stderr) output.push(`Error:\n${result.stderr}`);
+      if (!output.length) output.push("(no output)");
+      if (result.timedOut) output.push(`[Execution timed out after ${result.durationMs / 1000}s]`);
+      output.push(`[Exit code: ${result.exitCode}, ${result.durationMs}ms]`);
+      return output.join("\n\n");
+    } catch (e: any) {
+      return `Code execution failed: ${e?.message || e}`;
+    }
+  },
+};
+
 // === Registry ===
 
 export const BUILTIN_PLUGINS: BuiltinPlugin[] = [
   calculatorPlugin,
   webSearchPlugin,
   datetimePlugin,
+  codeRunnerPlugin,
 ];
 
 export function getBuiltinPlugin(name: string): BuiltinPlugin | undefined {
