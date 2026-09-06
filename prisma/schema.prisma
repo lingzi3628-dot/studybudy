@@ -108,6 +108,8 @@ model User {
   projects              Project[]
   // Phase 52 — Web Push subscriptions (one per browser/device)
   pushSubscriptions     PushSubscription[]
+  // Phase 70 — server-backed deployed chatbots
+  deployedBots          DeployedBot[]
 
   // Relations for search settings are handled in SearchSettings model
 }
@@ -1941,6 +1943,7 @@ model Project {
 
   user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   files          ProjectFile[]
+  deployedBots   DeployedBot[]
   // conversation   ChatConversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
 
   @@index([userId, buddyId])
@@ -1990,4 +1993,87 @@ model PushSubscription {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+// === Phase 70 — Server-backed deployed chatbots ===
+//
+// A DeployedBot is a chatbot the user has shipped to a public URL.
+// It bundles together: the training data, the matching config (mode +
+// threshold), the persona prompt, and a public slug for the embed widget.
+//
+// The bot runs server-side via POST /api/embed/[slug]/messages, which means
+// the generative fallback (LLM) works in production — unlike the Phase 62
+// "download HTML" deploy where only TF-IDF retrieval worked offline.
+//
+// A DeployedBotMessage is logged for every chat turn — used for analytics
+// (chat volume, fallback rate, top missed queries) AND feeds the owner's
+// Review queue (Phase 68) so they can convert real-user questions into new
+// training pairs.
+
+model DeployedBot {
+  id            String   @id @default(uuid())
+  userId        String
+  // Optional link to the source Project (so "edit in builder" can resume).
+  projectId     String?
+  name          String
+  // Public share token — appears in the embed URL /embed/[slug]. Unique.
+  slug          String   @unique
+  // Config snapshot at deploy time. Mirrors ChatbotPlayground state.
+  matchingMode  String   @default("hybrid")  // tfidf|keyword|fuzzy|hybrid|semantic
+  threshold     Float    @default(0.30)
+  thinkingDelay Int      @default(3)
+  botMemory     Boolean  @default(true)
+  generativeFallback Boolean @default(true)
+  personaPrompt String?
+  // Versioned snapshots — every deploy creates a new version. The latest
+  // version's training data is what /embed/[slug] serves.
+  version       Int      @default(1)
+  // The full training data — [{ id, input, output, intent?, isTest? }].
+  // Capped at 100k pairs (matches ChatbotPlayground's limit).
+  trainingData  Json
+  // Stats (denormalized for fast list rendering).
+  messageCount  Int      @default(0)
+  fallbackCount Int      @default(0)
+  uniqueUsers   Int      @default(0)
+  lastMessageAt DateTime?
+  // Lifecycle: 'draft' = created but not yet deployed; 'deployed' = live;
+  // 'paused' = owner temporarily disabled it (returns 410 Gone).
+  status        String   @default("deployed")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project       Project?           @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  messages      DeployedBotMessage[]
+
+  @@index([userId, status])
+  @@index([status])
+}
+
+model DeployedBotMessage {
+  id        String   @id @default(uuid())
+  botId     String
+  // SHA-256 of the visitor's IP for unique-user counting. We never store
+  // the raw IP — only the hash, which can't be reversed.
+  visitorHash String?
+  // The user's message (truncated to 1000 chars).
+  input     String
+  // What the bot replied (truncated to 4000 chars).
+  output    String
+  // Retrieval score of the best match (0-1).
+  bestScore Float    @default(0)
+  // 'retrieval' | 'generative' | 'fallback' — mirrors ChatbotPlayground.
+  source    String   @default("retrieval")
+  // Was the user's message understood? (source === 'retrieval')
+  understood Boolean @default(false)
+  // Top-3 retrieved inputs at serve time — feeds the owner's Review queue.
+  topMatches Json?
+  responseMs Int     @default(0)
+  createdAt DateTime @default(now())
+
+  bot        DeployedBot @relation(fields: [botId], references: [id], onDelete: Cascade)
+
+  @@index([botId, createdAt])
+  @@index([botId, source])
+  @@index([createdAt])
 }

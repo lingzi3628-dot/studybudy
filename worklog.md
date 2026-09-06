@@ -697,3 +697,28 @@ Stage Summary:
 - Data quality scanner catches the most common training-data mistakes before they ship (contradictions are the #1 cause of "the bot gave me the wrong answer for an exact-match question").
 - Persona editor lets users give their bot a voice without editing code.
 - Next per roadmap: Phase 70 (server-backed deployment with iframe embed widget + REST API) — this is what makes the bot "real" by letting users actually ship it to a website.
+
+---
+Task ID: phase-70-server-deploy
+Agent: main (Super Z)
+Task: Phase 70 — Server-backed deployment (DeployedBot model + public embed widget + REST API + analytics + management UI)
+
+Work Log:
+- PRISMA: 2 new models (DeployedBot, DeployedBotMessage) + back-relations on User + Project. Migration: prisma/migrations/20260906080000_phase70_deployed_bots/migration.sql (Postgres-compatible CREATE TABLE + indexes + FKs). Fields mirror ChatbotPlayground state: matchingMode, threshold, thinkingDelay, botMemory, generativeFallback, personaPrompt, trainingData (JSON), version, status (draft|deployed|paused), denormalized stats (messageCount, fallbackCount, uniqueUsers, lastMessageAt). DeployedBotMessage logs every chat turn with visitorHash (SHA-256 of IP, never raw IP), source, bestScore, topMatches — feeds the owner's Review queue.
+- LIB: src/lib/bot-engine.ts (300 lines) — pure server-side hybrid retrieval. runBot() mirrors ChatbotPlayground.sendMessage: normalizeText → score (tfidf/keyword/fuzzy/hybrid) → retrieve if ≥threshold, else callAI() generative fallback with top-3 as context, else canned "I don't know". Plus generateBotSlug() (10-char base36, 48 bits entropy) + hashVisitorIp() (SHA-256, SubtleCrypto) + getVisitorIp() (x-forwarded-for aware). NOTE: semantic mode not supported server-side (USE can't load in Node) — falls back to hybrid automatically when deployed.
+- API (owner-scoped): src/app/api/deployed-bots/route.ts (GET list / POST create with pre-flight: 0-pair reject, threshold <0.20 reject, 100k cap, contradiction warning). src/app/api/deployed-bots/[id]/route.ts (GET full details / PATCH update with version bump on trainingData change / DELETE cascade). All routes use getCurrentUser() + ownership check (404 on mismatch for security).
+- API (public): src/app/api/embed/[slug]/messages/route.ts — POST is the public chat endpoint. No auth. Rate-limited per IP+bot (30 msgs / 5 min sliding window, in-memory). Loads bot, runs runBot(), logs DeployedBotMessage, increments denormalized stats, best-effort unique-user count. GET returns bot metadata (name, status) for the widget shell. 404 for missing/draft, 410 for paused.
+- ANALYTICS: src/app/api/deployed-bots/[id]/analytics?range=24h|7d|30d — owner-only. Returns summary (totalMessages, retrievalCount, generativeCount, fallbackCount, fallbackRate, avgResponseMs, avgConfidence), volume chart (24/7/30 buckets), topMissed (top 20 fallback/generative inputs grouped by normalized input).
+- EMBED PAGE: src/app/embed/[slug]/page.tsx — FIRST server-rendered public page in the codebase. force-dynamic + nodejs runtime. generateMetadata for the bot name. Renders a clean chat shell with inline CSS + vanilla JS client (no React — works in any iframe). Fetches /api/embed/[slug]/messages, shows RETRIEVED/GENERATED/FALLBACK badges + confidence %. Mobile-first, themeable via the inline STYLES constant. Watermark: "⚡ Powered by StudyBuddy AI".
+- UI: ChatbotPlayground Deploy tab rewritten with 2 sections: (1) "Deploy to Cloud" (recommended, gradient card) — Deploy button + post-deploy success panel showing public URL + iframe embed code + REST API endpoint + version + pair count. "Manage my deployed bots" expander lists all the user's bots with stats (messages/fallbacks/uniques/last-active), Open/Copy URL/Pause/Resume/Delete actions. (2) Legacy "Download Standalone HTML" (offline, TF-IDF only, clearly labeled as limited).
+- WIRING: deployToCloud() posts training data + config to /api/deployed-bots, falls back to "hybrid" mode if user had "semantic" selected (with a comment explaining why — server has no USE). loadCloudBots/deleteCloudBot/toggleCloudBotStatus handlers. copyToClipboard() helper shared between cloud + legacy sections.
+- Build: clean (Compiled successfully in 55s, 191/191 pages — +1 for /embed/[slug]). Tests: 451/451 pass. Lint: 0 errors on all new files.
+- Files: 6 new (bot-engine.ts, 4 API routes, embed page) + 3 modified (schema.prisma, ChatbotPlayground.tsx, worklog.md) + 1 migration.
+
+Stage Summary:
+- Phase 70 shipped — "Deploy" now means actually shipping a working bot, not downloading a file.
+- The embed widget unlocks 80% of "put my bot on my website" use cases via a single <iframe> tag.
+- The REST API unlocks the other 20%: developers can wire the bot into their own backends, Zapier, Make.com, n8n.
+- Analytics + the existing Review queue (Phase 68) form a closed feedback loop: real-user questions → review queue → new training pairs → redeploy → better accuracy.
+- Production follow-up: set up the Postgres DB + run `npx prisma migrate deploy` to apply the Phase 70 migration. The build's migrate-deploy.mjs will handle this automatically on Vercel.
+- Next per roadmap: Phase 71 — Platform Integrations (WhatsApp / Telegram / Slack / Discord / MCP). This is what puts the bot where users actually are.

@@ -377,6 +377,12 @@ export function ChatbotPlayground() {
   const [botMemory, setBotMemory] = useState<boolean>(true);
   const [conversationContext, setConversationContext] = useState<string[]>([]);
   const [deployedUrl, setDeployedUrl] = useState<string | null>(null);
+  // Phase 70 — cloud deploy state
+  const [cloudDeploying, setCloudDeploying] = useState(false);
+  const [cloudBot, setCloudBot] = useState<{ id: string; slug: string; embedUrl: string; apiUrl: string; pairCount: number; version: number } | null>(null);
+  const [cloudError, setCloudError] = useState<string | null>(null);
+  const [cloudBots, setCloudBots] = useState<Array<{ id: string; name: string; slug: string; status: string; messageCount: number; fallbackCount: number; uniqueUsers: number; lastMessageAt: string | null }>>([]);
+  const [showCloudList, setShowCloudList] = useState(false);
   const [copied, setCopied] = useState(false);
   const [importText, setImportText] = useState("");
   const [showImport, setShowImport] = useState(false);
@@ -1054,6 +1060,84 @@ export function ChatbotPlayground() {
         files: [{ path: "chatbot.html", language: "html", content: html, isEntry: true }],
       }),
     }).catch(() => {});
+  };
+
+  // Phase 70 — Deploy to cloud (server-backed, generative fallback works).
+  const deployToCloud = async () => {
+    setCloudDeploying(true);
+    setCloudError(null);
+    try {
+      const r = await fetch("/api/deployed-bots", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: `Chatbot ${new Date().toLocaleDateString()}`,
+          trainingData: trainingData.map(({ id, ...rest }) => ({ id, ...rest })),
+          matchingMode: matchingMode === "semantic" ? "hybrid" : matchingMode, // server doesn't have USE
+          threshold: confidenceThreshold,
+          personaPrompt,
+          generativeFallback,
+          thinkingDelay,
+          botMemory,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) {
+        setCloudError(d?.error || `Deploy failed (HTTP ${r.status})`);
+      } else {
+        setCloudBot(d.bot);
+      }
+    } catch (e: any) {
+      setCloudError(e?.message || "Network error during deploy");
+    }
+    setCloudDeploying(false);
+  };
+
+  // Phase 70 — Load the user's existing cloud bots.
+  const loadCloudBots = async () => {
+    try {
+      const r = await fetch("/api/deployed-bots");
+      const d = await r.json();
+      if (r.ok && Array.isArray(d.bots)) {
+        setCloudBots(d.bots.map((b: any) => ({
+          id: b.id, name: b.name, slug: b.slug, status: b.status,
+          messageCount: b.messageCount, fallbackCount: b.fallbackCount,
+          uniqueUsers: b.uniqueUsers,
+          lastMessageAt: b.lastMessageAt,
+        })));
+        setShowCloudList(true);
+      }
+    } catch {}
+  };
+
+  // Phase 70 — Delete a cloud bot.
+  const deleteCloudBot = async (id: string) => {
+    if (!confirm("Delete this bot permanently? All chat history will be lost.")) return;
+    try {
+      await fetch(`/api/deployed-bots/${id}`, { method: "DELETE" });
+      setCloudBots((prev) => prev.filter((b) => b.id !== id));
+    } catch {}
+  };
+
+  // Phase 70 — Pause/resume a cloud bot.
+  const toggleCloudBotStatus = async (id: string, currentStatus: string) => {
+    const newStatus = currentStatus === "paused" ? "deployed" : "paused";
+    try {
+      const r = await fetch(`/api/deployed-bots/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      if (r.ok) {
+        setCloudBots((prev) => prev.map((b) => b.id === id ? { ...b, status: newStatus } : b));
+      }
+    } catch {}
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   const copyUrl = () => {
@@ -1872,36 +1956,137 @@ export function ChatbotPlayground() {
       {activeTab === "deploy" && (
         <div className="max-w-2xl mx-auto px-4 py-4">
           <h2 className="text-sm font-bold text-gray-900 flex items-center gap-1.5 mb-3"><Globe className="w-4 h-4 text-violet-500" /> Deploy Your Chatbot</h2>
-          <div className="rounded-2xl bg-white border border-gray-200 p-4 mb-4">
-            <p className="text-xs text-gray-500 mb-3">Deploy your trained chatbot as a standalone web page. The deployed bot includes a flowing "Built with StudyBuddy AI" watermark and works without a server.</p>
-            <button onClick={deployBot} className="w-full h-10 rounded-full bg-violet-600 text-white text-sm font-semibold flex items-center justify-center gap-1.5 hover:bg-violet-700">
-              <Globe className="w-4 h-4" /> Generate Deployable Bot
-            </button>
-          </div>
-          {deployedUrl && (
-            <div className="rounded-2xl bg-emerald-50 border border-emerald-200 p-4">
-              <p className="text-sm font-bold text-emerald-700 mb-1">✓ Bot deployed!</p>
-              <p className="text-xs text-emerald-600 mb-2">Your chatbot is ready. Open the URL below to chat with your deployed bot.</p>
-              <div className="flex items-center gap-2">
-                <input type="text" value={deployedUrl} readOnly className="flex-1 h-9 rounded-lg bg-white border border-emerald-200 px-3 text-xs font-mono outline-none" />
-                <button onClick={copyUrl} className="w-9 h-9 rounded-lg bg-emerald-600 text-white flex items-center justify-center hover:bg-emerald-700">
-                  {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                </button>
-                <a href={deployedUrl} target="_blank" rel="noopener noreferrer" className="px-3 h-9 rounded-lg bg-emerald-600 text-white text-xs font-semibold flex items-center gap-1 hover:bg-emerald-700">
-                  <Link2 className="w-3.5 h-3.5" /> Open
-                </a>
-              </div>
-              <p className="text-[10px] text-emerald-500 mt-2">💡 The deployed bot includes all {trainingData.length} training pairs, {matchingMode} matching, and the flowing StudyBuddy watermark.</p>
+
+          {/* Phase 70 — Cloud deploy (recommended) */}
+          <div className="rounded-2xl bg-gradient-to-br from-violet-50 to-fuchsia-50 border border-violet-200 p-4 mb-4">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="px-2 py-0.5 rounded-full bg-violet-600 text-white text-[10px] font-bold uppercase">Recommended</span>
+              <h3 className="text-sm font-bold text-violet-900 flex items-center gap-1.5"><Sparkles className="w-4 h-4" /> Deploy to Cloud</h3>
             </div>
-          )}
+            <p className="text-xs text-violet-700 mb-3 leading-relaxed">
+              Ship a real, server-backed chatbot at a shareable URL. Generative fallback works (the LLM answers when retrieval misses), analytics are tracked, and you can embed it on any website with an <code className="bg-violet-100 px-1 rounded">&lt;iframe&gt;</code>.
+            </p>
+            <ul className="text-[11px] text-violet-700 space-y-1 mb-3">
+              <li>✓ Server-side hybrid retrieval (TF-IDF + keyword + fuzzy)</li>
+              <li>✓ Generative fallback via GLM (works in production, unlike the HTML download)</li>
+              <li>✓ Public chat URL — share it, embed it, or call the REST API</li>
+              <li>✓ Analytics: chat volume, fallback rate, top missed queries</li>
+              <li>✓ Pause/resume + version history (training data updates bump version)</li>
+            </ul>
+            <button
+              onClick={deployToCloud}
+              disabled={cloudDeploying || trainingData.length === 0}
+              className="w-full h-10 rounded-full bg-violet-600 text-white text-sm font-semibold flex items-center justify-center gap-1.5 hover:bg-violet-700 disabled:opacity-50"
+            >
+              {cloudDeploying ? <><Loader2 className="w-4 h-4 animate-spin" /> Deploying…</> : <><Globe className="w-4 h-4" /> Deploy {trainingData.length} pairs to Cloud</>}
+            </button>
+            {cloudError && (
+              <div className="mt-2 p-2 rounded-lg bg-rose-50 border border-rose-200 text-[11px] text-rose-700">⚠ {cloudError}</div>
+            )}
+            {cloudBot && (
+              <div className="mt-3 p-3 rounded-lg bg-white border border-violet-200">
+                <p className="text-xs font-bold text-emerald-700 mb-2">✓ Bot deployed to cloud!</p>
+                <div className="space-y-2">
+                  <div>
+                    <p className="text-[10px] text-gray-500 mb-0.5">Public chat URL (share this):</p>
+                    <div className="flex items-center gap-1.5">
+                      <input type="text" readOnly value={`${typeof window !== "undefined" ? window.location.origin : ""}${cloudBot.embedUrl}`} className="flex-1 h-8 rounded-lg bg-gray-50 border border-gray-200 px-2 text-[11px] font-mono outline-none" />
+                      <button onClick={() => copyToClipboard(`${typeof window !== "undefined" ? window.location.origin : ""}${cloudBot.embedUrl}`)} className="w-8 h-8 rounded-lg bg-violet-600 text-white flex items-center justify-center">
+                        {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                      </button>
+                      <a href={cloudBot.embedUrl} target="_blank" rel="noopener noreferrer" className="px-2 h-8 rounded-lg bg-emerald-600 text-white text-[11px] font-semibold flex items-center gap-1 hover:bg-emerald-700">
+                        <Link2 className="w-3 h-3" /> Open
+                      </a>
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-gray-500 mb-0.5">Embed on your website:</p>
+                    <div className="flex items-center gap-1.5">
+                      <input type="text" readOnly value={`<iframe src="${typeof window !== "undefined" ? window.location.origin : ""}${cloudBot.embedUrl}" width="100%" height="500" frameborder="0"></iframe>`} className="flex-1 h-8 rounded-lg bg-gray-50 border border-gray-200 px-2 text-[11px] font-mono outline-none" />
+                      <button onClick={() => copyToClipboard(`<iframe src="${typeof window !== "undefined" ? window.location.origin : ""}${cloudBot.embedUrl}" width="100%" height="500" frameborder="0"></iframe>`)} className="px-2 h-8 rounded-lg bg-violet-600 text-white text-[11px] font-semibold">Copy</button>
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-gray-500 mb-0.5">REST API (for developers):</p>
+                    <code className="block text-[10px] font-mono text-gray-600 bg-gray-50 p-1.5 rounded">POST {cloudBot.apiUrl} {"{ \"message\": \"hello\" }"}</code>
+                  </div>
+                  <p className="text-[10px] text-gray-400">Version {cloudBot.version} · {cloudBot.pairCount} pairs</p>
+                </div>
+              </div>
+            )}
+            <div className="mt-2 text-center">
+              <button onClick={loadCloudBots} className="text-[11px] text-violet-600 hover:text-violet-800 font-semibold">
+                {showCloudList ? "↻ Refresh my bots" : "📋 Manage my deployed bots"}
+              </button>
+            </div>
+            {showCloudList && (
+              <div className="mt-2 space-y-1.5 max-h-64 overflow-y-auto">
+                {cloudBots.length === 0 ? (
+                  <p className="text-[11px] text-gray-500 text-center py-2">No bots deployed yet.</p>
+                ) : cloudBots.map((b) => (
+                  <div key={b.id} className="p-2 rounded-lg bg-white border border-violet-100">
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <p className="text-xs font-semibold text-gray-900 truncate flex-1">{b.name}</p>
+                      <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-semibold flex-shrink-0 ${b.status === "deployed" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>{b.status}</span>
+                    </div>
+                    <div className="flex items-center gap-3 text-[10px] text-gray-500 mb-1.5">
+                      <span>💬 {b.messageCount}</span>
+                      <span>↩ {b.fallbackCount}</span>
+                      <span>👥 {b.uniqueUsers}</span>
+                      {b.lastMessageAt && <span>· {new Date(b.lastMessageAt).toLocaleDateString()}</span>}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <a href={`/embed/${b.slug}`} target="_blank" rel="noopener noreferrer" className="px-2 h-6 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-semibold flex items-center gap-1 hover:bg-emerald-100">
+                        <Link2 className="w-2.5 h-2.5" /> Open
+                      </a>
+                      <button onClick={() => copyToClipboard(`${typeof window !== "undefined" ? window.location.origin : ""}/embed/${b.slug}`)} className="px-2 h-6 rounded-full bg-gray-100 text-gray-600 text-[10px] font-semibold hover:bg-gray-200">Copy URL</button>
+                      <button onClick={() => toggleCloudBotStatus(b.id, b.status)} className="px-2 h-6 rounded-full bg-amber-50 text-amber-700 text-[10px] font-semibold hover:bg-amber-100">
+                        {b.status === "paused" ? "▶ Resume" : "⏸ Pause"}
+                      </button>
+                      <button onClick={() => deleteCloudBot(b.id)} className="px-2 h-6 rounded-full bg-rose-50 text-rose-700 text-[10px] font-semibold hover:bg-rose-100 ml-auto">Delete</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Legacy: standalone HTML download */}
+          <div className="rounded-2xl bg-white border border-gray-200 p-4 mb-4">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 text-[10px] font-bold uppercase">Offline</span>
+              <h3 className="text-sm font-bold text-gray-900 flex items-center gap-1.5"><FileText className="w-4 h-4 text-gray-500" /> Download Standalone HTML</h3>
+            </div>
+            <p className="text-xs text-gray-500 mb-3">
+              Generates a single HTML file with the bot embedded — works offline, no server needed. <b>Limitation:</b> TF-IDF retrieval only (no LLM fallback, no analytics).
+            </p>
+            <button onClick={deployBot} className="w-full h-10 rounded-full bg-gray-600 text-white text-sm font-semibold flex items-center justify-center gap-1.5 hover:bg-gray-700">
+              <FileText className="w-4 h-4" /> Generate HTML File
+            </button>
+            {deployedUrl && (
+              <div className="mt-3 p-2 rounded-lg bg-emerald-50 border border-emerald-200">
+                <p className="text-[11px] text-emerald-700 mb-1">✓ HTML file generated (blob URL — download to share):</p>
+                <div className="flex items-center gap-1.5">
+                  <input type="text" value={deployedUrl} readOnly className="flex-1 h-8 rounded-lg bg-white border border-emerald-200 px-2 text-[11px] font-mono outline-none" />
+                  <button onClick={copyUrl} className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center">
+                    {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  </button>
+                  <a href={deployedUrl} target="_blank" rel="noopener noreferrer" className="px-2 h-8 rounded-lg bg-emerald-600 text-white text-[11px] font-semibold flex items-center gap-1 hover:bg-emerald-700">
+                    <Link2 className="w-3 h-3" /> Open
+                  </a>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Watermark preview */}
-          <div className="rounded-2xl bg-gray-900 p-4 mt-4">
+          <div className="rounded-2xl bg-gray-900 p-4">
             <p className="text-[10px] font-bold text-gray-400 uppercase mb-2">Watermark preview</p>
             <div className="relative overflow-hidden rounded-lg bg-white p-4" style={{ minHeight: "60px" }}>
               <p className="text-xs text-gray-600">Chatbot preview area</p>
               <div className="absolute bottom-1 right-1 text-[8px] text-gray-300 animate-pulse">⚡ Built with StudyBuddy AI</div>
             </div>
-            <p className="text-[10px] text-gray-500 mt-2">The watermark flows (animates) in the corner of the deployed bot. It cannot be removed.</p>
+            <p className="text-[10px] text-gray-500 mt-2">The watermark appears in the corner of every deployed bot. It cannot be removed.</p>
           </div>
         </div>
       )}
