@@ -2039,15 +2039,52 @@ model DeployedBot {
   // Lifecycle: 'draft' = created but not yet deployed; 'deployed' = live;
   // 'paused' = owner temporarily disabled it (returns 410 Gone).
   status        String   @default("deployed")
+  // Phase 71 — REST API key for external backends (Bearer token auth on
+  // /api/embed/[slug]/messages). Null = embed-widget-only (no API access).
+  apiKey        String?  @unique
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   user          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   project       Project?           @relation(fields: [projectId], references: [id], onDelete: SetNull)
   messages      DeployedBotMessage[]
+  integrations  BotIntegration[]
 
   @@index([userId, status])
   @@index([status])
+}
+
+// === Phase 71 — Platform integrations ===
+//
+// One bot can have many integrations (Telegram, Slack, Discord, etc).
+// Each integration stores its platform-specific config as JSON:
+//   telegram: { botToken, webhookSecret }
+//   slack:    { botToken, signingSecret }
+//   discord:  { botToken, applicationId }
+//   whatsapp: { phoneNumberId, accessToken, verifyToken }
+//
+// The platform's webhook URL is /api/integrations/[platform]/[botId]/webhook
+// — the botId in the path tells us which bot to route the message to.
+
+model BotIntegration {
+  id        String   @id @default(uuid())
+  botId     String
+  // "telegram" | "slack" | "discord" | "whatsapp" | "mcp"
+  platform  String
+  // Platform-specific config (see above). Stored as JSON.
+  config    Json
+  enabled   Boolean  @default(true)
+  // Denormalized stats for the integration list UI.
+  messageCount Int   @default(0)
+  lastMessageAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bot        DeployedBot @relation(fields: [botId], references: [id], onDelete: Cascade)
+
+  @@unique([botId, platform])
+  @@index([botId])
+  @@index([platform])
 }
 
 model DeployedBotMessage {

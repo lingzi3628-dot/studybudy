@@ -722,3 +722,39 @@ Stage Summary:
 - Analytics + the existing Review queue (Phase 68) form a closed feedback loop: real-user questions → review queue → new training pairs → redeploy → better accuracy.
 - Production follow-up: set up the Postgres DB + run `npx prisma migrate deploy` to apply the Phase 70 migration. The build's migrate-deploy.mjs will handle this automatically on Vercel.
 - Next per roadmap: Phase 71 — Platform Integrations (WhatsApp / Telegram / Slack / Discord / MCP). This is what puts the bot where users actually are.
+
+---
+Task ID: phase-71-platform-integrations
+Agent: main (Super Z)
+Task: Phase 71 — Platform integrations (Telegram + Slack + MCP + REST API keys). Puts the deployed bot where users actually are.
+
+Work Log:
+- PRISMA: added `apiKey String? @unique` to DeployedBot (REST API auth) + new `BotIntegration` model (id, botId, platform, config JSON, enabled, messageCount, lastMessageAt). Migration: prisma/migrations/20260906090000_phase71_integrations/migration.sql. Back-relation on DeployedBot: `integrations BotIntegration[]`. One bot can have multiple integrations (one per platform). @@unique([botId, platform]) prevents duplicates.
+- LIB: src/lib/integrations/ — 3 adapter modules:
+  * telegram.ts — sendTelegramMessage (POST to Telegram Bot API, 4000-char truncate, disable_web_page_preview), setTelegramWebhook (sets webhook with secret_token + drop_pending_updates), deleteTelegramWebhook, getTelegramBotInfo (verifies token + gets username). TelegramUpdate type.
+  * slack.ts — verifySlackSignature (HMAC-SHA256 v0 signature, 5-min replay protection, constant-time compare), postSlackMessage (chat.postMessage), parseSlackSlashCommand (form-encoded body parser), formatSlackReply (adds source/confidence annotations).
+  * mcp.ts — JSON-RPC 2.0 helpers (jsonRpcResult, jsonRpcError) + MCP protocol handlers: handleInitialize (protocolVersion 2024-11-05, serverInfo, capabilities.tools), handleToolsList (exposes "chat_with_bot" tool with input schema), handleToolsCall (runs the bot, returns content blocks + _meta with source/confidence).
+- API (public webhooks — no auth, secret in URL/header):
+  * POST /api/integrations/telegram/[botId]/webhook — verifies X-Telegram-Bot-Api-Secret-Token header, parses TelegramUpdate, runs runBot(), sends reply via sendTelegramMessage, logs DeployedBotMessage with visitorHash "tg:<chatId>". Ignores commands (sends greeting).
+  * POST /api/integrations/slack/[botId]/webhook — reads raw body, verifies X-Slack-Signature + X-Slack-Request-Timestamp (HMAC-SHA256), parses form-encoded slash command, runs runBot(), replies inline (in_channel) or async via postSlackMessage if >2.5s.
+- API (owner-scoped): src/app/api/deployed-bots/[id]/integrations/route.ts:
+  * GET — list integrations (config fields with "token"/"secret" in the key name are masked: first4…last4)
+  * POST — create/update integration. For Telegram: validates token format (^\d+:.+), calls getTelegramBotInfo to verify, generates webhookSecret, calls setTelegramWebhook, upserts BotIntegration. For Slack: validates botToken (xoxb-) + signingSecret, upserts.
+  * DELETE — disconnect. For Telegram: calls deleteTelegramWebhook first.
+  * PUT — generate/regenerate REST API key ("sk_" + 32 hex chars).
+- API (public MCP): POST /api/mcp/[slug] — JSON-RPC 2.0 over HTTP. Methods: initialize, tools/list, tools/call (runs chat_with_bot tool → runBot), ping, notifications/* (no response). GET returns a human-readable info page with Claude Desktop config example.
+- API KEY AUTH: updated /api/embed/[slug]/messages to accept `Authorization: Bearer sk_...`. If the bot has an apiKey set, Bearer callers are verified (constant-time compare via crypto.timingSafeEqual). No Bearer = embed widget caller (rate-limited per IP, not blocked). Wrong Bearer = 401.
+- UI: new "🔌 Connect" tab (between Evaluate and Brain). Bot selector dropdown → 4 integration cards:
+  1. Telegram — paste bot token → auto-sets webhook. Shows connected status + message count + disconnect button.
+  2. Slack — paste bot token + signing secret → shows webhook URL for the slash command config. Connected status + disconnect.
+  3. MCP — always available, no setup. Shows the MCP URL + copy button + Claude Desktop config example + link to open the info page.
+  4. REST API Key — generate/copy/regenerate. Shows example curl command. Regenerate invalidates old key.
+- Build: clean (Compiled successfully in 52s, 191/191 pages). Tests: 451/451 pass. Lint: 0 errors on all new files.
+
+Stage Summary:
+- Phase 71 shipped — the bot can now live on Telegram, Slack, in Claude Desktop (via MCP), or be called from any backend via REST API.
+- Telegram is the killer integration for the Kenyan education market — Telegram is widely used, BotFather is self-serve, no business verification needed.
+- MCP is the sleeper feature — it lets anyone use the bot as a tool in Claude Desktop or Cursor without writing any code. One URL in the config file.
+- REST API keys unlock Zapier/Make.com/n8n automation — the bot becomes a building block, not just a chat widget.
+- Discord + WhatsApp not implemented (Discord needs a persistent WebSocket gateway — doesn't fit serverless; WhatsApp needs Meta Business verification). Documented as future work.
+- This completes the 4-phase confidence roadmap: Train (69) → Build (68+69) → Deploy (70) → Connect (71). Users can now go from "I have some Q&A" to "my bot is live on Telegram + my website + Claude Desktop" in one session.

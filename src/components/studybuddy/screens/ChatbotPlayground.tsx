@@ -285,7 +285,7 @@ const STARTER_DATA: TrainingPair[] = [
   { id: "8", input: "help", output: "I can help with anything I've been trained on. Try asking me a question!", intent: "help" },
 ];
 
-type TabType = "train" | "chat" | "tools" | "analytics" | "deploy" | "brain" | "knowledge" | "llm" | "review" | "evaluate";
+type TabType = "train" | "chat" | "tools" | "analytics" | "deploy" | "brain" | "knowledge" | "llm" | "review" | "evaluate" | "connect";
 type MatchingMode = "tfidf" | "keyword" | "fuzzy" | "hybrid" | "semantic";
 
 /** Per-mode default confidence thresholds.
@@ -383,6 +383,15 @@ export function ChatbotPlayground() {
   const [cloudError, setCloudError] = useState<string | null>(null);
   const [cloudBots, setCloudBots] = useState<Array<{ id: string; name: string; slug: string; status: string; messageCount: number; fallbackCount: number; uniqueUsers: number; lastMessageAt: string | null }>>([]);
   const [showCloudList, setShowCloudList] = useState(false);
+  // Phase 71 — Connect tab state
+  const [connectBotId, setConnectBotId] = useState<string | null>(cloudBot?.id ?? null);
+  const [integrations, setIntegrations] = useState<Array<{ id: string; platform: string; enabled: boolean; messageCount: number; config: any }>>([]);
+  const [apiKeyVal, setApiKeyVal] = useState<string | null>(null);
+  const [telegramToken, setTelegramToken] = useState("");
+  const [slackBotToken, setSlackBotToken] = useState("");
+  const [slackSigningSecret, setSlackSigningSecret] = useState("");
+  const [connecting, setConnecting] = useState<string | null>(null); // which platform is connecting
+  const [connectError, setConnectError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [importText, setImportText] = useState("");
   const [showImport, setShowImport] = useState(false);
@@ -1140,6 +1149,70 @@ export function ChatbotPlayground() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  // Phase 71 — Connect tab handlers
+  const loadIntegrations = async (botId: string) => {
+    try {
+      const r = await fetch(`/api/deployed-bots/${botId}/integrations`);
+      const d = await r.json();
+      if (r.ok) {
+        setIntegrations(d.integrations || []);
+        setApiKeyVal(d.apiKey || null);
+      }
+    } catch {}
+  };
+
+  const connectTelegram = async () => {
+    if (!connectBotId || !telegramToken.trim()) return;
+    setConnecting("telegram");
+    setConnectError(null);
+    try {
+      const r = await fetch(`/api/deployed-bots/${connectBotId}/integrations`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform: "telegram", config: { botToken: telegramToken.trim() } }),
+      });
+      const d = await r.json();
+      if (!r.ok) setConnectError(d?.error || "Failed to connect");
+      else { setTelegramToken(""); loadIntegrations(connectBotId); }
+    } catch (e: any) { setConnectError(e?.message); }
+    setConnecting(null);
+  };
+
+  const connectSlack = async () => {
+    if (!connectBotId || !slackBotToken.trim() || !slackSigningSecret.trim()) return;
+    setConnecting("slack");
+    setConnectError(null);
+    try {
+      const r = await fetch(`/api/deployed-bots/${connectBotId}/integrations`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform: "slack", config: { botToken: slackBotToken.trim(), signingSecret: slackSigningSecret.trim() } }),
+      });
+      const d = await r.json();
+      if (!r.ok) setConnectError(d?.error || "Failed to connect");
+      else { setSlackBotToken(""); setSlackSigningSecret(""); loadIntegrations(connectBotId); }
+    } catch (e: any) { setConnectError(e?.message); }
+    setConnecting(null);
+  };
+
+  const disconnectIntegration = async (platform: string) => {
+    if (!connectBotId) return;
+    if (!confirm(`Disconnect ${platform}?`)) return;
+    try {
+      await fetch(`/api/deployed-bots/${connectBotId}/integrations/${platform}`, { method: "DELETE" });
+      loadIntegrations(connectBotId);
+    } catch {}
+  };
+
+  const generateApiKey = async () => {
+    if (!connectBotId) return;
+    try {
+      const r = await fetch(`/api/deployed-bots/${connectBotId}/integrations`, { method: "PUT" });
+      const d = await r.json();
+      if (r.ok) setApiKeyVal(d.apiKey);
+    } catch {}
+  };
+
   const copyUrl = () => {
     if (deployedUrl) {
       navigator.clipboard.writeText(deployedUrl);
@@ -1298,6 +1371,7 @@ export function ChatbotPlayground() {
           { id: "chat", label: "💬 Chat", icon: MessageCircle },
           { id: "review", label: `📝 Review${reviewLog.length > 0 ? ` (${reviewLog.length})` : ""}`, icon: FileText },
           { id: "evaluate", label: "✅ Evaluate", icon: BarChart3 },
+          { id: "connect", label: "🔌 Connect", icon: Link2 },
           { id: "brain", label: "🧠 Brain", icon: Sparkles },
           { id: "llm", label: "🔬 LLM Viz", icon: Zap },
           { id: "knowledge", label: "📚 Knowledge", icon: Database },
@@ -2088,6 +2162,150 @@ export function ChatbotPlayground() {
             </div>
             <p className="text-[10px] text-gray-500 mt-2">The watermark appears in the corner of every deployed bot. It cannot be removed.</p>
           </div>
+        </div>
+      )}
+
+      {/* === CONNECT TAB — Phase 71 platform integrations === */}
+      {activeTab === "connect" && (
+        <div className="max-w-2xl mx-auto px-4 py-4">
+          <div className="rounded-2xl bg-violet-50 border border-violet-100 p-4 mb-4">
+            <h2 className="text-sm font-bold text-violet-900 flex items-center gap-1.5 mb-1.5"><Link2 className="w-4 h-4" /> Connect to Platforms</h2>
+            <p className="text-xs text-violet-700 leading-relaxed">
+              Put your bot where your users are. Connect a deployed bot to Telegram, Slack, MCP (for AI assistants like Claude Desktop), or generate an API key for your own backend.
+            </p>
+          </div>
+
+          {/* Bot selector — pick which deployed bot to connect */}
+          <div className="rounded-2xl bg-white border border-gray-200 p-4 mb-4">
+            <label className="text-xs font-bold text-gray-700 mb-1.5 block">1. Select a deployed bot</label>
+            {!cloudBot && cloudBots.length === 0 && (
+              <p className="text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded-lg p-2">Deploy a bot to cloud first (Deploy tab), then come back here to connect it.</p>
+            )}
+            <div className="flex items-center gap-2">
+              <select
+                value={connectBotId ?? ""}
+                onChange={(e) => { setConnectBotId(e.target.value); if (e.target.value) loadIntegrations(e.target.value); }}
+                className="flex-1 h-9 rounded-lg bg-gray-50 border border-gray-200 px-2 text-xs outline-none focus:border-violet-400"
+              >
+                <option value="">— Select a bot —</option>
+                {cloudBot && <option value={cloudBot.id}>{cloudBot.slug} (just deployed)</option>}
+                {cloudBots.filter((b) => b.id !== cloudBot?.id).map((b) => (
+                  <option key={b.id} value={b.id}>{b.slug} — {b.name}</option>
+                ))}
+              </select>
+              <button onClick={loadCloudBots} className="px-3 h-9 rounded-lg bg-gray-100 text-gray-600 text-xs font-semibold hover:bg-gray-200">↻</button>
+            </div>
+          </div>
+
+          {connectBotId && (
+            <>
+              {/* Telegram */}
+              <div className="rounded-2xl bg-white border border-gray-200 p-4 mb-4">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-bold text-gray-900 flex items-center gap-1.5"><span className="text-base">✈️</span> Telegram</h3>
+                  {integrations.find((i) => i.platform === "telegram") && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-emerald-600 font-semibold">✓ Connected · {integrations.find((i) => i.platform === "telegram")!.messageCount} msgs</span>
+                      <button onClick={() => disconnectIntegration("telegram")} className="text-[10px] text-rose-500 hover:text-rose-700 font-semibold">Disconnect</button>
+                    </div>
+                  )}
+                </div>
+                {!integrations.find((i) => i.platform === "telegram") ? (
+                  <>
+                    <p className="text-[11px] text-gray-500 mb-2">Talk to <a href="https://t.me/BotFather" target="_blank" rel="noopener noreferrer" className="text-violet-600 underline">@BotFather</a> on Telegram to create a bot, then paste the token here. We'll set up the webhook automatically.</p>
+                    <input type="text" value={telegramToken} onChange={(e) => setTelegramToken(e.target.value)} placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11" className="w-full h-9 rounded-lg bg-gray-50 border border-gray-200 px-3 text-xs font-mono outline-none focus:border-violet-400 mb-2" />
+                    <button onClick={connectTelegram} disabled={connecting === "telegram" || !telegramToken.trim()} className="w-full h-8 rounded-full bg-sky-500 text-white text-xs font-semibold hover:bg-sky-600 disabled:opacity-40 flex items-center justify-center gap-1">
+                      {connecting === "telegram" ? <><Loader2 className="w-3 h-3 animate-spin" /> Connecting…</> : "Connect Telegram"}
+                    </button>
+                  </>
+                ) : (
+                  <div className="text-[11px] text-gray-500">
+                    <p>Bot username: <code className="bg-gray-100 px-1 rounded">@{integrations.find((i) => i.platform === "telegram")!.config.botUsername || "unknown"}</code></p>
+                    <p className="mt-1">Users can message your bot on Telegram and it will reply using this deployed chatbot.</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Slack */}
+              <div className="rounded-2xl bg-white border border-gray-200 p-4 mb-4">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-bold text-gray-900 flex items-center gap-1.5"><span className="text-base">💬</span> Slack</h3>
+                  {integrations.find((i) => i.platform === "slack") && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-emerald-600 font-semibold">✓ Connected · {integrations.find((i) => i.platform === "slack")!.messageCount} msgs</span>
+                      <button onClick={() => disconnectIntegration("slack")} className="text-[10px] text-rose-500 hover:text-rose-700 font-semibold">Disconnect</button>
+                    </div>
+                  )}
+                </div>
+                {!integrations.find((i) => i.platform === "slack") ? (
+                  <>
+                    <p className="text-[11px] text-gray-500 mb-2">Create a Slack app at <a href="https://api.slack.com/apps" target="_blank" rel="noopener noreferrer" className="text-violet-600 underline">api.slack.com/apps</a>, add a slash command pointing to the webhook URL (shown after connect), then paste your bot token + signing secret.</p>
+                    <input type="text" value={slackBotToken} onChange={(e) => setSlackBotToken(e.target.value)} placeholder="xoxb-..." className="w-full h-9 rounded-lg bg-gray-50 border border-gray-200 px-3 text-xs font-mono outline-none focus:border-violet-400 mb-1.5" />
+                    <input type="text" value={slackSigningSecret} onChange={(e) => setSlackSigningSecret(e.target.value)} placeholder="Signing secret" className="w-full h-9 rounded-lg bg-gray-50 border border-gray-200 px-3 text-xs font-mono outline-none focus:border-violet-400 mb-2" />
+                    <button onClick={connectSlack} disabled={connecting === "slack" || !slackBotToken.trim() || !slackSigningSecret.trim()} className="w-full h-8 rounded-full bg-violet-600 text-white text-xs font-semibold hover:bg-violet-700 disabled:opacity-40 flex items-center justify-center gap-1">
+                      {connecting === "slack" ? <><Loader2 className="w-3 h-3 animate-spin" /> Connecting…</> : "Connect Slack"}
+                    </button>
+                  </>
+                ) : (
+                  <div className="text-[11px] text-gray-500">
+                    <p>Slash command webhook URL:</p>
+                    <code className="block text-[10px] font-mono text-gray-600 bg-gray-50 p-1.5 rounded mt-1 break-all">{typeof window !== "undefined" ? window.location.origin : ""}/api/integrations/slack/{connectBotId}/webhook</code>
+                    <p className="mt-1.5">Add a slash command in your Slack app settings pointing to this URL. Users type <code className="bg-gray-100 px-1 rounded">/your-command hello</code> to chat with the bot.</p>
+                  </div>
+                )}
+              </div>
+
+              {/* MCP — always available, no setup needed */}
+              <div className="rounded-2xl bg-white border border-gray-200 p-4 mb-4">
+                <h3 className="text-sm font-bold text-gray-900 flex items-center gap-1.5 mb-2"><span className="text-base">🔌</span> MCP (Claude Desktop / Cursor)</h3>
+                <p className="text-[11px] text-gray-500 mb-2">No setup needed — your bot is already available as an MCP server. Add this URL to your AI assistant's config:</p>
+                <div className="flex items-center gap-1.5">
+                  <code className="flex-1 text-[10px] font-mono text-gray-600 bg-gray-50 p-2 rounded break-all">{typeof window !== "undefined" ? window.location.origin : ""}/api/mcp/{cloudBot?.slug ?? cloudBots.find((b) => b.id === connectBotId)?.slug ?? "your-slug"}</code>
+                  <button onClick={() => copyToClipboard(`${typeof window !== "undefined" ? window.location.origin : ""}/api/mcp/${cloudBot?.slug ?? cloudBots.find((b) => b.id === connectBotId)?.slug ?? ""}`)} className="px-2 h-8 rounded-lg bg-violet-600 text-white text-[10px] font-semibold">Copy</button>
+                  <a href={`/api/mcp/${cloudBot?.slug ?? cloudBots.find((b) => b.id === connectBotId)?.slug ?? ""}`} target="_blank" rel="noopener noreferrer" className="px-2 h-8 rounded-lg bg-gray-100 text-gray-600 text-[10px] font-semibold">Open</a>
+                </div>
+                <details className="mt-2">
+                  <summary className="text-[10px] text-gray-500 cursor-pointer hover:text-gray-700">Claude Desktop config example</summary>
+                  <pre className="text-[10px] font-mono text-gray-600 bg-gray-900 text-gray-300 p-2 rounded mt-1 overflow-x-auto">{`{
+  "mcpServers": {
+    "chatbot": {
+      "url": "${typeof window !== "undefined" ? window.location.origin : ""}/api/mcp/${cloudBot?.slug ?? "your-slug"}"
+    }
+  }
+}`}</pre>
+                </details>
+              </div>
+
+              {/* REST API key */}
+              <div className="rounded-2xl bg-white border border-gray-200 p-4 mb-4">
+                <h3 className="text-sm font-bold text-gray-900 flex items-center gap-1.5 mb-2"><span className="text-base">🔑</span> REST API Key</h3>
+                <p className="text-[11px] text-gray-500 mb-2">Generate a key to call the bot from your own backend, Zapier, n8n, or any HTTP client. Without a key, the bot is accessible via the embed widget (rate-limited per IP).</p>
+                {apiKeyVal ? (
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <code className="flex-1 text-[10px] font-mono text-gray-700 bg-gray-50 p-2 rounded break-all">{apiKeyVal}</code>
+                      <button onClick={() => copyToClipboard(apiKeyVal)} className="px-2 h-8 rounded-lg bg-violet-600 text-white text-[10px] font-semibold">Copy</button>
+                    </div>
+                    <details className="mt-2">
+                      <summary className="text-[10px] text-gray-500 cursor-pointer hover:text-gray-700">Example curl</summary>
+                      <pre className="text-[10px] font-mono text-gray-300 bg-gray-900 p-2 rounded mt-1 overflow-x-auto">{`curl -X POST \\
+  ${typeof window !== "undefined" ? window.location.origin : ""}/api/embed/${cloudBot?.slug ?? "your-slug"}/messages \\
+  -H "Authorization: Bearer ${apiKeyVal}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"message": "hello"}'`}</pre>
+                    </details>
+                    <button onClick={generateApiKey} className="mt-2 text-[10px] text-amber-600 hover:text-amber-700 font-semibold">↻ Regenerate (invalidates old key)</button>
+                  </div>
+                ) : (
+                  <button onClick={generateApiKey} className="w-full h-8 rounded-full bg-violet-600 text-white text-xs font-semibold hover:bg-violet-700">Generate API Key</button>
+                )}
+              </div>
+
+              {connectError && (
+                <div className="rounded-lg bg-rose-50 border border-rose-200 p-2 text-[11px] text-rose-700 mb-4">⚠ {connectError}</div>
+              )}
+            </>
+          )}
         </div>
       )}
 

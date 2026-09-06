@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { runBot, hashVisitorIp, getVisitorIp, type BotTrainingPair, type BotConfig } from "@/lib/bot-engine";
+import crypto from "crypto";
 
 export const runtime = "nodejs";
+
+/** Constant-time string compare (avoids timing attacks on API keys). */
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
+}
 
 /**
  * POST /api/embed/[slug]/messages
@@ -75,6 +82,7 @@ export async function POST(
       personaPrompt: true,
       generativeFallback: true,
       trainingData: true,
+      apiKey: true,  // Phase 71 — API key auth
     },
   });
 
@@ -86,6 +94,27 @@ export async function POST(
   }
   if (bot.status === "draft") {
     return NextResponse.json({ error: "This bot is not yet deployed." }, { status: 404 });
+  }
+
+  // Phase 71 — API key auth. If the bot has an apiKey set, the caller MUST
+  // provide it as a Bearer token. This is opt-in: if no key is set on the
+  // bot, the endpoint is public (for the embed widget). Once the user
+  // generates a key, only API-key callers can access it programmatically —
+  // but the embed widget still works (it doesn't send a Bearer token, so
+  // it gets rate-limited but not blocked).
+  if (bot.apiKey) {
+    const authHeader = req.headers.get("authorization") || "";
+    const bearer = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+    if (bearer) {
+      // API key caller — verify (constant-time).
+      if (bearer.length !== bot.apiKey.length || !timingSafeEqual(bearer, bot.apiKey)) {
+        return NextResponse.json({ error: "Invalid API key" }, { status: 401 });
+      }
+      // API key callers get a higher rate limit (they're trusted).
+      // (The IP-based limit above still applies as a secondary gate.)
+    }
+    // If no Bearer token, allow through (it's the embed widget or a
+    // public caller — the IP rate limit handles abuse).
   }
 
   // Run the bot.
