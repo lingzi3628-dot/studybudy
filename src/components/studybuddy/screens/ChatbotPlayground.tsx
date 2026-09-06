@@ -32,9 +32,48 @@ import {
   Settings, BarChart3, Bot, Link2, Copy, Check, FileText,
 } from "lucide-react";
 import { useApp } from "../store";
+import {
+  runEvaluation as runEvalLib,
+  scanDataQuality as scanQualityLib,
+  recommendMode as recommendModeLib,
+  previewQuery as previewQueryLib,
+  type EvalResult,
+  type QualityIssue,
+  type ModeRanking,
+  type LivePreviewResult,
+} from "@/lib/chatbot-eval";
+
+// === Persona templates (Phase 69) ===
+const PERSONA_TEMPLATES: Array<{ id: string; label: string; prompt: string }> = [
+  {
+    id: "default",
+    label: "Default (friendly)",
+    prompt: "You are a friendly chatbot. Answer the user's message. If any of the retrieved Q&A pairs below are clearly relevant, build on them. If none are relevant, answer from your own knowledge — don't force a connection. Keep replies short (1–3 sentences) and conversational. No markdown headings.",
+  },
+  {
+    id: "tutor",
+    label: "Patient tutor",
+    prompt: "You are a patient, encouraging tutor. Break concepts down step-by-step. Ask one clarifying question if the user's request is ambiguous. Use simple language and concrete examples. Celebrate small wins ('Great question!'). Keep replies under 4 sentences unless the user asks for detail.",
+  },
+  {
+    id: "concise",
+    label: "Concise assistant",
+    prompt: "You are a concise assistant. Answer in 1-2 sentences max. Skip pleasantries. Get straight to the point. If you don't know, say so plainly — never guess.",
+  },
+  {
+    id: "sarcastic",
+    label: "Sarcastic bot",
+    prompt: "You are a sarcastic but helpful chatbot. Poke gentle fun at the user's question, then actually answer it. Never mean-spirited. Keep replies under 3 sentences. Use dry humor, not exclamation marks.",
+  },
+  {
+    id: "kenyan-teacher",
+    label: "Kenyan school teacher",
+    prompt: "You are a Kenyan primary/secondary school teacher. Use clear English with occasional Swahili phrases ('sawa', 'karibu', 'pole'). Reference the CBC/KCSE curriculum where relevant. Encourage the student, ask if they understand, and offer to explain further. Keep replies under 4 sentences.",
+  },
+];
 
 // === Types ===
-type TrainingPair = { id: string; input: string; output: string; intent?: string };
+type TrainingPair = { id: string; input: string; output: string; intent?: string; isTest?: boolean };
 type ChatMessage = {
   role: "user" | "bot";
   text: string;
@@ -246,7 +285,7 @@ const STARTER_DATA: TrainingPair[] = [
   { id: "8", input: "help", output: "I can help with anything I've been trained on. Try asking me a question!", intent: "help" },
 ];
 
-type TabType = "train" | "chat" | "tools" | "analytics" | "deploy" | "brain" | "knowledge" | "llm" | "review";
+type TabType = "train" | "chat" | "tools" | "analytics" | "deploy" | "brain" | "knowledge" | "llm" | "review" | "evaluate";
 type MatchingMode = "tfidf" | "keyword" | "fuzzy" | "hybrid" | "semantic";
 
 /** Per-mode default confidence thresholds.
@@ -308,6 +347,23 @@ export function ChatbotPlayground() {
   const [matchingMode, setMatchingModeRaw] = useState<MatchingMode>("hybrid");
   const [generativeFallback, setGenerativeFallback] = useState(true); // Phase 68
   const [embeddingProgress, setEmbeddingProgress] = useState<string | null>(null); // "loading model…" / "embedding 42/120…"
+  // Phase 69 — persona prompt (drives generative fallback tone)
+  const [personaPrompt, setPersonaPrompt] = useState<string>(() => {
+    if (typeof window === "undefined") return PERSONA_TEMPLATES[0].prompt;
+    try { return localStorage.getItem("studybuddy_chatbot_persona") || PERSONA_TEMPLATES[0].prompt; }
+    catch { return PERSONA_TEMPLATES[0].prompt; }
+  });
+  // Phase 69 — evaluation results (null = not yet run)
+  const [evalResult, setEvalResult] = useState<EvalResult | null>(null);
+  const [evalRunning, setEvalRunning] = useState(false);
+  // Phase 69 — mode recommender results
+  const [modeRanking, setModeRanking] = useState<ModeRanking[] | null>(null);
+  const [modeRecRunning, setModeRecRunning] = useState(false);
+  // Phase 69 — data quality issues
+  const [qualityIssues, setQualityIssues] = useState<QualityIssue[] | null>(null);
+  // Phase 69 — live preview in Train tab
+  const [previewInput, setPreviewInput] = useState("");
+  const [previewResult, setPreviewResult] = useState<LivePreviewResult | null>(null);
   const [reviewLog, setReviewLog] = useState<ReviewItem[]>(() => {
     // Resume the continuous-learning queue from localStorage so it survives reloads.
     if (typeof window === "undefined") return [];
@@ -350,6 +406,76 @@ export function ChatbotPlayground() {
   useEffect(() => {
     try { localStorage.setItem("studybuddy_chatbot_review", JSON.stringify(reviewLog.slice(-100))); } catch {}
   }, [reviewLog]);
+
+  // Phase 69 — Persist persona prompt.
+  useEffect(() => {
+    try { localStorage.setItem("studybuddy_chatbot_persona", personaPrompt); } catch {}
+  }, [personaPrompt]);
+
+  // Phase 69 — Live preview: recompute whenever input/mode/threshold/training data change.
+  useEffect(() => {
+    if (!previewInput.trim() || !modelRef.current) { setPreviewResult(null); return; }
+    const trainPairs = trainingData.filter((p) => !p.isTest);
+    if (trainPairs.length === 0) { setPreviewResult(null); return; }
+    try {
+      setPreviewResult(previewQueryLib(previewInput, trainPairs, matchingMode, confidenceThreshold));
+    } catch { setPreviewResult(null); }
+  }, [previewInput, matchingMode, confidenceThreshold, trainingData]);
+
+  // Phase 69 — Run evaluation against the test set.
+  const runEvaluationNow = useCallback(() => {
+    setEvalRunning(true);
+    // Defer to next tick so the spinner can paint.
+    setTimeout(() => {
+      try {
+        const result = runEvalLib(trainingData, matchingMode, confidenceThreshold);
+        setEvalResult(result);
+      } catch (e) { console.warn("Eval failed:", e); }
+      setEvalRunning(false);
+    }, 50);
+  }, [trainingData, matchingMode, confidenceThreshold]);
+
+  // Phase 69 — Run mode recommender (sweeps all 5 modes × thresholds).
+  const runModeRecommender = useCallback(() => {
+    setModeRecRunning(true);
+    setTimeout(() => {
+      try {
+        const ranking = recommendModeLib(trainingData);
+        setModeRanking(ranking);
+      } catch (e) { console.warn("Mode rec failed:", e); }
+      setModeRecRunning(false);
+    }, 50);
+  }, [trainingData]);
+
+  // Phase 69 — Scan training data for quality issues.
+  const scanQuality = useCallback(() => {
+    setQualityIssues(scanQualityLib(trainingData));
+  }, [trainingData]);
+
+  // Phase 69 — Toggle a pair's test-set membership.
+  const toggleTestFlag = useCallback((id: string) => {
+    setTrainingData((prev) => prev.map((p) => p.id === id ? { ...p, isTest: !p.isTest } : p));
+    setIsTrained(false); // retrain — test pairs are held out
+    setEvalResult(null); // invalidate stale results
+  }, []);
+
+  // Phase 69 — Auto-mark ~15% of pairs as test set if none are tagged yet.
+  const autoSplitTestSet = useCallback(() => {
+    const hasTest = trainingData.some((p) => p.isTest);
+    if (hasTest) return;
+    const testCount = Math.max(3, Math.min(20, Math.floor(trainingData.length * 0.15)));
+    const shuffled = [...trainingData].sort(() => Math.random() - 0.5);
+    const testIds = new Set(shuffled.slice(0, testCount).map((p) => p.id));
+    setTrainingData((prev) => prev.map((p) => p.isTest ? p : (testIds.has(p.id) ? { ...p, isTest: true } : p)));
+    setIsTrained(false);
+    setEvalResult(null);
+  }, [trainingData]);
+
+  // Phase 69 — Apply a persona template.
+  const applyPersonaTemplate = useCallback((templateId: string) => {
+    const t = PERSONA_TEMPLATES.find((p) => p.id === templateId);
+    if (t) setPersonaPrompt(t.prompt);
+  }, []);
 
   // Phase 68 — When the matching mode changes, snap the threshold back to that
   // mode's default — UNLESS the user has manually tweaked the slider. We track
@@ -394,11 +520,14 @@ export function ChatbotPlayground() {
     const autoTrain = async () => {
       setIsTraining(true);
       await new Promise((r) => setTimeout(r, 300)); // brief delay for UX
-      const vocab = buildVocab(trainingData);
-      const idf = computeIDF(trainingData, vocab);
-      const vectors = trainingData.map((p) => tfidfVector(p.input, vocab, idf));
+      // Phase 69 — hold out test-set pairs from the training index.
+      const trainPairs = trainingData.filter((p) => !p.isTest);
+      const pairsForModel = trainPairs.length > 0 ? trainPairs : trainingData;
+      const vocab = buildVocab(pairsForModel);
+      const idf = computeIDF(pairsForModel, vocab);
+      const vectors = pairsForModel.map((p) => tfidfVector(p.input, vocab, idf));
       const intents = new Map<string, TrainingPair[]>();
-      for (const p of trainingData) {
+      for (const p of pairsForModel) {
         const intent = p.intent || "general";
         if (!intents.has(intent)) intents.set(intent, []);
         intents.get(intent)!.push(p);
@@ -410,16 +539,16 @@ export function ChatbotPlayground() {
         try {
           setEmbeddingProgress("Loading embedding model (one-time, ~25MB)…");
           const embedder = await ensureEmbedder();
-          setEmbeddingProgress(`Embedding ${trainingData.length} inputs…`);
+          setEmbeddingProgress(`Embedding ${pairsForModel.length} inputs…`);
           // USE embeds in batches internally; for >5k inputs we chunk to keep the
           // UI responsive and surface progress.
           const BATCH = 256;
           embeddings = [];
-          for (let i = 0; i < trainingData.length; i += BATCH) {
-            const slice = trainingData.slice(i, i + BATCH).map((p) => p.input);
+          for (let i = 0; i < pairsForModel.length; i += BATCH) {
+            const slice = pairsForModel.slice(i, i + BATCH).map((p) => p.input);
             const vecs = await embedder.embed(slice);
             embeddings.push(...vecs);
-            setEmbeddingProgress(`Embedding ${Math.min(i + BATCH, trainingData.length)}/${trainingData.length}…`);
+            setEmbeddingProgress(`Embedding ${Math.min(i + BATCH, pairsForModel.length)}/${pairsForModel.length}…`);
           }
           embeddingsMode = "semantic";
         } catch (e) {
@@ -431,13 +560,13 @@ export function ChatbotPlayground() {
         }
       }
       setEmbeddingProgress(null);
-      modelRef.current = { vocab, idf, vectors, pairs: trainingData, intents, embeddings, embeddingsMode };
+      modelRef.current = { vocab, idf, vectors, pairs: pairsForModel, intents, embeddings, embeddingsMode };
       setStats({ coverage: 0, avgResponseTime: 0, totalChats: 0, intents: Array.from(intents.keys()) });
       setIsTrained(true);
       setIsTraining(false);
     };
     autoTrain();
-  }, [trainingData.length, matchingMode]); // Re-train when pair count OR mode changes
+  }, [trainingData, matchingMode]); // Re-train when training data OR mode changes
 
   // Phase 62 — Load training data from a Project when activeProjectId is set
   // (e.g. when a template is used or a saved project is opened)
@@ -631,12 +760,15 @@ export function ChatbotPlayground() {
   const train = useCallback(async () => {
     setIsTraining(true);
     await new Promise((r) => setTimeout(r, 800));
-    const vocab = buildVocab(trainingData);
-    const idf = computeIDF(trainingData, vocab);
-    const vectors = trainingData.map((p) => tfidfVector(p.input, vocab, idf));
+    // Phase 69 — hold out test-set pairs.
+    const trainPairs = trainingData.filter((p) => !p.isTest);
+    const pairsForModel = trainPairs.length > 0 ? trainPairs : trainingData;
+    const vocab = buildVocab(pairsForModel);
+    const idf = computeIDF(pairsForModel, vocab);
+    const vectors = pairsForModel.map((p) => tfidfVector(p.input, vocab, idf));
     // Build intent index
     const intents = new Map<string, TrainingPair[]>();
-    for (const p of trainingData) {
+    for (const p of pairsForModel) {
       const intent = p.intent || "general";
       if (!intents.has(intent)) intents.set(intent, []);
       intents.get(intent)!.push(p);
@@ -647,13 +779,13 @@ export function ChatbotPlayground() {
       try {
         setEmbeddingProgress("Loading embedding model (one-time, ~25MB)…");
         const embedder = await ensureEmbedder();
-        setEmbeddingProgress(`Embedding ${trainingData.length} inputs…`);
+        setEmbeddingProgress(`Embedding ${pairsForModel.length} inputs…`);
         const BATCH = 256;
-        for (let i = 0; i < trainingData.length; i += BATCH) {
-          const slice = trainingData.slice(i, i + BATCH).map((p) => p.input);
+        for (let i = 0; i < pairsForModel.length; i += BATCH) {
+          const slice = pairsForModel.slice(i, i + BATCH).map((p) => p.input);
           const vecs = await embedder.embed(slice);
           embeddings.push(...vecs);
-          setEmbeddingProgress(`Embedding ${Math.min(i + BATCH, trainingData.length)}/${trainingData.length}…`);
+          setEmbeddingProgress(`Embedding ${Math.min(i + BATCH, pairsForModel.length)}/${pairsForModel.length}…`);
         }
         embeddingsMode = "semantic";
       } catch (e) {
@@ -662,7 +794,7 @@ export function ChatbotPlayground() {
       }
     }
     setEmbeddingProgress(null);
-    modelRef.current = { vocab, idf, vectors, pairs: trainingData, intents, embeddings, embeddingsMode };
+    modelRef.current = { vocab, idf, vectors, pairs: pairsForModel, intents, embeddings, embeddingsMode };
     setStats({
       coverage: 0,
       avgResponseTime: 0,
@@ -838,11 +970,11 @@ export function ChatbotPlayground() {
           const contextBlock = top3
             .map((s, i) => `Q${i + 1}: ${s.pair.input}\nA${i + 1}: ${s.pair.output}`)
             .join("\n");
+          // Phase 69 — persona prompt drives the tone. Falls back to the default
+          // template if the user cleared the textarea.
+          const persona = personaPrompt.trim() || PERSONA_TEMPLATES[0].prompt;
           const systemPrompt = [
-            "You are a friendly chatbot. Answer the user's message.",
-            "If any of the retrieved Q&A pairs below are clearly relevant, build on them.",
-            "If none are relevant, answer from your own knowledge — don't force a connection.",
-            "Keep replies short (1–3 sentences) and conversational. No markdown headings.",
+            persona,
             bestScore > 0
               ? `Best retrieval score was ${bestScore.toFixed(2)} (below the ${confidenceThreshold} threshold), so treat the retrieved pairs as weak hints only.`
               : `No training examples matched at all.`,
@@ -902,7 +1034,7 @@ export function ChatbotPlayground() {
       totalChats: prev.totalChats + 1,
       intents: prev.intents,
     }));
-  }, [chatInput, confidenceThreshold, matchingMode, thinkingDelay, botMemory, conversationContext, generativeFallback]);
+  }, [chatInput, confidenceThreshold, matchingMode, thinkingDelay, botMemory, conversationContext, generativeFallback, personaPrompt]);
 
   // Deploy the bot (generates a standalone HTML file with watermark)
   const deployBot = () => {
@@ -1081,6 +1213,7 @@ export function ChatbotPlayground() {
           { id: "train", label: "🎓 Train", icon: Brain },
           { id: "chat", label: "💬 Chat", icon: MessageCircle },
           { id: "review", label: `📝 Review${reviewLog.length > 0 ? ` (${reviewLog.length})` : ""}`, icon: FileText },
+          { id: "evaluate", label: "✅ Evaluate", icon: BarChart3 },
           { id: "brain", label: "🧠 Brain", icon: Sparkles },
           { id: "llm", label: "🔬 LLM Viz", icon: Zap },
           { id: "knowledge", label: "📚 Knowledge", icon: Database },
@@ -1146,20 +1279,69 @@ export function ChatbotPlayground() {
 
           {/* Training data list */}
           <div className="rounded-2xl bg-white border border-gray-200 p-4 mb-4">
-            <h2 className="text-sm font-bold text-gray-900 mb-2">Training data ({trainingData.length} pairs)</h2>
+            <h2 className="text-sm font-bold text-gray-900 mb-2">Training data ({trainingData.length} pairs{trainingData.some((p) => p.isTest) ? ` · ${trainingData.filter((p) => p.isTest).length} test` : ""})</h2>
             <div className="space-y-2 max-h-64 overflow-y-auto">
               {trainingData.slice(0, 100).map((pair) => (
-                <div key={pair.id} className="flex items-start gap-2 p-2 rounded-lg bg-gray-50 border border-gray-100">
+                <div key={pair.id} className={`flex items-start gap-2 p-2 rounded-lg border ${pair.isTest ? "bg-amber-50 border-amber-200" : "bg-gray-50 border-gray-100"}`}>
                   <div className="flex-1 min-w-0">
                     <p className="text-xs"><span className="font-bold text-gray-600">Q:</span> {pair.input}</p>
                     <p className="text-xs mt-0.5"><span className="font-bold text-gray-600">A:</span> {pair.output}</p>
-                    {pair.intent && <span className="inline-block text-[9px] px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 font-medium mt-0.5">{pair.intent}</span>}
+                    <div className="flex items-center gap-1 mt-0.5">
+                      {pair.intent && <span className="inline-block text-[9px] px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 font-medium">{pair.intent}</span>}
+                      {pair.isTest && <span className="inline-block text-[9px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">TEST</span>}
+                    </div>
                   </div>
+                  <button onClick={() => toggleTestFlag(pair.id)} className={`flex-shrink-0 text-[9px] px-1.5 py-0.5 rounded-full font-semibold ${pair.isTest ? "bg-amber-500 text-white" : "bg-gray-200 text-gray-500 hover:bg-amber-200"}`} title="Toggle test-set membership">{pair.isTest ? "Test" : "Train"}</button>
                   <button onClick={() => removePair(pair.id)} className="text-gray-400 hover:text-rose-500 flex-shrink-0"><Trash2 className="w-3.5 h-3.5" /></button>
                 </div>
               ))}
               {trainingData.length > 100 && <p className="text-[10px] text-gray-400 text-center py-2">Showing first 100 of {trainingData.length}. Export to see all.</p>}
             </div>
+          </div>
+
+          {/* Phase 69 — Live Preview pane */}
+          <div className="rounded-2xl bg-white border border-gray-200 p-4 mb-4">
+            <h2 className="text-sm font-bold text-gray-900 mb-2 flex items-center gap-1.5"><Eye className="w-4 h-4 text-violet-500" /> Live Preview</h2>
+            <p className="text-[11px] text-gray-500 mb-2">Type a question to see what the bot would retrieve right now — no need to switch to Chat.</p>
+            <input
+              type="text"
+              value={previewInput}
+              onChange={(e) => setPreviewInput(e.target.value)}
+              placeholder="Try: 'hello' or 'what can you do'"
+              className="w-full h-10 rounded-lg bg-gray-50 border border-gray-200 px-3 text-sm outline-none focus:border-violet-400 mb-2"
+            />
+            {previewResult && (
+              <div className="rounded-lg bg-gray-50 border border-gray-100 p-3">
+                {previewResult.bestPair ? (
+                  <>
+                    <div className="flex items-center gap-1.5 mb-1.5 text-[10px]">
+                      <span className="font-bold text-violet-500">BOT</span>
+                      {previewResult.wouldFallback ? (
+                        <span className="px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-600 font-semibold border border-gray-200">Would fall back</span>
+                      ) : (
+                        <span className="px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-semibold border border-emerald-100">Would retrieve</span>
+                      )}
+                      <span className="text-gray-500">{(previewResult.bestScore * 100).toFixed(0)}% match</span>
+                      <span className="text-gray-400">{matchingMode}</span>
+                    </div>
+                    <p className="text-xs text-gray-700"><b>Would say:</b> {previewResult.bestPair.output}</p>
+                    <p className="text-[10px] text-gray-400 mt-1">↳ matched training input: "{previewResult.bestPair.input}"</p>
+                  </>
+                ) : (
+                  <p className="text-xs text-gray-500">No training data to match against.</p>
+                )}
+                {previewResult.top3.length > 1 && (
+                  <details className="mt-2">
+                    <summary className="text-[10px] text-gray-500 cursor-pointer hover:text-gray-700">Top-3 matches:</summary>
+                    <div className="mt-1 space-y-0.5">
+                      {previewResult.top3.map((m, i) => (
+                        <p key={i} className="text-[10px] text-gray-500 pl-2">• {(m.score * 100).toFixed(0)}% — "{m.pair.input}"</p>
+                      ))}
+                    </div>
+                  </details>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Settings */}
@@ -1214,6 +1396,28 @@ export function ChatbotPlayground() {
                   <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${generativeFallback ? "translate-x-5" : ""}`} />
                 </button>
                 <span className="text-[10px] text-gray-400">When no training example clears the threshold, ask the LLM (with top-3 retrieved Q&A as context).</span>
+              </div>
+              {/* Phase 69 — Persona editor */}
+              <div className="border-t border-gray-100 pt-3 mt-3">
+                <label className="text-xs text-gray-500 flex items-center gap-1 mb-1.5"><Sparkles className="w-3 h-3" /> Persona (system prompt for generative fallback)</label>
+                <div className="flex flex-wrap gap-1 mb-2">
+                  {PERSONA_TEMPLATES.map((t) => (
+                    <button
+                      key={t.id}
+                      onClick={() => applyPersonaTemplate(t.id)}
+                      className="px-2 h-6 rounded-full bg-violet-50 text-violet-700 text-[10px] font-semibold hover:bg-violet-100 border border-violet-100"
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+                <textarea
+                  value={personaPrompt}
+                  onChange={(e) => setPersonaPrompt(e.target.value)}
+                  placeholder="Describe how the bot should talk — tone, length, persona…"
+                  className="w-full h-20 rounded-lg bg-gray-50 border border-gray-200 p-2 text-xs outline-none focus:border-violet-400 font-mono"
+                />
+                <p className="text-[10px] text-gray-400 mt-1">Saved to your browser. Clear the textarea to use the default.</p>
               </div>
             </div>
             <button onClick={train} disabled={isTraining || trainingData.length === 0} className="w-full h-10 rounded-full bg-violet-600 text-white text-sm font-semibold flex items-center justify-center gap-1.5 hover:bg-violet-700 disabled:opacity-50 mt-4">
@@ -1466,6 +1670,201 @@ export function ChatbotPlayground() {
               </button>
             </div>
           )}
+        </div>
+      )}
+
+      {/* === EVALUATE TAB — Phase 69 confidence dashboard === */}
+      {activeTab === "evaluate" && (
+        <div className="max-w-2xl mx-auto px-4 py-4">
+          {/* Test-set tagging */}
+          <div className="rounded-2xl bg-white border border-gray-200 p-4 mb-4">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-sm font-bold text-gray-900 flex items-center gap-1.5"><BarChart3 className="w-4 h-4 text-violet-500" /> Test Set</h2>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-gray-500">
+                  {trainingData.filter((p) => p.isTest).length} test · {trainingData.filter((p) => !p.isTest).length} train
+                </span>
+                <button
+                  onClick={autoSplitTestSet}
+                  disabled={trainingData.some((p) => p.isTest) || trainingData.length < 6}
+                  className="px-2.5 h-7 rounded-full bg-violet-50 text-violet-700 text-[11px] font-semibold hover:bg-violet-100 disabled:opacity-40"
+                  title={trainingData.some((p) => p.isTest) ? "Already tagged — clear test flags to re-split" : "Need ≥6 pairs to split"}
+                >
+                  Auto-split 15%
+                </button>
+              </div>
+            </div>
+            <p className="text-[11px] text-gray-500 mb-2">
+              Tag a few pairs as <b>test</b> — they're held out from training and used to measure accuracy. Aim for ~15% of your data, with at least 1 per intent.
+            </p>
+            <div className="space-y-1.5 max-h-48 overflow-y-auto">
+              {trainingData.slice(0, 50).map((pair) => (
+                <div key={pair.id} className={`flex items-center gap-2 p-2 rounded-lg border ${pair.isTest ? "bg-amber-50 border-amber-200" : "bg-gray-50 border-gray-100"}`}>
+                  <button
+                    onClick={() => toggleTestFlag(pair.id)}
+                    className={`flex-shrink-0 w-4 h-4 rounded border-2 flex items-center justify-center ${pair.isTest ? "bg-amber-500 border-amber-500" : "border-gray-300 hover:border-amber-400"}`}
+                    title="Toggle test-set membership"
+                  >
+                    {pair.isTest && <Check className="w-3 h-3 text-white" />}
+                  </button>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs truncate"><span className="font-bold text-gray-600">Q:</span> {pair.input}</p>
+                    <p className="text-xs truncate"><span className="font-bold text-gray-600">A:</span> {pair.output}</p>
+                  </div>
+                  {pair.intent && <span className="text-[9px] px-1 py-0.5 rounded-full bg-violet-100 text-violet-700 flex-shrink-0">{pair.intent}</span>}
+                  <span className={`text-[9px] font-semibold flex-shrink-0 ${pair.isTest ? "text-amber-600" : "text-gray-400"}`}>{pair.isTest ? "TEST" : "TRAIN"}</span>
+                </div>
+              ))}
+              {trainingData.length > 50 && <p className="text-[10px] text-gray-400 text-center py-1">Showing first 50 of {trainingData.length}</p>}
+            </div>
+          </div>
+
+          {/* Run evaluation */}
+          <div className="rounded-2xl bg-white border border-gray-200 p-4 mb-4">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-bold text-gray-900 flex items-center gap-1.5"><BarChart3 className="w-4 h-4 text-violet-500" /> Run Evaluation</h2>
+              <button
+                onClick={runEvaluationNow}
+                disabled={evalRunning || trainingData.filter((p) => p.isTest).length === 0}
+                className="px-3 h-8 rounded-full bg-violet-600 text-white text-xs font-semibold hover:bg-violet-700 disabled:opacity-40 flex items-center gap-1"
+              >
+                {evalRunning ? <><Loader2 className="w-3 h-3 animate-spin" /> Running…</> : <><Sparkles className="w-3 h-3" /> Evaluate</>}
+              </button>
+            </div>
+            {trainingData.filter((p) => p.isTest).length === 0 && (
+              <p className="text-[11px] text-amber-600 bg-amber-50 border border-amber-100 rounded-lg p-2">⚠ Tag at least one pair as <b>test</b> above, then click Evaluate.</p>
+            )}
+            {evalResult && (
+              <div className="space-y-3">
+                {/* Headline metrics */}
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="rounded-xl bg-emerald-50 border border-emerald-100 p-2.5 text-center">
+                    <p className="text-[10px] font-semibold text-emerald-700 uppercase">Accuracy</p>
+                    <p className="text-xl font-bold text-emerald-900">{(evalResult.accuracy * 100).toFixed(0)}%</p>
+                  </div>
+                  <div className="rounded-xl bg-sky-50 border border-sky-100 p-2.5 text-center">
+                    <p className="text-[10px] font-semibold text-sky-700 uppercase">Coverage</p>
+                    <p className="text-xl font-bold text-sky-900">{(evalResult.coverage * 100).toFixed(0)}%</p>
+                  </div>
+                  <div className="rounded-xl bg-rose-50 border border-rose-100 p-2.5 text-center">
+                    <p className="text-[10px] font-semibold text-rose-700 uppercase">Fallback</p>
+                    <p className="text-xl font-bold text-rose-900">{(evalResult.fallbackRate * 100).toFixed(0)}%</p>
+                  </div>
+                </div>
+                <p className="text-[10px] text-gray-500 text-center">
+                  {evalResult.testSetSize} test pairs · {evalResult.modeUsed} mode · threshold {evalResult.thresholdUsed.toFixed(2)}
+                </p>
+
+                {/* Per-item results */}
+                <div>
+                  <p className="text-[11px] font-bold text-gray-700 mb-1.5">Per-question results</p>
+                  <div className="space-y-1 max-h-48 overflow-y-auto">
+                    {evalResult.perItem.map((r, i) => (
+                      <div key={i} className={`flex items-center gap-2 p-1.5 rounded-lg text-[11px] ${r.correct ? "bg-emerald-50" : r.wouldFallback ? "bg-rose-50" : "bg-amber-50"}`}>
+                        <span className="flex-shrink-0 w-4 h-4 rounded-full flex items-center justify-center text-white text-[9px] font-bold" style={{ background: r.correct ? "#10b981" : r.wouldFallback ? "#ef4444" : "#f59e0b" }}>
+                          {r.correct ? "✓" : r.wouldFallback ? "✗" : "?"}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <p className="truncate"><b>Q:</b> {r.pair.input}</p>
+                          {!r.wouldFallback && !r.correct && r.matchedInput && <p className="truncate text-gray-500">↳ matched: "{r.matchedInput}"</p>}
+                          {r.wouldFallback && <p className="truncate text-gray-500">↳ would fall back to LLM</p>}
+                        </div>
+                        <span className="font-mono text-gray-500 flex-shrink-0">{(r.bestScore * 100).toFixed(0)}%</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Top confusions */}
+                {evalResult.topConfusions.length > 0 && (
+                  <div>
+                    <p className="text-[11px] font-bold text-gray-700 mb-1.5">Top confusions (intent level)</p>
+                    <div className="space-y-1">
+                      {evalResult.topConfusions.map((c, i) => (
+                        <div key={i} className="flex items-center gap-2 text-[11px] p-1.5 rounded-lg bg-gray-50">
+                          <span className="font-mono text-rose-600">{c.truth}</span>
+                          <span className="text-gray-400">→</span>
+                          <span className="font-mono text-amber-600">{c.predicted}</span>
+                          <span className="ml-auto font-mono text-gray-500">{c.count}×</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Mode recommender */}
+          <div className="rounded-2xl bg-white border border-gray-200 p-4 mb-4">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-sm font-bold text-gray-900 flex items-center gap-1.5"><Sparkles className="w-4 h-4 text-violet-500" /> Mode Recommender</h2>
+              <button
+                onClick={runModeRecommender}
+                disabled={modeRecRunning || trainingData.filter((p) => p.isTest).length === 0}
+                className="px-3 h-8 rounded-full bg-violet-600 text-white text-xs font-semibold hover:bg-violet-700 disabled:opacity-40 flex items-center gap-1"
+              >
+                {modeRecRunning ? <><Loader2 className="w-3 h-3 animate-spin" /> Sweeping…</> : <><Sparkles className="w-3 h-3" /> Recommend</>}
+              </button>
+            </div>
+            <p className="text-[11px] text-gray-500 mb-2">Runs all 5 matching modes × thresholds against your test set, ranks them by accuracy.</p>
+            {modeRanking && (
+              <div className="space-y-1.5">
+                {modeRanking.map((r, i) => (
+                  <div key={r.mode} className={`flex items-center gap-2 p-2 rounded-lg ${i === 0 ? "bg-emerald-50 border border-emerald-200" : "bg-gray-50"}`}>
+                    <span className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold ${i === 0 ? "bg-emerald-500 text-white" : "bg-gray-200 text-gray-600"}`}>{i + 1}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold capitalize">{r.mode}{i === 0 && " ← recommended"}</p>
+                      <p className="text-[10px] text-gray-500">Threshold {r.recommendedThreshold.toFixed(2)} · Fallback {(r.fallbackRate * 100).toFixed(0)}%</p>
+                    </div>
+                    <span className="font-mono text-sm font-bold text-emerald-700">{(r.accuracy * 100).toFixed(0)}%</span>
+                    {i === 0 && (
+                      <button
+                        onClick={() => { setMatchingMode(r.mode); onThresholdChange(r.recommendedThreshold); }}
+                        className="px-2 h-6 rounded-full bg-emerald-600 text-white text-[10px] font-semibold hover:bg-emerald-700"
+                      >
+                        Apply
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Data quality */}
+          <div className="rounded-2xl bg-white border border-gray-200 p-4 mb-4">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-sm font-bold text-gray-900 flex items-center gap-1.5"><Settings className="w-4 h-4 text-violet-500" /> Data Quality</h2>
+              <button
+                onClick={scanQuality}
+                className="px-3 h-8 rounded-full bg-violet-600 text-white text-xs font-semibold hover:bg-violet-700 flex items-center gap-1"
+              >
+                <Sparkles className="w-3 h-3" /> Scan
+              </button>
+            </div>
+            <p className="text-[11px] text-gray-500 mb-2">Finds duplicates, contradictions (same input, different answers), near-duplicates, and sparse intents.</p>
+            {qualityIssues && (
+              qualityIssues.length === 0 ? (
+                <p className="text-xs text-emerald-600 bg-emerald-50 border border-emerald-100 rounded-lg p-2">✓ No issues found — your data is clean!</p>
+              ) : (
+                <div className="space-y-1.5 max-h-64 overflow-y-auto">
+                  {qualityIssues.map((issue) => (
+                    <div key={issue.id} className={`flex items-start gap-2 p-2 rounded-lg border text-[11px] ${
+                      issue.severity === "error" ? "bg-rose-50 border-rose-200" :
+                      issue.severity === "warning" ? "bg-amber-50 border-amber-200" :
+                      "bg-sky-50 border-sky-200"
+                    }`}>
+                      <span className="flex-shrink-0 mt-0.5 text-xs">
+                        {issue.severity === "error" ? "🔴" : issue.severity === "warning" ? "🟡" : "🔵"}
+                      </span>
+                      <p className="flex-1 text-gray-700">{issue.message}</p>
+                    </div>
+                  ))}
+                </div>
+              )
+            )}
+          </div>
         </div>
       )}
 

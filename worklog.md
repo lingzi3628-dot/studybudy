@@ -664,3 +664,36 @@ Stage Summary:
   * "boring" — below threshold (no longer matches "Good morning") → generative fallback produces an empathetic reply
   * "what is the basics in class" — below threshold (no longer matches "meaning of life") → generative fallback asks for clarification
   * "so what type of bot are you" — semantic mode retrieves the identity answer, or generative fallback describes the bot
+
+---
+Task ID: phase-69-confidence-dashboard
+Agent: main (Super Z)
+Task: Phase 69 — Confidence Dashboard (evaluation harness + data quality scanner + live preview + persona editor + mode recommender)
+
+Work Log:
+- LIB: src/lib/chatbot-eval.ts (370 lines, pure TS) — 5 exported functions:
+  * `runEvaluation(pairs, mode, threshold)` → EvalResult with per-item results, accuracy, fallback rate, coverage, intent-level confusion matrix (reuses Phase 57's confusion-matrix.ts), top confusions
+  * `scanDataQuality(pairs)` → QualityIssue[] sorted by severity (errors first): duplicate inputs, contradictions (same input, different outputs), near-duplicates (cosine ≥0.95), empty/single-example intents, empty inputs/outputs, short outputs (<10 chars)
+  * `recommendMode(pairs)` → sweeps all 5 modes × thresholds 0.05-0.95, returns ModeRanking[] sorted by accuracy
+  * `previewQuery(query, pairs, mode, threshold)` → LivePreviewResult for the Train-tab side panel
+  * `scoreQuery` (internal) — single-query scoring across all 5 modes
+- LIB NOTE: semantic mode in the eval lib uses TF-IDF as a stand-in (USE can't load in pure-TS test env). The real semantic mode in the React component still uses USE. The mode recommender's relative rankings remain useful because TF-IDF is a reasonable proxy for "did retrieval find the right pair at all?"
+- TESTS: src/lib/chatbot-eval.test.ts (25 tests) — covers scoreQuery exact/paraphrase/unrelated/empty, runEvaluation empty/with-test-set/threshold-sensitivity/confusion-matrix, scanDataQuality clean/dupes/contradictions/empty/short/sparse-intent/sort-order/near-dup, recommendMode ranking/thresholds/tiny-datasets. All 451 tests pass (426 → 451).
+- UI: new "✅ Evaluate" tab (between Review and Brain) with 4 panels:
+  1. Test Set — tag pairs as test (held out from training), auto-split 15% button, inline toggle in the Train-tab list too
+  2. Run Evaluation — accuracy/coverage/fallback 3-metric dashboard, per-question results (✓/✗/?), top confusions
+  3. Mode Recommender — ranks all 5 modes by accuracy with recommended threshold, one-click "Apply" button
+  4. Data Quality — scans for dup/contradiction/near-dup/empty-intent/short-output, color-coded by severity
+- UI: Live Preview pane in Train tab — type a query, see what the bot would retrieve (with score + top-3 matches) without round-tripping to Chat
+- UI: Persona editor in Settings — 5 templates (default/tutor/concise/sarcastic/kenyan-teacher) + free-text textarea, persisted to localStorage, wired into the generative fallback system prompt
+- WIRING: TrainingPair type extended with `isTest?: boolean`. Both `autoTrain` and `train` now filter `trainingData.filter((p) => !p.isTest)` before building the model. Toggle in Train list + Evaluate tab. `isTest` flows through export JSON (via `...rest` spread).
+- WIRING: persona prompt replaces the hardcoded "You are a friendly chatbot" system prompt in sendMessage's generative-fallback branch. Falls back to PERSONA_TEMPLATES[0] if empty.
+- WIRING: `setMatchingMode` now invalidates `evalResult` (stale results cleared on mode swap).
+- Build: clean (Compiled successfully in 55s, 190/190 pages). Lint: 0 errors. Tests: 426 → 451 (all pass).
+
+Stage Summary:
+- Phase 69 shipped — users can now answer "is my bot actually any good?" with hard numbers.
+- The mode recommender is the killer feature: one click tells you "for your data, hybrid @0.30 gets 92% accuracy" instead of guessing.
+- Data quality scanner catches the most common training-data mistakes before they ship (contradictions are the #1 cause of "the bot gave me the wrong answer for an exact-match question").
+- Persona editor lets users give their bot a voice without editing code.
+- Next per roadmap: Phase 70 (server-backed deployment with iframe embed widget + REST API) — this is what makes the bot "real" by letting users actually ship it to a website.
