@@ -1214,22 +1214,31 @@ export function ChatbotPlayground() {
           }
         }
 
-        // Phase 75.3 — Build training examples block with TOKEN BUDGET.
-        // Cap total examples to ~3000 chars so the prompt doesn't exceed API
-        // limits (which was causing HTTP 500). Start with top-scored pairs,
-        // add more until we hit the budget.
+        // Phase 75.4 — Build training examples with SMART SELECTION + TOKEN BUDGET.
+        // Instead of just top-scored pairs, pick examples from the SAME INTENT
+        // as the user's query first, then fill with top-scored. This makes the
+        // few-shot examples more relevant to what the user is asking.
+        // Also: stricter budget (2000 chars) to prevent HTTP 500.
         const trainPairs = modelRef.current?.pairs ?? trainingData.filter((p) => !p.isTest);
-        const maxExampleChars = hasGenerativeIntent ? 3000 : 1500;
-        const examplePairs = scores.slice(0, hasGenerativeIntent ? 20 : 5);
-        const examplesToShow = examplePairs.length >= 3
-          ? examplePairs
-          : [...examplePairs, ...trainPairs.slice(0, 20 - examplePairs.length).map((p) => ({ pair: p, score: 0 }))];
+        const maxExampleChars = hasGenerativeIntent ? 2000 : 1000;
+
+        // Smart few-shot: get examples from the detected intent first
+        const detectedIntentPairs = trainPairs
+          .filter((p) => p.intent === detectedIntent && p.intent !== "general")
+          .slice(0, 10);
+        const topScoredPairs = scores.slice(0, hasGenerativeIntent ? 10 : 5);
+        const allCandidates = [
+          ...topScoredPairs.map((s) => s.pair),
+          ...detectedIntentPairs.filter((p) => !topScoredPairs.some((s) => s.pair.id === p.id)),
+          ...trainPairs.slice(0, 5).filter((p) => !topScoredPairs.some((s) => s.pair.id === p.id) && !detectedIntentPairs.includes(p)),
+        ].slice(0, hasGenerativeIntent ? 15 : 5);
+
         // Build examples but stop when we hit the char budget.
         const exampleLines: string[] = [];
         let exampleChars = 0;
-        for (const s of examplesToShow) {
-          const line = `Example ${exampleLines.length + 1}:\nUser: ${s.pair.input}\nBot: ${s.pair.output}`;
-          if (exampleChars + line.length > maxExampleChars && exampleLines.length >= 5) break;
+        for (const p of allCandidates) {
+          const line = `Example ${exampleLines.length + 1}:\nUser: ${p.input}\nBot: ${p.output}`;
+          if (exampleChars + line.length > maxExampleChars && exampleLines.length >= 3) break;
           exampleLines.push(line);
           exampleChars += line.length;
         }
@@ -1246,7 +1255,7 @@ export function ChatbotPlayground() {
               persona,
               `You are an AI assistant that has been TRAINED on ${trainPairs.length} Q&A pairs across ${stats.intents.length} intents (${intentList}) and ${totalKnowledge} knowledge chunks.`,
               `The user is asking you to CREATE something new. You are NOT searching for a stored answer — you are GENERATING original content based on your training.`,
-              `Below are ${examplesToShow.length} examples of how you respond. Study the STYLE, TONE, and KNOWLEDGE LEVEL of these examples. Your response should match this style.`,
+              `Below are ${exampleLines.length} examples of how you respond. Study the STYLE, TONE, and KNOWLEDGE LEVEL of these examples. Your response should match this style.`,
               `Below is relevant KNOWLEDGE from your training documents. Use this as REFERENCE MATERIAL — facts, definitions, code patterns, explanations.`,
               `Now CREATE a response that is ORIGINAL, HELPFUL, and matches your training style. Do NOT copy the examples — use them as inspiration. Be thorough and detailed. If the user asks for code, write complete, working code. If they ask for an explanation, explain clearly and completely.`,
               `Your response should be as long as needed to fully answer the request. Do not truncate or abbreviate.`,
@@ -1264,7 +1273,7 @@ export function ChatbotPlayground() {
 
         // Phase 75.3 — Cap knowledge block + conversation history to prevent
         // HTTP 500 from oversized prompts. Total prompt should be under ~8000 chars.
-        const maxRagChars = hasGenerativeIntent ? 3000 : 2000;
+        const maxRagChars = hasGenerativeIntent ? 2000 : 1500;
         const cappedRagBlock = ragBlock.length > maxRagChars ? ragBlock.slice(0, maxRagChars) + "\n...[truncated]" : ragBlock;
 
         // Phase 75.1 — Always include conversation history (last 8 messages for generative).
@@ -1305,7 +1314,7 @@ export function ChatbotPlayground() {
             replyText = out;
             source = "generative";
             modelName = "ai-playground";
-            thinkingSteps.push({ step: "9. LLM generated", detail: `${hasGenerativeIntent ? "Generated" : "Replied"} ${out.length} chars (${examplesToShow.length} examples + ${ragChunkCount} chunks)`, data: [out.slice(0, 150) + (out.length > 150 ? "…" : "")] });
+            thinkingSteps.push({ step: "9. LLM generated", detail: `${hasGenerativeIntent ? "Generated" : "Replied"} ${out.length} chars (${exampleLines.length} examples + ${ragChunkCount} chunks)`, data: [out.slice(0, 150) + (out.length > 150 ? "…" : "")] });
           } else {
             // Attempt 2: simpler prompt (just persona + message, no examples/knowledge)
             thinkingSteps.push({ step: "9. LLM empty — retrying with simpler prompt", detail: `First call returned empty. Retrying with just persona + message (no examples/knowledge).` });
