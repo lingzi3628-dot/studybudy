@@ -1013,10 +1013,19 @@ export function ChatbotPlayground() {
     const top3 = scores.slice(0, 3);
     thinkingSteps.push({ step: "6. Match training data", detail: `Compared against ${model.pairs.length} examples using ${matchingMode}`, data: top3.map((s) => ({ input: s.pair.input, score: s.score.toFixed(4), intent: s.pair.intent || "general" })) });
 
+    // Phase 75.1 — Detect generative intent EARLY (before thinking delay)
+    // so we can skip the delay for generative requests.
+    const generativeIntentRegex = /\b(write|create|generate|make|build|code|program|develop|compose|design|explain|teach|show me how|give me an?|example of|demonstrate|implement|solve|calculate|derive|prove)\b/i;
+    const hasGenerativeIntentEarly = generativeIntentRegex.test(text);
+
     // Wait for the thinking-delay timer to finish (it ran in parallel with
     // any embedding work above). This keeps the visible "thinking…" animation
     // honest — it always lasts at least thinkingDelay seconds.
-    await thinkingPromise;
+    // Phase 75.1 — Skip the delay for generative intent (the LLM call itself
+    // takes 2-10s — no need for artificial delay on top of that).
+    if (!hasGenerativeIntentEarly) {
+      await thinkingPromise;
+    }
 
     // Step 7: Decide — retrieve (score ≥ threshold) OR generate (fallback).
     const best = scores[0];
@@ -1045,8 +1054,7 @@ export function ChatbotPlayground() {
     // an example), skip retrieval entirely and go straight to generation with
     // rich context (few-shot examples + knowledge chunks). This is what makes
     // the bot "generative" — it can write new content based on what it learned.
-    const generativeIntentRegex = /\b(write|create|generate|make|build|code|program|develop|compose|design|explain|teach|show me how|give me an?|example of|demonstrate|implement|solve|calculate|derive|prove)\b/i;
-    const hasGenerativeIntent = generativeIntentRegex.test(text);
+    const hasGenerativeIntent = hasGenerativeIntentEarly; // already detected above
 
     // Phase 73.1 — RAG-first detection. Even when Q&A retrieval succeeds, if
     // the user is clearly asking about the knowledge base, OR the retrieval
@@ -1095,15 +1103,20 @@ export function ChatbotPlayground() {
       let modelName: string | undefined = undefined;
 
       if (generativeFallback) {
-        thinkingSteps.push({ step: "8. Generative fallback", detail: `Calling LLM with top-${top3.length} retrieved Q&A as context…` });
+        // Phase 75.1 — DEDICATED GENERATIVE PATH.
+        // When generative intent is detected, use a completely different prompt
+        // structure optimized for CREATION, not retrieval-augmented answering.
+        // No mixed signals ("retrieval score was 0.42, treat as weak hints").
+        // Instead: "You are an expert in X. Here are examples of your work.
+        // Here is your reference material. Now CREATE something new."
 
-        // Phase 72 — RAG retrieval from knowledge sources (client-side USE).
+        // Phase 72 — RAG retrieval from knowledge sources.
         let ragBlock = "";
         let ragChunkCount = 0;
+        const maxRagChunks = hasGenerativeIntent ? 10 : 4; // 10 chunks for generative, 4 for fallback
         if (ragEnabled && knowledgeSources.length > 0) {
           thinkingSteps.push({ step: "8a. RAG retrieval", detail: `Retrieving from ${knowledgeSources.length} knowledge source(s)…` });
           try {
-            // Load full chunks for each source (the list endpoint doesn't return chunks).
             const chunkPromises = knowledgeSources.map(async (src) => {
               const r = await fetch(`/api/knowledge-sources/${src.id}`);
               if (!r.ok) return [];
@@ -1113,7 +1126,6 @@ export function ChatbotPlayground() {
             });
             const allChunks = (await Promise.all(chunkPromises)).flat();
             if (allChunks.length > 0) {
-              // Embed query + chunks with USE.
               const embedder = await ensureEmbedder();
               const [queryVec] = await embedder.embed([normalized]);
               const chunkTexts = allChunks.map((c: any) => c.text).slice(0, 500);
@@ -1122,7 +1134,7 @@ export function ChatbotPlayground() {
                 text: t,
                 title: (allChunks[i] as any)?.title,
                 score: cosineSimVec(queryVec, chunkVecs[i]),
-              })).sort((a, b) => b.score - a.score).slice(0, hasGenerativeIntent ? 6 : 4).filter((c) => c.score > 0.15);
+              })).sort((a, b) => b.score - a.score).slice(0, maxRagChunks).filter((c) => c.score > 0.10);
               ragChunkCount = scored.length;
               if (scored.length > 0) {
                 ragBlock = scored.map((c, i) => `[Knowledge ${i + 1}]${c.title ? ` (${c.title}):` : ":"}\n${c.text}`).join("\n\n");
@@ -1134,63 +1146,81 @@ export function ChatbotPlayground() {
           }
         }
 
-        // Phase 75 — Enhanced generative prompt.
-        // Few-shot examples: use top-5 (not top-3) when generative intent is detected.
-        // These teach the LLM the bot's "style" and "knowledge patterns".
-        const fewShotPairs = hasGenerativeIntent ? scores.slice(0, 5) : top3;
-        const contextBlock = fewShotPairs
-          .map((s, i) => `Q${i + 1}: ${s.pair.input}\nA${i + 1}: ${s.pair.output}`)
-          .join("\n");
+        // Phase 75.1 — Build training examples block.
+        // For generative intent: send 20 relevant Q&A pairs as "training examples"
+        // so the LLM really learns the bot's domain. For fallback: top-5 as hints.
+        const trainPairs = modelRef.current?.pairs ?? trainingData.filter((p) => !p.isTest);
+        const exampleCount = hasGenerativeIntent ? 20 : 5;
+        const examplePairs = scores.slice(0, exampleCount);
+        // If we don't have enough scored pairs (e.g., no match at all), grab random pairs
+        // from the training data so the LLM still sees the bot's style.
+        const examplesToShow = examplePairs.length >= 3
+          ? examplePairs
+          : [...examplePairs, ...trainPairs.slice(0, exampleCount - examplePairs.length).map((p) => ({ pair: p, score: 0 }))];
+        const trainingExamples = examplesToShow
+          .map((s, i) => `Example ${i + 1}:\nUser: ${s.pair.input}\nBot: ${s.pair.output}`)
+          .join("\n\n");
 
-        // Phase 75 — Capabilities summary: tell the LLM what the bot "knows"
-        // (how many Q&A pairs, what intents, how much knowledge). This primes
-        // the LLM to generate content in the bot's domain.
         const intentList = stats.intents.length > 0 ? stats.intents.join(", ") : "general";
-        const capabilitiesSummary = `You are a chatbot trained on ${trainingData.filter((p) => !p.isTest).length} Q&A pairs across ${stats.intents.length} intents (${intentList}) and ${knowledgeSources.reduce((s, k) => s + k.chunkCount, 0)} knowledge chunks. You have been taught to respond in a specific style. Use the examples below to learn the bot's personality and knowledge patterns.`;
-
+        const totalKnowledge = knowledgeSources.reduce((s, k) => s + k.chunkCount, 0);
         const persona = personaPrompt.trim() || PERSONA_TEMPLATES[0].prompt;
-        const systemPrompt = [
-          persona,
-          // Phase 75 — generative intent gets a different instruction.
-          hasGenerativeIntent
-            ? `The user wants you to CREATE something new. Use your training examples as a style guide and your knowledge chunks as reference material. Generate original content that matches what you've learned. Be creative but accurate.`
-            : bestScore > 0
-              ? `Best retrieval score was ${bestScore.toFixed(2)} (below the ${confidenceThreshold} threshold), so treat the retrieved pairs as weak hints only.`
-              : `No training examples matched at all.`,
-          capabilitiesSummary,
-          ragChunkCount > 0
-            ? `${ragChunkCount} relevant knowledge chunks were retrieved — use these as primary context for your answer. Cite them as [Knowledge N] where N is the chunk number.`
-            : "",
-        ].filter(Boolean).join(" ");
 
-        // Phase 75 — Always include conversation history (last 6 messages).
-        // More context = better follow-up understanding + better generation.
-        const recentMessages = chatMessages.slice(-6).map((m) => `${m.role === "user" ? "User" : "Bot"}: ${m.text}`).join("\n");
-        const conversationBlock = recentMessages
-          ? `Recent conversation:\n${recentMessages}\n`
-          : "";
+        // Phase 75.1 — DEDICATED SYSTEM PROMPT for generative intent.
+        // No mention of "retrieval score" or "weak hints". Pure generation instruction.
+        const systemPrompt = hasGenerativeIntent
+          ? [
+              persona,
+              `You are an AI assistant that has been TRAINED on ${trainPairs.length} Q&A pairs across ${stats.intents.length} intents (${intentList}) and ${totalKnowledge} knowledge chunks.`,
+              `The user is asking you to CREATE something new. You are NOT searching for a stored answer — you are GENERATING original content based on your training.`,
+              `Below are ${examplesToShow.length} examples of how you respond. Study the STYLE, TONE, and KNOWLEDGE LEVEL of these examples. Your response should match this style.`,
+              `Below is relevant KNOWLEDGE from your training documents. Use this as REFERENCE MATERIAL — facts, definitions, code patterns, explanations.`,
+              `Now CREATE a response that is ORIGINAL, HELPFUL, and matches your training style. Do NOT copy the examples — use them as inspiration. Be thorough and detailed. If the user asks for code, write complete, working code. If they ask for an explanation, explain clearly and completely.`,
+              `Your response should be as long as needed to fully answer the request. Do not truncate or abbreviate.`,
+            ].join(" ")
+          : [
+              persona,
+              `You are a chatbot trained on ${trainPairs.length} Q&A pairs and ${totalKnowledge} knowledge chunks.`,
+              bestScore > 0
+                ? `Best retrieval score was ${bestScore.toFixed(2)} (below threshold), so treat the examples as weak hints only.`
+                : `No training examples matched.`,
+              ragChunkCount > 0
+                ? `${ragChunkCount} knowledge chunks were retrieved — use these as primary context.`
+                : "",
+            ].filter(Boolean).join(" ");
+
+        // Phase 75.1 — Always include conversation history (last 8 messages for generative).
+        const historyCount = hasGenerativeIntent ? 8 : 4;
+        const recentMessages = chatMessages.slice(-historyCount).map((m) => `${m.role === "user" ? "User" : "Bot"}: ${m.text}`).join("\n");
+        const conversationBlock = recentMessages ? `Recent conversation:\n${recentMessages}\n` : "";
 
         const userPrompt = [
           conversationBlock,
-          ragBlock ? `Retrieved knowledge:\n${ragBlock}\n` : "",
-          contextBlock ? `Retrieved Q&A (weak):\n${contextBlock}\n` : "",
-          `User message: ${text}`,
+          ragBlock ? `=== KNOWLEDGE BASE (reference material) ===\n${ragBlock}\n` : "",
+          `=== TRAINING EXAMPLES (your style guide) ===\n${trainingExamples}\n`,
+          `=== USER REQUEST ===\n${text}`,
         ].filter(Boolean).join("\n");
+
+        thinkingSteps.push({ step: "8c. Calling LLM", detail: `${hasGenerativeIntent ? "Generative mode" : "Fallback mode"}: ${examplesToShow.length} examples + ${ragChunkCount} knowledge chunks + ${historyCount} history msgs → LLM` });
 
         try {
           const r = await fetch("/api/ai/playground", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ systemPrompt, userPrompt, temperature: hasGenerativeIntent ? Math.max(creativity, 0.5) : creativity }),
+            body: JSON.stringify({
+              systemPrompt,
+              userPrompt,
+              temperature: hasGenerativeIntent ? Math.max(creativity, 0.5) : creativity,
+              maxTokens: hasGenerativeIntent ? 2000 : 1000, // Phase 75.1 — longer responses for generation
+            }),
           });
           if (r.ok) {
             const d = await r.json();
             const out: string = (d?.output ?? "").trim();
             if (out.length > 0) {
-              replyText = out;
+              replyText = out; // Phase 75.1 — removed 4000 char cap for generative
               source = "generative";
               modelName = d?.model ?? "ai-playground";
-              thinkingSteps.push({ step: "9. LLM replied", detail: `Generated ${out.length} chars via ${modelName}${ragChunkCount > 0 ? ` + ${ragChunkCount} RAG chunks` : ""}`, data: [out.slice(0, 120) + (out.length > 120 ? "…" : "")] });
+              thinkingSteps.push({ step: "9. LLM generated", detail: `${hasGenerativeIntent ? "Generated" : "Replied"} ${out.length} chars via ${modelName} (${examplesToShow.length} examples + ${ragChunkCount} chunks)`, data: [out.slice(0, 150) + (out.length > 150 ? "…" : "")] });
             } else {
               thinkingSteps.push({ step: "9. LLM empty", detail: `API returned empty output — using canned fallback` });
             }

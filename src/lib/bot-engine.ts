@@ -279,17 +279,28 @@ export async function runBot(
         sourceTitle: c.sourceTitle,
       }))
       .sort((a, b) => b.score - a.score)
-      .slice(0, hasGenerativeIntent ? 6 : 4) // top-6 chunks for generative intent, else top-4
+      .slice(0, hasGenerativeIntent ? 10 : 4) // Phase 75.1 — 10 chunks for generative, 4 for fallback
       .filter((c) => c.score > 0.05); // drop zero-overlap chunks
   }
 
   // Generative fallback.
   if (config.generativeFallback) {
-    // Phase 75 — Few-shot examples: top-5 for generative intent, top-3 otherwise.
-    const fewShot = hasGenerativeIntent ? scores.slice(0, 5).map((s) => ({ input: s.pair.input, score: s.score, output: s.pair.output })) : top3.map((s) => ({ ...s, output: pairsForModel.find((p) => p.input === s.input)?.output ?? "" }));
-    const contextBlock = fewShot
-      .map((s, i) => `Q${i + 1}: ${s.input}\nA${i + 1}: ${s.output}`)
-      .join("\n");
+    // Phase 75.1 — Dedicated generative path.
+    // For generative intent: 20 training examples as style guide, 10 knowledge chunks.
+    const exampleCount = hasGenerativeIntent ? 20 : 5;
+    const fewShot = (hasGenerativeIntent ? scores.slice(0, exampleCount) : scores.slice(0, 3)).map((s) => ({
+      input: s.pair.input,
+      output: s.pair.output,
+    }));
+    // If not enough scored examples, pad with random training pairs.
+    if (fewShot.length < 3 && pairsForModel.length > 0) {
+      const padding = pairsForModel.slice(0, exampleCount - fewShot.length).map((p) => ({ input: p.input, output: p.output }));
+      fewShot.push(...padding);
+    }
+    const trainingExamples = fewShot
+      .map((s, i) => `Example ${i + 1}:\nUser: ${s.input}\nBot: ${s.output}`)
+      .join("\n\n");
+
     const ragBlock = ragChunks.length > 0
       ? ragChunks.map((c, i) => `[Knowledge ${i + 1}]${c.sourceTitle ? ` (${c.sourceTitle}):` : ":"}\n${c.text}`).join("\n\n")
       : "";
@@ -298,36 +309,37 @@ export async function runBot(
       : "";
     const persona = (config.personaPrompt?.trim() || DEFAULT_PERSONA);
 
-    // Phase 75 — Capabilities summary.
     const intentList = Array.from(new Set(pairsForModel.map((p) => p.intent || "general"))).join(", ");
-    const capabilitiesSummary = `You are a chatbot trained on ${pairsForModel.length} Q&A pairs across intents (${intentList}) and ${knowledgeChunks.length} knowledge chunks. Use the examples below to learn the bot's personality and knowledge patterns.`;
+
+    // Phase 75.1 — Dedicated system prompt for generative intent.
+    const systemContent = hasGenerativeIntent
+      ? [
+          persona,
+          `You are an AI assistant TRAINED on ${pairsForModel.length} Q&A pairs across intents (${intentList}) and ${knowledgeChunks.length} knowledge chunks.`,
+          `The user wants you to CREATE something new. You are NOT searching for a stored answer — you are GENERATING original content.`,
+          `${fewShot.length} training examples are provided as your STYLE GUIDE. ${ragChunks.length} knowledge chunks are provided as REFERENCE MATERIAL.`,
+          `Create a response that is ORIGINAL, HELPFUL, and matches your training style. Be thorough. If asked for code, write complete working code. Do not truncate.`,
+        ].join(" ")
+      : [
+          persona,
+          `You are a chatbot trained on ${pairsForModel.length} Q&A pairs and ${knowledgeChunks.length} knowledge chunks.`,
+          bestScore > 0 ? `Best retrieval score ${bestScore.toFixed(2)} (below threshold) — treat examples as weak hints.` : `No training examples matched.`,
+          ragChunks.length > 0 ? `${ragChunks.length} knowledge chunks retrieved — use as primary context.` : "",
+          pluginResults.length > 0 ? `${pluginResults.length} plugin(s) returned results — these are authoritative.` : "",
+        ].filter(Boolean).join(" ");
 
     const messages: ChatMessage[] = [
       {
         role: "system",
-        content: [
-          persona,
-          hasGenerativeIntent
-            ? `The user wants you to CREATE something new. Use your training examples as a style guide and your knowledge chunks as reference material. Generate original content that matches what you've learned. Be creative but accurate.`
-            : bestScore > 0
-              ? `Best retrieval score was ${bestScore.toFixed(2)} (below the ${config.threshold} threshold), so treat the retrieved pairs as weak hints only.`
-              : `No training examples matched at all.`,
-          capabilitiesSummary,
-          ragChunks.length > 0
-            ? `${ragChunks.length} relevant knowledge chunks were retrieved — use these as primary context for your answer. Cite them as [Knowledge N] where N is the chunk number.`
-            : "",
-          pluginResults.length > 0
-            ? `${pluginResults.length} plugin(s) were called and returned results — use these as factual data for your answer. Plugin results are authoritative (they come from external tools/APIs).`
-            : "",
-        ].filter(Boolean).join(" "),
+        content: systemContent,
       },
       {
         role: "user",
         content: [
-          pluginBlock ? `Plugin results:\n${pluginBlock}\n` : "",
-          ragBlock ? `Retrieved knowledge:\n${ragBlock}\n` : "",
-          contextBlock ? `Retrieved Q&A (weak):\n${contextBlock}\n` : "",
-          `User message: ${userMessage}`,
+          pluginBlock ? `=== PLUGIN RESULTS ===\n${pluginBlock}\n` : "",
+          ragBlock ? `=== KNOWLEDGE BASE ===\n${ragBlock}\n` : "",
+          `=== TRAINING EXAMPLES ===\n${trainingExamples}\n`,
+          `=== USER REQUEST ===\n${userMessage}`,
         ].filter(Boolean).join("\n"),
       },
     ];
@@ -336,12 +348,13 @@ export async function runBot(
         userId: ownerUserId,
         route: "deployed-bot",
         alreadyCharged: false,
-        temperature: hasGenerativeIntent ? 0.7 : 0.5, // Phase 75 — higher temp for creative generation
+        temperature: hasGenerativeIntent ? 0.7 : 0.5,
+        maxTokens: hasGenerativeIntent ? 2000 : 1000, // Phase 75.1 — longer responses
       });
       const trimmed = (reply ?? "").trim();
       if (trimmed.length > 0) {
         return {
-          reply: trimmed.slice(0, 4000),
+          reply: hasGenerativeIntent ? trimmed : trimmed.slice(0, 4000), // Phase 75.1 — no cap for generative
           source: "generative",
           confidence: bestScore,
           matchedInput: null,
