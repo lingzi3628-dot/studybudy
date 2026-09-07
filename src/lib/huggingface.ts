@@ -35,6 +35,7 @@ export type HFSearchResult = {
 // === Constants ===
 
 const HF_API = "https://huggingface.co/api";
+const HF_DATASETS_SERVER = "https://datasets-server.huggingface.co";
 const MAX_DATASET_CHARS = 200_000; // cap at ~40 pages of text
 const MAX_ROWS = 500; // cap rows extracted from a dataset
 
@@ -66,38 +67,66 @@ export async function searchHFDatasets(query: string, limit = 20): Promise<HFSea
   return { datasets, total: datasets.length };
 }
 
-// === Fetch dataset files ===
+// === Fetch dataset rows via Datasets Server API ===
 
 /**
- * List the files in a HF dataset repo.
- * Returns the file paths (we look for .csv, .json, .jsonl, .parquet, .txt files).
+ * Get available splits for a dataset.
+ * Uses the HF Datasets Server API — handles parquet automatically.
+ * NOTE: datasetId must NOT be encoded (the slash in "openai/gsm8k" is part of the ID).
  */
-export async function listDatasetFiles(datasetId: string): Promise<string[]> {
-  const url = `${HF_API}/datasets/${encodeURIComponent(datasetId)}`;
+async function getDatasetSplits(datasetId: string): Promise<Array<{ config: string; split: string; rowCount: number }>> {
+  const url = `${HF_DATASETS_SERVER}/splits?dataset=${encodeURIComponent(datasetId)}`;
   const r = await fetch(url, {
     headers: { "User-Agent": "StudyBuddy-KnowledgeIngest/1.0" },
     signal: AbortSignal.timeout(10_000),
   });
-  if (!r.ok) throw new Error(`Failed to fetch dataset info: HTTP ${r.status}`);
+  if (!r.ok) {
+    if (r.status === 404) throw new Error(`Dataset "${datasetId}" not found or not yet processed by Hugging Face. Try a different dataset.`);
+    throw new Error(`Failed to fetch dataset splits: HTTP ${r.status}`);
+  }
   const data = await r.json();
-  // The siblings field lists all files in the repo.
-  const siblings = data?.siblings || [];
-  return siblings.map((s: any) => s.rfilename).filter((f: string) =>
-    /\.(csv|json|jsonl|txt|md|parquet)$/i.test(f)
-  );
+  const splits = data?.splits || [];
+  return splits.map((s: any) => ({
+    config: s.config || "default",
+    split: s.split || "train",
+    rowCount: s.num_examples || s.rowCount || 0,
+  }));
 }
 
 /**
- * Download a file from a HF dataset repo (raw content).
+ * Fetch rows from a dataset via the Datasets Server API.
+ * Returns JSON rows (handles parquet automatically).
+ * Paginates: fetches up to MAX_ROWS in batches of 100.
  */
-async function downloadDatasetFile(datasetId: string, filename: string): Promise<string> {
-  const url = `https://huggingface.co/datasets/${encodeURIComponent(datasetId)}/resolve/main/${filename}`;
-  const r = await fetch(url, {
-    headers: { "User-Agent": "StudyBuddy-KnowledgeIngest/1.0" },
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!r.ok) throw new Error(`Failed to download ${filename}: HTTP ${r.status}`);
-  return await r.text();
+async function fetchDatasetRows(
+  datasetId: string,
+  config: string,
+  split: string,
+  maxRows: number = MAX_ROWS,
+): Promise<any[]> {
+  const allRows: any[] = [];
+  const batchSize = 100;
+  let offset = 0;
+
+  while (offset < maxRows) {
+    const url = `${HF_DATASETS_SERVER}/rows?dataset=${encodeURIComponent(datasetId)}&config=${encodeURIComponent(config)}&split=${encodeURIComponent(split)}&offset=${offset}&length=${batchSize}`;
+    const r = await fetch(url, {
+      headers: { "User-Agent": "StudyBuddy-KnowledgeIngest/1.0" },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!r.ok) {
+      if (offset === 0) throw new Error(`Failed to fetch rows: HTTP ${r.status}`);
+      break; // partial results OK
+    }
+    const data = await r.json();
+    const rows = data?.rows || [];
+    if (rows.length === 0) break;
+    allRows.push(...rows.map((r: any) => r.row || r));
+    if (rows.length < batchSize) break; // no more rows
+    offset += batchSize;
+  }
+
+  return allRows.slice(0, maxRows);
 }
 
 // === Data cleaning pipeline ===
@@ -286,62 +315,87 @@ function parseCsvLine(line: string): string[] {
  *   5. Return as an IngestionResult
  */
 export async function ingestHFDataset(datasetId: string): Promise<IngestionResult & { qaPairs?: Array<{ input: string; output: string }> }> {
-  // 1. List files
-  const files = await listDatasetFiles(datasetId);
-  if (files.length === 0) {
-    throw new Error(`No data files found in dataset "${datasetId}". It may be empty or private.`);
+  // Phase 74.1 fix: use the HF Datasets Server API instead of downloading raw files.
+  // This handles parquet files (which most modern HF datasets use) automatically —
+  // the API returns JSON rows regardless of the underlying format.
+  //
+  // Flow:
+  //   1. Get available splits (train/test/validation)
+  //   2. Pick the first split with the most rows (usually "train")
+  //   3. Fetch rows in batches of 100 (up to MAX_ROWS=500)
+  //   4. Parse each row: extract Q&A pairs (if it has Q&A columns) or text
+  //   5. Clean + dedupe
+  //   6. Chunk + return
+
+  // 1. Get splits
+  const splits = await getDatasetSplits(datasetId);
+  if (splits.length === 0) {
+    throw new Error(`Dataset "${datasetId}" has no accessible splits. It may be private, empty, or still being processed by Hugging Face.`);
   }
 
-  // 2. Find the best data file (prefer .jsonl > .json > .csv > .txt)
-  const dataFile =
-    files.find((f) => /\.jsonl$/i.test(f)) ||
-    files.find((f) => /\.json$/i.test(f)) ||
-    files.find((f) => /\.csv$/i.test(f)) ||
-    files.find((f) => /\.txt$/i.test(f)) ||
-    files.find((f) => /\.md$/i.test(f));
+  // 2. Pick the split with the most rows (usually "train")
+  const bestSplit = splits.sort((a, b) => b.rowCount - a.rowCount)[0];
 
-  if (!dataFile) {
-    throw new Error(`No supported data file (.jsonl, .json, .csv, .txt) found in "${datasetId}".`);
+  // 3. Fetch rows
+  const rows = await fetchDatasetRows(datasetId, bestSplit.config, bestSplit.split);
+  if (rows.length === 0) {
+    throw new Error(`No rows could be fetched from "${datasetId}" (split: ${bestSplit.split}).`);
   }
 
-  // 3. Download the file
-  const content = await downloadDatasetFile(datasetId, dataFile);
+  // 4. Parse rows — extract Q&A pairs or text chunks
+  const qaPairs: Array<{ input: string; output: string }> = [];
+  const textChunks: string[] = [];
 
-  // 4. Determine format + parse
-  const format = dataFile.endsWith(".jsonl") ? "jsonl" :
-                 dataFile.endsWith(".json") ? "json" :
-                 dataFile.endsWith(".csv") ? "csv" : "text";
-
-  const { qaPairs, textChunks } = parseDatasetContent(content, format);
+  for (const row of rows) {
+    const qa = extractQAFromObject(row);
+    if (qa) {
+      qaPairs.push(qa);
+    } else {
+      const text = extractTextFromObject(row);
+      if (text) textChunks.push(text);
+    }
+  }
 
   if (qaPairs.length === 0 && textChunks.length === 0) {
-    throw new Error(`No usable content extracted from "${dataFile}" in dataset "${datasetId}".`);
+    throw new Error(`No usable content extracted from "${datasetId}". The dataset may have unsupported column types (images, audio, etc.).`);
   }
 
-  // 5. Build the IngestionResult
-  // If we found Q&A pairs, use them as the content text (each pair = one chunk).
-  // Otherwise, chunk the text.
+  // 5. Clean + dedupe
+  const cleanedQa = dedupe(qaPairs.map((qa) => `${qa.input}\n${qa.output}`))
+    .map((s) => {
+      const [input, ...rest] = s.split("\n");
+      return { input: cleanText(input), output: cleanText(rest.join("\n")) };
+    })
+    .filter((qa) => qa.input.length > 2 && qa.output.length > 2);
+
+  const cleanedText = dedupe(textChunks.map(cleanText)).filter((t) => t.length > 10);
+
+  if (cleanedQa.length === 0 && cleanedText.length === 0) {
+    throw new Error(`All rows from "${datasetId}" were empty after cleaning. The dataset may contain only non-text data.`);
+  }
+
+  // 6. Build the IngestionResult
   let contentText: string;
   let chunks: Array<{ index: number; text: string }>;
 
-  if (qaPairs.length > 0) {
-    contentText = qaPairs
+  if (cleanedQa.length > 0) {
+    contentText = cleanedQa
       .map((qa) => `Q: ${qa.input}\nA: ${qa.output}`)
       .join("\n\n")
       .slice(0, MAX_DATASET_CHARS);
     chunks = chunkText(contentText).map((t, i) => ({ index: i, text: t }));
   } else {
-    contentText = textChunks.join("\n\n---\n\n").slice(0, MAX_DATASET_CHARS);
+    contentText = cleanedText.join("\n\n---\n\n").slice(0, MAX_DATASET_CHARS);
     chunks = chunkText(contentText).map((t, i) => ({ index: i, text: t }));
   }
 
   return {
     title: datasetId,
-    source: `Hugging Face dataset (${dataFile}, ${qaPairs.length} Q&A + ${textChunks.length} text chunks)`,
+    source: `Hugging Face (${bestSplit.config}/${bestSplit.split}, ${rows.length} rows → ${cleanedQa.length} Q&A + ${cleanedText.length} text)`,
     contentText,
     chunks,
     charCount: contentText.length,
     chunkCount: chunks.length,
-    qaPairs: qaPairs.length > 0 ? qaPairs : undefined,
+    qaPairs: cleanedQa.length > 0 ? cleanedQa : undefined,
   };
 }
