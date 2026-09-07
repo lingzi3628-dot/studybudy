@@ -29,7 +29,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import {
   ChevronLeft, Send, Brain, Plus, Trash2, Loader2, Save, Sparkles,
   MessageCircle, Zap, Eye, Upload, Download, Globe, Clock, Database,
-  Settings, BarChart3, Bot, Link2, Copy, Check, FileText,
+  Settings, BarChart3, Bot, Link2, Copy, Check, FileText, BookOpen,
 } from "lucide-react";
 import { useApp } from "../store";
 import {
@@ -1758,6 +1758,9 @@ export function ChatbotPlayground() {
         <button onClick={() => setScreen("dataLab" as any)} className="px-2.5 h-8 rounded-full bg-fuchsia-50 text-fuchsia-600 text-[11px] font-semibold flex items-center gap-1 hover:bg-fuchsia-100 transition">
           <Database className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Data Lab</span>
         </button>
+        <a href="/chatbot-docs" target="_blank" rel="noopener noreferrer" className="px-2.5 h-8 rounded-full bg-sky-50 text-sky-600 text-[11px] font-semibold flex items-center gap-1 hover:bg-sky-100 transition">
+          <BookOpen className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Docs</span>
+        </a>
         <button onClick={saveProject} className="px-2.5 h-8 rounded-full bg-violet-600 text-white text-[11px] font-semibold flex items-center gap-1 hover:bg-violet-700 transition shadow-sm">
           <Save className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Save</span>
         </button>
