@@ -70,6 +70,16 @@ const PERSONA_TEMPLATES: Array<{ id: string; label: string; prompt: string }> = 
     label: "Kenyan school teacher",
     prompt: "You are a Kenyan primary/secondary school teacher. Use clear English with occasional Swahili phrases ('sawa', 'karibu', 'pole'). Reference the CBC/KCSE curriculum where relevant. Encourage the student, ask if they understand, and offer to explain further. Keep replies under 4 sentences.",
   },
+  {
+    id: "swahili",
+    label: "Swahili speaker",
+    prompt: "Wewe ni msaidizi wa kirafiki. Jibu maswali yote kwa Kiswahili. Tumia Kiswali sanifu cha Kenya. Kuwa mwepesi na ufafanue vizuri. (You are a friendly assistant. Answer all questions in Swahili. Use standard Kenyan Swahili. Be concise and explain clearly.)",
+  },
+  {
+    id: "french",
+    label: "French speaker",
+    prompt: "Vous êtes un assistant amical. Répondez à toutes les questions en français. Soyez concis et expliquez clairement. Utilisez un français simple et accessible.",
+  },
 ];
 
 // === Types ===
@@ -1087,6 +1097,17 @@ export function ChatbotPlayground() {
     const top3 = scores.slice(0, 3);
     thinkingSteps.push({ step: "6. Match training data", detail: `Compared against ${model.pairs.length} examples using ${matchingMode}`, data: top3.map((s) => ({ input: s.pair.input, score: s.score.toFixed(4), intent: s.pair.intent || "general" })) });
 
+    // Phase 77 — Conversation Memory Upgrade: resolve follow-up references.
+    // When the user says "twist it a bit", "modify that", "make it shorter",
+    // "add comments" etc., resolve "it/that/this" to the last bot response
+    // and pass the FULL context to the LLM so it understands what to modify.
+    const lastBotMessage = chatMessages.filter((m) => m.role === "bot").slice(-1)[0];
+    const followUpRefRegex = /\b(twist|modify|change|update|shorten|simplify|add.*to.*it|make.*it|redo|rewrite|extend|improve)\b/i;
+    const hasFollowUpRef = followUpRefRegex.test(text) && lastBotMessage && lastBotMessage.text.length > 20;
+    const resolvedText = hasFollowUpRef
+      ? `${text}\n\n[Context: The user is referring to your previous response: "${lastBotMessage.text.slice(0, 500)}${lastBotMessage.text.length > 500 ? "..." : ""}"]`
+      : text;
+
     // Phase 75.1 — Detect generative intent EARLY (before thinking delay)
     // so we can skip the delay for generative requests.
     const generativeIntentRegex = /\b(write|create|generate|make|build|code|program|develop|compose|design|explain|teach|show me how|give me an?|example of|demonstrate|implement|solve|calculate|derive|prove)\b/i;
@@ -1128,7 +1149,7 @@ export function ChatbotPlayground() {
     // an example), skip retrieval entirely and go straight to generation with
     // rich context (few-shot examples + knowledge chunks). This is what makes
     // the bot "generative" — it can write new content based on what it learned.
-    const hasGenerativeIntent = hasGenerativeIntentEarly; // already detected above
+    const hasGenerativeIntent = hasGenerativeIntentEarly || hasFollowUpRef; // Phase 77 — follow-up refs also force generative
 
     // Phase 73.1 — RAG-first detection. Even when Q&A retrieval succeeds, if
     // the user is clearly asking about the knowledge base, OR the retrieval
@@ -1175,6 +1196,17 @@ export function ChatbotPlayground() {
       let replyText = "I'm not sure how to answer that. Could you rephrase, or add a training example for it?";
       let source: "generative" | "fallback" = "fallback";
       let modelName: string | undefined = undefined;
+
+      // Phase 77 — Add a placeholder bot message for streaming updates.
+      // The streaming callLLM will update this message in real-time.
+      if (generativeFallback) {
+        setChatMessages((prev) => [...prev, {
+          role: "bot", text: "…", thinking: [],
+          sentiment: "neutral", intent: detectedIntent,
+          confidence: bestScore, responseTime: 0,
+          source: "generative" as const,
+        }]);
+      }
 
       if (generativeFallback) {
         // Phase 75.1 — DEDICATED GENERATIVE PATH.
@@ -1291,7 +1323,7 @@ export function ChatbotPlayground() {
           conversationBlock,
           cappedRagBlock ? `=== KNOWLEDGE BASE (reference material) ===\n${cappedRagBlock}\n` : "",
           `=== TRAINING EXAMPLES (your style guide) ===\n${trainingExamples}\n`,
-          `=== USER REQUEST ===\n${text}`,
+          `=== USER REQUEST ===\n${resolvedText}`,
         ].filter(Boolean).join("\n");
 
         const totalPromptChars = systemPrompt.length + userPrompt.length;
@@ -1330,14 +1362,70 @@ export function ChatbotPlayground() {
         // If THAT fails too, return a helpful clarification request (not a
         // useless "I don't know").
         const callLLM = async (sys: string, usr: string, temp: number, tokens: number): Promise<string> => {
-          const r = await fetch("/api/ai/playground", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ systemPrompt: sys, userPrompt: usr, temperature: temp, maxTokens: tokens }),
-          });
-          if (!r.ok) throw new Error(`HTTP ${r.status}`);
-          const d = await r.json();
-          return (d?.output ?? "").trim();
+          // Phase 77 — Streaming: use the SSE stream endpoint for word-by-word display.
+          // Falls back to non-streaming if the stream endpoint fails.
+          try {
+            const r = await fetch("/api/ai/playground", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ systemPrompt: sys, userPrompt: usr, temperature: temp, maxTokens: tokens, stream: true }),
+            });
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            // Check if this is a streaming response (SSE).
+            const contentType = r.headers.get("content-type") || "";
+            if (contentType.includes("text/event-stream") && r.body) {
+              // Stream the response — update the chat message in real-time.
+              const reader = r.body.getReader();
+              const decoder = new TextDecoder();
+              let fullText = "";
+              let buffer = "";
+              // Create a placeholder message ID for streaming updates.
+              const streamMsgId = `stream-${Date.now()}`;
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split("\n");
+                buffer = lines.pop() || "";
+                for (const line of lines) {
+                  if (line.startsWith("data: ")) {
+                    const data = line.slice(6).trim();
+                    if (data === "[DONE]") continue;
+                    try {
+                      const parsed = JSON.parse(data);
+                      const delta = parsed.choices?.[0]?.delta?.content || parsed.delta || parsed.output || "";
+                      if (delta) {
+                        fullText += delta;
+                        // Update the last bot message in real-time.
+                        setChatMessages((prev) => {
+                          const updated = [...prev];
+                          const lastBot = updated[updated.length - 1];
+                          if (lastBot && lastBot.role === "bot") {
+                            updated[updated.length - 1] = { ...lastBot, text: fullText };
+                          }
+                          return updated;
+                        });
+                      }
+                    } catch {}
+                  }
+                }
+              }
+              return fullText.trim();
+            }
+            // Non-streaming fallback.
+            const d = await r.json();
+            return (d?.output ?? "").trim();
+          } catch (e: any) {
+            // If streaming fails, try non-streaming.
+            const r = await fetch("/api/ai/playground", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ systemPrompt: sys, userPrompt: usr, temperature: temp, maxTokens: tokens }),
+            });
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            const d = await r.json();
+            return (d?.output ?? "").trim();
+          }
         };
 
         try {
@@ -1404,12 +1492,27 @@ export function ChatbotPlayground() {
         thinkingSteps.push({ step: "8. Generative fallback disabled", detail: `Returning canned "I don't know" reply` });
       }
 
-      setChatMessages((prev) => [...prev, {
-        role: "bot", text: replyText, thinking: thinkingSteps,
-        sentiment: sentiment.label, intent: detectedIntent,
-        confidence: bestScore, responseTime,
-        source, model: modelName,
-      }]);
+      // Phase 77 — Update the placeholder bot message with the final response.
+      // (If there's no placeholder — retrieval hit, no generative path — add new.)
+      setChatMessages((prev) => {
+        const last = prev[prev.length - 1];
+        if (last && last.role === "bot" && last.text === "…" && source === "generative") {
+          // Update the streaming placeholder.
+          return [...prev.slice(0, -1), {
+            role: "bot" as const, text: replyText, thinking: thinkingSteps,
+            sentiment: sentiment.label, intent: detectedIntent,
+            confidence: bestScore, responseTime,
+            source, model: modelName,
+          }];
+        }
+        // No placeholder — add new message (retrieval or non-generative path).
+        return [...prev, {
+          role: "bot" as const, text: replyText, thinking: thinkingSteps,
+          sentiment: sentiment.label, intent: detectedIntent,
+          confidence: bestScore, responseTime,
+          source, model: modelName,
+        }];
+      });
 
       // Continuous-learning loop — queue this turn for review.
       const reviewItem: ReviewItem = {
@@ -1422,6 +1525,25 @@ export function ChatbotPlayground() {
         timestamp: Date.now(),
       };
       setReviewLog((prev) => [...prev.slice(-49), reviewItem]); // keep last 50
+
+      // Phase 77 — AUTO-LEARN: if the generated response is good (long enough,
+      // not an error, not a fallback), automatically save it as a training pair.
+      // The bot teaches itself — over time it retrieves more, generates less.
+      if (source === "generative" && replyText.length > 20 && replyText.length < 5000 && !replyText.includes("trouble connecting") && !replyText.includes("could you try rephrasing")) {
+        // Check if we already have this exact input in training data.
+        const existing = trainingData.find((p) => p.input.toLowerCase().trim() === text.toLowerCase().trim());
+        if (!existing) {
+          // Auto-add with a "learned" intent tag.
+          const learnedPair: TrainingPair = {
+            id: `learned-${Date.now()}`,
+            input: text,
+            output: replyText,
+            intent: detectedIntent !== "general" ? detectedIntent : "learned",
+          };
+          setTrainingData((prev) => [...prev, learnedPair]);
+          thinkingSteps.push({ step: "10. Auto-learned", detail: `Generated response saved as training pair (${replyText.length} chars). Next time this question is asked, the bot will retrieve this answer directly.` });
+        }
+      }
     }
 
     // Update stats — count retrieval hits as "understood".
@@ -2334,7 +2456,26 @@ export function ChatbotPlayground() {
               <span>{botMemory ? "🧠 memory on" : "🚫 memory off"}</span>
               {ragEnabled && knowledgeSources.length > 0 && <><span>·</span><span className="text-emerald-600">📚 RAG on</span></>}
             </div>
-            <button onClick={clearChat} className="text-[11px] text-gray-400 hover:text-rose-500 font-medium transition">Clear</button>
+            <div className="flex items-center gap-3">
+              <button onClick={clearChat} className="text-[11px] text-gray-400 hover:text-rose-500 font-medium transition">Clear</button>
+              {chatMessages.length > 0 && (
+                <button
+                  onClick={() => {
+                    const text = chatMessages.map((m) => `${m.role === "user" ? "You" : "Bot"}: ${m.text}`).join("\n\n");
+                    const blob = new Blob([text], { type: "text/plain" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = `chatbot-conversation-${new Date().toISOString().slice(0, 10)}.txt`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                  className="text-[11px] text-gray-400 hover:text-violet-500 font-medium transition flex items-center gap-0.5"
+                >
+                  <Download className="w-3 h-3" /> Export
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Messages */}
@@ -2398,6 +2539,16 @@ export function ChatbotPlayground() {
                       </div>
                     )}
                     <p className="whitespace-pre-wrap">{msg.text}</p>
+                    {/* Phase 77 — Copy button on bot messages */}
+                    {msg.role === "bot" && msg.text !== "…" && msg.text.length > 10 && (
+                      <button
+                        onClick={() => { navigator.clipboard.writeText(msg.text); }}
+                        className="mt-1 text-[9px] text-gray-300 hover:text-violet-500 transition flex items-center gap-0.5"
+                        title="Copy to clipboard"
+                      >
+                        <Copy className="w-2.5 h-2.5" /> Copy
+                      </button>
+                    )}
                   </div>
                   {/* Thinking process — collapsible */}
                   {msg.thinking && msg.thinking.length > 0 && (
