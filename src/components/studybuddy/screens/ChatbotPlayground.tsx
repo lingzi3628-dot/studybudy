@@ -333,6 +333,7 @@ export function ChatbotPlayground() {
   const [thinkingDelay, setThinkingDelay] = useState(3); // seconds
   const [matchingMode, setMatchingModeRaw] = useState<MatchingMode>("hybrid");
   const [generativeFallback, setGenerativeFallback] = useState(true); // Phase 68
+  const [creativity, setCreativity] = useState(0.6); // Phase 75 — 0.2=precise, 0.7=balanced, 1.0=creative
   const [embeddingProgress, setEmbeddingProgress] = useState<string | null>(null);
   // Phase 69 — persona prompt (drives generative fallback tone)
   const [personaPrompt, setPersonaPrompt] = useState<string>(PERSONA_TEMPLATES[0].prompt);
@@ -1039,6 +1040,14 @@ export function ChatbotPlayground() {
     const followUpWords = new Set(["no", "yes", "ok", "okay", "sure", "yeah", "nope", "yep", "yup", "no", "eg", "like", "example", "what", "how", "why", "so", "well", "hmm", "huh", "cool", "nice", "great", "wow", "really", "and", "but", "or"]);
     const isFollowUp = isShortQuery && normalized.split(/\s+/).every((w) => followUpWords.has(w));
 
+    // Phase 75 — Generative intent detection. When the user asks the bot to
+    // CREATE something (write code, make a poem, explain a concept, generate
+    // an example), skip retrieval entirely and go straight to generation with
+    // rich context (few-shot examples + knowledge chunks). This is what makes
+    // the bot "generative" — it can write new content based on what it learned.
+    const generativeIntentRegex = /\b(write|create|generate|make|build|code|program|develop|compose|design|explain|teach|show me how|give me an?|example of|demonstrate|implement|solve|calculate|derive|prove)\b/i;
+    const hasGenerativeIntent = generativeIntentRegex.test(text);
+
     // Phase 73.1 — RAG-first detection. Even when Q&A retrieval succeeds, if
     // the user is clearly asking about the knowledge base, OR the retrieval
     // score is marginal (between threshold and threshold+0.15), we skip the
@@ -1048,7 +1057,8 @@ export function ChatbotPlayground() {
     const shouldUseRag = ragEnabled && knowledgeSources.length > 0 && (asksAboutKnowledge || marginalMatch) && generativeFallback;
 
     // Phase 73.4 — Follow-ups always go generative with conversation context.
-    const shouldUseGenerative = isFollowUp && generativeFallback;
+    // Phase 75 — Generative intent also forces generative path.
+    const shouldUseGenerative = (isFollowUp || hasGenerativeIntent) && generativeFallback;
 
     if (isConfident && !shouldUseRag && !shouldUseGenerative) {
       thinkingSteps.push({ step: "7. Select best match", detail: `Best: "${best.pair.input}" (score: ${bestScore.toFixed(4)} ≥ threshold ${effectiveThreshold}${isShortQuery ? " [short-query raised]" : ""})` });
@@ -1066,8 +1076,10 @@ export function ChatbotPlayground() {
         source: "retrieval",
       }]);
     } else {
-      // Either not confident, OR confident but RAG-first kicked in.
-      if (isFollowUp) {
+      // Either not confident, OR confident but RAG-first/generative-intent kicked in.
+      if (hasGenerativeIntent) {
+        thinkingSteps.push({ step: "7. Generative intent detected", detail: `User wants the bot to CREATE something ("${text.slice(0, 50)}") — skipping retrieval, using few-shot examples + knowledge + generative` });
+      } else if (isFollowUp) {
         thinkingSteps.push({ step: "7. Follow-up detected", detail: `"${text}" is a follow-up word — using conversation history + generative` });
       } else if (isConfident && shouldUseRag) {
         thinkingSteps.push({ step: "7. RAG-first override", detail: `Q&A match found ("${best.pair.input}" at ${bestScore.toFixed(2)}) but ${asksAboutKnowledge ? "user asks about knowledge base" : "match is marginal"} — consulting RAG instead` });
@@ -1110,7 +1122,7 @@ export function ChatbotPlayground() {
                 text: t,
                 title: (allChunks[i] as any)?.title,
                 score: cosineSimVec(queryVec, chunkVecs[i]),
-              })).sort((a, b) => b.score - a.score).slice(0, 4).filter((c) => c.score > 0.15);
+              })).sort((a, b) => b.score - a.score).slice(0, hasGenerativeIntent ? 6 : 4).filter((c) => c.score > 0.15);
               ragChunkCount = scored.length;
               if (scored.length > 0) {
                 ragBlock = scored.map((c, i) => `[Knowledge ${i + 1}]${c.title ? ` (${c.title}):` : ":"}\n${c.text}`).join("\n\n");
@@ -1122,26 +1134,39 @@ export function ChatbotPlayground() {
           }
         }
 
-        const contextBlock = top3
+        // Phase 75 — Enhanced generative prompt.
+        // Few-shot examples: use top-5 (not top-3) when generative intent is detected.
+        // These teach the LLM the bot's "style" and "knowledge patterns".
+        const fewShotPairs = hasGenerativeIntent ? scores.slice(0, 5) : top3;
+        const contextBlock = fewShotPairs
           .map((s, i) => `Q${i + 1}: ${s.pair.input}\nA${i + 1}: ${s.pair.output}`)
           .join("\n");
-        // Phase 69 — persona prompt drives the tone. Falls back to the default
-        // template if the user cleared the textarea.
+
+        // Phase 75 — Capabilities summary: tell the LLM what the bot "knows"
+        // (how many Q&A pairs, what intents, how much knowledge). This primes
+        // the LLM to generate content in the bot's domain.
+        const intentList = stats.intents.length > 0 ? stats.intents.join(", ") : "general";
+        const capabilitiesSummary = `You are a chatbot trained on ${trainingData.filter((p) => !p.isTest).length} Q&A pairs across ${stats.intents.length} intents (${intentList}) and ${knowledgeSources.reduce((s, k) => s + k.chunkCount, 0)} knowledge chunks. You have been taught to respond in a specific style. Use the examples below to learn the bot's personality and knowledge patterns.`;
+
         const persona = personaPrompt.trim() || PERSONA_TEMPLATES[0].prompt;
         const systemPrompt = [
           persona,
-          bestScore > 0
-            ? `Best retrieval score was ${bestScore.toFixed(2)} (below the ${confidenceThreshold} threshold), so treat the retrieved pairs as weak hints only.`
-            : `No training examples matched at all.`,
+          // Phase 75 — generative intent gets a different instruction.
+          hasGenerativeIntent
+            ? `The user wants you to CREATE something new. Use your training examples as a style guide and your knowledge chunks as reference material. Generate original content that matches what you've learned. Be creative but accurate.`
+            : bestScore > 0
+              ? `Best retrieval score was ${bestScore.toFixed(2)} (below the ${confidenceThreshold} threshold), so treat the retrieved pairs as weak hints only.`
+              : `No training examples matched at all.`,
+          capabilitiesSummary,
           ragChunkCount > 0
             ? `${ragChunkCount} relevant knowledge chunks were retrieved — use these as primary context for your answer. Cite them as [Knowledge N] where N is the chunk number.`
             : "",
         ].filter(Boolean).join(" ");
-        // Phase 73.4 — Build conversation history for follow-up understanding.
-        // The last 3-4 messages give the LLM context to understand "no", "eg",
-        // "write a simple one", etc.
-        const recentMessages = chatMessages.slice(-4).map((m) => `${m.role === "user" ? "User" : "Bot"}: ${m.text}`).join("\n");
-        const conversationBlock = (isFollowUp || isShortQuery) && recentMessages
+
+        // Phase 75 — Always include conversation history (last 6 messages).
+        // More context = better follow-up understanding + better generation.
+        const recentMessages = chatMessages.slice(-6).map((m) => `${m.role === "user" ? "User" : "Bot"}: ${m.text}`).join("\n");
+        const conversationBlock = recentMessages
           ? `Recent conversation:\n${recentMessages}\n`
           : "";
 
@@ -1156,7 +1181,7 @@ export function ChatbotPlayground() {
           const r = await fetch("/api/ai/playground", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ systemPrompt, userPrompt, temperature: 0.6 }),
+            body: JSON.stringify({ systemPrompt, userPrompt, temperature: hasGenerativeIntent ? Math.max(creativity, 0.5) : creativity }),
           });
           if (r.ok) {
             const d = await r.json();
@@ -1206,7 +1231,7 @@ export function ChatbotPlayground() {
       totalChats: prev.totalChats + 1,
       intents: prev.intents,
     }));
-  }, [chatInput, confidenceThreshold, matchingMode, thinkingDelay, botMemory, conversationContext, generativeFallback, personaPrompt, ragEnabled, knowledgeSources, chatMessages]);
+  }, [chatInput, confidenceThreshold, matchingMode, thinkingDelay, botMemory, conversationContext, generativeFallback, personaPrompt, ragEnabled, knowledgeSources, chatMessages, creativity]);
 
   // Deploy the bot (generates a standalone HTML file with watermark)
   const deployBot = () => {
@@ -1959,8 +1984,15 @@ export function ChatbotPlayground() {
                 <button onClick={() => setGenerativeFallback(!generativeFallback)} className={`relative w-11 h-6 rounded-full transition ${generativeFallback ? "bg-violet-600" : "bg-gray-300"}`}>
                   <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${generativeFallback ? "translate-x-5" : ""}`} />
                 </button>
-                <span className="text-[10px] text-gray-400">When no training example clears the threshold, ask the LLM (with top-3 retrieved Q&A as context).</span>
+                <span className="text-[10px] text-gray-400">When no training example clears the threshold, the bot generates a new answer using its training data + knowledge as context.</span>
               </div>
+              {/* Phase 75 — Creativity slider */}
+              <div className="flex items-center gap-3">
+                <label className="text-xs text-gray-500 w-32 flex items-center gap-1"><Sparkles className="w-3 h-3" /> Creativity:</label>
+                <input type="range" min={0.1} max={1} step={0.1} value={creativity} onChange={(e) => setCreativity(parseFloat(e.target.value))} className="flex-1" />
+                <span className="text-xs font-mono text-gray-700 w-16">{creativity.toFixed(1)} {creativity <= 0.3 ? "(precise)" : creativity <= 0.7 ? "(balanced)" : "(creative)"}</span>
+              </div>
+              <p className="text-[10px] text-gray-400 ml-32 -mt-2">Low = factual, precise answers. High = creative, varied responses. Generative intent (write/create/generate) auto-boosts to at least 0.5.</p>
               {/* Phase 69 — Persona editor */}
               <div className="border-t border-gray-100 pt-3 mt-3">
                 <label className="text-xs text-gray-500 flex items-center gap-1 mb-1.5"><Sparkles className="w-3 h-3" /> Persona (system prompt for generative fallback)</label>

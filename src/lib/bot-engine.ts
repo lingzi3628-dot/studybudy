@@ -241,11 +241,15 @@ export async function runBot(
   const followUpWords = new Set(["no", "yes", "ok", "okay", "sure", "yeah", "nope", "yep", "yup", "eg", "like", "example", "what", "how", "why", "so", "well", "hmm", "huh", "cool", "nice", "great", "wow", "really", "and", "but", "or"]);
   const isFollowUp = isShortQuery && normalized.split(/\s+/).every((w) => followUpWords.has(w));
 
+  // Phase 75 — Generative intent detection.
+  const generativeIntentRegex = /\b(write|create|generate|make|build|code|program|develop|compose|design|explain|teach|show me how|give me an?|example of|demonstrate|implement|solve|calculate|derive|prove)\b/i;
+  const hasGenerativeIntent = generativeIntentRegex.test(userMessage);
+
   // Phase 73.1 — RAG-first detection.
   const asksAboutKnowledge = /\b(knowledge|document|kb|wiki|manual|textbook|notes?|according to|what do you know|check your|search your)\b/i.test(userMessage);
   const marginalMatch = best && bestScore >= effectiveThreshold && bestScore < effectiveThreshold + 0.15;
   const shouldUseRag = knowledgeChunks.length > 0 && config.generativeFallback && (asksAboutKnowledge || marginalMatch);
-  const shouldUseGenerative = isFollowUp && config.generativeFallback;
+  const shouldUseGenerative = (isFollowUp || hasGenerativeIntent) && config.generativeFallback;
 
   // Decision: retrieve / generate / fallback.
   if (best && bestScore >= effectiveThreshold && !shouldUseRag && !shouldUseGenerative) {
@@ -275,14 +279,16 @@ export async function runBot(
         sourceTitle: c.sourceTitle,
       }))
       .sort((a, b) => b.score - a.score)
-      .slice(0, 4) // top-4 chunks
+      .slice(0, hasGenerativeIntent ? 6 : 4) // top-6 chunks for generative intent, else top-4
       .filter((c) => c.score > 0.05); // drop zero-overlap chunks
   }
 
   // Generative fallback.
   if (config.generativeFallback) {
-    const contextBlock = top3
-      .map((s, i) => `Q${i + 1}: ${s.input}\nA${i + 1}: ${pairsForModel.find((p) => p.input === s.input)?.output ?? ""}`)
+    // Phase 75 — Few-shot examples: top-5 for generative intent, top-3 otherwise.
+    const fewShot = hasGenerativeIntent ? scores.slice(0, 5).map((s) => ({ input: s.pair.input, score: s.score, output: s.pair.output })) : top3.map((s) => ({ ...s, output: pairsForModel.find((p) => p.input === s.input)?.output ?? "" }));
+    const contextBlock = fewShot
+      .map((s, i) => `Q${i + 1}: ${s.input}\nA${i + 1}: ${s.output}`)
       .join("\n");
     const ragBlock = ragChunks.length > 0
       ? ragChunks.map((c, i) => `[Knowledge ${i + 1}]${c.sourceTitle ? ` (${c.sourceTitle}):` : ":"}\n${c.text}`).join("\n\n")
@@ -291,14 +297,22 @@ export async function runBot(
       ? pluginResults.map((p) => `[Plugin: ${p.name}${p.success ? "" : " (failed)"}]\n${p.output}`).join("\n\n")
       : "";
     const persona = (config.personaPrompt?.trim() || DEFAULT_PERSONA);
+
+    // Phase 75 — Capabilities summary.
+    const intentList = Array.from(new Set(pairsForModel.map((p) => p.intent || "general"))).join(", ");
+    const capabilitiesSummary = `You are a chatbot trained on ${pairsForModel.length} Q&A pairs across intents (${intentList}) and ${knowledgeChunks.length} knowledge chunks. Use the examples below to learn the bot's personality and knowledge patterns.`;
+
     const messages: ChatMessage[] = [
       {
         role: "system",
         content: [
           persona,
-          bestScore > 0
-            ? `Best retrieval score was ${bestScore.toFixed(2)} (below the ${config.threshold} threshold), so treat the retrieved pairs as weak hints only.`
-            : `No training examples matched at all.`,
+          hasGenerativeIntent
+            ? `The user wants you to CREATE something new. Use your training examples as a style guide and your knowledge chunks as reference material. Generate original content that matches what you've learned. Be creative but accurate.`
+            : bestScore > 0
+              ? `Best retrieval score was ${bestScore.toFixed(2)} (below the ${config.threshold} threshold), so treat the retrieved pairs as weak hints only.`
+              : `No training examples matched at all.`,
+          capabilitiesSummary,
           ragChunks.length > 0
             ? `${ragChunks.length} relevant knowledge chunks were retrieved — use these as primary context for your answer. Cite them as [Knowledge N] where N is the chunk number.`
             : "",
@@ -322,7 +336,7 @@ export async function runBot(
         userId: ownerUserId,
         route: "deployed-bot",
         alreadyCharged: false,
-        temperature: 0.6,
+        temperature: hasGenerativeIntent ? 0.7 : 0.5, // Phase 75 — higher temp for creative generation
       });
       const trimmed = (reply ?? "").trim();
       if (trimmed.length > 0) {
