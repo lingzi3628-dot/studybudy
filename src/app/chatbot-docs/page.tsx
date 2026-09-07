@@ -41,6 +41,7 @@ const SECTIONS: Section[] = [
   { id: "connect", title: "Platform Integrations", icon: Link2 },
   { id: "brain", title: "Brain System", icon: Sparkles },
   { id: "security", title: "Security & Privacy", icon: Shield },
+  { id: "advanced", title: "Advanced Features", icon: Cpu },
   { id: "faq", title: "FAQ & Troubleshooting", icon: Lightbulb },
 ];
 
@@ -729,6 +730,94 @@ Hello 4!
               <li><b>REST API (with key)</b>: Same IP limit + higher trust (key verified)</li>
               <li><b>Telegram/Slack webhooks</b>: No rate limit (platform handles their own limits)</li>
             </ul>
+          </Section>
+
+          {/* === ADVANCED FEATURES (Phase 75-78) === */}
+          <Section id="advanced" title="Advanced Features (Generative + Auto-Learn + Semantic)" icon={Cpu}>
+            <h4>Generative Intelligence (Phase 75)</h4>
+            <p>
+              The bot can CREATE new content — not just retrieve stored answers. When you say "write", "create",
+              "generate", "build", "code", "explain", or "solve", the bot skips retrieval and goes straight to
+              generation with rich context: 15 training examples as style guide, 10 knowledge chunks as reference
+              material, and 6 conversation history messages for context.
+            </p>
+            <Callout type="info" title="How generative intent works">
+              The system prompt changes completely for generative requests. Instead of "retrieval score was 0.42,
+              treat as weak hints", it says: "You are NOT searching for a stored answer — you are GENERATING
+              original content. Study the STYLE of these examples. Use the KNOWLEDGE as reference material.
+              CREATE a response that is ORIGINAL and HELPFUL."
+            </Callout>
+
+            <h4>Streaming Responses (Phase 77)</h4>
+            <p>
+              Bot responses now appear word-by-word as the LLM generates them — like ChatGPT. A placeholder "..."
+              appears instantly, then fills with text in real-time. Falls back to non-streaming if the API doesn't
+              support SSE.
+            </p>
+
+            <h4>Auto-Learn Loop (Phase 77)</h4>
+            <p>
+              When the bot generates a good response, it AUTOMATICALLY saves it as a training pair. Next time the
+              same question is asked, the bot RETRIEVES the stored answer (fast, free) instead of generating from
+              scratch. Over time, the bot retrieves more and generates less — it's learning from its own conversations.
+              The thinking-process panel shows: "10. Auto-learned: Generated response saved as training pair."
+            </p>
+
+            <h4>Conversation Memory + Follow-up Resolution (Phase 77)</h4>
+            <p>
+              When you say "twist it a bit", "modify that", "make it shorter", the bot resolves "it/that" to the
+              PREVIOUS bot response and includes it in the prompt. The LLM then modifies the previous output instead
+              of generating from scratch. The bot also tracks conversation topic changes across 8 messages.
+            </p>
+
+            <h4>Semantic Few-Shot Selection (Phase 78)</h4>
+            <p>
+              When the bot generates a response, it uses USE embeddings to find the most SEMANTICALLY similar
+              training pairs — not just TF-IDF word overlap. "Write a sorting function" finds Python sorting
+              examples even if they don't share words. This makes the generated responses more on-topic and
+              stylistically consistent with the bot's training.
+            </p>
+
+            <h4>Confidence-Based Response Routing (Phase 78)</h4>
+            <p>The bot uses a 3-tier routing system based on confidence score:</p>
+            <FeatureGrid features={[
+              { icon: CheckCircle2, title: "High Confidence (80%+)", desc: "Instant retrieval — returns stored answer immediately. No LLM call needed. Fastest possible response." },
+              { icon: Sparkles, title: "Medium Confidence (45-80%)", desc: "Returns stored answer (likely correct). No LLM call — saves API tokens while maintaining quality." },
+              { icon: Cpu, title: "Low Confidence (<45%)", desc: "Full generative mode — LLM with 15 semantic examples + 10 knowledge chunks + conversation history." },
+            ]} />
+
+            <h4>Multi-Language Support (Phase 77)</h4>
+            <p>7 persona templates including Swahili and French:</p>
+            <ul className="list-disc list-inside space-y-1 text-sm">
+              <li>Default (friendly) — English</li>
+              <li>Patient tutor — English, step-by-step</li>
+              <li>Concise assistant — English, 1-2 sentences</li>
+              <li>Sarcastic bot — English, dry humor</li>
+              <li>Kenyan school teacher — English + Swahili phrases</li>
+              <li>Swahili speaker — full Kiswahili system prompt</li>
+              <li>French speaker — full French system prompt</li>
+            </ul>
+
+            <h4>Local AI Brain (Phase 76)</h4>
+            <p>
+              Optional: download a small LLM (250MB-2.3GB) that runs entirely in your browser via WebGPU.
+              Simple chat goes through the local model (instant, free, offline). Complex tasks (code writing)
+              still use GLM for best quality. Requires Chrome 113+ with WebGPU. The model is cached after
+              first download — no re-download next session.
+            </p>
+
+            <h4>Retry Logic (Phase 75.2)</h4>
+            <p>
+              The bot NEVER shows "I don't understand" anymore. If the LLM call fails or returns empty, it
+              retries with a simpler prompt (3 attempts total). If all fail, it shows a helpful clarification
+              request that quotes the user's message and suggests how to rephrase.
+            </p>
+
+            <h4>Creativity Slider (Phase 75)</h4>
+            <p>
+              Control the LLM's temperature: 0.1 (precise, factual) to 1.0 (creative, varied). Generative
+              intent auto-boosts to at least 0.5 to ensure creative enough output for code/content generation.
+            </p>
           </Section>
 
           {/* === FAQ === */}

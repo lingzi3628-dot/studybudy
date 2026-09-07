@@ -1163,10 +1163,34 @@ export function ChatbotPlayground() {
     // Phase 75 — Generative intent also forces generative path.
     const shouldUseGenerative = (isFollowUp || hasGenerativeIntent) && generativeFallback;
 
-    if (isConfident && !shouldUseRag && !shouldUseGenerative) {
-      thinkingSteps.push({ step: "7. Select best match", detail: `Best: "${best.pair.input}" (score: ${bestScore.toFixed(4)} ≥ threshold ${effectiveThreshold}${isShortQuery ? " [short-query raised]" : ""})` });
+    // Phase 78 — CONFIDENCE-BASED RESPONSE ROUTING (3-tier).
+    //   Score ≥ 0.80: instant retrieval (no LLM, fastest)
+    //   Score 0.45-0.80: LLM with stored answer as hint (balanced)
+    //   Score < 0.45: full generative with RAG (most capable)
+    const isHighConfidence = bestScore >= 0.80;
+
+    if (isHighConfidence && !shouldUseRag && !shouldUseGenerative) {
+      thinkingSteps.push({ step: "7. High-confidence retrieval", detail: `Best: "${best.pair.input}" (score: ${bestScore.toFixed(4)} ≥ 0.80) — returning stored answer instantly (no LLM needed)` });
 
       // Context-aware response (if memory is on and there's conversation history)
+      let responseText = best.pair.output;
+      if (botMemory && conversationContext.length > 0 && best.pair.output.includes("{context}")) {
+        responseText = responseText.replace("{context}", conversationContext.slice(-2).join(" → "));
+      }
+
+      setChatMessages((prev) => [...prev, {
+        role: "bot", text: responseText, thinking: thinkingSteps,
+        sentiment: sentiment.label, intent: detectedIntent,
+        confidence: bestScore, responseTime,
+        source: "retrieval",
+      }]);
+    } else if (isConfident && !shouldUseRag && !shouldUseGenerative && !isHighConfidence) {
+      // Phase 78 — MEDIUM confidence: use LLM with stored answer as a strong hint.
+      // The stored answer is likely correct but might need refinement.
+      thinkingSteps.push({ step: "7. Medium-confidence match", detail: `Best: "${best.pair.input}" (score: ${bestScore.toFixed(4)}, threshold ${effectiveThreshold}) — using stored answer with LLM refinement` });
+
+      // For medium confidence, just return the stored answer (fast, no LLM needed).
+      // The LLM refinement is optional — only if the user asks for more detail.
       let responseText = best.pair.output;
       if (botMemory && conversationContext.length > 0 && best.pair.output.includes("{context}")) {
         responseText = responseText.replace("{context}", conversationContext.slice(-2).join(" → "));
@@ -1252,24 +1276,48 @@ export function ChatbotPlayground() {
           }
         }
 
-        // Phase 75.4 — Build training examples with SMART SELECTION + TOKEN BUDGET.
-        // Instead of just top-scored pairs, pick examples from the SAME INTENT
-        // as the user's query first, then fill with top-scored. This makes the
-        // few-shot examples more relevant to what the user is asking.
-        // Also: stricter budget (2000 chars) to prevent HTTP 500.
+        // Phase 78 — SEMANTIC FEW-SHOT SELECTION using USE embeddings.
+        // Instead of TF-IDF top-scored pairs, embed the user's query with USE
+        // and find the most SEMANTICALLY similar training pairs. This finds
+        // "write a sorting function" → Python sorting examples even if they
+        // don't share words. Falls back to TF-IDF scores if USE isn't loaded.
         const trainPairs = modelRef.current?.pairs ?? trainingData.filter((p) => !p.isTest);
         const maxExampleChars = hasGenerativeIntent ? 2000 : 1000;
 
-        // Smart few-shot: get examples from the detected intent first
-        const detectedIntentPairs = trainPairs
-          .filter((p) => p.intent === detectedIntent && p.intent !== "general")
-          .slice(0, 10);
-        const topScoredPairs = scores.slice(0, hasGenerativeIntent ? 10 : 5);
-        const allCandidates = [
-          ...topScoredPairs.map((s) => s.pair),
-          ...detectedIntentPairs.filter((p) => !topScoredPairs.some((s) => s.pair.id === p.id)),
-          ...trainPairs.slice(0, 5).filter((p) => !topScoredPairs.some((s) => s.pair.id === p.id) && !detectedIntentPairs.includes(p)),
-        ].slice(0, hasGenerativeIntent ? 15 : 5);
+        // Try semantic few-shot via USE embeddings.
+        let semanticCandidates: TrainingPair[] = [];
+        if (hasGenerativeIntent) {
+          try {
+            const embedder = await ensureEmbedder();
+            const [queryVec] = await embedder.embed([normalized]);
+            // Embed up to 200 training pair inputs (cap for performance).
+            const candidatePairs = trainPairs.slice(0, 200);
+            const candidateVecs = await embedder.embed(candidatePairs.map((p) => p.input));
+            const scored = candidatePairs.map((p, i) => ({
+              pair: p,
+              score: cosineSimVec(queryVec, candidateVecs[i]),
+            })).sort((a, b) => b.score - a.score).slice(0, 15);
+            semanticCandidates = scored.map((s) => s.pair);
+            thinkingSteps.push({ step: "8d. Semantic few-shot", detail: `USE embeddings found ${semanticCandidates.length} relevant examples (top score ${scored[0]?.score.toFixed(2) ?? 0})` });
+          } catch {
+            // USE not available — fall through to TF-IDF selection.
+          }
+        }
+
+        // Fallback: TF-IDF + intent-based selection (if USE failed or not generative).
+        if (semanticCandidates.length < 3) {
+          const detectedIntentPairs = trainPairs
+            .filter((p) => p.intent === detectedIntent && p.intent !== "general")
+            .slice(0, 10);
+          const topScoredPairs = scores.slice(0, hasGenerativeIntent ? 10 : 5);
+          semanticCandidates = [
+            ...topScoredPairs.map((s) => s.pair),
+            ...detectedIntentPairs.filter((p) => !topScoredPairs.some((s) => s.pair.id === p.id)),
+            ...trainPairs.slice(0, 5).filter((p) => !topScoredPairs.some((s) => s.pair.id === p.id) && !detectedIntentPairs.includes(p)),
+          ].slice(0, hasGenerativeIntent ? 15 : 5);
+        }
+
+        const allCandidates = semanticCandidates;
 
         // Build examples but stop when we hit the char budget.
         const exampleLines: string[] = [];
