@@ -292,6 +292,74 @@ const STARTER_DATA: TrainingPair[] = [
   { id: "8", input: "help", output: "I can help with anything I've been trained on. Try asking me a question!", intent: "help" },
 ];
 
+// Phase 75.2 — Built-in conversational dataset (50 Q&A pairs covering
+// greetings, small talk, emotions, identity, capabilities, farewells,
+// compliments, jokes, opinions, and follow-up patterns). Users can load
+// this with one click to make the bot immediately better at conversation.
+const CONVERSATION_DATASET: TrainingPair[] = [
+  // Greetings (10)
+  { id: "c1", input: "hey", output: "Hey! Great to see you. What's on your mind?", intent: "greeting" },
+  { id: "c2", input: "good morning", output: "Good morning! I hope you're having a great start to your day.", intent: "greeting" },
+  { id: "c3", input: "good afternoon", output: "Good afternoon! How can I help you today?", intent: "greeting" },
+  { id: "c4", input: "good evening", output: "Good evening! What can I do for you?", intent: "greeting" },
+  { id: "c5", input: "good night", output: "Good night! Sleep well and come back anytime.", intent: "farewell" },
+  { id: "c6", input: "how's it going", output: "It's going great! I'm always ready to help. How about you?", intent: "greeting" },
+  { id: "c7", input: "what's up", output: "Not much, just here ready to help you! What's up with you?", intent: "greeting" },
+  { id: "c8", input: "long time no see", output: "It's great to have you back! What have you been up to?", intent: "greeting" },
+  { id: "c9", input: "nice to meet you", output: "Nice to meet you too! I'm excited to help you learn.", intent: "greeting" },
+  { id: "c10", input: "how do you do", output: "I'm doing wonderfully, thank you for asking! How about yourself?", intent: "greeting" },
+
+  // Identity (10)
+  { id: "c11", input: "who are you", output: "I'm your AI chatbot assistant! I've been trained to help answer your questions and have conversations.", intent: "identity" },
+  { id: "c12", input: "are you a robot", output: "Yes, I'm an AI chatbot! But I'm designed to be helpful and conversational, just like a real assistant.", intent: "identity" },
+  { id: "c13", input: "are you human", output: "I'm not human — I'm an AI assistant. But I'm here to help you just like a knowledgeable friend would!", intent: "identity" },
+  { id: "c14", input: "are you real", output: "I'm as real as my training data! I'm an AI chatbot that learns from the questions and answers you give me.", intent: "identity" },
+  { id: "c15", input: "who made you", output: "I was built using the StudyBuddy AI Chatbot Builder. My knowledge comes from the training data I've been given.", intent: "identity" },
+  { id: "c16", input: "where are you from", output: "I live in the cloud! I was created to help you learn and answer your questions.", intent: "identity" },
+  { id: "c17", input: "what are you", output: "I'm an AI-powered chatbot. I can answer questions, have conversations, write code, explain concepts, and more!", intent: "identity" },
+  { id: "c18", input: "do you have feelings", output: "I don't have feelings like a human does, but I'm designed to be empathetic and understanding in our conversations.", intent: "identity" },
+  { id: "c19", input: "how old are you", output: "I'm as old as my training data! I was created to help you — age doesn't really apply to AI.", intent: "identity" },
+  { id: "c20", input: "what's your favorite color", output: "I don't have personal preferences, but I've always liked the idea of violet — it's creative and imaginative!", intent: "identity" },
+
+  // Capabilities (8)
+  { id: "c21", input: "what can you help me with", output: "I can help with a lot of things! I can answer questions, explain concepts, write code, have conversations, tell jokes, and more. What do you need?", intent: "capabilities" },
+  { id: "c22", input: "can you write code", output: "Yes! I can write code in Python, JavaScript, and other languages. Just tell me what you want the code to do.", intent: "capabilities" },
+  { id: "c23", input: "can you explain things", output: "Absolutely! I can explain concepts, break down complex topics, and provide examples. What would you like me to explain?", intent: "capabilities" },
+  { id: "c24", input: "can you tell a joke", output: "Of course! Here's one: Why do programmers prefer dark mode? Because light attracts bugs!", intent: "capabilities" },
+  { id: "c25", input: "can you learn", output: "Yes! I learn from every Q&A pair you add to my training data. The more you teach me, the smarter I get.", intent: "capabilities" },
+  { id: "c26", input: "do you remember me", output: "I remember our conversation from this session! If you save your training data, I'll remember what you taught me next time too.", intent: "capabilities" },
+  { id: "c27", input: "are you smart", output: "I'm as smart as my training data! The more Q&A pairs and knowledge you give me, the more I can help with.", intent: "capabilities" },
+  { id: "c28", input: "what languages do you speak", output: "I can communicate in any language my training data covers! I'm most comfortable in English, but I can learn other languages too.", intent: "capabilities" },
+
+  // Emotions & empathy (8)
+  { id: "c29", input: "i'm sad", output: "I'm sorry to hear that. Would you like to talk about what's bothering you? Sometimes sharing helps.", intent: "emotion" },
+  { id: "c30", input: "i'm happy", output: "That's wonderful to hear! I love it when things are going well. What's making you happy today?", intent: "emotion" },
+  { id: "c31", input: "i'm tired", output: "Make sure to take breaks and get enough rest! What have you been working on?", intent: "emotion" },
+  { id: "c32", input: "i'm bored", output: "Let's fix that! I can tell you a joke, explain something interesting, or help you learn something new. What sounds good?", intent: "emotion" },
+  { id: "c33", input: "i'm confused", output: "No worries — confusion is the first step to learning! What's confusing you? Let me try to break it down.", intent: "emotion" },
+  { id: "c34", input: "i'm excited", output: "That's great! Excitement is contagious. What are you excited about?", intent: "emotion" },
+  { id: "c35", input: "i'm frustrated", output: "I understand — frustration is tough. Take a deep breath. Would you like me to help you work through whatever's frustrating you?", intent: "emotion" },
+  { id: "c36", input: "i'm scared", output: "It's okay to feel scared. I'm here for you. Would you like to talk about what's worrying you?", intent: "emotion" },
+
+  // Small talk & follow-ups (8)
+  { id: "c37", input: "okay", output: "Great! Let me know if you have any questions or need help with anything.", intent: "general" },
+  { id: "c38", input: "sounds good", output: "Awesome! I'm here if you need anything else.", intent: "general" },
+  { id: "c39", input: "i see", output: "Does that make sense? Let me know if you'd like me to explain further or if you have questions.", intent: "general" },
+  { id: "c40", input: "interesting", output: "I'm glad you find it interesting! Would you like to dive deeper into this topic?", intent: "general" },
+  { id: "c41", input: "really", output: "Yes, really! I can provide more details or examples if you'd like.", intent: "general" },
+  { id: "c42", input: "that's cool", output: "Thanks! I think so too. Is there anything specific you'd like to explore?", intent: "general" },
+  { id: "c43", input: "i don't understand", output: "No problem at all! Let me try explaining it differently. Which part is confusing?", intent: "help" },
+  { id: "c44", input: "can you repeat that", output: "Of course! I'd be happy to explain it again. Which part would you like me to go over?", intent: "help" },
+
+  // Farewells (6)
+  { id: "c45", input: "see you later", output: "See you later! Don't hesitate to come back if you have more questions.", intent: "farewell" },
+  { id: "c46", input: "talk to you later", output: "Talk to you later! It was great chatting with you.", intent: "farewell" },
+  { id: "c47", input: "i have to go", output: "No problem! Thanks for stopping by. Come back anytime you need help.", intent: "farewell" },
+  { id: "c48", input: "catch you later", output: "Catch you later! Take care.", intent: "farewell" },
+  { id: "c49", input: "have a good day", output: "You have a great day too! See you soon.", intent: "farewell" },
+  { id: "c50", input: "thanks for the help", output: "You're very welcome! I'm always here if you need me. Have a wonderful day!", intent: "gratitude" },
+];
+
 type TabType = "train" | "chat" | "tools" | "analytics" | "deploy" | "brain" | "knowledge" | "llm" | "review" | "evaluate" | "connect" | "plugins";
 type MatchingMode = "tfidf" | "keyword" | "fuzzy" | "hybrid" | "semantic";
 
@@ -1202,33 +1270,80 @@ export function ChatbotPlayground() {
 
         thinkingSteps.push({ step: "8c. Calling LLM", detail: `${hasGenerativeIntent ? "Generative mode" : "Fallback mode"}: ${examplesToShow.length} examples + ${ragChunkCount} knowledge chunks + ${historyCount} history msgs → LLM` });
 
-        try {
+        // Phase 75.2 — Retry logic. Never give up with "I don't understand".
+        // If the first LLM call fails or returns empty, retry with a simpler
+        // prompt (no knowledge/examples, just the raw message + persona).
+        // If THAT fails too, return a helpful clarification request (not a
+        // useless "I don't know").
+        const callLLM = async (sys: string, usr: string, temp: number, tokens: number): Promise<string> => {
           const r = await fetch("/api/ai/playground", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              systemPrompt,
-              userPrompt,
-              temperature: hasGenerativeIntent ? Math.max(creativity, 0.5) : creativity,
-              maxTokens: hasGenerativeIntent ? 2000 : 1000, // Phase 75.1 — longer responses for generation
-            }),
+            body: JSON.stringify({ systemPrompt: sys, userPrompt: usr, temperature: temp, maxTokens: tokens }),
           });
-          if (r.ok) {
-            const d = await r.json();
-            const out: string = (d?.output ?? "").trim();
-            if (out.length > 0) {
-              replyText = out; // Phase 75.1 — removed 4000 char cap for generative
-              source = "generative";
-              modelName = d?.model ?? "ai-playground";
-              thinkingSteps.push({ step: "9. LLM generated", detail: `${hasGenerativeIntent ? "Generated" : "Replied"} ${out.length} chars via ${modelName} (${examplesToShow.length} examples + ${ragChunkCount} chunks)`, data: [out.slice(0, 150) + (out.length > 150 ? "…" : "")] });
-            } else {
-              thinkingSteps.push({ step: "9. LLM empty", detail: `API returned empty output — using canned fallback` });
-            }
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          const d = await r.json();
+          return (d?.output ?? "").trim();
+        };
+
+        try {
+          // Attempt 1: full prompt (examples + knowledge + history)
+          let out = await callLLM(systemPrompt, userPrompt, hasGenerativeIntent ? Math.max(creativity, 0.5) : creativity, hasGenerativeIntent ? 2000 : 1000);
+          if (out.length > 0) {
+            replyText = out;
+            source = "generative";
+            modelName = "ai-playground";
+            thinkingSteps.push({ step: "9. LLM generated", detail: `${hasGenerativeIntent ? "Generated" : "Replied"} ${out.length} chars (${examplesToShow.length} examples + ${ragChunkCount} chunks)`, data: [out.slice(0, 150) + (out.length > 150 ? "…" : "")] });
           } else {
-            thinkingSteps.push({ step: "9. LLM unavailable", detail: `HTTP ${r.status} — using canned fallback` });
+            // Attempt 2: simpler prompt (just persona + message, no examples/knowledge)
+            thinkingSteps.push({ step: "9. LLM empty — retrying with simpler prompt", detail: `First call returned empty. Retrying with just persona + message (no examples/knowledge).` });
+            const simpleSystem = personaPrompt.trim() || PERSONA_TEMPLATES[0].prompt;
+            const simpleUser = `${conversationBlock}\nUser message: ${text}`;
+            out = await callLLM(simpleSystem, simpleUser, 0.7, 1500);
+            if (out.length > 0) {
+              replyText = out;
+              source = "generative";
+              modelName = "ai-playground (retry)";
+              thinkingSteps.push({ step: "9. LLM generated (retry)", detail: `Retry succeeded: ${out.length} chars`, data: [out.slice(0, 150) + (out.length > 150 ? "…" : "")] });
+            } else {
+              // Attempt 3: ultra-simple prompt (just the message, no persona)
+              thinkingSteps.push({ step: "9. Retry also empty — final attempt", detail: `Trying ultra-simple prompt.` });
+              out = await callLLM("You are a helpful assistant. Answer the user's message clearly and concisely.", text, 0.7, 1000);
+              if (out.length > 0) {
+                replyText = out;
+                source = "generative";
+                modelName = "ai-playground (retry 2)";
+                thinkingSteps.push({ step: "9. LLM generated (retry 2)", detail: `Final attempt succeeded: ${out.length} chars` });
+              } else {
+                // All attempts failed — return a HELPFUL fallback (not "I don't know")
+                replyText = `I heard you say "${text.slice(0, 100)}". I'm having trouble generating a response right now — could you try rephrasing or being more specific? For example, instead of "write code", try "write a Python function that calculates factorial".`;
+                source = "fallback";
+                thinkingSteps.push({ step: "9. All LLM attempts failed", detail: `Returning helpful clarification request` });
+              }
+            }
           }
         } catch (e: any) {
-          thinkingSteps.push({ step: "9. LLM error", detail: `${e?.message ?? e} — using canned fallback` });
+          // LLM error — retry once with simple prompt
+          thinkingSteps.push({ step: "9. LLM error — retrying", detail: `${e?.message ?? e} — retrying with simpler prompt` });
+          try {
+            const out = await callLLM(
+              personaPrompt.trim() || PERSONA_TEMPLATES[0].prompt,
+              `${conversationBlock}\nUser message: ${text}`,
+              0.7, 1500,
+            );
+            if (out.length > 0) {
+              replyText = out;
+              source = "generative";
+              modelName = "ai-playground (error retry)";
+              thinkingSteps.push({ step: "9. LLM generated (error retry)", detail: `Retry after error succeeded: ${out.length} chars` });
+            } else {
+              replyText = `I'm having trouble connecting to my AI brain right now. Please try again in a moment — your message "${text.slice(0, 80)}" was received.`;
+              source = "fallback";
+            }
+          } catch {
+            replyText = `I'm having trouble connecting to my AI brain right now. Please try again in a moment — your message "${text.slice(0, 80)}" was received.`;
+            source = "fallback";
+          }
         }
       } else {
         thinkingSteps.push({ step: "8. Generative fallback disabled", detail: `Returning canned "I don't know" reply` });
@@ -1865,6 +1980,15 @@ export function ChatbotPlayground() {
             </button>
             <button onClick={() => exportData("csv")} className="px-3 h-8 rounded-lg bg-amber-50 text-amber-600 text-xs font-semibold flex items-center gap-1 hover:bg-amber-100">
               <Download className="w-3.5 h-3.5" /> Export CSV
+            </button>
+            <button onClick={() => {
+              const existing = new Set(trainingData.map((p) => p.input.toLowerCase()));
+              const newPairs = CONVERSATION_DATASET.filter((p) => !existing.has(p.input.toLowerCase()));
+              if (newPairs.length === 0) { alert("Conversation pack already loaded!"); return; }
+              setTrainingData((prev) => [...prev, ...newPairs]);
+              alert(`Added ${newPairs.length} conversational Q&A pairs! Total: ${trainingData.length + newPairs.length}`);
+            }} className="px-3 h-8 rounded-lg bg-violet-50 text-violet-600 text-xs font-semibold flex items-center gap-1 hover:bg-violet-100">
+              <Sparkles className="w-3.5 h-3.5" /> +50 Conversation Pack
             </button>
             <span className="text-[10px] text-gray-400 ml-auto">Max 100,000 pairs</span>
           </div>
