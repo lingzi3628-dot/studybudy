@@ -2283,7 +2283,11 @@ export function ChatbotPlayground() {
                   </p>
                 )}
                 {localModelStatus === "error" && (
-                  <p className="text-[10px] text-rose-600 bg-rose-50 border border-rose-100 rounded-lg p-1.5">Failed to load. Make sure your browser supports WebGPU (Chrome 113+).</p>
+                  <div className="text-[10px] text-rose-600 bg-rose-50 border border-rose-100 rounded-lg p-2 space-y-1">
+                    <p>WebGPU is not available on your device. The local model requires a GPU + Chrome 113+/Edge 113+.</p>
+                    <p className="text-gray-500">Your bot still works perfectly using the cloud GLM model for all responses. The local brain is optional — it only saves API calls for simple chat.</p>
+                    <p className="text-gray-500">To enable WebGPU: try Chrome/Edge on a device with a GPU (even integrated graphics work). Check <a href="https://webgpureport.org" target="_blank" rel="noopener noreferrer" className="text-violet-600 underline">webgpureport.org</a> to test your browser.</p>
+                  </div>
                 )}
               </div>
               {/* Phase 69 — Persona editor */}
