@@ -38,8 +38,8 @@ export type LocalModelConfig = {
 export const LOCAL_MODELS: LocalModelConfig[] = [
   {
     id: "smollm",
-    label: "SmolLM 360M (Fast)",
-    modelId: "HF://mlc-ai/SmolLM-360M-Instruct-q4f16_1-MLC",
+    label: "SmolLM2 360M (Fast)",
+    modelId: "SmolLM2-360M-Instruct-q4f16_1-MLC",
     size: "~250MB",
     quality: "Basic — good for simple chat",
     speed: "Very fast (1-3s)",
@@ -47,7 +47,7 @@ export const LOCAL_MODELS: LocalModelConfig[] = [
   {
     id: "qwen2",
     label: "Qwen2 1.5B (Balanced)",
-    modelId: "HF://mlc-ai/Qwen2-1.5B-Instruct-q4f16_1-MLC",
+    modelId: "Qwen2-1.5B-Instruct-q4f16_1-MLC",
     size: "~1.1GB",
     quality: "Good — handles most conversations",
     speed: "Fast (3-8s)",
@@ -55,7 +55,7 @@ export const LOCAL_MODELS: LocalModelConfig[] = [
   {
     id: "phi3",
     label: "Phi-3.5 Mini (Best)",
-    modelId: "HF://mlc-ai/Phi-3.5-mini-instruct-q4f16_1-MLC",
+    modelId: "Phi-3.5-mini-instruct-q4f16_1-MLC",
     size: "~2.3GB",
     quality: "Excellent — near GLM quality",
     speed: "Medium (5-15s)",

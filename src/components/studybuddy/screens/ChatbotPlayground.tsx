@@ -2244,7 +2244,7 @@ export function ChatbotPlayground() {
                 <p className="text-[10px] text-gray-400 mb-2">Download a small AI model (~250MB-2.3GB, one-time) that runs entirely on your device. Simple chat goes through the local model (instant, free). Complex tasks (code writing) still use GLM. Requires Chrome 113+ or Edge 113+ with WebGPU.</p>
                 <div className="flex items-center gap-2 mb-2">
                   <select value={localModelId} onChange={(e) => setLocalModelId(e.target.value as any)} disabled={localModelStatus === "loading" || localModelStatus === "ready"} className="flex-1 h-8 rounded-lg bg-gray-50 border border-gray-200 px-2 text-xs outline-none disabled:opacity-50">
-                    <option value="smollm">SmolLM 360M — ~250MB, very fast, basic quality</option>
+                    <option value="smollm">SmolLM2 360M — ~250MB, very fast, basic quality</option>
                     <option value="qwen2">Qwen2 1.5B — ~1.1GB, fast, good quality</option>
                     <option value="phi3">Phi-3.5 Mini — ~2.3GB, medium, excellent quality</option>
                   </select>
