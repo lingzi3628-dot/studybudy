@@ -29,7 +29,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import {
   ChevronLeft, Send, Brain, Plus, Trash2, Loader2, Save, Sparkles,
   MessageCircle, Zap, Eye, Upload, Download, Globe, Clock, Database,
-  Settings, BarChart3, Bot, Link2, Copy, Check, FileText, BookOpen,
+  Settings, BarChart3, Bot, Link2, Copy, Check, FileText, BookOpen, Cpu,
 } from "lucide-react";
 import { useApp } from "../store";
 import {
@@ -402,6 +402,12 @@ export function ChatbotPlayground() {
   const [matchingMode, setMatchingModeRaw] = useState<MatchingMode>("hybrid");
   const [generativeFallback, setGenerativeFallback] = useState(true); // Phase 68
   const [creativity, setCreativity] = useState(0.6); // Phase 75 — 0.2=precise, 0.7=balanced, 1.0=creative
+  // Phase 76 — Local LLM (WebLLM)
+  const [localModelEnabled, setLocalModelEnabled] = useState(false);
+  const [localModelId, setLocalModelId] = useState<"smollm" | "qwen2" | "phi3">("qwen2");
+  const [localModelStatus, setLocalModelStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [localModelProgress, setLocalModelProgress] = useState<{ progress: number; text: string } | null>(null);
+  const localModelRef = useRef<any>(null);
   const [embeddingProgress, setEmbeddingProgress] = useState<string | null>(null);
   // Phase 69 — persona prompt (drives generative fallback tone)
   const [personaPrompt, setPersonaPrompt] = useState<string>(PERSONA_TEMPLATES[0].prompt);
@@ -1289,7 +1295,34 @@ export function ChatbotPlayground() {
         ].filter(Boolean).join("\n");
 
         const totalPromptChars = systemPrompt.length + userPrompt.length;
-        thinkingSteps.push({ step: "8c. Calling LLM", detail: `${hasGenerativeIntent ? "Generative mode" : "Fallback mode"}: ${exampleLines.length} examples (${exampleChars} chars) + ${ragChunkCount} knowledge chunks (${cappedRagBlock.length} chars) + ${historyCount} history msgs → LLM (total: ${totalPromptChars} chars)` });
+
+        // Phase 76 — Smart routing: decide which engine to use.
+        // Simple/moderate queries → local model (if loaded), else GLM.
+        // Complex queries (code generation) → always GLM.
+        const { routeQuery, isLocalModelReady, generateLocal } = await import("@/lib/webllm-engine");
+        const useLocalModel = localModelEnabled && isLocalModelReady() && !hasGenerativeIntent;
+
+        if (useLocalModel) {
+          thinkingSteps.push({ step: "8c. Local model (WebLLM)", detail: `Using local model for ${hasGenerativeIntent ? "generative" : "fallback"} response (no API call needed). ${exampleLines.length} examples + ${ragChunkCount} chunks + ${historyCount} history msgs.` });
+          try {
+            const localOut = await generateLocal(systemPrompt, userPrompt, creativity, hasGenerativeIntent ? 1500 : 800);
+            if (localOut.length > 0) {
+              replyText = localOut;
+              source = "generative";
+              modelName = "local (WebLLM)";
+              thinkingSteps.push({ step: "9. Local model replied", detail: `Generated ${localOut.length} chars locally (no API)`, data: [localOut.slice(0, 150) + (localOut.length > 150 ? "…" : "")] });
+            } else {
+              // Local model returned empty — fall through to GLM
+              thinkingSteps.push({ step: "9. Local model empty — falling back to GLM", detail: `Local model returned empty, trying GLM API` });
+            }
+          } catch (e: any) {
+            thinkingSteps.push({ step: "9. Local model error — falling back to GLM", detail: `${e?.message || e}` });
+          }
+        }
+
+        // Only call GLM if local model didn't produce a response
+        if (source !== "generative") {
+          thinkingSteps.push({ step: "8c. Calling GLM", detail: `${hasGenerativeIntent ? "Generative mode" : "Fallback mode"}: ${exampleLines.length} examples (${exampleChars} chars) + ${ragChunkCount} knowledge chunks (${cappedRagBlock.length} chars) + ${historyCount} history msgs → GLM (total: ${totalPromptChars} chars)` });
 
         // Phase 75.2 — Retry logic. Never give up with "I don't understand".
         // If the first LLM call fails or returns empty, retry with a simpler
@@ -1365,7 +1398,8 @@ export function ChatbotPlayground() {
             replyText = `I'm having trouble connecting to my AI brain right now. Please try again in a moment — your message "${text.slice(0, 80)}" was received.`;
             source = "fallback";
           }
-        }
+        } // end try/catch
+        } // end if (source !== "generative")
       } else {
         thinkingSteps.push({ step: "8. Generative fallback disabled", detail: `Returning canned "I don't know" reply` });
       }
@@ -1558,6 +1592,42 @@ export function ChatbotPlayground() {
       const r = await fetch(`/api/deployed-bots/${connectBotId}/integrations`, { method: "PUT" });
       const d = await r.json();
       if (r.ok) setApiKeyVal(d.apiKey);
+    } catch {}
+  };
+
+  // Phase 76 — Local LLM (WebLLM) handlers
+  const loadLocalModel = async () => {
+    setLocalModelStatus("loading");
+    setLocalModelProgress({ progress: 0, text: "Initializing WebGPU…" });
+    try {
+      const { loadLocalModel: load, LOCAL_MODELS, isWebGPUAvailable } = await import("@/lib/webllm-engine");
+      if (!isWebGPUAvailable()) {
+        setLocalModelStatus("error");
+        setLocalModelProgress(null);
+        alert("WebGPU is not available in your browser. Try Chrome 113+ or Edge 113+.");
+        return;
+      }
+      const config = LOCAL_MODELS.find((m) => m.id === localModelId);
+      if (!config) throw new Error("Unknown model");
+      await load(config.modelId, (progress, text) => {
+        setLocalModelProgress({ progress, text });
+      });
+      setLocalModelStatus("ready");
+      setLocalModelProgress(null);
+      setLocalModelEnabled(true);
+    } catch (e: any) {
+      setLocalModelStatus("error");
+      setLocalModelProgress(null);
+      alert(`Failed to load local model: ${e?.message || e}`);
+    }
+  };
+
+  const unloadLocalModel = async () => {
+    try {
+      const { unloadLocalModel: unload } = await import("@/lib/webllm-engine");
+      await unload();
+      setLocalModelStatus("idle");
+      setLocalModelEnabled(false);
     } catch {}
   };
 
@@ -2168,6 +2238,54 @@ export function ChatbotPlayground() {
                 <span className="text-xs font-mono text-gray-700 w-16">{creativity.toFixed(1)} {creativity <= 0.3 ? "(precise)" : creativity <= 0.7 ? "(balanced)" : "(creative)"}</span>
               </div>
               <p className="text-[10px] text-gray-400 ml-32 -mt-2">Low = factual, precise answers. High = creative, varied responses. Generative intent (write/create/generate) auto-boosts to at least 0.5.</p>
+              {/* Phase 76 — Local LLM (WebLLM) */}
+              <div className="border-t border-gray-100 pt-3 mt-3">
+                <label className="text-xs text-gray-500 flex items-center gap-1 mb-1.5"><Cpu className="w-3 h-3" /> Local AI Brain (runs in your browser — no API needed)</label>
+                <p className="text-[10px] text-gray-400 mb-2">Download a small AI model (~250MB-2.3GB, one-time) that runs entirely on your device. Simple chat goes through the local model (instant, free). Complex tasks (code writing) still use GLM. Requires Chrome 113+ or Edge 113+ with WebGPU.</p>
+                <div className="flex items-center gap-2 mb-2">
+                  <select value={localModelId} onChange={(e) => setLocalModelId(e.target.value as any)} disabled={localModelStatus === "loading" || localModelStatus === "ready"} className="flex-1 h-8 rounded-lg bg-gray-50 border border-gray-200 px-2 text-xs outline-none disabled:opacity-50">
+                    <option value="smollm">SmolLM 360M — ~250MB, very fast, basic quality</option>
+                    <option value="qwen2">Qwen2 1.5B — ~1.1GB, fast, good quality</option>
+                    <option value="phi3">Phi-3.5 Mini — ~2.3GB, medium, excellent quality</option>
+                  </select>
+                  {localModelStatus === "idle" && (
+                    <button onClick={loadLocalModel} className="px-3 h-8 rounded-full bg-violet-600 text-white text-xs font-semibold hover:bg-violet-700 flex items-center gap-1">
+                      <Download className="w-3 h-3" /> Load
+                    </button>
+                  )}
+                  {localModelStatus === "loading" && (
+                    <button disabled className="px-3 h-8 rounded-full bg-gray-300 text-white text-xs font-semibold flex items-center gap-1">
+                      <Loader2 className="w-3 h-3 animate-spin" /> Loading…
+                    </button>
+                  )}
+                  {localModelStatus === "ready" && (
+                    <button onClick={unloadLocalModel} className="px-3 h-8 rounded-full bg-rose-50 text-rose-600 text-xs font-semibold hover:bg-rose-100 flex items-center gap-1">
+                      <Trash2 className="w-3 h-3" /> Unload
+                    </button>
+                  )}
+                  {localModelStatus === "ready" && (
+                    <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 text-[10px] font-bold flex items-center gap-0.5">
+                      <Check className="w-2.5 h-2.5" /> Active
+                    </span>
+                  )}
+                </div>
+                {localModelProgress && (
+                  <div className="mb-2">
+                    <div className="h-1.5 rounded-full bg-gray-200 overflow-hidden">
+                      <div className="h-full bg-gradient-to-r from-violet-500 to-fuchsia-500 transition-all" style={{ width: `${localModelProgress.progress * 100}%` }} />
+                    </div>
+                    <p className="text-[10px] text-violet-600 mt-1">{localModelProgress.text} ({(localModelProgress.progress * 100).toFixed(0)}%)</p>
+                  </div>
+                )}
+                {localModelStatus === "ready" && (
+                  <p className="text-[10px] text-emerald-600 bg-emerald-50 border border-emerald-100 rounded-lg p-1.5">
+                    Local brain active! Simple chat now runs on your device (no API calls). Complex tasks (code writing) still use GLM for best quality. The model is cached — no re-download next session.
+                  </p>
+                )}
+                {localModelStatus === "error" && (
+                  <p className="text-[10px] text-rose-600 bg-rose-50 border border-rose-100 rounded-lg p-1.5">Failed to load. Make sure your browser supports WebGPU (Chrome 113+).</p>
+                )}
+              </div>
               {/* Phase 69 — Persona editor */}
               <div className="border-t border-gray-100 pt-3 mt-3">
                 <label className="text-xs text-gray-500 flex items-center gap-1 mb-1.5"><Sparkles className="w-3 h-3" /> Persona (system prompt for generative fallback)</label>
