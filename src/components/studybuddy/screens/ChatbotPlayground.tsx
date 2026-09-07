@@ -1214,20 +1214,26 @@ export function ChatbotPlayground() {
           }
         }
 
-        // Phase 75.1 — Build training examples block.
-        // For generative intent: send 20 relevant Q&A pairs as "training examples"
-        // so the LLM really learns the bot's domain. For fallback: top-5 as hints.
+        // Phase 75.3 — Build training examples block with TOKEN BUDGET.
+        // Cap total examples to ~3000 chars so the prompt doesn't exceed API
+        // limits (which was causing HTTP 500). Start with top-scored pairs,
+        // add more until we hit the budget.
         const trainPairs = modelRef.current?.pairs ?? trainingData.filter((p) => !p.isTest);
-        const exampleCount = hasGenerativeIntent ? 20 : 5;
-        const examplePairs = scores.slice(0, exampleCount);
-        // If we don't have enough scored pairs (e.g., no match at all), grab random pairs
-        // from the training data so the LLM still sees the bot's style.
+        const maxExampleChars = hasGenerativeIntent ? 3000 : 1500;
+        const examplePairs = scores.slice(0, hasGenerativeIntent ? 20 : 5);
         const examplesToShow = examplePairs.length >= 3
           ? examplePairs
-          : [...examplePairs, ...trainPairs.slice(0, exampleCount - examplePairs.length).map((p) => ({ pair: p, score: 0 }))];
-        const trainingExamples = examplesToShow
-          .map((s, i) => `Example ${i + 1}:\nUser: ${s.pair.input}\nBot: ${s.pair.output}`)
-          .join("\n\n");
+          : [...examplePairs, ...trainPairs.slice(0, 20 - examplePairs.length).map((p) => ({ pair: p, score: 0 }))];
+        // Build examples but stop when we hit the char budget.
+        const exampleLines: string[] = [];
+        let exampleChars = 0;
+        for (const s of examplesToShow) {
+          const line = `Example ${exampleLines.length + 1}:\nUser: ${s.pair.input}\nBot: ${s.pair.output}`;
+          if (exampleChars + line.length > maxExampleChars && exampleLines.length >= 5) break;
+          exampleLines.push(line);
+          exampleChars += line.length;
+        }
+        const trainingExamples = exampleLines.join("\n\n");
 
         const intentList = stats.intents.length > 0 ? stats.intents.join(", ") : "general";
         const totalKnowledge = knowledgeSources.reduce((s, k) => s + k.chunkCount, 0);
@@ -1256,19 +1262,25 @@ export function ChatbotPlayground() {
                 : "",
             ].filter(Boolean).join(" ");
 
+        // Phase 75.3 — Cap knowledge block + conversation history to prevent
+        // HTTP 500 from oversized prompts. Total prompt should be under ~8000 chars.
+        const maxRagChars = hasGenerativeIntent ? 3000 : 2000;
+        const cappedRagBlock = ragBlock.length > maxRagChars ? ragBlock.slice(0, maxRagChars) + "\n...[truncated]" : ragBlock;
+
         // Phase 75.1 — Always include conversation history (last 8 messages for generative).
-        const historyCount = hasGenerativeIntent ? 8 : 4;
-        const recentMessages = chatMessages.slice(-historyCount).map((m) => `${m.role === "user" ? "User" : "Bot"}: ${m.text}`).join("\n");
+        const historyCount = hasGenerativeIntent ? 6 : 4;
+        const recentMessages = chatMessages.slice(-historyCount).map((m) => `${m.role === "user" ? "User" : "Bot"}: ${m.text.slice(0, 200)}`).join("\n");
         const conversationBlock = recentMessages ? `Recent conversation:\n${recentMessages}\n` : "";
 
         const userPrompt = [
           conversationBlock,
-          ragBlock ? `=== KNOWLEDGE BASE (reference material) ===\n${ragBlock}\n` : "",
+          cappedRagBlock ? `=== KNOWLEDGE BASE (reference material) ===\n${cappedRagBlock}\n` : "",
           `=== TRAINING EXAMPLES (your style guide) ===\n${trainingExamples}\n`,
           `=== USER REQUEST ===\n${text}`,
         ].filter(Boolean).join("\n");
 
-        thinkingSteps.push({ step: "8c. Calling LLM", detail: `${hasGenerativeIntent ? "Generative mode" : "Fallback mode"}: ${examplesToShow.length} examples + ${ragChunkCount} knowledge chunks + ${historyCount} history msgs → LLM` });
+        const totalPromptChars = systemPrompt.length + userPrompt.length;
+        thinkingSteps.push({ step: "8c. Calling LLM", detail: `${hasGenerativeIntent ? "Generative mode" : "Fallback mode"}: ${exampleLines.length} examples (${exampleChars} chars) + ${ragChunkCount} knowledge chunks (${cappedRagBlock.length} chars) + ${historyCount} history msgs → LLM (total: ${totalPromptChars} chars)` });
 
         // Phase 75.2 — Retry logic. Never give up with "I don't understand".
         // If the first LLM call fails or returns empty, retry with a simpler
