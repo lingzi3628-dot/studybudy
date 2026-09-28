@@ -363,12 +363,14 @@ export async function callWithProviders(
     return { content: "", result: null };
   }
 
+  // Phase 78 — Track rate-limited providers to skip them on retry.
+  const rateLimitedKeys = new Set<string>();
+
   for (const provider of providers) {
     // Phase 35: skip providers over their daily budget
     if (provider.dailyBudgetUsd && provider.dailyBudgetUsd > 0) {
       const overBudget = await isOverBudget(provider);
       if (overBudget) {
-        // Log the skip for transparency
         await logAiCall(ctx.userId, {
           content: "",
           providerId: provider.id,
@@ -381,16 +383,43 @@ export async function callWithProviders(
           status: "error",
           errorMessage: `Skipped — daily budget of $${provider.dailyBudgetUsd} reached`,
         }, ctx.route);
-        continue; // try the next provider in the fallback chain
+        continue;
       }
     }
 
+    // Phase 78 — Skip providers whose API key is rate-limited.
+    const apiKey = provider.apiKeyEncrypted
+      ? decryptApiKey(provider.apiKeyEncrypted)
+      : "";
+    const keySignature = apiKey.slice(0, 8); // first 8 chars as signature
+    if (rateLimitedKeys.has(keySignature)) {
+      await logAiCall(ctx.userId, {
+        content: "",
+        providerId: provider.id,
+        providerType: provider.providerType,
+        model: provider.model,
+        promptTokens: null,
+        completionTokens: null,
+        totalTokens: null,
+        cost: 0,
+        status: "error",
+        errorMessage: `Skipped — API key rate-limited (same key as a previous 429)`,
+      }, ctx.route);
+      continue;
+    }
+
     const result = await callProvider(provider, messages, { userId: ctx.userId, route: ctx.route });
-    // log this attempt
     await logAiCall(ctx.userId, result, ctx.route);
 
     if (result.status === "success" && result.content) {
       return { content: result.content, result };
+    }
+
+    // Phase 78 — If this was a rate-limit error, mark the key as rate-limited
+    // so we skip other providers using the same key.
+    if (result.errorMessage && /rate.limit|429|too many requests/i.test(result.errorMessage)) {
+      rateLimitedKeys.add(keySignature);
+      console.warn(`[ai-providers] Rate limited on ${provider.name} (key ${keySignature}…) — skipping same-key providers`);
     }
     // else try the next provider (fallback)
   }
