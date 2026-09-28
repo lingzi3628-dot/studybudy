@@ -267,12 +267,20 @@ export async function callAI(
                 if (e?.message?.includes("not connected") || e?.message?.includes("empty response")) {
                   throw e;
                 }
-                // Provider call failed (network, auth, etc.) — don't silently fall through
-                console.warn("Model-specific provider failed:", e?.message);
-                throw new Error(
-                  `${mapping.displayName} ${mapping.emoji} → ${provider.name} API call failed: ${e?.message ?? "unknown error"}. ` +
-                  `Try another Study Buddy or ask an admin to check the API key.`
-                );
+                // Phase 78 — If the provider was rate-limited (429), DON'T throw.
+                // Fall through to the platform fallback (GLM) so the user still
+                // gets a response. Only throw for real errors (auth, network, etc.)
+                if (e?.message && /rate.limit|429|too many requests|rate_limited/i.test(e.message)) {
+                  console.warn(`[callAI] ${mapping.displayName} rate-limited, falling through to platform AI:`, e?.message);
+                  // Don't throw — fall through to admin providers + platform fallback
+                } else {
+                  // Provider call failed (network, auth, etc.) — don't silently fall through
+                  console.warn("Model-specific provider failed:", e?.message);
+                  throw new Error(
+                    `${mapping.displayName} ${mapping.emoji} → ${provider.name} API call failed: ${e?.message ?? "unknown error"}. ` +
+                    `Try another Study Buddy or ask an admin to check the API key.`
+                  );
+                }
               }
             } else {
               // Provider has no API key and is not keyless
