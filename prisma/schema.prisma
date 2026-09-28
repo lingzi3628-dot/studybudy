@@ -404,6 +404,8 @@ model StudyRoomState {
   userName          String?
   diagnosticScore   Float?
   currentClassroomSessionId String?
+  workspaceDrawing   Json     @default("[]")
+  workspaceProgress  Json     @default("{}")
   lastVisited       DateTime?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt

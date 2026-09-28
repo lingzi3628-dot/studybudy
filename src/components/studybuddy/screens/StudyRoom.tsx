@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   X,
   ChevronLeft,
@@ -52,7 +53,6 @@ import {
   MusicPlayerModal,
   CustomizationModal,
   ReportCardModal,
-  AITeacherChatModal,
   DailyReviewModal,
   MiniGamesModal,
 } from "../study-room/StudyRoomModals";
@@ -73,7 +73,8 @@ type Lesson = {
 type TopicDetail = Awaited<ReturnType<typeof api.getTopic>>;
 
 type PracticeTab = "flashcards" | "quiz" | "solver";
-type ChatMsg = { role: "user" | "assistant"; content: string };
+type ChatMsg = { role: "user" | "assistant"; content: string; image?: string };
+type WorkStroke = { d: string; color: string; width: number };
 
 const COLLAPSE_KEYS = ["intro", "concepts", "examples", "formulas", "summary"] as const;
 type CollapseKey = (typeof COLLAPSE_KEYS)[number];
@@ -127,7 +128,6 @@ export function StudyRoom() {
   const [showMusic, setShowMusic] = useState(false);
   const [showCustomize, setShowCustomize] = useState(false);
   const [showReport, setShowReport] = useState(false);
-  const [showAITeacherChat, setShowAITeacherChat] = useState(false);
   const [showDailyReview, setShowDailyReview] = useState(false);
   const [showMiniGames, setShowMiniGames] = useState(false);
   // Phase 15 — visual overhaul
@@ -138,6 +138,13 @@ export function StudyRoom() {
   const celebration = useCelebration();
   // Phase 16 — intake flow
   const [showIntake, setShowIntake] = useState(false);
+  const [workStrokes, setWorkStrokes] = useState<WorkStroke[]>([]);
+  const [workTool, setWorkTool] = useState<"pen" | "line" | "circle">("pen");
+  const [workColor, setWorkColor] = useState("#30334a");
+  const [workSaving, setWorkSaving] = useState(false);
+  const [workChecks, setWorkChecks] = useState(0);
+  const workStrokeRef = useRef<{ tool: "pen" | "line" | "circle"; start: { x: number; y: number }; points: { x: number; y: number }[]; color: string } | null>(null);
+  const workSvgRef = useRef<SVGSVGElement>(null);
 
   // Fetch Phase 12b extended room data
   useEffect(() => {
@@ -161,6 +168,16 @@ export function StudyRoom() {
       .then((r) => r.ok ? r.json() : null)
       .then((d) => { if (d && typeof d.coins === "number") setCoinBalance(d.coins); })
       .catch(() => {});
+  }, [activeTopicId]);
+
+  useEffect(() => {
+    if (!activeTopicId) return;
+    let active = true;
+    fetch(`/api/study-room/${activeTopicId}/workspace`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (active && d) { setWorkStrokes(Array.isArray(d.strokes) ? d.strokes : []); setWorkChecks(Number(d.progress?.workChecks) || 0); } })
+      .catch(() => {});
+    return () => { active = false; };
   }, [activeTopicId]);
 
   const handleToolClick = (tool: string) => {
@@ -214,10 +231,30 @@ export function StudyRoom() {
       .catch(() => {});
   };
   const [chatMessages, setChatMessages] = useState<ChatMsg[]>([]);
+  const [chatConversationId, setChatConversationId] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState("");
   const [chatBusy, setChatBusy] = useState(false);
+  const [chatActivity, setChatActivity] = useState("");
   const [chatError, setChatError] = useState<string | null>(null);
   const chatScrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!activeTopicId) return;
+    let mounted = true;
+    const restore = async () => {
+      const savedId = window.localStorage.getItem(`studybuddy-room-chat.${activeTopicId}`);
+      if (!savedId) { setChatMessages([]); setChatConversationId(null); return; }
+      try {
+        const response = await fetch(`/api/tutor/conversations?id=${encodeURIComponent(savedId)}`);
+        const data = await response.json();
+        if (!mounted || !response.ok || !data.conversation) return;
+        setChatConversationId(data.conversation.id);
+        setChatMessages((data.conversation.messages || []).filter((m: any) => m.role === "user" || m.role === "assistant").map((m: any) => ({ role: m.role, content: m.content })));
+      } catch {}
+    };
+    void restore();
+    return () => { mounted = false; };
+  }, [activeTopicId]);
 
   // ===== Load topic + lesson on mount =====
   useEffect(() => {
@@ -442,25 +479,87 @@ export function StudyRoom() {
   };
 
   // Tutor chat
-  const sendChat = async (text?: string) => {
+  const sendChat = async (text?: string, image?: string) => {
     const q = (text ?? chatInput).trim();
-    if (!q || chatBusy) return;
-    setChatInput("");
-    setChatBusy(true);
-    setChatError(null);
-    const next: ChatMsg[] = [...chatMessages, { role: "user", content: q }];
-    setChatMessages(next);
+    if ((!q && !image) || chatBusy || !activeTopicId) return;
+    setChatInput(""); setChatBusy(true); setChatError(null); setChatActivity("Connecting to your room tutor…");
+    const next: ChatMsg[] = [...chatMessages, { role: "user", content: q || "Please check my drawing.", ...(image ? { image } : {}) }];
+    setChatMessages([...next, { role: "assistant", content: "" }]);
     try {
-      const r = await api.askTopicTutor(activeTopicId!, {
-        message: q,
-        chatHistory: next.slice(-10),
+      const response = await fetch("/api/tutor/chat/stream", {
+        method: "POST", headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+        body: JSON.stringify({ message: q || "Please check my drawing.", conversationId: chatConversationId, studyRoomTopicId: activeTopicId, ...(image ? { image } : {}) }),
       });
-      setChatMessages((m) => [...m, { role: "assistant", content: r.reply }]);
-    } catch (e: any) {
-      setChatError(e?.message ?? "Tutor failed");
-    } finally {
-      setChatBusy(false);
-    }
+      if (!response.ok || !response.body) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || "The room tutor could not review this yet.");
+      }
+      const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = ""; let streamed = ""; let final: any = null; let nextConversationId = chatConversationId;
+      const consume = (raw: string) => {
+        let event = "message"; const rows: string[] = [];
+        for (const line of raw.split("\n")) { if (line.startsWith("event:")) event = line.slice(6).trim(); else if (line.startsWith("data:")) rows.push(line.slice(5).trim()); }
+        if (!rows.length) return;
+        let payload: any; try { payload = JSON.parse(rows.join("\n")); } catch { return; }
+        if (event === "meta") nextConversationId = payload.conversationId || nextConversationId;
+        else if (event === "status") setChatActivity(payload.text || "Your tutor is working…");
+        else if (event === "delta") { streamed += payload.text || ""; setChatMessages([...next, { role: "assistant", content: streamed.replace(/<thinking>[\s\S]*?(?:<\/thinking>|$)/gi, "") }]); }
+        else if (event === "done") final = payload;
+        else if (event === "error") throw new Error(payload.error || "The tutor could not answer.");
+      };
+      while (true) { const { done, value } = await reader.read(); if (done) break; buffer += decoder.decode(value, { stream: true }); let index = buffer.indexOf("\n\n"); while (index >= 0) { const raw = buffer.slice(0, index); buffer = buffer.slice(index + 2); if (raw.trim()) consume(raw); index = buffer.indexOf("\n\n"); } }
+      if (!final) throw new Error("The tutor stream ended before the review was saved.");
+      nextConversationId = final.conversationId || nextConversationId;
+      if (nextConversationId) { setChatConversationId(nextConversationId); window.localStorage.setItem(`studybuddy-room-chat.${activeTopicId}`, nextConversationId); }
+      setChatMessages([...next, { role: "assistant", content: final.reply || streamed || "I could not read enough detail to check this work. Try a clearer drawing or add a question." }]);
+    } catch (e: any) { setChatError(e?.message ?? "Tutor failed"); setChatMessages(next); }
+    finally { setChatBusy(false); setChatActivity(""); }
+  };
+
+  const workPoint = (event: React.PointerEvent<SVGSVGElement>) => {
+    const svg = event.currentTarget; const bounds = svg.getBoundingClientRect();
+    return { x: Math.max(0, Math.min(1000, (event.clientX - bounds.left) / bounds.width * 1000)), y: Math.max(0, Math.min(560, (event.clientY - bounds.top) / bounds.height * 560)) };
+  };
+  const beginWorkStroke = (event: React.PointerEvent<SVGSVGElement>) => {
+    event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId);
+    const point = workPoint(event); workStrokeRef.current = { tool: workTool, start: point, points: [point], color: workColor };
+    if (workTool === "pen") setWorkStrokes((strokes) => [...strokes, { d: `M${point.x.toFixed(1)} ${point.y.toFixed(1)}`, color: workColor, width: 4 }]);
+  };
+  const moveWorkStroke = (event: React.PointerEvent<SVGSVGElement>) => {
+    const current = workStrokeRef.current; if (!current) return;
+    current.points.push(workPoint(event));
+    if (current.tool === "pen") setWorkStrokes((strokes) => [...strokes.slice(0, -1), { d: current.points.map((point, index) => `${index ? "L" : "M"}${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(" "), color: current.color, width: 4 }]);
+  };
+  const saveWorkStrokes = async (strokes: WorkStroke[]) => {
+    setWorkSaving(true);
+    try { const response = await fetch(`/api/study-room/${activeTopicId}/workspace`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ strokes }) }); if (!response.ok) throw new Error("Could not save your drawing."); }
+    catch (error) { setChatError(error instanceof Error ? error.message : "Could not save your drawing."); }
+    finally { setWorkSaving(false); }
+  };
+  const endWorkStroke = (event: React.PointerEvent<SVGSVGElement>) => {
+    const current = workStrokeRef.current; if (!current) return; const end = workPoint(event); let d = "";
+    if (current.tool === "pen") d = current.points.map((point, index) => `${index ? "L" : "M"}${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(" ");
+    else if (current.tool === "line") d = `M${current.start.x} ${current.start.y} L${end.x} ${end.y}`;
+    else { const radius = Math.max(2, Math.hypot(end.x - current.start.x, end.y - current.start.y)); d = `M${current.start.x} ${current.start.y-radius} A${radius} ${radius} 0 1 0 ${current.start.x} ${current.start.y+radius} A${radius} ${radius} 0 1 0 ${current.start.x} ${current.start.y-radius}`; }
+    workStrokeRef.current = null;
+    const next = [...workStrokes.slice(0, current.tool === "pen" ? -1 : workStrokes.length), { d, color: current.color, width: 4 }].filter((stroke) => stroke.d);
+    setWorkStrokes(next); void saveWorkStrokes(next);
+  };
+  const clearWorkBoard = () => { setWorkStrokes([]); void saveWorkStrokes([]); };
+  const checkWorkBoard = async () => {
+    if (!workStrokes.length || workSaving) return;
+    setWorkSaving(true); setChatError(null);
+    try {
+      const paths = workStrokes.map((stroke) => `<path d="${stroke.d}" fill="none" stroke="${stroke.color}" stroke-width="${stroke.width}" stroke-linecap="round" stroke-linejoin="round"/>`).join("");
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="560" viewBox="0 0 1000 560"><rect width="1000" height="560" fill="#ffffff"/>${paths}</svg>`;
+      const response = await fetch(`/api/study-room/${activeTopicId}/drawing-image`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ svg }) });
+      const data = await response.json(); if (!response.ok || !data.image) throw new Error(data.error || "Could not prepare the drawing for the tutor.");
+      const checkResponse = await fetch(`/api/study-room/${activeTopicId}/workspace`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ event: "work_checked" }) });
+      if (!checkResponse.ok) throw new Error("The drawing was ready, but its room progress could not be saved.");
+      const checkData = await checkResponse.json(); setWorkChecks(Number(checkData.progress?.workChecks) || workChecks);
+      setTutorOpen(true);
+      await sendChat(`Check my work for ${topic?.name || "this lesson"}. Tell me what is correct, identify any error you can see, and show me what to do next.`, data.image);
+    } catch (error) { setChatError(error instanceof Error ? error.message : "The tutor could not review this drawing."); setTutorOpen(true); }
+    finally { setWorkSaving(false); }
   };
 
   // Generate practice cards on the fly when none exist
@@ -535,7 +634,7 @@ export function StudyRoom() {
   }
 
   return (
-    <div className="min-h-screen max-w-6xl mx-auto relative">
+    <div className="min-h-screen max-w-7xl mx-auto relative bg-slate-50/50">
       {/* Phase 15 — themed animated background */}
       <ThemedBackground theme={roomData?.room?.roomTheme ?? "cozy_library"} />
       {/* Phase 12b — Immersive cover banner */}
@@ -603,7 +702,7 @@ export function StudyRoom() {
         </div>
       </header>
 
-      <div className="px-4 py-4 md:grid md:grid-cols-2 md:gap-6 md:pb-32">
+      <div className="px-4 py-5 md:grid md:grid-cols-[minmax(0,1.2fr)_minmax(300px,0.8fr)] md:items-start md:gap-6 lg:gap-8 md:pb-32">
         {/* LEFT COLUMN — Lesson + Interactive tools */}
         <div className="space-y-4">
           {/* Lesson */}
@@ -737,6 +836,32 @@ export function StudyRoom() {
             )}
           </section>
 
+          <section className="rounded-2xl bg-white border border-gray-200 p-4 shadow-sm">
+            <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
+              <div>
+                <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5"><Pencil className="w-4 h-4 text-indigo-600" /> My work board</h2>
+                <p className="text-[11px] text-gray-500 mt-1">Try the question yourself. Your drawing saves in this room.</p>
+              </div>
+              <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-[10px] font-semibold text-indigo-700">{workChecks} checks sent</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 mb-2">
+              {(["pen", "line", "circle"] as const).map((tool) => <button key={tool} onClick={() => setWorkTool(tool)} className={`rounded-full px-3 py-1.5 text-[11px] font-semibold ${workTool === tool ? "bg-indigo-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-indigo-50"}`}>{tool === "pen" ? "Pen" : tool === "line" ? "Straight line" : "Circle"}</button>)}
+              {(["#30334a", "#6657e8", "#d85757", "#25856b", "#e39b31"] as const).map((color) => <button key={color} onClick={() => setWorkColor(color)} aria-label={`Choose ${color}`} className={`w-6 h-6 rounded-full border-2 ${workColor === color ? "border-indigo-400 scale-110" : "border-white shadow"}`} style={{ backgroundColor: color }} />)}
+              <button onClick={() => { const next = workStrokes.slice(0, -1); setWorkStrokes(next); void saveWorkStrokes(next); }} disabled={!workStrokes.length || workSaving} className="ml-auto rounded-full border border-gray-200 px-3 py-1.5 text-[11px] font-semibold text-gray-600 disabled:opacity-40">Undo</button>
+              <button onClick={clearWorkBoard} disabled={!workStrokes.length || workSaving} className="rounded-full border border-gray-200 px-3 py-1.5 text-[11px] font-semibold text-rose-600 disabled:opacity-40">Clear</button>
+            </div>
+            <svg ref={workSvgRef} viewBox="0 0 1000 560" preserveAspectRatio="none" className="w-full aspect-[16/9] max-h-[420px] rounded-xl border border-gray-200 bg-white touch-none select-none cursor-crosshair" onPointerDown={beginWorkStroke} onPointerMove={moveWorkStroke} onPointerUp={endWorkStroke} onPointerCancel={endWorkStroke}>
+              <rect width="1000" height="560" fill="white" />
+              <path d={Array.from({ length: 20 }, (_, i) => `M${i * 50} 0V560`).join(" ") + " " + Array.from({ length: 12 }, (_, i) => `M0 ${i * 50}H1000`).join(" ")} stroke="#edf0f6" strokeWidth="1" />
+              {workStrokes.map((stroke, index) => <path key={index} d={stroke.d} fill="none" stroke={stroke.color} strokeWidth={stroke.width} strokeLinecap="round" strokeLinejoin="round" />)}
+            </svg>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button onClick={checkWorkBoard} disabled={!workStrokes.length || workSaving} className="h-10 px-4 rounded-full bg-indigo-600 text-white text-xs font-semibold flex items-center gap-2 hover:bg-indigo-700 disabled:opacity-50">{workSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />} Check my work</button>
+              <button onClick={() => { setTutorOpen(true); void sendChat("I am stuck. Give me one small hint for the current lesson, then wait for me to try."); }} disabled={chatBusy} className="h-10 px-4 rounded-full bg-amber-50 text-amber-800 text-xs font-semibold flex items-center gap-2 hover:bg-amber-100"><Lightbulb className="w-4 h-4" /> I’m stuck</button>
+              <span className="self-center text-[10px] text-gray-500">{workSaving ? "Saving to this room…" : "Saved to this room"}</span>
+            </div>
+          </section>
+
           {/* Interactive tools (math only — graph inline) */}
           {isMath && (
             <section className="rounded-2xl bg-white border border-gray-200 p-4 shadow-sm">
@@ -784,14 +909,14 @@ export function StudyRoom() {
         </div>
 
         {/* RIGHT COLUMN — Practice + Tutor */}
-        <div className="mt-6 md:mt-0 space-y-4">
+        <div className="mt-6 md:mt-0 space-y-4 md:sticky md:top-24 md:max-h-[calc(100vh-7rem)] md:overflow-y-auto md:pb-4">
           {/* Phase 12b — AI Teacher quick card */}
           {roomData?.room && (
             <AITeacherCard
               room={roomData.room}
-              onAsk={() => setShowAITeacherChat(true)}
+              onAsk={() => setTutorOpen(true)}
               onStartReview={() => setShowDailyReview(true)}
-              onOpenChat={() => setShowAITeacherChat(true)}
+              onOpenChat={() => setTutorOpen(true)}
             />
           )}
 
@@ -1164,20 +1289,14 @@ export function StudyRoom() {
             )}
           </section>
 
-          {/* Tutor Chat — inline collapsible */}
-          <section className="rounded-2xl bg-white border border-gray-200 shadow-sm overflow-hidden">
-            <button
-              onClick={() => setTutorOpen((v) => !v)}
-              className="w-full p-4 flex items-center justify-between hover:bg-gray-50"
-            >
-              <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
-                <Bot className="w-4 h-4 text-rose-600" /> Topic Tutor
-              </h2>
-              <ChevronDown className={`w-4 h-4 text-gray-400 transition ${tutorOpen ? "rotate-180" : ""}`} />
-            </button>
-            {tutorOpen && (
-              <div className="border-t border-gray-100">
-                <div ref={chatScrollRef} className="max-h-72 overflow-y-auto p-3 space-y-2 bg-gray-50">
+          {tutorOpen && createPortal(
+              <section className="fixed bottom-4 right-4 z-50 w-[min(390px,calc(100vw-2rem))] h-[min(620px,78vh)] rounded-3xl bg-white border border-gray-200 shadow-2xl overflow-hidden flex flex-col">
+                <header className="shrink-0 px-4 py-3 border-b border-gray-100 flex items-center justify-between bg-white">
+                  <div className="flex items-center gap-2"><span className="w-9 h-9 rounded-full bg-indigo-600 text-white flex items-center justify-center"><Bot className="w-5 h-5" /></span><div><h2 className="text-sm font-semibold text-gray-900">Room tutor</h2><p className="text-[10px] text-gray-500">Here with your {topic?.name} lesson</p></div></div>
+                  <button onClick={() => setTutorOpen(false)} aria-label="Close tutor" className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-500"><X className="w-4 h-4" /></button>
+                </header>
+              <div className="min-h-0 flex-1 flex flex-col">
+                <div ref={chatScrollRef} className="min-h-0 flex-1 overflow-y-auto p-3 space-y-2 bg-gray-50">
                   {chatMessages.length === 0 && (
                     <p className="text-xs text-gray-500 text-center py-2">
                       Ask anything about {topic?.name} — the tutor already knows the topic context.
@@ -1190,6 +1309,7 @@ export function StudyRoom() {
                           ? "bg-indigo-600 text-white"
                           : "bg-white border border-gray-200 text-gray-900 shadow-sm"
                       }`}>
+                        {m.image && <img src={m.image} alt="Your drawing for tutor review" className="mb-2 max-h-40 w-full rounded-lg bg-white object-contain" />}
                         {m.content}
                       </div>
                     </div>
@@ -1197,7 +1317,7 @@ export function StudyRoom() {
                   {chatBusy && (
                     <div className="flex justify-start">
                       <div className="rounded-2xl px-3 py-2 bg-white border border-gray-200 shadow-sm">
-                        <Loader2 className="w-3 h-3 animate-spin text-indigo-600" />
+                        <span className="flex items-center gap-2 text-[11px] text-gray-600"><Loader2 className="w-3 h-3 animate-spin text-indigo-600" />{chatActivity || "Tutor is working…"}</span>
                       </div>
                     </div>
                   )}
@@ -1233,8 +1353,9 @@ export function StudyRoom() {
                   </button>
                 </form>
               </div>
-            )}
-          </section>
+              </section>,
+              document.body
+          )}
         </div>
       </div>
 
@@ -1244,7 +1365,7 @@ export function StudyRoom() {
           setActiveTopicId(null);
           setScreen("home");
         }}
-        className="md:hidden fixed bottom-4 right-4 z-20 w-12 h-12 rounded-full bg-white border border-gray-200 shadow-md flex items-center justify-center text-gray-700"
+        className="md:hidden fixed bottom-4 left-4 z-20 w-12 h-12 rounded-full bg-white border border-gray-200 shadow-md flex items-center justify-center text-gray-700"
         aria-label="Exit Study Room"
       >
         <X className="w-5 h-5" />
@@ -1273,17 +1394,10 @@ export function StudyRoom() {
         >
           <FileText className="w-5 h-5" />
         </button>
-        <button
-          onClick={() => setShowAITeacherChat(true)}
-          className="w-11 h-11 rounded-full bg-amber-500 text-white shadow-lg hover:bg-amber-600 flex items-center justify-center"
-          title="Ask AI Teacher"
-        >
-          <Bot className="w-5 h-5" />
-        </button>
       </div>
 
-      {/* Phase 12b — Mobile floating buttons (bottom-right, stacked) */}
-      <div className="md:hidden fixed bottom-20 right-4 z-20 flex flex-col gap-2">
+      {/* Room tools stay tucked to the left on phones; the tutor floats on the right. */}
+      <div className="md:hidden fixed bottom-20 left-4 z-20 flex flex-col gap-2">
         <button
           onClick={() => setShowFocusTimer(true)}
           className="w-10 h-10 rounded-full bg-indigo-600 text-white shadow-lg flex items-center justify-center"
@@ -1302,13 +1416,10 @@ export function StudyRoom() {
         >
           <FileText className="w-4 h-4" />
         </button>
-        <button
-          onClick={() => setShowAITeacherChat(true)}
-          className="w-10 h-10 rounded-full bg-amber-500 text-white shadow-lg flex items-center justify-center"
-        >
-          <Bot className="w-4 h-4" />
-        </button>
       </div>
+      <button onClick={() => setTutorOpen(true)} aria-label="Open room tutor" title="Ask your room tutor" className="fixed bottom-4 right-4 z-40 flex h-14 items-center gap-2 rounded-full bg-indigo-600 px-4 text-white shadow-xl hover:bg-indigo-700 focus:outline-none focus:ring-4 focus:ring-indigo-200">
+        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/15"><Bot className="h-5 w-5" /></span><span className="text-xs font-semibold">Room tutor</span>
+      </button>
 
       {/* Phase 12b — All modals */}
       {showFocusTimer && activeTopicId && (
@@ -1345,14 +1456,6 @@ export function StudyRoom() {
         <ReportCardModal
           open={showReport}
           onClose={() => setShowReport(false)}
-          topicId={activeTopicId}
-          room={roomData?.room}
-        />
-      )}
-      {showAITeacherChat && activeTopicId && (
-        <AITeacherChatModal
-          open={showAITeacherChat}
-          onClose={() => setShowAITeacherChat(false)}
           topicId={activeTopicId}
           room={roomData?.room}
         />
@@ -1421,7 +1524,7 @@ export function StudyRoom() {
         />
       )}
       {viewingMaterial && (
-        <div className="fixed inset-0 z-[90] flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4" onClick={() => setViewingMaterial(null)}>
+        <div className="fixed inset-0 z-30 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4" onClick={() => setViewingMaterial(null)}>
           <section className="w-full max-w-2xl max-h-[85vh] overflow-hidden rounded-t-3xl sm:rounded-3xl bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
             <header className="flex items-center justify-between border-b border-gray-100 px-5 py-4"><div><p className="text-[10px] uppercase tracking-wide text-indigo-600">Study source</p><h2 className="text-base font-bold text-gray-900">{viewingMaterial.title}</h2></div><button onClick={() => setViewingMaterial(null)} aria-label="Close source" className="rounded-full p-2 text-gray-500 hover:bg-gray-100"><X className="h-4 w-4" /></button></header>
             <div className="max-h-[65vh] overflow-y-auto whitespace-pre-wrap px-5 py-4 text-sm leading-6 text-gray-700">{viewingMaterial.text}</div>
