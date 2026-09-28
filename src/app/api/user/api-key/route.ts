@@ -30,8 +30,16 @@ export async function POST(req: NextRequest) {
   const user = await getCurrentUser();
   const body = await req.json().catch(() => ({}));
   const apiKey = (body.apiKey ?? "").toString().trim();
-  const baseUrl = (body.baseUrl ?? "https://api.openai.com/v1").toString().trim();
-  const model = (body.model ?? "gpt-4o-mini").toString().trim();
+
+  // Phase 78 — Auto-detect provider from key prefix.
+  let baseUrl = (body.baseUrl ?? "").toString().trim();
+  let model = (body.model ?? "").toString().trim();
+  if (!baseUrl) {
+    if (apiKey.startsWith("mstrl_")) { baseUrl = "https://api.mistral.ai/v1"; model = model || "mistral-small-latest"; }
+    else if (apiKey.startsWith("gsk_")) { baseUrl = "https://api.groq.com/openai/v1"; model = model || "llama-3.3-70b-versatile"; }
+    else if (apiKey.startsWith("sk-ant-")) { baseUrl = "https://api.anthropic.com/v1"; model = model || "claude-3-5-sonnet-20241022"; }
+    else { baseUrl = "https://api.openai.com/v1"; model = model || "gpt-4o-mini"; }
+  }
 
   if (!apiKey) {
     return NextResponse.json({ error: "Missing apiKey" }, { status: 400 });

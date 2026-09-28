@@ -174,7 +174,27 @@ export async function callAI(
   // 1) BYOK
   if (userApiKey && userApiKey.trim()) {
     try {
-      const content = await callBYOKAI(messages, userApiKey.trim(), {
+      // Phase 78 — Detect provider from API key prefix and route to correct endpoint.
+      // Mistral keys start with "mstrl_", OpenAI keys start with "sk-",
+      // Anthropic keys start with "sk-ant-". Groq keys start with "gsk_".
+      const key = userApiKey.trim();
+      let byokBaseUrl = "https://api.openai.com/v1";
+      let byokModel = "gpt-4o-mini";
+
+      if (key.startsWith("mstrl_")) {
+        byokBaseUrl = "https://api.mistral.ai/v1";
+        byokModel = "mistral-small-latest";
+      } else if (key.startsWith("gsk_")) {
+        byokBaseUrl = "https://api.groq.com/openai/v1";
+        byokModel = "llama-3.3-70b-versatile";
+      } else if (key.startsWith("sk-ant-")) {
+        byokBaseUrl = "https://api.anthropic.com/v1";
+        byokModel = "claude-3-5-sonnet-20241022";
+      }
+
+      const content = await callBYOKAI(messages, key, {
+        baseUrl: byokBaseUrl,
+        model: byokModel,
         userId,
         route,
         temperature: ctx?.temperature,
