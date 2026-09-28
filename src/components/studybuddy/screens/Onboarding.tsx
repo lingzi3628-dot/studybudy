@@ -24,6 +24,18 @@ import {
   Wrench,
   Sparkles,
   Bot,
+  Zap,
+  Flame,
+  Car,
+  UtensilsCrossed,
+  Shirt,
+  Building,
+  Smartphone,
+  Server,
+  Table,
+  Eye,
+  BarChart3,
+  Settings,
 } from "lucide-react";
 import { useApp } from "../store";
 import { api } from "../api";
@@ -79,7 +91,7 @@ type CurriculumGradeInfo = {
   subjectCount: number;
 };
 
-const subjects = [
+const K12_SUBJECTS = [
   { key: "Mathematics", label: "Mathematics", icon: Calculator },
   { key: "English", label: "English", icon: Type },
   { key: "Kiswahili", label: "Kiswahili", icon: MessageCircle },
@@ -90,6 +102,67 @@ const subjects = [
   { key: "Life Skills", label: "Life Skills", icon: Heart },
   { key: "Business", label: "Business", icon: Briefcase },
 ];
+
+const TVET_SUBJECTS = [
+  { key: "Electrical Installation", label: "Electrical Installation", icon: Zap },
+  { key: "Plumbing", label: "Plumbing", icon: Wrench },
+  { key: "Welding", label: "Welding & Fabrication", icon: Flame },
+  { key: "Automotive Mechanics", label: "Automotive Mechanics", icon: Car },
+  { key: "ICT Technician", label: "ICT Technician", icon: Code },
+  { key: "Hospitality & Food", label: "Hospitality & Food Service", icon: UtensilsCrossed },
+  { key: "Fashion & Design", label: "Fashion & Design", icon: Shirt },
+  { key: "Building & Construction", label: "Building & Construction", icon: Building },
+  { key: "Business Studies", label: "Business Studies", icon: Briefcase },
+];
+
+const DEV_SUBJECTS = [
+  { key: "Web Development", label: "Web Development", icon: Code },
+  { key: "Python", label: "Python", icon: Code },
+  { key: "JavaScript", label: "JavaScript", icon: Code },
+  { key: "Databases", label: "Databases & SQL", icon: Database },
+  { key: "Mobile Development", label: "Mobile Development", icon: Smartphone },
+  { key: "DevOps", label: "DevOps & Cloud", icon: Server },
+  { key: "API Design", label: "API Design", icon: Settings },
+];
+
+const DATA_SUBJECTS = [
+  { key: "Data Analysis", label: "Data Analysis", icon: BarChart3 },
+  { key: "Statistics", label: "Statistics", icon: Calculator },
+  { key: "Excel", label: "Excel & Spreadsheets", icon: Table },
+  { key: "Python", label: "Python for Data", icon: Code },
+  { key: "SQL", label: "SQL & Databases", icon: Database },
+  { key: "Visualization", label: "Data Visualization", icon: BarChart3 },
+];
+
+const ML_SUBJECTS = [
+  { key: "Machine Learning", label: "Machine Learning", icon: Brain },
+  { key: "Deep Learning", label: "Deep Learning", icon: Brain },
+  { key: "NLP", label: "Natural Language Processing", icon: MessageCircle },
+  { key: "Computer Vision", label: "Computer Vision", icon: Eye },
+  { key: "Python", label: "Python for ML", icon: Code },
+  { key: "Statistics", label: "Statistics & Math", icon: Calculator },
+];
+
+const AIAPP_SUBJECTS = [
+  { key: "Prompt Engineering", label: "Prompt Engineering", icon: Sparkles },
+  { key: "RAG", label: "RAG & Knowledge Bases", icon: Database },
+  { key: "AI Agents", label: "AI Agents", icon: Bot },
+  { key: "LLM Apps", label: "LLM Applications", icon: Code },
+  { key: "MCP", label: "Model Context Protocol", icon: Zap },
+];
+
+const TRACK_SUBJECTS: Record<string, Array<{ key: string; label: string; icon: any }>> = {
+  k12: K12_SUBJECTS,
+  tvet: TVET_SUBJECTS,
+  dev: DEV_SUBJECTS,
+  data: DATA_SUBJECTS,
+  ml: ML_SUBJECTS,
+  aiapp: AIAPP_SUBJECTS,
+  server: DEV_SUBJECTS,
+  backend: DEV_SUBJECTS,
+  web: DEV_SUBJECTS,
+  mixed: [...K12_SUBJECTS, ...DEV_SUBJECTS],
+};
 
 const goals = [
   "Pass my exams with good grades",
@@ -459,7 +532,7 @@ export function Onboarding() {
             <h1 className="text-2xl font-bold text-gray-900 mt-4">Which subjects do you want to learn?</h1>
             <p className="text-sm text-gray-500 mt-1">Select all that apply.</p>
             <div className="mt-6 grid grid-cols-2 gap-3">
-              {subjects.map((s) => {
+              {(TRACK_SUBJECTS[track ?? "k12"] ?? K12_SUBJECTS).map((s) => {
                 const Icon = s.icon;
                 const selected = pickedSubjects.includes(s.key);
                 return (

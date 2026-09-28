@@ -169,6 +169,7 @@ export async function GET() {
       plan: user.plan,
       role: user.role,
       grade: user.grade,
+      track: user.track,  // Phase 78 — return track so client can sync routing
       subjects: user.subjects,
       ambitions: user.ambitions,
       learningLanguage: user.learningLanguage,
