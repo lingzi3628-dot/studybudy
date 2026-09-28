@@ -19,6 +19,7 @@ import { buildTeachingProfile } from "@/lib/aware-engine";
 import { buildCurriculumContextResolved } from "@/lib/curriculum-engine";
 import { runProofEngine } from "@/lib/proof-engine";
 import { validateAndCorrectGraphSpec } from "@/lib/graph-validator";
+import { compileExpression } from "@/lib/safe-math";
 import { getBuddy } from "@/lib/buddies/registry";
 import type { Buddy } from "@/lib/buddies/types";
 
@@ -71,7 +72,8 @@ export function detectIntents(userMessage: string): TutorIntents {
   const wantsImage = /\bimage\b|\bpicture\b|\bphoto\b|\billustration\b/i.test(userMessage) &&
                      !/draw.*(graph|chart|plot|curve|function|polygon|triangle|circle)/i.test(userMessage) &&
                      !/\bdiagram\b.*\bof\b.*\bvenn\b/i.test(userMessage);
-  const wantsFunctionPlot = /\b(y\s*=|f\(x\)|graph (?:of )?(?:y|x|sin|cos|tan|x²|x\^))\b|draw\s+(?:y\s*=|f\(x\))/i.test(userMessage) &&
+  const wantsSimpleFunctionGraph = /\b(?:simple|basic)\s+(?:coordinate\s+)?graph\b/i.test(userMessage);
+  const wantsFunctionPlot = (/\b(y\s*=|f\(x\)|graph (?:of )?(?:y|x|sin|cos|tan|x²|x\^))\b|draw\s+(?:y\s*=|f\(x\))/i.test(userMessage) || wantsSimpleFunctionGraph) &&
                             !/\b(scatter|bar|pie|histogram|box|venn|tree|number line|vector)\b/i.test(userMessage);
   const wantsScatter = /\b(scatter|data points?|plot (?:the|these|all) (?:data )?points?|line of best fit|velocity.*(vs|versus).*time|distance.*(vs|versus).*time|time series)\b/i.test(userMessage) ||
                        /\(\s*\d+\s*,\s*\d+\s*\)/.test(userMessage);
@@ -261,6 +263,7 @@ CRITICAL RULES FOR THE mathgraph BLOCK:
   * Statistics (test scores, frequencies) → bar, histogram, or boxplot
   * Percentages of a whole → pie
   * Math equations (y=x^2) → function
+  * A simple/basic graph with no equation or data → function y=x^2, xRange [-5,5], yRange [-1,25]; tell the learner it is an example.
   * Probability outcomes → tree
   * Sets/unions → venn
   * Inequalities → numberline
@@ -569,6 +572,25 @@ export async function parseGraphAttachments(opts: {
         continue;
       }
       const correctedSpec = validation.correctedSpec;
+
+      // Native clients do not evaluate model-supplied math expressions. Send
+      // safe, bounded samples so every client can render the same real curve.
+      if (correctedSpec.type === "function" && typeof correctedSpec.expr === "string") {
+        const evaluator = compileExpression(correctedSpec.expr, "x");
+        const xRange = Array.isArray(correctedSpec.xRange) ? correctedSpec.xRange : [-5, 5];
+        const yRange = Array.isArray(correctedSpec.yRange) ? correctedSpec.yRange : [-25, 25];
+        if (evaluator && xRange.length === 2 && yRange.length === 2) {
+          const xMin = Number(xRange[0]); const xMax = Number(xRange[1]);
+          const yMin = Number(yRange[0]); const yMax = Number(yRange[1]);
+          if ([xMin, xMax, yMin, yMax].every(Number.isFinite) && xMax > xMin && yMax > yMin) {
+            correctedSpec.samplePoints = Array.from({ length: 121 }, (_, index) => {
+              const x = xMin + ((xMax - xMin) * index) / 120;
+              const y = evaluator({ x });
+              return y !== null && y >= yMin && y <= yMax ? [x, y] : null;
+            });
+          }
+        }
+      }
 
       let attachmentType = "graph";
       if (correctedSpec.type === "network") {

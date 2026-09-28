@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Linking, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as SecureStore from 'expo-secure-store';
-import Svg, { Circle, Ellipse, Line, Polygon, Rect, Text as SvgText } from 'react-native-svg';
+import Svg, { Circle, Ellipse, Line, Path, Polygon, Rect, Text as SvgText } from 'react-native-svg';
 
 const ink = '#17182B';
 const purple = '#6657E8';
@@ -145,13 +145,62 @@ function TutorVisual({ attachment }: { attachment: any }) {
   if (!spec || typeof spec !== 'object') return <View style={st.tutorAttachment}><Ionicons name="extension-puzzle-outline" size={17} color={purple}/><Text style={st.attemptTitle}>{attachment.caption || 'Study resource'}</Text></View>;
   const title = String(spec.title || (attachment.type === 'conceptmap' ? 'Concept map' : 'Visual explanation'));
   if (spec.type === 'scene' && Array.isArray(spec.elements)) return <TutorScene spec={spec} title={title}/>;
+  if (spec.type === 'function' && Array.isArray(spec.samplePoints)) return <TutorPlot spec={spec} title={title} kind="function"/>;
+  if (spec.type === 'scatter' && Array.isArray(spec.points)) return <TutorPlot spec={spec} title={title} kind="scatter"/>;
   if (spec.type === 'bar' && Array.isArray(spec.values)) {
     const values = spec.values.slice(0, 8).map((v: any) => Math.max(0, Number(v) || 0)); const max = Math.max(...values, 1);
     return <View style={st.visualCard}><Text style={st.visualTitle}>{title}</Text><View style={st.visualBars}>{values.map((value: number, i: number) => <View key={i} style={st.visualBarCol}><Text style={st.visualValue}>{value}</Text><View style={[st.visualBar, { height: Math.max(8, 82 * value / max), backgroundColor: ['#6657E8','#45A88C','#E7A937','#E87555'][i % 4] }]}/><Text numberOfLines={1} style={st.visualLabel}>{String(spec.categories?.[i] ?? i + 1)}</Text></View>)}</View>{spec.xLabel ? <Text style={st.visualCaption}>{spec.xLabel}{spec.yLabel ? ` · ${spec.yLabel}` : ''}</Text> : null}</View>;
   }
   if (Array.isArray(spec.nodes)) return <View style={st.visualCard}><Text style={st.visualTitle}>{title}</Text><View style={st.visualNodes}>{spec.nodes.slice(0, 9).map((node: any, i: number) => <View key={node.id || i} style={[st.visualNode, i === 0 && st.visualNodeRoot]}><Text style={[st.visualNodeText, i === 0 && st.visualNodeRootText]}>{String(node.label || `Concept ${i + 1}`)}</Text></View>)}</View><Text style={st.visualCaption}>Connected concepts · {spec.nodes.length} ideas</Text></View>;
-  if (Array.isArray(spec.points)) return <View style={st.visualCard}><Text style={st.visualTitle}>{title}</Text><View style={st.visualPlot}>{spec.points.slice(0, 16).map((point: any, i: number) => { const x = Array.isArray(point) ? Number(point[0]) : Number(point.x); const y = Array.isArray(point) ? Number(point[1]) : Number(point.y); const xs = spec.points.map((p: any) => Number(Array.isArray(p) ? p[0] : p.x) || 0); const ys = spec.points.map((p: any) => Number(Array.isArray(p) ? p[1] : p.y) || 0); const px = (x - Math.min(...xs)) / (Math.max(...xs) - Math.min(...xs) || 1); const py = (y - Math.min(...ys)) / (Math.max(...ys) - Math.min(...ys) || 1); return <View key={i} style={[st.visualDot, { left: `${8 + px * 82}%`, bottom: `${8 + py * 75}%` }]} />; })}</View><Text style={st.visualCaption}>{spec.xLabel || 'x'} · {spec.yLabel || 'y'}</Text></View>;
+  if (Array.isArray(spec.points)) return <TutorPlot spec={spec} title={title} kind="scatter"/>;
   return <View style={st.visualCard}><Text style={st.visualTitle}>{title}</Text><Text style={st.visualCaption}>Interactive visual: {String(spec.type || 'diagram')} · {Object.keys(spec).length} mapped properties</Text></View>;
+}
+
+function TutorPlot({ spec, title, kind }: { spec: any; title: string; kind: 'function' | 'scatter' }) {
+  const toPoint = (point: any): [number, number] | null => {
+    const px = Array.isArray(point) ? Number(point[0]) : Number(point?.x);
+    const py = Array.isArray(point) ? Number(point[1]) : Number(point?.y);
+    return Number.isFinite(px) && Number.isFinite(py) ? [px, py] : null;
+  };
+  const raw = kind === 'function' ? spec.samplePoints : spec.points;
+  const points = (Array.isArray(raw) ? raw : []).map(toPoint).filter((point: [number, number] | null): point is [number, number] => point !== null);
+  if (!points.length) return <View style={st.visualCard}><Text style={st.visualTitle}>{title}</Text><Text style={st.visualCaption}>No valid graph points were returned. Try asking for a specific equation or data values.</Text></View>;
+
+  const range = (value: any, values: number[]): [number, number] => {
+    if (Array.isArray(value) && value.length === 2 && Number.isFinite(Number(value[0])) && Number.isFinite(Number(value[1])) && Number(value[0]) < Number(value[1])) return [Number(value[0]), Number(value[1])];
+    const low = Math.min(...values); const high = Math.max(...values); const span = high - low || Math.max(Math.abs(low), 1);
+    const pad = kind === 'function' ? 0 : span * 0.12;
+    return [low - pad, high + pad];
+  };
+  const xRange = range(spec.xRange, points.map((point) => point[0]));
+  const yRange = range(spec.yRange, points.map((point) => point[1]));
+  const width = 480; const height = 300; const padLeft = 48; const padRight = 14; const padTop = 15; const padBottom = 38;
+  const plotWidth = width - padLeft - padRight; const plotHeight = height - padTop - padBottom;
+  const px = (value: number) => padLeft + ((value - xRange[0]) / (xRange[1] - xRange[0])) * plotWidth;
+  const py = (value: number) => padTop + ((yRange[1] - value) / (yRange[1] - yRange[0])) * plotHeight;
+  const axisY = yRange[0] <= 0 && yRange[1] >= 0 ? py(0) : padTop + plotHeight;
+  const axisX = xRange[0] <= 0 && xRange[1] >= 0 ? px(0) : padLeft;
+  let curve = ''; let connected = false;
+  if (kind === 'function') {
+    for (const sample of raw as any[]) {
+      const point = toPoint(sample);
+      if (!point) { connected = false; continue; }
+      curve += `${connected ? 'L' : 'M'}${px(point[0]).toFixed(1)},${py(point[1]).toFixed(1)} `;
+      connected = true;
+    }
+  }
+  const ticks = Array.from({ length: 6 }, (_, index) => index / 5);
+  return <View style={st.visualCard}><Text style={st.visualTitle}>{title}</Text><Svg width="100%" height={230} viewBox={`0 0 ${width} ${height}`} accessibilityLabel={title}>
+    <Rect x={0} y={0} width={width} height={height} fill="#ffffff"/>
+    {ticks.map((fraction, index) => {
+      const gx = padLeft + fraction * plotWidth; const gy = padTop + fraction * plotHeight;
+      const xv = xRange[0] + fraction * (xRange[1] - xRange[0]); const yv = yRange[1] - fraction * (yRange[1] - yRange[0]);
+      return <React.Fragment key={`tick-${index}`}><Line x1={gx} y1={padTop} x2={gx} y2={padTop + plotHeight} stroke="#E7E8EF" strokeWidth={1}/><Line x1={padLeft} y1={gy} x2={padLeft + plotWidth} y2={gy} stroke="#E7E8EF" strokeWidth={1}/><SvgText x={gx} y={padTop + plotHeight + 15} fill="#687083" fontSize={9} textAnchor="middle">{xv.toFixed(1)}</SvgText><SvgText x={padLeft - 6} y={gy + 3} fill="#687083" fontSize={9} textAnchor="end">{yv.toFixed(1)}</SvgText></React.Fragment>;
+    })}
+    <Line x1={padLeft} y1={axisY} x2={padLeft + plotWidth} y2={axisY} stroke="#374151" strokeWidth={1.5}/><Line x1={axisX} y1={padTop} x2={axisX} y2={padTop + plotHeight} stroke="#374151" strokeWidth={1.5}/>
+    {kind === 'function' ? <Path d={curve} fill="none" stroke="#4F46E5" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round"/> : points.slice(0, 100).map((point, index) => <Circle key={`point-${index}`} cx={px(point[0])} cy={py(point[1])} r={4} fill="#4F46E5" stroke="#ffffff" strokeWidth={1.5}/>)}
+    <SvgText x={padLeft + plotWidth / 2} y={height - 4} fill="#374151" fontSize={10} textAnchor="middle">{String(spec.xLabel || 'x').slice(0, 36)}</SvgText><SvgText x={14} y={padTop + plotHeight / 2} fill="#374151" fontSize={10} textAnchor="middle">{String(spec.yLabel || 'y').slice(0, 36)}</SvgText>
+  </Svg><Text style={st.visualCaption}>{kind === 'function' ? `y = ${spec.expr}` : `${points.length} plotted points`}</Text></View>;
 }
 
 function TutorScene({ spec, title }: { spec: any; title: string }) {
