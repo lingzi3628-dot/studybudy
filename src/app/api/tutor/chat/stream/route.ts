@@ -245,14 +245,21 @@ export async function POST(req: NextRequest) {
             if (!reply) throw new Error("Vision AI returned empty response");
             send("delta", { text: reply });
           } else if (usePlatformStream) {
-            // True token streaming via the GLM platform path
+            // True token streaming via the GLM platform path (free users only)
             for await (const delta of streamPlatformAI(aiMessages, { userId: user.id, route: "/api/tutor/chat/stream" })) {
               reply += delta;
               send("delta", { text: delta });
             }
           } else {
-            // Custom-model path — full resolution (with meaningful errors), single delta
-            reply = await callAI(aiMessages, null, { userId: user.id, route: "/api/tutor/chat/stream" });
+            // Custom-model path — full resolution via callAI (uses model-mapping
+            // to find the connected provider: OpenRouter, Mistral, etc.)
+            try {
+              reply = await callAI(aiMessages, null, { userId: user.id, route: "/api/tutor/chat/stream" });
+            } catch (modelErr: any) {
+              // If the custom model failed, stream the error message as the reply
+              // so the user sees what went wrong (not connected, rate-limited, etc.)
+              reply = modelErr?.message ?? "Failed to get a response. Please try again.";
+            }
             send("delta", { text: reply });
           }
 
