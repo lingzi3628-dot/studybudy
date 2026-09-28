@@ -267,12 +267,27 @@ export async function callAI(
                 if (e?.message?.includes("not connected") || e?.message?.includes("empty response")) {
                   throw e;
                 }
-                // Phase 78 — If the provider was rate-limited (429), DON'T throw.
-                // Fall through to the platform fallback (GLM) so the user still
-                // gets a response. Only throw for real errors (auth, network, etc.)
+                // Phase 78 — If the provider was rate-limited (429), retry once
+                // after a short delay. Rate limits are temporary — don't give up.
                 if (e?.message && /rate.limit|429|too many requests|rate_limited/i.test(e.message)) {
-                  console.warn(`[callAI] ${mapping.displayName} rate-limited, falling through to platform AI:`, e?.message);
-                  // Don't throw — fall through to admin providers + platform fallback
+                  console.warn(`[callAI] ${mapping.displayName} rate-limited, retrying in 2s…`);
+                  await new Promise((r) => setTimeout(r, 2000));
+                  try {
+                    const { callProvider } = await import("./ai-providers");
+                    const retryResult = await callProvider(provider as any, messages, {
+                      userId,
+                      route,
+                    });
+                    if (retryResult.content) {
+                      return retryResult.content;
+                    }
+                  } catch (retryErr: any) {
+                    // Still rate-limited after retry — throw with helpful message
+                    throw new Error(
+                      `${mapping.displayName} ${mapping.emoji} → ${provider.name} is rate-limited. ` +
+                      `Wait a minute and try again, or connect a different API key.`
+                    );
+                  }
                 } else {
                   // Provider call failed (network, auth, etc.) — don't silently fall through
                   console.warn("Model-specific provider failed:", e?.message);
