@@ -79,7 +79,7 @@ const COLLAPSE_KEYS = ["intro", "concepts", "examples", "formulas", "summary"] a
 type CollapseKey = (typeof COLLAPSE_KEYS)[number];
 
 export function StudyRoom() {
-  const { activeTopicId, setScreen, setActiveTopicId, setActiveConceptMapId } = useApp();
+  const { activeTopicId, setScreen, setActiveTopicId, setActiveConceptMapId, openCreate } = useApp();
 
   const [topicData, setTopicData] = useState<TopicDetail | null>(null);
   const [lesson, setLesson] = useState<Lesson | null>(null);
@@ -134,6 +134,7 @@ export function StudyRoom() {
   const [showShop, setShowShop] = useState(false);
   const [showSoundMixer, setShowSoundMixer] = useState(false);
   const [coinBalance, setCoinBalance] = useState(0);
+  const [viewingMaterial, setViewingMaterial] = useState<{ title: string; text: string } | null>(null);
   const celebration = useCelebration();
   // Phase 16 — intake flow
   const [showIntake, setShowIntake] = useState(false);
@@ -202,11 +203,15 @@ export function StudyRoom() {
   };
 
   const openResource = (resource: any) => {
-    // Open resource based on type — for now just navigate to flashcards
-    if (resource._count?.cards !== undefined) {
+    if ((resource._count?.cards ?? 0) > 0) {
       (useApp.getState() as any).setActiveStudySetId(resource.id);
       setScreen("flashcards");
+      return;
     }
+    fetch(`/api/study-sets/${resource.id}`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (d?.studySet) setViewingMaterial({ title: d.studySet.title, text: d.studySet.sourceText ?? "No extracted source text is available." }); })
+      .catch(() => {});
   };
   const [chatMessages, setChatMessages] = useState<ChatMsg[]>([]);
   const [chatInput, setChatInput] = useState("");
@@ -563,13 +568,21 @@ export function StudyRoom() {
             <p className="text-[11px] uppercase tracking-wide text-gray-500 truncate">{topic?.subject}</p>
             <h1 className="text-base font-bold text-gray-900 truncate">{topic?.name}</h1>
           </div>
-          <button
-            onClick={() => setFavorite((f) => !f)}
-            aria-label="Favorite"
-            className={`w-9 h-9 rounded-full hover:bg-gray-100 flex items-center justify-center ${favorite ? "text-rose-500" : "text-gray-400"}`}
-          >
-            <Heart className={`w-5 h-5 ${favorite ? "fill-rose-500" : ""}`} />
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={() => openCreate("room")} className="h-9 px-3 rounded-full bg-indigo-50 text-indigo-700 hover:bg-indigo-100 text-xs font-semibold flex items-center gap-1.5">
+              <Plus className="w-4 h-4" /> <span className="hidden sm:inline">Add material</span>
+            </button>
+            <button onClick={() => setScreen("classroom")} className="h-9 px-3 rounded-full bg-indigo-600 text-white hover:bg-indigo-700 text-xs font-semibold flex items-center gap-1.5">
+              <BookOpen className="w-4 h-4" /> <span className="hidden sm:inline">Start lesson</span>
+            </button>
+            <button
+              onClick={() => setFavorite((f) => !f)}
+              aria-label="Favorite"
+              className={`w-9 h-9 rounded-full hover:bg-gray-100 flex items-center justify-center ${favorite ? "text-rose-500" : "text-gray-400"}`}
+            >
+              <Heart className={`w-5 h-5 ${favorite ? "fill-rose-500" : ""}`} />
+            </button>
+          </div>
         </div>
         {/* mastery bar */}
         <div className="px-4 pb-2">
@@ -838,16 +851,28 @@ export function StudyRoom() {
             />
           )}
 
-          {/* Phase 12b — Bookshelf of study sets */}
-          {roomData?.resources?.studySets?.length > 0 && (
-            <Bookshelf
-              title="Your Study Sets"
-              resources={roomData.resources.studySets}
-              onOpen={openResource}
-              emptyText="No study sets yet"
-              icon={Layers}
-            />
-          )}
+          {/* Source materials now live in the room and ground generated lessons. */}
+          <section className="rounded-2xl bg-white border border-gray-200 p-4 shadow-sm">
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <div>
+                <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5"><Layers className="w-4 h-4 text-indigo-600" /> Study materials</h2>
+                <p className="mt-1 text-xs text-gray-500">Add notes, PDFs, or Word documents. Lessons and check-in questions use these sources.</p>
+              </div>
+              <button onClick={() => openCreate("room")} className="shrink-0 px-3 py-2 rounded-full bg-indigo-50 text-indigo-700 text-xs font-semibold hover:bg-indigo-100">+ Add</button>
+            </div>
+            {roomData?.resources?.studySets?.length ? (
+              <div className="space-y-2">
+                {roomData.resources.studySets.map((resource: any) => (
+                  <button key={resource.id} onClick={() => openResource(resource)} className="w-full flex items-center gap-3 rounded-xl border border-gray-100 bg-gray-50 p-3 text-left hover:bg-indigo-50/60">
+                    <span className="w-9 h-9 rounded-xl bg-white text-indigo-600 flex items-center justify-center"><FileText className="w-4 h-4" /></span>
+                    <span className="min-w-0 flex-1"><span className="block truncate text-xs font-semibold text-gray-900">{resource.title}</span><span className="block text-[10px] text-gray-500">{resource.sourceType?.toUpperCase() || "NOTES"} · {resource._count?.cards ?? 0} practice items</span></span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <button onClick={() => openCreate("room")} className="w-full rounded-xl border border-dashed border-indigo-200 bg-indigo-50/50 p-4 text-center text-xs font-semibold text-indigo-700">Add the first source material to this room</button>
+            )}
+          </section>
 
           {/* Phase 12b — Bookshelf of concept maps */}
           {roomData?.resources?.conceptMaps?.length > 0 && (
@@ -1394,6 +1419,14 @@ export function StudyRoom() {
             }
           }}
         />
+      )}
+      {viewingMaterial && (
+        <div className="fixed inset-0 z-[90] flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4" onClick={() => setViewingMaterial(null)}>
+          <section className="w-full max-w-2xl max-h-[85vh] overflow-hidden rounded-t-3xl sm:rounded-3xl bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <header className="flex items-center justify-between border-b border-gray-100 px-5 py-4"><div><p className="text-[10px] uppercase tracking-wide text-indigo-600">Study source</p><h2 className="text-base font-bold text-gray-900">{viewingMaterial.title}</h2></div><button onClick={() => setViewingMaterial(null)} aria-label="Close source" className="rounded-full p-2 text-gray-500 hover:bg-gray-100"><X className="h-4 w-4" /></button></header>
+            <div className="max-h-[65vh] overflow-y-auto whitespace-pre-wrap px-5 py-4 text-sm leading-6 text-gray-700">{viewingMaterial.text}</div>
+          </section>
+        </div>
       )}
     </div>
   );

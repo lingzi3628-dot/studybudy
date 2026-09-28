@@ -19,7 +19,6 @@ import { buildTeachingProfile } from "@/lib/aware-engine";
 import { buildCurriculumContextResolved } from "@/lib/curriculum-engine";
 import { runProofEngine } from "@/lib/proof-engine";
 import { validateAndCorrectGraphSpec } from "@/lib/graph-validator";
-import { compileExpression } from "@/lib/safe-math";
 import { getBuddy } from "@/lib/buddies/registry";
 import type { Buddy } from "@/lib/buddies/types";
 
@@ -72,8 +71,7 @@ export function detectIntents(userMessage: string): TutorIntents {
   const wantsImage = /\bimage\b|\bpicture\b|\bphoto\b|\billustration\b/i.test(userMessage) &&
                      !/draw.*(graph|chart|plot|curve|function|polygon|triangle|circle)/i.test(userMessage) &&
                      !/\bdiagram\b.*\bof\b.*\bvenn\b/i.test(userMessage);
-  const wantsSimpleFunctionGraph = /\b(?:simple|basic)\s+(?:coordinate\s+)?graph\b/i.test(userMessage);
-  const wantsFunctionPlot = (/\b(y\s*=|f\(x\)|graph (?:of )?(?:y|x|sin|cos|tan|x²|x\^))\b|draw\s+(?:y\s*=|f\(x\))/i.test(userMessage) || wantsSimpleFunctionGraph) &&
+  const wantsFunctionPlot = /\b(y\s*=|f\(x\)|graph (?:of )?(?:y|x|sin|cos|tan|x²|x\^))\b|draw\s+(?:y\s*=|f\(x\))/i.test(userMessage) &&
                             !/\b(scatter|bar|pie|histogram|box|venn|tree|number line|vector)\b/i.test(userMessage);
   const wantsScatter = /\b(scatter|data points?|plot (?:the|these|all) (?:data )?points?|line of best fit|velocity.*(vs|versus).*time|distance.*(vs|versus).*time|time series)\b/i.test(userMessage) ||
                        /\(\s*\d+\s*,\s*\d+\s*\)/.test(userMessage);
@@ -140,8 +138,9 @@ export async function runWebSearch(opts: {
   userMessage: string;
   intents: TutorIntents;
   dataSaver: boolean;
+  onStatus?: (status: { phase: "start" | "done"; tool: "web_search" | "image_search"; success?: boolean }) => void;
 }): Promise<{ searchContext: string; searchAttachments: TutorAttachment[] }> {
-  const { userMessage, intents, dataSaver } = opts;
+  const { userMessage, intents, dataSaver, onStatus } = opts;
   let searchContext = "";
   const searchAttachments: TutorAttachment[] = [];
 
@@ -158,6 +157,7 @@ export async function runWebSearch(opts: {
         ? `${userMessage.replace(/video|clip|watch|send me|show me/gi, "").trim()} site:youtube.com`
         : userMessage;
 
+      onStatus?.({ phase: "start", tool: "web_search" });
       const searchResult: any = await client.functions.invoke("web_search", {
         query: searchQuery,
         num: intents.wantsVideo ? 5 : 6,
@@ -167,6 +167,7 @@ export async function runWebSearch(opts: {
       const results: any[] = Array.isArray(searchResult)
         ? searchResult
         : (searchResult?.results ?? searchResult?.data ?? []);
+      onStatus?.({ phase: "done", tool: "web_search", success: results.length > 0 });
 
       if (results.length > 0) {
         const resultLines = results.slice(0, 6).map((r: any) =>
@@ -207,6 +208,7 @@ export async function runWebSearch(opts: {
         // Find images via image-search SDK
         if (intents.wantsImage && !dataSaver) {
           try {
+            onStatus?.({ phase: "start", tool: "image_search" });
             const imageSearchRes: any = await client.images.search.create({
               query: userMessage.replace(/image|picture|photo|diagram|show me|send me/gi, "").trim(),
               count: 3,
@@ -222,12 +224,15 @@ export async function runWebSearch(opts: {
                 });
               }
             }
+            onStatus?.({ phase: "done", tool: "image_search", success: imageResults.length > 0 });
           } catch (imgErr: any) {
+            onStatus?.({ phase: "done", tool: "image_search", success: false });
             console.error("[tutor-engine] image search failed:", imgErr?.message);
           }
         }
       }
     } catch (e: any) {
+      onStatus?.({ phase: "done", tool: "web_search", success: false });
       console.error("[tutor-engine] web search failed:", e?.message);
     }
   }
@@ -263,7 +268,6 @@ CRITICAL RULES FOR THE mathgraph BLOCK:
   * Statistics (test scores, frequencies) → bar, histogram, or boxplot
   * Percentages of a whole → pie
   * Math equations (y=x^2) → function
-  * A simple/basic graph with no equation or data → function y=x^2, xRange [-5,5], yRange [-1,25]; tell the learner it is an example.
   * Probability outcomes → tree
   * Sets/unions → venn
   * Inequalities → numberline
@@ -311,10 +315,6 @@ CRITICAL RULES — NO MARKDOWN TABLES WHEN A GRAPH IS REQUESTED:
 - Use markdown: **bold**, *italic*, lists, [link](url), \`code\`, fenced code blocks.
 - For MATH EQUATIONS, use LaTeX syntax: inline math $y = mx + b$ or block math $$\\frac{a}{b} = c$$. The frontend renders these with KaTeX.
 
-REAL-TIME THINKING:
-Before answering, include your reasoning process inside <thinking>...</thinking> tags at the START of your reply.
-Write your thinking as short, step-by-step notes (one per line) showing how you plan to answer.
-
 EXAM GENERATION MODE:
 When the user asks to "test me", "generate an exam", "create a test", "give me questions", "exam me on", or similar, include a fenced code block tagged "examgen" with JSON:
 \`\`\`examgen
@@ -338,10 +338,11 @@ export async function buildTutorSystemPrompt(opts: {
   imageDataUrl: string | null;
   searchContext: string;
   toolResults?: string;
+  studyContext?: string;
   learningMode?: TutorLearningMode;
 }): Promise<{ systemContent: string; teachingProfile: ReturnType<typeof buildTeachingProfile>; curriculumContext: string }> {
-  const { user, buddy, buddyId, userMessage, dataSaver, imageDataUrl, searchContext, toolResults = "", learningMode = "standard" } = opts;
-  const completeContext = [searchContext, toolResults].filter(Boolean).join("\n\n");
+  const { user, buddy, buddyId, userMessage, dataSaver, imageDataUrl, searchContext, toolResults = "", studyContext = "", learningMode = "standard" } = opts;
+  const completeContext = [searchContext, toolResults, studyContext].filter(Boolean).join("\n\n");
 
   const teachingProfile = buildTeachingProfile(user.grade ?? "Form 1");
   const curriculumContext = buildCurriculumContextResolved(user.grade ?? "Form 1");
@@ -572,25 +573,6 @@ export async function parseGraphAttachments(opts: {
         continue;
       }
       const correctedSpec = validation.correctedSpec;
-
-      // Native clients do not evaluate model-supplied math expressions. Send
-      // safe, bounded samples so every client can render the same real curve.
-      if (correctedSpec.type === "function" && typeof correctedSpec.expr === "string") {
-        const evaluator = compileExpression(correctedSpec.expr, "x");
-        const xRange = Array.isArray(correctedSpec.xRange) ? correctedSpec.xRange : [-5, 5];
-        const yRange = Array.isArray(correctedSpec.yRange) ? correctedSpec.yRange : [-25, 25];
-        if (evaluator && xRange.length === 2 && yRange.length === 2) {
-          const xMin = Number(xRange[0]); const xMax = Number(xRange[1]);
-          const yMin = Number(yRange[0]); const yMax = Number(yRange[1]);
-          if ([xMin, xMax, yMin, yMax].every(Number.isFinite) && xMax > xMin && yMax > yMin) {
-            correctedSpec.samplePoints = Array.from({ length: 121 }, (_, index) => {
-              const x = xMin + ((xMax - xMin) * index) / 120;
-              const y = evaluator({ x });
-              return y !== null && y >= yMin && y <= yMax ? [x, y] : null;
-            });
-          }
-        }
-      }
 
       let attachmentType = "graph";
       if (correctedSpec.type === "network") {

@@ -15,9 +15,10 @@ import { setNotificationChannelAsync } from 'expo-notifications/build/setNotific
 import { setNotificationHandler } from 'expo-notifications/build/NotificationsHandler';
 import { SchedulableTriggerInputTypes } from 'expo-notifications/build/Notifications.types';
 import { AndroidImportance } from 'expo-notifications/build/NotificationChannelManager.types';
+import { addNotificationResponseReceivedListener } from 'expo-notifications/build/NotificationsEmitter';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
-import { CreateSetScreen, OnboardingScreen, ProfileScreen, ProgressScreen, SearchScreen, setScreenDarkMode, TodayPlan, TutorScreen, WelcomeGuide } from './src/screens';
+import { CreateSetScreen, MobileStudyRoomScreen, OnboardingScreen, ProfileScreen, ProgressScreen, SearchScreen, setScreenDarkMode, TodayPlan, TimetableScreen, TutorScreen, WelcomeGuide } from './src/screens';
 
 const API_URL = (process.env.EXPO_PUBLIC_API_URL || '').replace(/\/$/, '');
 const COOKIE_SESSION = '__studybuddy_cookie_session__';
@@ -26,7 +27,7 @@ const PURPLE = '#6657E8';
 const MUTED = '#888BA0';
 type User = { id: string; name?: string | null; email: string; tokenBalance?: number };
 type Progress = { xp: number; level: number; streak: number; dueCount: number; totalAttempts: number };
-type StudySet = { id: string; title: string; subject?: string | null; topic?: string | null; cardCount: number };
+type StudySet = { id: string; topicId?: string | null; title: string; subject?: string | null; topic?: string | null; cardCount: number };
 type StudyCard = { id: string; cardType: 'flashcard' | 'mcq'; front?: string | null; back?: string | null; question?: string | null; options?: string[] | null; correctIndex?: number | null; explanation?: string | null };
 
 setNotificationHandler({ handleNotification: async () => ({ shouldShowBanner: true, shouldShowList: true, shouldPlaySound: false, shouldSetBadge: false }) });
@@ -47,12 +48,38 @@ async function setStudyReminder(enabled: boolean) {
   await SecureStore.setItemAsync('studybuddy-reminder-id', id);
 }
 
+type TimetableSlot = { id: string; dayOfWeek: number; startTime: string; endTime: string; subjectName: string; subjectId?: string | null };
+async function syncTimetableReminders(slots: TimetableSlot[]) {
+  const previous = JSON.parse(await SecureStore.getItemAsync('studybuddy-timetable-reminders') || '{}') as Record<string, string>;
+  await Promise.all(Object.values(previous).map((id) => cancelScheduledNotificationAsync(id).catch(() => {})));
+  if (!slots.length) { await SecureStore.deleteItemAsync('studybuddy-timetable-reminders'); return true; }
+  let permission = await getPermissionsAsync();
+  if (!permission.granted) permission = await requestPermissionsAsync();
+  if (!permission.granted) return false;
+  if (Platform.OS === 'android') await setNotificationChannelAsync('study-reminders', { name: 'Study reminders', importance: AndroidImportance.DEFAULT, sound: 'default' });
+  const next: Record<string, string> = {};
+  for (const slot of slots) {
+    const [startHour, startMinute] = slot.startTime.split(':').map(Number);
+    let minutes = startHour * 60 + startMinute - 5;
+    let day = slot.dayOfWeek;
+    if (minutes < 0) { minutes += 24 * 60; day = (day + 6) % 7; }
+    const id = await scheduleNotificationAsync({
+      content: { title: `Your ${slot.subjectName} lesson starts soon`, body: `Your StudyBuddy room is ready for your ${slot.startTime} lesson.`, data: { screen: 'timetable', topicId: slot.subjectId }, sound: 'default' },
+      trigger: { type: SchedulableTriggerInputTypes.WEEKLY, weekday: day + 1, hour: Math.floor(minutes / 60), minute: minutes % 60, ...(Platform.OS === 'android' ? { channelId: 'study-reminders' } : {}) },
+    });
+    next[slot.id] = id;
+  }
+  await SecureStore.setItemAsync('studybuddy-timetable-reminders', JSON.stringify(next));
+  return true;
+}
+
 async function request(path: string, token: string, init: RequestInit = {}) {
   const response = await fetch(`${API_URL}${path}`, {
     ...init,
     credentials: 'include',
     headers: { Accept: 'application/json', ...(token !== COOKIE_SESSION ? { Authorization: `Bearer ${token}` } : {}), ...(init.body ? { 'Content-Type': 'application/json' } : {}), ...init.headers },
   });
+  if (response.headers.get('content-type')?.includes('text/event-stream')) return response;
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(`${response.status}: ${data.error || 'Could not connect. Please try again.'}`);
   return data;
@@ -67,10 +94,11 @@ function MainApp() {
   const [reminderEnabled, setReminderEnabled] = useState(false);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [darkMode, setDarkMode] = useState(false);
-  const [screen, setScreen] = useState<'home' | 'search' | 'library' | 'progress' | 'profile' | 'study' | 'create' | 'tutor'>('home');
+  const [screen, setScreen] = useState<'home' | 'search' | 'library' | 'progress' | 'profile' | 'study' | 'room' | 'create' | 'tutor' | 'timetable'>('home');
   const [progress, setProgress] = useState<Progress | null>(null);
   const [sets, setSets] = useState<StudySet[]>([]);
   const [activeSet, setActiveSet] = useState<StudySet | null>(null);
+  const [activeRoomTopicId, setActiveRoomTopicId] = useState<string | null>(null);
   const [cards, setCards] = useState<StudyCard[]>([]);
   const [cardIndex, setCardIndex] = useState(0);
   const [revealed, setRevealed] = useState(false);
@@ -97,14 +125,26 @@ function MainApp() {
   }, [token]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { if (!token) return; void request('/api/notifications', token).then((data) => setUnreadNotifications(data.unreadCount || 0)).catch(() => {}); }, [token]);
+  useEffect(() => { const subscription = addNotificationResponseReceivedListener((response) => { if (response.notification.request.content.data?.screen === 'timetable') setScreen('timetable'); }); return () => subscription.remove(); }, []);
   const showNotifications = async () => { if (!token) return; try { await request('/api/notifications', token, { method: 'POST' }); const data = await request('/api/notifications', token); setUnreadNotifications(data.unreadCount || 0); const list = (data.notifications || []).slice(0, 8); if (!list.length) { Alert.alert('You’re all caught up', 'StudyBuddy will let you know when something needs your attention.'); return; } Alert.alert('Notifications', list.map((n: any) => `${n.read ? '•' : '●'} ${n.message}`).join('\n\n'), [{ text: 'Mark all read', onPress: async () => { await request('/api/notifications/read', token, { method: 'POST', body: JSON.stringify({ all: true }) }); setUnreadNotifications(0); } }, { text: 'Done', style: 'cancel' }]); } catch (error) { Alert.alert('Notifications unavailable', error instanceof Error ? error.message : 'Please try again.'); } };
   const refresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
   const openSet = async (set: StudySet) => {
     if (!token) return;
     try {
-      const response = await request(`/api/study-sets/${set.id}`, token);
-      setActiveSet(set); setCards(response.studySet.cards || []); setCardIndex(0); setRevealed(false); setScreen('study');
-    } catch (error) { Alert.alert('Could not open study set', error instanceof Error ? error.message : 'Please try again.'); }
+      // Older Study Sets may predate rooms and have no topicId. Link them once
+      // so every set opens its classroom instead of an empty card screen.
+      const room = set.topicId ? { topicId: set.topicId } : await request(`/api/study-sets/${set.id}/room`, token, { method: 'POST' });
+      if (!room?.topicId) throw new Error('This Study Set could not be connected to a room. Update the StudyBuddy server and try again.');
+      setActiveRoomTopicId(room.topicId); setScreen('room');
+    } catch (error) { Alert.alert('Could not open Study Room', error instanceof Error ? error.message : 'Please try again.'); }
+  };
+  const practiceSet = async (setId: string) => {
+    if (!token) return;
+    try {
+      const response = await request(`/api/study-sets/${setId}`, token);
+      const studySet = response.studySet;
+      setActiveSet(studySet); setCards(studySet.cards || []); setCardIndex(0); setRevealed(false); setScreen('study');
+    } catch (error) { Alert.alert('Could not open practice cards', error instanceof Error ? error.message : 'Please try again.'); }
   };
   const reviewCard = async (quality: 0 | 5) => {
     if (!token) return;
@@ -150,6 +190,7 @@ function MainApp() {
         </View>
         {!!(user as any)?.ambitions?.length && <View style={s.goalBanner}><Ionicons name="flag-outline" size={17} color={PURPLE}/><Text style={s.goalBannerText} numberOfLines={2}>Your goal: {(user as any).ambitions[0]}</Text></View>}
         <TodayPlan token={token} request={request} onTutor={() => setScreen('tutor')} onLibrary={() => setScreen('library')} />
+        <TouchableOpacity style={s.timetableShortcut} onPress={() => setScreen('timetable')}><Ionicons name="calendar-outline" size={17} color={PURPLE}/><Text style={s.timetableShortcutText}>Plan weekly lessons and reminders</Text><Ionicons name="arrow-forward" size={16} color={PURPLE}/></TouchableOpacity>
         <View style={s.sectionHead}><Text style={s.sectionTitle}>Your momentum</Text><Text style={s.sectionHint}>Keep it going ✨</Text></View>
         <View style={s.statsRow}>
           <Stat icon="flame" color="#FF8B5E" value={`${progress?.streak ?? 0}`} label="day streak" />
@@ -158,7 +199,7 @@ function MainApp() {
         </View>
         <View style={s.sectionHead}><Text style={s.sectionTitle}>Pick up where you left off</Text><TouchableOpacity onPress={() => setScreen('library')}><Text style={s.seeAll}>See all</Text></TouchableOpacity></View>
         {sets.slice(0, 3).length ? sets.slice(0, 3).map((set, i) => <SetCard key={set.id} item={set} tint={i} onPress={() => void openSet(set)} />) : <View style={s.emptyCard}><View style={s.emptyIcon}><Ionicons name="book-outline" size={22} color={PURPLE} /></View><Text style={s.cardTitle}>Your library is ready</Text><Text style={s.cardSub}>Create a study set from your notes and it will appear here.</Text><TouchableOpacity style={s.createSetButton} onPress={() => setScreen('create')}><Ionicons name="add-circle-outline" size={19} color={PURPLE}/><Text style={s.createSetText}>Create a study set</Text></TouchableOpacity></View>}
-      </> : screen === 'search' ? <SearchScreen token={token} request={request}/> : screen === 'tutor' ? <><TouchableOpacity onPress={() => setScreen('home')} style={s.backLink}><Ionicons name="arrow-back" size={18} color={PURPLE}/><Text style={s.backText}>Home</Text></TouchableOpacity><TutorScreen token={token} request={request} user={user}/></> : screen === 'progress' ? <ProgressScreen token={token} request={request}/> : screen === 'profile' ? <ProfileScreen token={token} request={request} user={user} darkMode={darkMode} onDarkModeChange={(enabled) => { void changeTheme(enabled); }} reminderEnabled={reminderEnabled} onUserUpdated={setUser} onReminderChange={(enabled) => updateReminder(enabled)} onSignOut={async () => { try { await request('/api/auth/logout', token, { method: 'POST' }); } catch {} await updateReminder(false).catch(() => {}); await SecureStore.deleteItemAsync('studybuddy-token'); setToken(null); setUser(null); setProfileReady(false); setGuideVisible(false); setScreen('home'); }}/> : screen === 'create' ? <CreateSetScreen token={token} request={request} onDone={async () => { await load(); setScreen('library'); }}/> : screen === 'library' ? <>
+      </> : screen === 'search' ? <SearchScreen token={token} request={request}/> : screen === 'timetable' ? <TimetableScreen token={token} request={request} onSlotsChanged={syncTimetableReminders}/> : screen === 'room' && activeRoomTopicId ? <MobileStudyRoomScreen token={token} request={request} topicId={activeRoomTopicId} user={user} onBack={openLibrary} onPracticeSet={practiceSet}/> : screen === 'tutor' ? <><TouchableOpacity onPress={() => setScreen(activeRoomTopicId ? 'room' : 'home')} style={s.backLink}><Ionicons name="arrow-back" size={18} color={PURPLE}/><Text style={s.backText}>{activeRoomTopicId ? 'Study room' : 'Home'}</Text></TouchableOpacity><TutorScreen token={token} request={request} user={user} studyRoomTopicId={activeRoomTopicId || undefined}/></> : screen === 'progress' ? <ProgressScreen token={token} request={request}/> : screen === 'profile' ? <ProfileScreen token={token} request={request} user={user} darkMode={darkMode} onDarkModeChange={(enabled) => { void changeTheme(enabled); }} reminderEnabled={reminderEnabled} onUserUpdated={setUser} onReminderChange={(enabled) => updateReminder(enabled)} onSignOut={async () => { try { await request('/api/auth/logout', token, { method: 'POST' }); } catch {} await updateReminder(false).catch(() => {}); await SecureStore.deleteItemAsync('studybuddy-token'); setToken(null); setUser(null); setProfileReady(false); setGuideVisible(false); setScreen('home'); }}/> : screen === 'create' ? <CreateSetScreen token={token} request={request} onDone={async (topicId) => { await load(); if (topicId) { setActiveRoomTopicId(topicId); setScreen('room'); } else setScreen('library'); }}/> : screen === 'library' ? <>
         <Text style={s.eyebrow}>MADE FOR YOUR NEXT BREAKTHROUGH</Text><Text style={s.heading}>Your library</Text><Text style={s.subheading}>All your study sets, together.</Text>
         <TouchableOpacity style={s.createSetButton} onPress={() => setScreen('create')}><Ionicons name="add-circle-outline" size={19} color={PURPLE}/><Text style={s.createSetText}>Create a study set</Text></TouchableOpacity>
         {sets.length ? sets.map((set, i) => <SetCard key={set.id} item={set} tint={i} onPress={() => void openSet(set)} />) : <View style={[s.emptyCard, { marginTop: 14 }]}><View style={s.emptyIcon}><Ionicons name="library-outline" size={22} color={PURPLE} /></View><Text style={s.cardTitle}>Nothing here just yet</Text><Text style={s.cardSub}>Create your first set from your notes to see it here.</Text></View>}
@@ -272,6 +313,7 @@ const lightAppStyles = StyleSheet.create({
   backLink: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 21 }, backText: { color: PURPLE, fontWeight: '700', fontSize: 12 }, reviewProgress: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 21, marginBottom: 16 }, reviewTrack: { height: 6, flex: 1, backgroundColor: '#E8E6F5', borderRadius: 4, overflow: 'hidden' }, reviewFill: { height: '100%', backgroundColor: PURPLE, borderRadius: 4 }, reviewCount: { color: MUTED, fontWeight: '700', fontSize: 11 }, reviewCard: { minHeight: 290, backgroundColor: 'white', borderRadius: 23, borderColor: '#ECECF3', borderWidth: 1, padding: 23, justifyContent: 'center' }, reviewLabel: { color: PURPLE, fontSize: 9, fontWeight: '800', letterSpacing: 1.3, marginBottom: 17 }, reviewQuestion: { color: INK, fontSize: 21, fontWeight: '700', lineHeight: 29 }, optionText: { color: '#55576B', fontSize: 14, lineHeight: 22, marginTop: 9 }, tapHint: { flexDirection: 'row', gap: 7, alignItems: 'center', marginTop: 27 }, tapHintText: { color: PURPLE, fontSize: 11, fontWeight: '600' }, revealButton: { height: 50, backgroundColor: PURPLE, borderRadius: 14, marginTop: 14, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 9 }, revealText: { color: 'white', fontWeight: '700', fontSize: 13 }, reviewActions: { flexDirection: 'row', gap: 10, marginTop: 14 }, practiceButton: { flex: 1, height: 50, borderRadius: 14, borderColor: '#F0D8D3', borderWidth: 1, backgroundColor: '#FFF8F6', flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 7 }, practiceText: { color: '#C65F50', fontWeight: '700', fontSize: 11 }, knewButton: { flex: 1, height: 50, borderRadius: 14, backgroundColor: PURPLE, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 7 }, knewText: { color: 'white', fontWeight: '700', fontSize: 12 },
   loginSafe: { flex: 1, backgroundColor: '#F7F8FC' }, loginContent: { flexGrow: 1, paddingHorizontal: 25, paddingTop: 42, paddingBottom: 24 }, loginLogo: { width: 51, height: 51, backgroundColor: PURPLE, borderRadius: 17, alignItems: 'center', justifyContent: 'center', marginBottom: 28 }, loginEyebrow: { color: PURPLE, fontSize: 9, letterSpacing: 1.6, fontWeight: '800', marginBottom: 11 }, loginTitle: { color: INK, fontSize: 38, lineHeight: 42, fontWeight: '800', letterSpacing: -1.5 }, loginSubtitle: { color: MUTED, fontSize: 14, marginTop: 10, marginBottom: 27 }, formCard: { backgroundColor: 'white', padding: 21, borderRadius: 23, borderWidth: 1, borderColor: '#EEEEF4' }, formTitle: { color: INK, fontSize: 19, fontWeight: '800' }, formHint: { color: MUTED, fontSize: 12, marginTop: 5, marginBottom: 23 }, inputLabel: { color: '#77798E', fontSize: 9, letterSpacing: 1.1, fontWeight: '800', marginBottom: 8 }, input: { height: 48, borderRadius: 12, borderColor: '#E7E7EF', borderWidth: 1, paddingHorizontal: 13, color: INK, fontSize: 13, backgroundColor: '#FCFCFE' }, loginButton: { height: 49, backgroundColor: PURPLE, borderRadius: 13, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 9, marginTop: 23 }, loginButtonText: { color: 'white', fontWeight: '700', fontSize: 13 }, formFoot: { color: MUTED, fontSize: 10, textAlign: 'center', lineHeight: 16, marginTop: 17 }, loginFooter: { textAlign: 'center', color: '#A3A4B3', fontSize: 11, marginTop: 25 }, authNotice: { color: '#238268', fontSize: 11, lineHeight: 16, marginTop: 12 }, authError: { color: '#B64752', fontSize: 11, lineHeight: 16, marginTop: 12 }, authLink: { color: PURPLE, fontWeight: '800' }, verifyLinks: { alignItems: 'center', gap: 1 },
   createSetButton: { height: 44, backgroundColor: '#F0EEFF', borderRadius: 13, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 13 }, createSetText: { color: PURPLE, fontSize: 12, fontWeight: '700' },
+  timetableShortcut: { minHeight: 48, marginTop: 12, marginBottom: 18, paddingHorizontal: 13, borderRadius: 14, borderWidth: 1, borderColor: '#E5E2F3', backgroundColor: '#FBFAFF', flexDirection: 'row', alignItems: 'center', gap: 8 }, timetableShortcutText: { color: INK, fontSize: 11, fontWeight: '700', flex: 1 },
 });
 
 function darkenAppStyle(style: any) {

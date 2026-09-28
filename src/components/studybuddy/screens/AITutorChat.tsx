@@ -105,13 +105,14 @@ type ConceptMapSpec = {
  * - Copy / retry buttons on AI messages
  */
 export function AITutorChat() {
-  const { setScreen, dataSaver } = useApp();
+  const { setScreen, dataSaver, activeTopicId } = useApp();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversation, setActiveConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const chatSessionRef = useRef(0);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [activityStatus, setActivityStatus] = useState("Waiting for your tutor…");
   const [pendingImage, setPendingImage] = useState<string | null>(null); // base64 data URL for vision
   const [pendingDocument, setPendingDocument] = useState<{ text: string; fileName: string; fileType: string; preview: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -357,6 +358,7 @@ export function AITutorChat() {
     setPendingImage(null);
     setPendingDocument(null);
     setBusy(true);
+    setActivityStatus("Waiting for your tutor…");
     const sessionAtSend = chatSessionRef.current;
     setError(null);
     setShowUpgrade(false);
@@ -388,14 +390,26 @@ export function AITutorChat() {
     // Hide in-progress / completed <thinking> blocks while streaming
     const liveDisplay = (acc: string): string => {
       const open = acc.indexOf("<thinking>");
-      if (open === -1) return acc;
-      const close = acc.indexOf("</thinking>");
-      if (close !== -1) return (acc.slice(0, open) + acc.slice(close + 11)).replace(/^\s+/, "");
-      return acc.slice(0, open);
+      let visible = acc;
+      if (open !== -1) {
+        const close = acc.indexOf("</thinking>");
+        if (close !== -1) visible = (acc.slice(0, open) + acc.slice(close + 11)).replace(/^\s+/, "");
+        else visible = acc.slice(0, open);
+      }
+      // Keep the model's drawing specification out of the chat bubble while it
+      // streams; the validated visual appears as an attachment when complete.
+      const visualOpen = visible.search(/```\s*(?:mathgraph|conceptmap|examgen)\b/i);
+      if (visualOpen !== -1) {
+        const visualClose = visible.indexOf("```", visible.indexOf("\n", visualOpen) + 1);
+        if (visualClose === -1) visible = visible.slice(0, visualOpen);
+        else visible = (visible.slice(0, visualOpen) + visible.slice(visualClose + 3)).trim();
+      }
+      return visible;
     };
 
     const requestBody = JSON.stringify({
       conversationId: activeConversation?.id ?? null,
+      studyRoomTopicId: activeTopicId ?? undefined,
       message: messageText,
       image: img,
       // Phase 45: keep replies short + skip image-search in Data Saver mode
@@ -474,6 +488,8 @@ export function AITutorChat() {
           if (sessionAtSend !== chatSessionRef.current) return;
           acc += payload.text ?? "";
           finalizeStreamedMessage({ content: liveDisplay(acc) });
+        } else if (eventName === "status") {
+          if (sessionAtSend === chatSessionRef.current && typeof payload.text === "string") setActivityStatus(payload.text);
         } else if (eventName === "done") {
           if (sessionAtSend !== chatSessionRef.current) return;
           gotDone = true;
@@ -585,6 +601,7 @@ export function AITutorChat() {
       }
     } finally {
       setBusy(false);
+      setActivityStatus("Waiting for your tutor…");
     }
   };
 
@@ -1544,7 +1561,7 @@ export function AITutorChat() {
                     <div className="flex items-center gap-2 text-gray-500">
                       <Loader2 className="w-4 h-4 animate-spin" /> Thinking…
                     </div>
-                    <p className="text-[10px] text-gray-400 mt-1">Analyzing your question against the curriculum…</p>
+                    <p className="text-[10px] text-gray-400 mt-1">{activityStatus}</p>
                   </div>
                 </div>
               </div>
@@ -2093,9 +2110,6 @@ function MessageBubble({
           )}
 
           {/* Keep internal validation steps out of the learner-facing chat. */}
-          {!isUser && msg.proof && (
-            <ProofBadges proof={msg.proof} />
-          )}
 
           {/* Action buttons on AI messages */}
           {!isUser && (

@@ -355,9 +355,9 @@ async function isOverBudget(provider: ProviderRow): Promise<boolean> {
  */
 export async function callWithProviders(
   messages: ChatMessage[],
-  ctx: { userId: string; route?: string }
+  ctx: { userId: string; route?: string; excludeProviderId?: string }
 ): Promise<{ content: string; result: ProviderCallResult | null }> {
-  const providers = await loadEnabledProviders();
+  const providers = (await loadEnabledProviders()).filter((provider) => provider.id !== ctx.excludeProviderId);
 
   if (providers.length === 0) {
     return { content: "", result: null };

@@ -30,6 +30,18 @@ export type ValidationResult = {
 const MAX_POINTS = 5000;
 const MAX_CATEGORIES = 200;
 const MAX_BINS = 500;
+const MAX_SCENE_ELEMENTS = 120;
+
+function sceneNumber(value: unknown, fallback = 0): number {
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) ? Math.max(-100, Math.min(1100, n)) : fallback;
+}
+
+function cleanSceneColor(value: unknown, fallback: string): string {
+  if (typeof value !== "string") return fallback;
+  const color = value.trim();
+  return /^(#[0-9a-f]{3,8}|[a-z]{3,20})$/i.test(color) ? color : fallback;
+}
 
 // Type aliases — the AI sometimes uses non-canonical type strings. Map them
 // to the canonical graph type before running the type-specific validator.
@@ -449,6 +461,56 @@ export function validateAndCorrectGraphSpec(spec: any): ValidationResult {
       break;
     }
 
+    case "scene": {
+      if (!Array.isArray(corrected.elements) || corrected.elements.length === 0) {
+        errors.push("scene spec needs a non-empty 'elements' array");
+        return { valid: false, correctedSpec: null, errors, warnings };
+      }
+      if (corrected.elements.length > MAX_SCENE_ELEMENTS) {
+        corrected.elements = corrected.elements.slice(0, MAX_SCENE_ELEMENTS);
+        warnings.push(`scene.elements was limited to ${MAX_SCENE_ELEMENTS} items`);
+      }
+      const supported = new Set(["rect", "circle", "ellipse", "line", "arrow", "text", "polygon"]);
+      corrected.width = Math.max(100, Math.min(1200, sceneNumber(corrected.width, 800)));
+      corrected.height = Math.max(100, Math.min(900, sceneNumber(corrected.height, 600)));
+      corrected.elements = corrected.elements.map((element: any, index: number) => {
+        if (!element || typeof element !== "object" || !supported.has(element.kind)) {
+          errors.push(`scene.elements[${index}] has an unsupported kind`);
+          return element;
+        }
+        const item = { ...element };
+        for (const field of ["x", "y", "x1", "y1", "x2", "y2", "cx", "cy", "width", "height", "r", "rx", "ry", "fontSize"]) {
+          if (item[field] !== undefined) item[field] = sceneNumber(item[field]);
+        }
+        item.stroke = cleanSceneColor(item.stroke, "#334155");
+        item.fill = item.fill === "none" ? "none" : cleanSceneColor(item.fill, "#e0e7ff");
+        item.label = typeof item.label === "string" ? item.label.slice(0, 180) : item.label;
+        item.text = typeof item.text === "string" ? item.text.slice(0, 240) : item.text;
+        if (item.kind === "rect" && ["x", "y", "width", "height"].some((field) => !Number.isFinite(item[field]))) {
+          errors.push(`scene.elements[${index}] rectangle needs x, y, width, and height`);
+        }
+        if (item.kind === "circle" && ["cx", "cy", "r"].some((field) => !Number.isFinite(item[field]))) {
+          errors.push(`scene.elements[${index}] circle needs cx, cy, and r`);
+        }
+        if (item.kind === "ellipse" && ["cx", "cy", "rx", "ry"].some((field) => !Number.isFinite(item[field]))) {
+          errors.push(`scene.elements[${index}] ellipse needs cx, cy, rx, and ry`);
+        }
+        if (item.kind === "rect") { item.width = Math.max(0, item.width); item.height = Math.max(0, item.height); }
+        if (item.kind === "circle") item.r = Math.max(0, item.r);
+        if (item.kind === "ellipse") { item.rx = Math.max(0, item.rx); item.ry = Math.max(0, item.ry); }
+        if (item.kind === "polygon") {
+          if (!Array.isArray(item.points) || item.points.length < 3) errors.push(`scene.elements[${index}] polygon needs at least 3 points`);
+          else item.points = item.points.slice(0, 40).map((point: any) => [sceneNumber(point?.[0]), sceneNumber(point?.[1])]);
+        }
+        if (item.kind === "text" && !item.text && !item.label) errors.push(`scene.elements[${index}] text needs a label`);
+        if (["line", "arrow"].includes(item.kind) && ["x1", "y1", "x2", "y2"].some((field) => !Number.isFinite(item[field]))) {
+          errors.push(`scene.elements[${index}] line needs x1, y1, x2, and y2`);
+        }
+        return item;
+      });
+      break;
+    }
+
     case "argand": {
       if (!Array.isArray(corrected.points) || corrected.points.length === 0) {
         errors.push("argand spec missing 'points' array");
@@ -712,7 +774,7 @@ export function hasGraphSpec(reply: string): boolean {
   // Any fenced code block whose body looks like {"type":"..."}
   const blocks = reply.match(/```[\w-]*\s*([\s\S]*?)```/g) ?? [];
   for (const b of blocks) {
-    if (/"type"\s*:\s*"(function|scatter|bar|histogram|pie|venn|numberline|tree|network|vector|polygon|boxplot|slopefield|stemleaf|frequency_polygon|freeform|argand|contour|vectorfield|tessellation|knot|pictogram|tally|carroll|ogive|unitcircle|transform|axes3d|twoway|erdiagram|csv|steps)"/i.test(b)) {
+    if (/"type"\s*:\s*"(function|scatter|bar|histogram|pie|venn|numberline|tree|network|vector|polygon|boxplot|slopefield|stemleaf|frequency_polygon|freeform|argand|contour|vectorfield|tessellation|knot|pictogram|tally|carroll|ogive|unitcircle|transform|axes3d|twoway|erdiagram|csv|steps|scene)"/i.test(b)) {
       return true;
     }
   }

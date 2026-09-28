@@ -170,6 +170,7 @@ export async function callAI(
 ): Promise<string> {
   const userId = ctx?.userId ?? "system";
   const route = ctx?.route;
+  let transientlyFailedProviderId: string | undefined;
 
   // 1) BYOK
   if (userApiKey && userApiKey.trim()) {
@@ -211,11 +212,10 @@ export async function callAI(
   // the ModelMapping to find the linked providerId + modelIdentifier.
   // This makes switching StudyBuddies actually change which AI model is used.
   //
-  // IMPORTANT: If the ModelMapping exists but has NO providerId (the buddy is
-  // disconnected from any API in the Visual API Studio), we STOP here and
-  // throw an error — we do NOT silently fall through to the platform AI.
-  // This ensures the user knows their selected buddy isn't connected, rather
-  // than getting a reply from a random default provider.
+  // If the ModelMapping exists but has NO providerId (the buddy is disconnected
+  // in AI Studio), stop with a clear setup error instead of silently choosing
+  // a different model. Temporary provider failures below may use configured
+  // fallbacks, while broken/missing configuration still surfaces to the user.
   if (userId && userId !== "system") {
     try {
       const user = await db.user.findUnique({
@@ -250,46 +250,58 @@ export async function callAI(
             if (apiKey || provider.providerType === "pollinations") {
               try {
                 const { callProvider } = await import("./ai-providers");
-                const result = await callProvider(provider as any, messages, {
+                const mappedProvider = { ...provider, model: mapping.modelIdentifier || provider.model };
+                const result = await callProvider(mappedProvider as any, messages, {
                   userId,
                   route,
                 });
+                await logAiCall(userId, result, route);
                 if (result.content) {
                   return result.content;
                 }
-                // Provider returned empty — this is a real failure, don't silently fall through
-                throw new Error(
-                  `${mapping.displayName} ${mapping.emoji} connected to ${provider.name} but got an empty response. ` +
-                  `The API may be down or misconfigured. Try another Study Buddy.`
-                );
-              } catch (e: any) {
-                // If it's our custom error (disconnected or empty response), re-throw it
-                if (e?.message?.includes("not connected") || e?.message?.includes("empty response")) {
-                  throw e;
-                }
-                // Phase 78 — If the provider was rate-limited (429), retry once
-                // after a short delay. Rate limits are temporary — don't give up.
-                if (e?.message && /rate.limit|429|too many requests|rate_limited/i.test(e.message)) {
-                  console.warn(`[callAI] ${mapping.displayName} rate-limited, retrying in 2s…`);
-                  await new Promise((r) => setTimeout(r, 2000));
-                  try {
-                    const { callProvider } = await import("./ai-providers");
-                    const retryResult = await callProvider(provider as any, messages, {
-                      userId,
-                      route,
-                    });
-                    if (retryResult.content) {
-                      return retryResult.content;
+                // A selected premium model should remain first choice, but a
+                // temporary outage/rate limit may continue through the admin
+                // priority chain instead of failing the whole tutor turn.
+                if (isTransientProviderFailure(result.errorMessage)) {
+                  transientlyFailedProviderId = provider.id;
+                  console.warn("Selected model temporarily unavailable; trying configured fallbacks:", provider.name);
+                  if (/rate.?limit|429|too many requests|rate_limited/i.test(result.errorMessage || "")) {
+                    await new Promise((resolve) => setTimeout(resolve, 2000));
+                    try {
+                      const retryResult = await callProvider(mappedProvider as any, messages, { userId, route });
+                      await logAiCall(userId, retryResult, route);
+                      if (retryResult.content) return retryResult.content;
+                    } catch (retryError: any) {
+                      console.warn("Selected model retry failed; continuing through fallbacks:", retryError?.message);
                     }
-                  } catch (retryErr: any) {
-                    // Still rate-limited after retry — throw with helpful message
-                    throw new Error(
-                      `${mapping.displayName} ${mapping.emoji} → ${provider.name} is rate-limited. ` +
-                      `Wait a minute and try again, or connect a different API key.`
-                    );
                   }
                 } else {
-                  // Provider call failed (network, auth, etc.) — don't silently fall through
+                  // An empty response without a transient failure usually means
+                  // this model is misconfigured, so surface that issue.
+                  throw new Error(
+                    `${mapping.displayName} ${mapping.emoji} connected to ${provider.name} but got an empty response. ` +
+                    `The API may be down or misconfigured. Try another Study Buddy.`
+                  );
+                }
+              } catch (e: any) {
+                if (isTransientProviderFailure(e?.message)) {
+                  transientlyFailedProviderId = provider.id;
+                  console.warn("Selected model temporarily unavailable; trying configured fallbacks:", e?.message);
+                  if (/rate.?limit|429|too many requests|rate_limited/i.test(e?.message || "")) {
+                    await new Promise((resolve) => setTimeout(resolve, 2000));
+                    try {
+                      const retryResult = await callProvider(provider as any, messages, { userId, route });
+                      await logAiCall(userId, retryResult, route);
+                      if (retryResult.content) return retryResult.content;
+                    } catch (retryError: any) {
+                      console.warn("Selected model retry failed; continuing through fallbacks:", retryError?.message);
+                    }
+                  }
+                } else {
+                  // If it's our custom error (disconnected or empty response), re-throw it.
+                  if (e?.message?.includes("not connected") || e?.message?.includes("empty response")) {
+                    throw e;
+                  }
                   console.warn("Model-specific provider failed:", e?.message);
                   throw new Error(
                     `${mapping.displayName} ${mapping.emoji} → ${provider.name} API call failed: ${e?.message ?? "unknown error"}. ` +
@@ -325,7 +337,7 @@ export async function callAI(
 
   // 2) Admin-configured providers (default: try all enabled providers in priority order)
   try {
-    const r = await callWithProviders(messages, { userId, route });
+    const r = await callWithProviders(messages, { userId, route, excludeProviderId: transientlyFailedProviderId });
     if (r.content) {
       return r.content;
     }
@@ -336,6 +348,11 @@ export async function callAI(
   // 3) Platform fallback
   const content = await callPlatformAI(messages, { userId, route, temperature: ctx?.temperature, maxTokens: ctx?.maxTokens });
   return content;
+}
+
+function isTransientProviderFailure(value: unknown): boolean {
+  const message = String(value ?? "").toLowerCase();
+  return /\b429\b|rate.?limit|too many requests|all api keys exhausted|temporarily unavailable|\b50[023]\b|timeout|timed out|econnreset|etimedout|fetch failed|network error/.test(message);
 }
 
 /**

@@ -72,6 +72,7 @@ export async function POST(req: NextRequest) {
   const conversationId = (body?.conversationId ?? "").toString().trim() || null;
   const userMessage = (body?.message ?? "").toString().trim();
   const imageDataUrl = (body?.image ?? "").toString().trim() || null;
+  const studyRoomTopicId = (body?.studyRoomTopicId ?? "").toString().trim();
   const dataSaver = !!body?.dataSaver;
   const allowedLearningModes = ["standard", "explain", "practice", "hint", "simpler"] as const;
   const learningMode = allowedLearningModes.includes(body?.learningMode) ? body.learningMode : "standard";
@@ -143,31 +144,24 @@ export async function POST(req: NextRequest) {
       take: 20,
     });
 
-    const intents = detectIntents(userMessage);
-    const [{ searchContext, searchAttachments }, toolContext] = await Promise.all([
-      runWebSearch({ userMessage, intents, dataSaver }),
-      runTutorTools(userMessage),
-    ]);
-    const { systemContent } = await buildTutorSystemPrompt({
-      user,
-      buddy,
-      buddyId,
-      userMessage,
-      dataSaver,
-      imageDataUrl,
-      searchContext,
-      toolResults: toolContext,
-      learningMode,
-    });
-
-    const aiMessages: AIMessage[] = [
-      { role: "system", content: systemContent },
-      ...allMessages
-        .filter((m) => m.role === "user" || m.role === "assistant")
-        .map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
-    ];
-
-    const usePlatformStream = !imageDataUrl && (await canStreamPlatform(user.id));
+    let studyContext = "";
+    if (studyRoomTopicId) {
+      const room = await db.studyRoomState.findFirst({
+        where: { userId: user.id, topicId: studyRoomTopicId },
+        include: { topic: { select: { name: true, subject: true } } },
+      }).catch(() => null);
+      if (room) {
+        const sources = await db.studySet.findMany({
+          where: { userId: user.id, topicId: studyRoomTopicId, sourceText: { not: null } },
+          orderBy: { createdAt: "desc" },
+          take: 6,
+          select: { title: true, sourceText: true },
+        }).catch(() => []);
+        const sourceText = sources.filter((source) => source.sourceText?.trim())
+          .map((source) => `## ${source.title}\n${source.sourceText}`).join("\n\n").slice(0, 12_000);
+        studyContext = `LEARNER'S ACTIVE STUDY ROOM: ${room.topic.subject} — ${room.topic.name}. Use these source materials first, say when they do not contain an answer, and distinguish any outside information.\n\n${sourceText}`;
+      }
+    }
 
     // ---- SSE response stream ----
     const encoder = new TextEncoder();
@@ -179,7 +173,48 @@ export async function POST(req: NextRequest) {
 
         let reply = "";
         try {
-          send("meta", { conversationId: conversation!.id, attachments: searchAttachments, remaining: deduct.remaining, tokenBalance: deduct.newBalance });
+          const intents = detectIntents(userMessage);
+          send("meta", { conversationId: conversation!.id, remaining: deduct.remaining, tokenBalance: deduct.newBalance });
+          const toolLabel: Record<string, string> = {
+            calculator: "Using the calculator…",
+            code_runner: "Running your code…",
+            datetime: "Checking the current date and time…",
+            web_search: "Searching the web…",
+            image_search: "Finding a relevant image…",
+          };
+          const onToolStatus = (status: { phase: "start" | "done"; tool: string; success?: boolean }) => {
+            const label = toolLabel[status.tool];
+            if (label && status.phase === "start") send("status", { text: label });
+            if (label && status.phase === "done") send("status", { text: status.success ? `${label.replace(/…$/, "")} Done.` : `${label.replace(/…$/, "")} No result found.` });
+          };
+
+          if (imageDataUrl) send("status", { text: "Reading the image you attached…" });
+          else if (intents.wantsSearch || intents.wantsVideo || intents.wantsImage) send("status", { text: "Looking for useful sources…" });
+          const [{ searchContext, searchAttachments }, toolContext] = await Promise.all([
+            runWebSearch({ userMessage, intents, dataSaver, onStatus: onToolStatus }),
+            runTutorTools(userMessage, onToolStatus),
+          ]);
+          const { systemContent } = await buildTutorSystemPrompt({
+            user,
+            buddy,
+            buddyId,
+            userMessage,
+            dataSaver,
+            imageDataUrl,
+            searchContext,
+            toolResults: toolContext,
+            studyContext,
+            learningMode,
+          });
+          const aiMessages: AIMessage[] = [
+            { role: "system", content: systemContent },
+            ...allMessages
+              .filter((m) => m.role === "user" || m.role === "assistant")
+              .map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
+          ];
+          const usePlatformStream = !imageDataUrl && (await canStreamPlatform(user.id));
+          send("status", { text: "Writing your explanation…" });
+          if (!imageDataUrl && intents.wantsDrawing) send("status", { text: "Preparing your drawing…" });
 
           if (imageDataUrl) {
             // Vision path — non-streamed (single delta)

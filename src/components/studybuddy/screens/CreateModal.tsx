@@ -21,6 +21,7 @@ import {
   ChevronLeft,
   Plus,
   Map as MapIcon,
+  BookOpen,
 } from "lucide-react";
 import { useApp, type CreateOption } from "../store";
 import { api } from "../api";
@@ -32,7 +33,8 @@ const options: {
   icon: React.ComponentType<{ className?: string }>;
   color: string;
 }[] = [
-  { key: "upload", label: "Upload PDF / Text", desc: "Extract text from a file then generate", icon: UploadCloud, color: "bg-indigo-50 text-indigo-600" },
+  { key: "room", label: "Create a Study Room", desc: "Keep materials, lessons, tutor, and progress together", icon: BookOpen, color: "bg-emerald-50 text-emerald-600" },
+  { key: "upload", label: "Upload PDF / Text", desc: "Extract text then make flashcards and a quiz", icon: UploadCloud, color: "bg-indigo-50 text-indigo-600" },
   { key: "paste", label: "Paste Text", desc: "Paste notes to convert into learning", icon: Clipboard, color: "bg-violet-50 text-violet-600" },
   { key: "flashcards", label: "Generate Flashcards", desc: "Quick Q/A cards from any topic", icon: Layers, color: "bg-amber-50 text-amber-600" },
   { key: "quiz", label: "Generate Quiz", desc: "MCQ-only set with explanations", icon: ListChecks, color: "bg-emerald-50 text-emerald-600" },
@@ -57,6 +59,8 @@ export function CreateModal() {
     openCreate,
     setScreen,
     setActiveStudySetId,
+    activeTopicId,
+    setActiveTopicId,
   } = useApp();
 
   const [step, setStep] = useState<ModalStep>("picker");
@@ -74,6 +78,7 @@ export function CreateModal() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedSetId, setSavedSetId] = useState<string | null>(null);
+  const [savedTopicId, setSavedTopicId] = useState<string | null>(null);
 
   useEffect(() => {
     if (createOpen) {
@@ -90,6 +95,7 @@ export function CreateModal() {
       setBusy(false);
       setError(null);
       setSavedSetId(null);
+      setSavedTopicId(null);
     }
   }, [createOpen]);
 
@@ -183,20 +189,26 @@ export function CreateModal() {
             <div className="w-12 h-12 mx-auto rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center">
               <Check className="w-6 h-6" />
             </div>
-            <h3 className="mt-3 text-base font-semibold text-gray-900">Study set saved!</h3>
+            <h3 className="mt-3 text-base font-semibold text-gray-900">{savedTopicId ? "Study room is ready!" : "Study set saved!"}</h3>
             <p className="mt-1 text-sm text-gray-500">
-              {editedFlashcards.length + editedMcqs.length} cards ready to study.
+              {savedTopicId ? "Your source is saved. Start a lesson whenever you’re ready." : `${editedFlashcards.length + editedMcqs.length} cards ready to study.`}
             </p>
             <div className="mt-4 space-y-2">
               <button
                 onClick={() => {
+                  if (savedTopicId) {
+                    setActiveTopicId(savedTopicId);
+                    closeCreate();
+                    setScreen("study");
+                    return;
+                  }
                   setActiveStudySetId(savedSetId);
                   closeCreate();
                   setScreen("quiz");
                 }}
                 className="w-full h-11 rounded-full bg-indigo-600 text-white font-semibold shadow-md hover:bg-indigo-700"
               >
-                Start studying now
+                {savedTopicId ? "Open Study Room" : "Start studying now"}
               </button>
               <button
                 onClick={() => openCreate(null)}
@@ -442,12 +454,13 @@ export function CreateModal() {
   // ============ "input" step — option-specific input form ============
   // Determine config per option
   const cfg = createOption
-    ? {
+      ? {
+        room: { title: activeTopicId ? "Add material to this room" : "Create a Study Room", icon: BookOpen, color: "bg-emerald-50 text-emerald-600" },
         upload: { title: "Upload a file", icon: UploadCloud, color: "bg-indigo-50 text-indigo-600" },
         paste: { title: "Paste your text", icon: Clipboard, color: "bg-violet-50 text-violet-600" },
         flashcards: { title: "Generate flashcards", icon: Layers, color: "bg-amber-50 text-amber-600" },
         quiz: { title: "Generate a quiz", icon: ListChecks, color: "bg-emerald-50 text-emerald-600" },
-      }[createOption as "upload" | "paste" | "flashcards" | "quiz"]
+      }[createOption as "room" | "upload" | "paste" | "flashcards" | "quiz"]
     : null;
 
   if (!cfg) {
@@ -458,8 +471,31 @@ export function CreateModal() {
   const Icon = cfg.icon;
 
   const handleGenerate = async () => {
-    if (createOption === "upload" && !text.trim()) {
+    if ((createOption === "upload" || createOption === "room") && !text.trim()) {
       setError("Please upload a file and extract text first.");
+      return;
+    }
+    if (createOption === "room") {
+      setStep("saving");
+      setError(null);
+      try {
+        const result = await api.createStudySet({
+          title: title || file?.name.replace(/\.[^.]+$/, "") || "Study material",
+          sourceType: file?.name.toLowerCase().endsWith(".pdf") ? "pdf" : "text",
+          sourceText: text,
+          subject: subject || undefined,
+          topic: topic || title || undefined,
+          topicId: activeTopicId || undefined,
+          createRoom: true,
+          generate: false,
+        });
+        setSavedSetId(result.studySet.id);
+        setSavedTopicId(result.room?.topicId ?? result.studySet.topicId ?? activeTopicId ?? null);
+        setStep("success");
+      } catch (e: any) {
+        setError(e?.message ?? "Could not save this study room.");
+        setStep("input");
+      }
       return;
     }
     if ((createOption === "paste" || createOption === "flashcards" || createOption === "quiz") && !text.trim()) {
@@ -528,11 +564,11 @@ export function CreateModal() {
 
         <div className="p-5 space-y-3">
           {/* File upload for "upload" option */}
-          {createOption === "upload" && (
+          {(createOption === "upload" || createOption === "room") && (
             <div className="rounded-2xl border-2 border-dashed border-gray-200 p-6 text-center">
               <input
                 type="file"
-                accept=".pdf,.txt,.md,.markdown,.csv,application/pdf,text/plain"
+                accept=".pdf,.docx,.txt,.md,.markdown,.csv,application/pdf,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 onChange={(e) => {
                   const f = e.target.files?.[0];
                   if (f) handleFilePick(f);
@@ -545,9 +581,9 @@ export function CreateModal() {
                   {extracting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Icon className="w-5 h-5" />}
                 </span>
                 <span className="text-sm font-medium text-gray-900">
-                  {extracting ? "Extracting text…" : file ? file.name : "Tap to pick a PDF or .txt"}
+                  {extracting ? "Extracting text…" : file ? file.name : "Choose a PDF, DOCX, or text file"}
                 </span>
-                <span className="text-xs text-gray-400">PDF or .txt up to 5 MB</span>
+                <span className="text-xs text-gray-400">PDF, DOCX, or text file up to 5 MB</span>
               </label>
             </div>
           )}
@@ -575,11 +611,11 @@ export function CreateModal() {
               />
             </div>
             <div>
-              <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Topic</label>
+              <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">{createOption === "room" ? "Room or course name" : "Topic"}</label>
               <input
                 value={topic}
                 onChange={(e) => setTopic(e.target.value)}
-                placeholder="e.g. Photosynthesis"
+                placeholder={createOption === "room" ? "e.g. Form 3 Biology" : "e.g. Photosynthesis"}
                 className="mt-1.5 w-full p-3 rounded-2xl border border-gray-200 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
               />
             </div>
@@ -667,9 +703,9 @@ export function CreateModal() {
           <div className="flex items-center gap-2 p-3 rounded-xl bg-amber-50 text-amber-700 text-xs">
             <Sparkles className="w-4 h-4 flex-shrink-0" />
             <span>
-              Generates {numFlashcards > 0 ? `${numFlashcards} flashcards` : ""}
+              {createOption === "room" ? "Source is saved in your room. The tutor uses it to prepare a lesson and practice." : <>Generates {numFlashcards > 0 ? `${numFlashcards} flashcards` : ""}
               {numFlashcards > 0 && numMCQs > 0 ? " + " : ""}
-              {numMCQs > 0 ? `${numMCQs} MCQs` : ""} using AI · uses 1 daily call
+              {numMCQs > 0 ? `${numMCQs} MCQs` : ""} using AI · uses 1 daily call</>}
             </span>
           </div>
 
@@ -678,7 +714,7 @@ export function CreateModal() {
             disabled={busy || !text.trim()}
             className="w-full h-12 rounded-full bg-indigo-600 text-white font-semibold shadow-md hover:bg-indigo-700 transition disabled:opacity-50 flex items-center justify-center gap-1.5"
           >
-            <Sparkles className="w-4 h-4" /> Generate
+            <Sparkles className="w-4 h-4" /> {createOption === "room" ? (activeTopicId ? "Add material" : "Create Study Room") : "Generate"}
           </button>
 
           <button

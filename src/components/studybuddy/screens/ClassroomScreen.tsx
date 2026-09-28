@@ -32,7 +32,7 @@ export function ClassroomScreen() {
   const [timer, setTimer] = useState(0); // seconds elapsed
   const [running, setRunning] = useState(true);
   const [durationMin, setDurationMin] = useState(30);
-  const [testIntervalMin, setTestIntervalMin] = useState(10);
+  const [testIntervalMin, setTestIntervalMin] = useState(30);
   const [error, setError] = useState<string | null>(null);
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [currentTest, setCurrentTest] = useState<any>(null);
@@ -48,6 +48,7 @@ export function ClassroomScreen() {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const intervalRef = useRef<any>(null);
+  const timerRef = useRef(0);
   // Phase 16 — guided flow
   const [flowState, setFlowState] = useState<string>("ASSESSMENT");
   const [flowStep, setFlowStep] = useState(0);
@@ -87,10 +88,10 @@ export function ClassroomScreen() {
       setFlowProgress(d.progress ?? d.session?.progress ?? 0);
       setBlocks(d.lessonBlocks ?? []);
       setDurationMin(d.durationMinutes ?? 30);
-      setTestIntervalMin(d.testIntervalMin ?? 10);
+      setTestIntervalMin(d.testIntervalMin ?? 30);
       // Fetch classroom state for professor message
       try {
-        const sr = await fetch(`/api/classroom/${d.session.id}/state`);
+        const sr = await fetch(`/api/classroom/${d.session.guidedSessionId || d.session.id}/state`);
         const sd = await sr.json();
         if (sr.ok && sd.professorMessage) {
           setProfessorMsg(sd.professorMessage);
@@ -98,7 +99,7 @@ export function ClassroomScreen() {
       } catch {}
 
       setPhase("lesson");
-      setTimer(0);
+      setTimer(Math.max(0, Number(d.session.activeSeconds) || 0));
       setRunning(true);
     } catch (e: any) {
       setError(e?.message ?? "Failed to start class");
@@ -124,6 +125,23 @@ export function ClassroomScreen() {
       return () => clearInterval(intervalRef.current);
     }
   }, [running, phase, testIntervalMin]);
+
+  useEffect(() => { timerRef.current = timer; }, [timer]);
+
+  // Persist actual focused lesson time while the lesson is running. Time spent
+  // paused or answering a checkpoint is not counted as lesson time.
+  useEffect(() => {
+    const guidedSessionId = session?.guidedSessionId;
+    if (!guidedSessionId || !running || phase !== "lesson") return;
+    const saveInterval = setInterval(() => {
+      void fetch(`/api/classroom/${guidedSessionId}/save`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ activeSeconds: timerRef.current }),
+      }).catch(() => {});
+    }, 15000);
+    return () => clearInterval(saveInterval);
+  }, [session?.guidedSessionId, running, phase]);
 
   // Typing animation for blocks
   useEffect(() => {
@@ -308,10 +326,17 @@ export function ClassroomScreen() {
     if (!session) return;
     setBusy(true);
     try {
+      if (session.guidedSessionId) {
+        await fetch(`/api/classroom/${session.guidedSessionId}/save`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ activeSeconds: timerRef.current }),
+        });
+      }
       const r = await fetch(`/api/classroom/${session.id}/complete`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ guidedSessionId: session.guidedSessionId }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error ?? "Complete failed");
@@ -328,7 +353,7 @@ export function ClassroomScreen() {
     if (!session) return;
     setBusy(true);
     try {
-      const r = await fetch(`/api/classroom/${session.id}/next`, {
+      const r = await fetch(`/api/classroom/${session.guidedSessionId || session.id}/next`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
@@ -459,7 +484,7 @@ export function ClassroomScreen() {
             <div className="h-full bg-amber-400 transition-all" style={{ width: `${progressPct}%` }} />
           </div>
         </div>
-        <button onClick={() => { if (confirm("Exit classroom? Your progress will be saved.")) { if (session) fetch(`/api/classroom/${session.id}/save`, { method: "POST" }).catch(() => {}); setScreen("home"); } }} className="w-8 h-8 rounded-full hover:bg-gray-700 flex items-center justify-center text-gray-400">
+          <button onClick={() => { if (confirm("Exit classroom? Your progress will be saved.")) { if (session) fetch(`/api/classroom/${session.guidedSessionId || session.id}/save`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ activeSeconds: timerRef.current }) }).catch(() => {}); setScreen("study"); } }} className="w-8 h-8 rounded-full hover:bg-gray-700 flex items-center justify-center text-gray-400">
           <X className="w-4 h-4" />
         </button>
       </header>

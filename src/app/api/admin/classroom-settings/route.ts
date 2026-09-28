@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 
 const DEFAULTS = {
   durationMinutes: 30,
-  testIntervalMin: 10,
+  testIntervalMin: 30,
   tokenCost: 50,
   passThreshold: 0.7,
   coinReward: 10,

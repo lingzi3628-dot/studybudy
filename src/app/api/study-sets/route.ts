@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { decryptApiKey } from "@/lib/crypto";
 import { callAIJson, type ChatMessage } from "@/lib/ai";
 import { checkRateLimit, refundRateLimit } from "@/lib/rate-limit";
+import { cleanGeneratedFlashcards, cleanGeneratedMcqs } from "@/lib/card-quality";
 
 export const runtime = "nodejs";
 
@@ -20,6 +21,7 @@ export async function GET() {
   return NextResponse.json({
     sets: sets.map((s) => ({
       id: s.id,
+      topicId: s.topicId,
       title: s.title,
       sourceType: s.sourceType,
       subject: s.subject,
@@ -44,6 +46,8 @@ export async function POST(req: NextRequest) {
   let sourceText: string = "";
   let subject: string | null = null;
   let topic: string | null = null;
+  let topicId: string | null = null;
+  let createRoom = false;
   let generate = true;
   let numFlashcards = 6;
   let numMCQs = 4;
@@ -57,12 +61,15 @@ export async function POST(req: NextRequest) {
     correctIndex?: number | null;
     explanation?: string | null;
   }> = [];
+  let rejectedGeneratedCards = 0;
 
   if (contentType.includes("multipart/form-data")) {
     const form = await req.formData();
     title = (form.get("title") as string) || "Untitled set";
     subject = (form.get("subject") as string) || null;
     topic = (form.get("topic") as string) || null;
+    topicId = (form.get("topicId") as string) || null;
+    createRoom = form.get("createRoom") === "true";
     if (form.get("numFlashcards")) numFlashcards = Number(form.get("numFlashcards"));
     if (form.get("numMCQs")) numMCQs = Number(form.get("numMCQs"));
     const file = form.get("file") as File | null;
@@ -81,6 +88,8 @@ export async function POST(req: NextRequest) {
     sourceText = body.sourceText || "";
     subject = body.subject ?? null;
     topic = body.topic ?? null;
+    topicId = body.topicId ?? null;
+    createRoom = body.createRoom === true;
     generate = body.generate !== false;
     if (Array.isArray(body.cards) && body.cards.length) {
       preGeneratedCards = body.cards;
@@ -97,17 +106,77 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // create the set row
-  const studySet = await db.studySet.create({
-    data: {
-      userId: user.id,
-      title,
-      sourceType,
-      sourceText: sourceText.slice(0, 30_000),
-      subject,
-      topic,
-    },
-  });
+  // A room is a persistent topic workspace. Its source material is saved as a
+  // StudySet, while cards remain optional resources generated later in the room.
+  let studySet;
+  if (createRoom) {
+    if (topicId) {
+      const ownedRoom = await db.studyRoomState.findUnique({
+        where: { userId_topicId: { userId: user.id, topicId } },
+        select: { topicId: true },
+      });
+      if (!ownedRoom) return NextResponse.json({ error: "Study room not found." }, { status: 404 });
+    }
+
+    const created = await db.$transaction(async (tx) => {
+      let roomTopicId = topicId;
+      if (!roomTopicId) {
+        const roomSubject = (subject || "General").trim().slice(0, 80);
+        const roomName = (topic || title || "My Study Room").trim().slice(0, 120);
+        const existingRoom = await tx.topic.findFirst({
+          where: { subject: roomSubject, name: roomName, createdById: user.id, published: false },
+          select: { id: true },
+        });
+        if (existingRoom) {
+          roomTopicId = existingRoom.id;
+          await tx.studyRoomState.upsert({
+            where: { userId_topicId: { userId: user.id, topicId: roomTopicId } },
+            create: { userId: user.id, topicId: roomTopicId },
+            update: {},
+          });
+        } else {
+          const roomTopic = await tx.topic.create({
+            data: {
+              subject: roomSubject,
+              name: roomName,
+              description: sourceText.trim().slice(0, 500) || null,
+              published: false,
+              createdById: user.id,
+            },
+            select: { id: true },
+          });
+          roomTopicId = roomTopic.id;
+          await tx.studyRoomState.create({ data: { userId: user.id, topicId: roomTopicId } });
+        }
+      }
+      const saved = await tx.studySet.create({
+        data: {
+          userId: user.id,
+          title: title || "Untitled material",
+          sourceType,
+          sourceText: sourceText.slice(0, 30_000),
+          subject,
+          topic,
+          topicId: roomTopicId,
+        },
+      });
+      return { studySet: saved, topicId: roomTopicId };
+    });
+    studySet = created.studySet;
+    topicId = created.topicId;
+    generate = false;
+  } else {
+    studySet = await db.studySet.create({
+      data: {
+        userId: user.id,
+        title,
+        sourceType,
+        sourceText: sourceText.slice(0, 30_000),
+        subject,
+        topic,
+      },
+    });
+  }
 
   let cards: Awaited<ReturnType<typeof db.card.createMany>> | { count: number } = { count: 0 };
 
@@ -156,6 +225,7 @@ export async function POST(req: NextRequest) {
         content:
           `You are an expert exam prep tutor. Based on the following study material, generate ${[numFlashcards > 0 ? `${numFlashcards} flashcards` : "", numMCQs > 0 ? `${numMCQs} multiple-choice questions` : ""].filter(Boolean).join(" and ") || "study cards"}.\n` +
           `Subject: ${subject ?? "General"}\nTopic: ${topic ?? "General"}\n` +
+          "Use only facts supported by the supplied material and topic. Each flashcard front must ask one clear question or name one term; the back must give its direct, useful answer. Avoid vague prompts, unrelated facts, repeated cards, and template/example text. If the material does not support enough cards, return fewer rather than inventing.\n" +
           "Return ONLY valid JSON in this format:\n" +
           JSON.stringify(
             {
@@ -193,9 +263,12 @@ export async function POST(req: NextRequest) {
         }[];
       }>(messages, apiKey, { userId: user.id, route: "/api/study-sets" });
 
-      // Respect what was requested (filter out extras if AI ignored "0")
-      const flashcards = numFlashcards > 0 ? (json.flashcards ?? []).slice(0, numFlashcards) : [];
-      const mcqs = numMCQs > 0 ? (json.mcqs ?? []).slice(0, numMCQs) : [];
+      // Validate structure and remove empty, placeholder, and duplicate cards.
+      const cleanedFlashcards = cleanGeneratedFlashcards(json.flashcards);
+      const cleanedMcqs = cleanGeneratedMcqs(json.mcqs);
+      rejectedGeneratedCards = cleanedFlashcards.rejected + cleanedMcqs.rejected;
+      const flashcards = numFlashcards > 0 ? cleanedFlashcards.cards.slice(0, numFlashcards) : [];
+      const mcqs = numMCQs > 0 ? cleanedMcqs.cards.slice(0, numMCQs) : [];
 
       const rows: Array<{
         setId: string;
@@ -263,5 +336,18 @@ export async function POST(req: NextRequest) {
     include: { cards: { orderBy: { createdAt: "asc" } } },
   });
 
-  return NextResponse.json({ studySet: fresh });
+  const generatedFlashcardCount = fresh?.cards.filter((card) => card.cardType === "flashcard").length ?? 0;
+  const generatedMcqCount = fresh?.cards.filter((card) => card.cardType === "mcq").length ?? 0;
+  const generatedShortfall = generate && sourceText.trim() &&
+    ((numFlashcards > 0 && generatedFlashcardCount < numFlashcards) || (numMCQs > 0 && generatedMcqCount < numMCQs));
+  const cardWarning = rejectedGeneratedCards > 0 || generatedShortfall;
+
+  return NextResponse.json({
+    studySet: fresh,
+    ...(createRoom ? { room: { topicId } } : {}),
+    ...(cardWarning ? {
+      warning: `${rejectedGeneratedCards > 0 ? `${rejectedGeneratedCards} low-quality or malformed card${rejectedGeneratedCards === 1 ? " was" : "s were"} skipped. ` : ""}The AI returned fewer valid cards than requested. Review the saved set and regenerate if it looks incomplete.`,
+      rejectedCards: rejectedGeneratedCards,
+    } : {}),
+  });
 }

@@ -1096,7 +1096,7 @@ model LessonContent {
 model ClassroomSettings {
   id              Int      @id @default(autoincrement())
   durationMinutes Int      @default(30)
-  testIntervalMin Int      @default(10)    // mini-test every N minutes
+  testIntervalMin Int      @default(30)    // learner check-in interval in minutes
   tokenCost       Int      @default(50)    // tokens to start class
   passThreshold   Float    @default(0.7)   // 70% to pass
   coinReward      Int      @default(10)    // coins for completing class
@@ -1206,6 +1206,7 @@ model ClassroomSession {
   topicId       String
   flowState     String   @default("ASSESSMENT") // ASSESSMENT→LEARNING→PRACTICE→QUIZ→REVIEW→MASTERED
   progress      Float    @default(0)
+  activeSeconds Int      @default(0)
   currentStep   Int      @default(0)
   totalSteps    Int      @default(6)
   startedAt     DateTime @default(now())

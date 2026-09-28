@@ -62,6 +62,7 @@ export type Screen =
   | "dataLab";
 
 export type CreateOption =
+  | "room"
   | "upload"
   | "paste"
   | "flashcards"

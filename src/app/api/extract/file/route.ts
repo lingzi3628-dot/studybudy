@@ -9,6 +9,7 @@ const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
  * Body: multipart/form-data with field "file"
  *
  * - PDF: extracts text via pdf-parse (dynamic import, wrapped in try/catch)
+ * - DOCX: extracts text via mammoth
  * - Text/.txt/.md/.csv: reads as UTF-8
  * - Image: returns friendly 415 error
  *
@@ -75,6 +76,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ text, filename: file.name, fileSize: file.size, mimeType });
     }
 
+    // Microsoft Word documents
+    if (name.endsWith(".docx") || mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
+      try {
+        const mammothModule = await import("mammoth");
+        const mammoth = (mammothModule as any).default || mammothModule;
+        const extracted = await mammoth.extractRawText({ buffer });
+        const text = extracted.value.slice(0, 30_000);
+        if (!text.trim()) return NextResponse.json({ error: "No readable text found in this document." }, { status: 422 });
+        return NextResponse.json({ text, filename: file.name, fileSize: file.size, mimeType });
+      } catch (docxError: any) {
+        return NextResponse.json({ error: `Word document extraction failed: ${docxError?.message ?? "unknown error"}` }, { status: 422 });
+      }
+    }
+
     // Image
     if (mimeType.startsWith("image/") || name.match(/\.(png|jpg|jpeg|gif|webp)$/)) {
       return NextResponse.json(
@@ -84,7 +99,7 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json(
-      { error: `Unsupported file type: ${mimeType || name}. Use PDF, .txt, .md, or paste text manually.` },
+        { error: `Unsupported file type: ${mimeType || name}. Use PDF, DOCX, .txt, .md, or paste text manually.` },
       { status: 415 }
     );
   } catch (e: any) {

@@ -2,7 +2,10 @@ import { detectRelevantBuiltinPlugins } from "@/lib/plugins/registry";
 import { executePlugin, type StoredPlugin } from "@/lib/plugins/executor";
 
 /** Execute only built-in tutor tools with clear user intent; external actions stay disabled. */
-export async function runTutorTools(message: string): Promise<string> {
+export async function runTutorTools(
+  message: string,
+  onStatus?: (status: { phase: "start" | "done"; tool: string; success?: boolean }) => void,
+): Promise<string> {
   const explicitCodeRun = /\b(run|execute)\b/i.test(message) &&
     (/\b(code|script|program)\b/i.test(message) || /```(?:python|py|javascript|js)/i.test(message));
   const asksTime = /\b(?:what (?:time|date) is it|what(?:'s| is) (?:the )?(?:time|date|day)|today(?:'s)? date|current (?:time|date)|what day is it)\b/i.test(message);
@@ -14,7 +17,8 @@ export async function runTutorTools(message: string): Promise<string> {
   }).slice(0, 2);
 
   if (selected.length === 0) return "";
-  const results = await Promise.all(selected.map((plugin) => {
+  const results = await Promise.all(selected.map(async (plugin) => {
+    onStatus?.({ phase: "start", tool: plugin.name });
     const stored: StoredPlugin = {
       id: `tutor-${plugin.name}`,
       name: plugin.name,
@@ -23,7 +27,9 @@ export async function runTutorTools(message: string): Promise<string> {
       config: { builtinName: plugin.name },
       enabled: true,
     };
-    return executePlugin(stored, message);
+    const result = await executePlugin(stored, message);
+    onStatus?.({ phase: "done", tool: plugin.name, success: result.success });
+    return result;
   }));
   return results.map((result) =>
     `[Tutor tool: ${result.pluginName}; ${result.success ? "success" : "failed"}]\n${result.output}`

@@ -94,12 +94,25 @@ export async function POST(
   }).catch(() => null);
   const apiKey = userRec?.encryptedApiKey ? decryptApiKey(userRec.encryptedApiKey) : null;
 
+  const sourceSets = await db.studySet.findMany({
+    where: { userId: user.id, topicId: session.topicId, sourceText: { not: null } },
+    orderBy: { createdAt: "desc" },
+    take: 6,
+    select: { title: true, sourceText: true },
+  }).catch(() => []);
+  const sourceContext = sourceSets
+    .filter((set) => set.sourceText?.trim())
+    .map((set) => `## ${set.title}\n${set.sourceText}`)
+    .join("\n\n")
+    .slice(0, 12_000);
+
   // 3. Generate 4 MCQ questions via AI
   const messages: ChatMessage[] = [
     {
       role: "system",
       content:
-        "You are a quiz generator. Generate 4 multiple-choice questions about the given topic. " +
+        "You are a quiz generator. Generate 4 clear multiple-choice questions about the lesson topic. " +
+        (sourceContext ? "Base every question and answer on the learner's supplied materials. Do not use generic filler questions or unrelated outside facts. " : "Avoid generic filler questions; test concrete definitions, relationships, examples, and applications. ") +
         "Return ONLY JSON (no prose, no code fences) in this exact shape: " +
         JSON.stringify(
           {
@@ -121,7 +134,7 @@ export async function POST(
       role: "user",
       content:
         `Topic: ${session.topic.name}\nSubject: ${session.topic.subject}\n` +
-        `Description: ${session.topic.description ?? "general"}`,
+        `Description: ${session.topic.description ?? "general"}${sourceContext ? `\n\nLEARNER MATERIALS:\n${sourceContext}` : ""}`,
     },
   ];
 

@@ -80,6 +80,8 @@ export async function POST(req: NextRequest) {
         "- 4 modules total, one per week.\n" +
         "- 3-5 items per module.\n" +
         "- The LAST item of the LAST module should be type='study_room_start' (it signals completion).\n" +
+        "- The first item in the first module MUST be a lesson. Never start a new learner with flashcards.\n" +
+        "- In the first module, place a lesson before practice; put flashcards after the lesson, then a quiz.\n" +
         "- Use a mix of item types across modules — variety helps learning.\n" +
         "- Difficulty: 'easy' | 'medium' | 'hard'. Start easy, ramp up.\n" +
         "- Item titles: 1-5 words, specific to the skill.\n" +
@@ -137,7 +139,7 @@ export async function POST(req: NextRequest) {
           skill,
           level,
           goal: goal || null,
-          subject: null,
+          subject: skill,
           topicId: null,
           roadmap: graph as any,
           status: "active",

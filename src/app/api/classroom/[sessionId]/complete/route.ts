@@ -19,11 +19,12 @@ export const runtime = "nodejs";
  * Returns: { summary: { xpGained, coinsGained, tokensGained, avgScore, masteryIncrease, newBadges } }
  */
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ sessionId: string }> }
 ) {
   const user = await getCurrentUser();
   const { sessionId } = await params;
+  const body = await req.json().catch(() => ({})) as { guidedSessionId?: string };
 
   // 1. Fetch session + verify ownership
   const session = await db.classSession.findUnique({
@@ -42,6 +43,23 @@ export async function POST(
   }
   if (session.status === "completed") {
     return NextResponse.json({ error: "This class has already been completed." }, { status: 400 });
+  }
+
+  const guidedSessionId = body.guidedSessionId?.trim();
+  if (guidedSessionId) {
+    const guidedSession = await db.classroomSession.findFirst({
+      where: { id: guidedSessionId, userId: user.id, topicId: session.topicId },
+      select: { id: true },
+    });
+    if (!guidedSession) return NextResponse.json({ error: "Study session not found." }, { status: 404 });
+    await db.classroomSession.update({
+      where: { id: guidedSession.id },
+      data: { status: "completed", flowState: "MASTERED", progress: 1, completedAt: new Date(), lastActivity: new Date() },
+    });
+    await db.studyRoomState.updateMany({
+      where: { userId: user.id, topicId: session.topicId, currentClassroomSessionId: guidedSession.id },
+      data: { currentClassroomSessionId: null },
+    }).catch(() => {});
   }
 
   // 2. Compute average test score

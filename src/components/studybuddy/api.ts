@@ -14,6 +14,7 @@ export type Card = {
   explanation: string | null;
   subject: string | null;
   topic: string | null;
+  topicId?: string | null;
   createdAt: string;
 };
 
@@ -203,6 +204,8 @@ export const api = {
     generate?: boolean;
     numFlashcards?: number;
     numMCQs?: number;
+    createRoom?: boolean;
+    topicId?: string;
     cards?: Array<{
       cardType: "flashcard" | "mcq";
       front?: string | null;
@@ -219,7 +222,7 @@ export const api = {
       body: JSON.stringify(body),
     });
     if (!r.ok) await err(r);
-    return r.json() as Promise<{ studySet: StudySet & { cards: Card[] } }>;
+    return r.json() as Promise<{ studySet: StudySet & { cards: Card[] }; room?: { topicId: string } }>;
   },
   uploadStudySet: async (formData: FormData) => {
     const r = await fetch("/api/study-sets", {
@@ -257,6 +260,8 @@ export const api = {
         correct_index: number;
         explanation: string;
       }[];
+      warning?: string;
+      rejectedCards?: number;
     }>;
   },
   generateLearningPath: async (body: { skill: string; level: string; goal?: string }) => {

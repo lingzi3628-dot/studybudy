@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
 
   // Load classroom settings
   let settings: any = await db.classroomSettings.findFirst().catch(() => null);
-  if (!settings) settings = { durationMinutes: 30, testIntervalMin: 10, tokenCost: 50, passThreshold: 0.7, coinReward: 10, xpReward: 20, dailyLimit: 1 };
+  if (!settings) settings = { durationMinutes: 30, testIntervalMin: 30, tokenCost: 50, passThreshold: 0.7, coinReward: 10, xpReward: 20, dailyLimit: 1 };
 
   // Mark ALL MASTERED sessions as completed (so they're never resumed)
   await db.classroomSession.updateMany({
@@ -92,8 +92,10 @@ export async function POST(req: NextRequest) {
     // Fetch lesson content (from cache or generate)
     const lessonBlocks = await getOrGenerateLesson(user.id, topic);
 
+    const classSession = await findOrCreateClassSession(user.id, topic.id, settings.durationMinutes, true);
+
     return NextResponse.json({
-      session,
+      session: { ...session, id: classSession.id, guidedSessionId: session.id, classSessionId: classSession.id, currentTestIndex: classSession.currentTestIndex },
       flowState: session.flowState,
       currentStep: session.currentStep,
       progress: session.progress,
@@ -142,6 +144,8 @@ export async function POST(req: NextRequest) {
     },
   });
 
+  const classSession = await findOrCreateClassSession(user.id, topic.id, settings.durationMinutes, false);
+
   // Update UserTopicFlow
   await db.userTopicFlow.upsert({
     where: { userId_topicId: { userId: user.id, topicId: topic.id } },
@@ -162,7 +166,7 @@ export async function POST(req: NextRequest) {
   const lessonBlocks = await getOrGenerateLesson(user.id, topic);
 
   return NextResponse.json({
-    session,
+    session: { ...session, id: classSession.id, guidedSessionId: session.id, classSessionId: classSession.id, currentTestIndex: classSession.currentTestIndex },
     flowState: session.flowState,
     currentStep: session.currentStep,
     progress: session.progress,
@@ -175,10 +179,36 @@ export async function POST(req: NextRequest) {
   });
 }
 
+async function findOrCreateClassSession(userId: string, topicId: string, durationMinutes: number, resume: boolean) {
+  const existing = resume ? await db.classSession.findFirst({
+    where: { userId, topicId, status: "in_progress" },
+    orderBy: { startTime: "desc" },
+  }) : null;
+  if (existing) return existing;
+  return db.classSession.create({
+    data: { userId, topicId, durationMinutes, status: "in_progress" },
+  });
+}
+
 /** Generate or fetch cached whiteboard lesson for a topic */
 async function getOrGenerateLesson(userId: string, topic: any): Promise<any[]> {
-  // Check cache first
-  const cached = await db.lessonContent.findFirst({
+  // Personal source material takes precedence over shared topic lesson cache.
+  // Keep the user's uploaded material private and generate from it per room.
+  const sourceSets = await db.studySet.findMany({
+    where: { userId, topicId: topic.id, sourceText: { not: null } },
+    orderBy: { createdAt: "desc" },
+    take: 6,
+    select: { title: true, sourceText: true },
+  }).catch(() => []);
+  const sourceContext = sourceSets
+    .filter((set) => set.sourceText?.trim())
+    .map((set) => `## ${set.title}\n${set.sourceText}`)
+    .join("\n\n")
+    .slice(0, 16_000);
+  const hasPersonalSources = sourceContext.length > 0;
+
+  // Only reuse shared lesson cache when this is a curriculum-only topic.
+  const cached = hasPersonalSources ? null : await db.lessonContent.findFirst({
     where: { topicId: topic.id },
     orderBy: { createdAt: "desc" },
   }).catch(() => null);
@@ -202,18 +232,22 @@ async function getOrGenerateLesson(userId: string, topic: any): Promise<any[]> {
         "Generate whiteboard content as a JSON array of blocks. Each block has a 'type' and 'content'. " +
         "Types: 'heading', 'text', 'equation', 'bullet'. " +
         "Generate 15-20 blocks covering the key concepts. Include 1-2 equations if applicable. " +
-        "Return ONLY the JSON array, no other text.",
+        "Return ONLY the JSON array, no other text. " +
+        (hasPersonalSources ? "Teach from the learner's supplied source materials. Keep claims grounded in those sources, organize them into a clear lesson, and do not invent missing details. " : ""),
     },
-    { role: "user", content: `Topic: ${topic.name}\nSubject: ${topic.subject}\nDescription: ${topic.description ?? "general"}` },
+    { role: "user", content: `Topic: ${topic.name}\nSubject: ${topic.subject}\nDescription: ${topic.description ?? "general"}${hasPersonalSources ? `\n\nLEARNER'S STUDY MATERIALS:\n${sourceContext}` : ""}` },
   ];
 
   try {
     const raw = await callAIJson<any[]>(messages, apiKey, { userId, route: "/api/classroom/start" });
     if (Array.isArray(raw) && raw.length > 0) {
-      // Cache
-      await db.lessonContent.create({
-        data: { topicId: topic.id, contentJson: raw as any },
-      }).catch(() => {});
+      // Source-grounded lesson text is private to this user; never write it to
+      // the topic-wide shared cache.
+      if (!hasPersonalSources) {
+        await db.lessonContent.create({
+          data: { topicId: topic.id, contentJson: raw as any },
+        }).catch(() => {});
+      }
       return raw;
     }
   } catch (e: any) {

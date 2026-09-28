@@ -15,17 +15,21 @@ export const runtime = "nodejs";
  * Returns: { ok: true }
  */
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ sessionId: string }> }
 ) {
   const user = await getCurrentUser();
   const { sessionId } = await params;
+  const body = await req.json().catch(() => ({})) as { activeSeconds?: number };
+  const activeSeconds = Number.isFinite(Number(body.activeSeconds))
+    ? Math.max(0, Math.floor(Number(body.activeSeconds)))
+    : undefined;
 
   // Only bump lastActivity — and only if the session belongs to this user.
   // Use updateMany so we don't 500 on a missing session id (returns count=0).
   const result = await db.classroomSession.updateMany({
     where: { id: sessionId, userId: user.id },
-    data: { lastActivity: new Date() },
+    data: { lastActivity: new Date(), ...(activeSeconds === undefined ? {} : { activeSeconds }) },
   }).catch(() => null);
 
   if (result && result.count > 0) {

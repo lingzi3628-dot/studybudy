@@ -29,7 +29,7 @@ export async function GET(
     include: {
       studySets: {
         where: { userId: user.id },
-        select: { id: true, title: true, createdAt: true, _count: { select: { cards: true } } },
+        select: { id: true, title: true, sourceType: true, createdAt: true, _count: { select: { cards: true } } },
         orderBy: { createdAt: "desc" },
         take: 20,
       },

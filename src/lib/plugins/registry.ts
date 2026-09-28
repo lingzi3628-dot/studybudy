@@ -97,6 +97,7 @@ const datetimePlugin: BuiltinPlugin = {
   name: "datetime",
   description: "Returns the current date and time. Use when the user asks 'what time is it' or 'what's today's date'.",
   triggers: [
+    /\bwhat (?:time|date) is it\b/i,
     /\bwhat(?:'s| is)\s+(?:the\s+)?(?:time|date|day)\b/i,
     /\bwhat\s+day\s+is\s+it\b/i,
     /\btoday's\s+date\b/i,
