@@ -44,7 +44,7 @@ import {
 } from "./voice-mode";
 
 type Attachment = {
-  type: "video" | "image" | "graph" | "conceptmap" | string;
+  type: "video" | "image" | "graph" | "conceptmap" | "source" | string;
   url: string | null;
   caption: string;
 };
@@ -65,6 +65,25 @@ type Conversation = {
   updatedAt: string;
   messages?: ChatMsg[];
 };
+
+const LAST_TUTOR_CONVERSATION_KEY = "studybuddy.tutor.lastConversationId";
+const TUTOR_MODE_STORAGE_KEY = "studybuddy.tutor.learningModes";
+type TutorLearningMode = "standard" | "explain" | "practice" | "hint" | "simpler";
+
+function readTutorLearningModes(): Record<string, TutorLearningMode> {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(TUTOR_MODE_STORAGE_KEY) ?? "{}");
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch { return {}; }
+}
+
+function saveTutorLearningMode(key: string, mode: TutorLearningMode) {
+  try {
+    const modes = readTutorLearningModes();
+    modes[key] = mode;
+    window.localStorage.setItem(TUTOR_MODE_STORAGE_KEY, JSON.stringify(modes));
+  } catch { /* Preference storage is best-effort. */ }
+}
 
 type ConceptMapSpec = {
   title?: string;
@@ -90,6 +109,7 @@ export function AITutorChat() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversation, setActiveConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<ChatMsg[]>([]);
+  const chatSessionRef = useRef(0);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [pendingImage, setPendingImage] = useState<string | null>(null); // base64 data URL for vision
@@ -109,6 +129,7 @@ export function AITutorChat() {
   // Phase 47 — which buddy is active for this conversation. Read from
   // localStorage on mount so the user's last choice is remembered.
   const [activeBuddyId, setActiveBuddyId] = useState<BuddyId>("study");
+  const [learningMode, setLearningMode] = useState<TutorLearningMode>("standard");
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [showCompare, setShowCompare] = useState(false);
   const [compareBuddies, setCompareBuddies] = useState<string[]>([]);
@@ -220,16 +241,52 @@ export function AITutorChat() {
   // Load conversation list
   const loadConversations = useCallback(async () => {
     try {
-      const r = await fetch("/api/tutor/conversations");
+      const r = await fetch("/api/tutor/conversations", { cache: "no-store" });
       const d = await r.json();
-      setConversations(d.conversations ?? []);
-    } catch {}
-    setLoading(false);
+      if (!r.ok) throw new Error(d.error ?? "Could not load chat history");
+      const nextConversations = d.conversations ?? [];
+      setConversations(nextConversations);
+
+      // Restore the last chat after refresh or when the tutor screen remounts.
+      const savedId = window.localStorage.getItem(LAST_TUTOR_CONVERSATION_KEY);
+      const restoreId = savedId === "__new__" ? null : savedId || nextConversations[0]?.id || null;
+      if (!restoreId) setLearningMode(readTutorLearningModes().__new__ ?? "standard");
+      if (restoreId) {
+        const single = await fetch(`/api/tutor/conversations?id=${encodeURIComponent(restoreId)}`, { cache: "no-store" });
+        const saved = await single.json();
+        if (single.ok && saved.conversation) {
+          setActiveConversation(saved.conversation);
+          setLearningMode(readTutorLearningModes()[restoreId] ?? "standard");
+          window.localStorage.setItem(LAST_TUTOR_CONVERSATION_KEY, restoreId);
+          setMessages((saved.conversation.messages ?? []).map((m: any) => ({
+            id: m.id,
+            role: m.role,
+            content: m.content,
+            attachments: Array.isArray(m.attachments) ? m.attachments : undefined,
+            createdAt: m.createdAt,
+          })));
+          return;
+        }
+        if (single.status === 404) {
+          window.localStorage.removeItem(LAST_TUTOR_CONVERSATION_KEY);
+        } else if (!single.ok) {
+          throw new Error(saved.error ?? "The last conversation could not be restored. Open Chat History to retry.");
+        }
+      }
+    } catch (e: any) {
+      setError(e?.message ?? "Chat history could not be loaded. Your saved chats may still be available when you retry.");
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
     loadConversations();
   }, [loadConversations]);
+
+  useEffect(() => () => {
+    chatSessionRef.current += 1;
+  }, []);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -241,10 +298,12 @@ export function AITutorChat() {
   // Load a conversation's messages
   const openConversation = async (id: string) => {
     try {
-      const r = await fetch(`/api/tutor/conversations?id=${id}`);
+      const r = await fetch(`/api/tutor/conversations?id=${id}`, { cache: "no-store" });
       const d = await r.json();
       if (d.conversation) {
         setActiveConversation(d.conversation);
+        window.localStorage.setItem(LAST_TUTOR_CONVERSATION_KEY, id);
+        setLearningMode(readTutorLearningModes()[id] ?? "standard");
         // Map DB messages to client ChatMsg shape
         const convMessages: ChatMsg[] = (d.conversation.messages ?? []).map((m: any) => ({
           id: m.id,
@@ -261,11 +320,19 @@ export function AITutorChat() {
 
   // Start a new conversation
   const newConversation = () => {
+    chatSessionRef.current += 1;
     setActiveConversation(null);
     setMessages([]);
+    window.localStorage.setItem(LAST_TUTOR_CONVERSATION_KEY, "__new__");
+    setLearningMode(readTutorLearningModes().__new__ ?? "standard");
     setError(null);
     setShowUpgrade(false);
     setShowSidebar(false);
+  };
+
+  const changeLearningMode = (mode: TutorLearningMode) => {
+    setLearningMode(mode);
+    saveTutorLearningMode(activeConversation?.id ?? "__new__", mode);
   };
 
   // Delete a conversation
@@ -273,6 +340,7 @@ export function AITutorChat() {
     if (!confirm("Delete this conversation?")) return;
     await fetch(`/api/tutor/conversations?id=${id}`, { method: "DELETE" });
     if (activeConversation?.id === id) {
+      window.localStorage.setItem(LAST_TUTOR_CONVERSATION_KEY, "__new__");
       setActiveConversation(null);
       setMessages([]);
     }
@@ -289,6 +357,7 @@ export function AITutorChat() {
     setPendingImage(null);
     setPendingDocument(null);
     setBusy(true);
+    const sessionAtSend = chatSessionRef.current;
     setError(null);
     setShowUpgrade(false);
 
@@ -333,6 +402,7 @@ export function AITutorChat() {
       dataSaver,
       // Phase 47: route to the right buddy prompt builder
       buddyId: activeBuddyId,
+      learningMode,
     });
 
     const finalizeStreamedMessage = (patch: Partial<ChatMsg>) => {
@@ -392,10 +462,20 @@ export function AITutorChat() {
         } catch {
           return;
         }
-        if (eventName === "delta") {
+        if (eventName === "meta") {
+          if (sessionAtSend !== chatSessionRef.current) return;
+          if (payload.conversationId) {
+            const conversation = { id: payload.conversationId, title: q.slice(0, 50), updatedAt: new Date().toISOString() };
+            setActiveConversation((current) => current?.id === conversation.id ? current : conversation);
+            window.localStorage.setItem(LAST_TUTOR_CONVERSATION_KEY, payload.conversationId);
+            saveTutorLearningMode(payload.conversationId, learningMode);
+          }
+        } else if (eventName === "delta") {
+          if (sessionAtSend !== chatSessionRef.current) return;
           acc += payload.text ?? "";
           finalizeStreamedMessage({ content: liveDisplay(acc) });
         } else if (eventName === "done") {
+          if (sessionAtSend !== chatSessionRef.current) return;
           gotDone = true;
           finalizeStreamedMessage({
             id: `ai-${Date.now()}`,
@@ -407,8 +487,11 @@ export function AITutorChat() {
           if (payload.examGen) autoGenerateExam(payload.examGen);
           if (!activeConversation && payload.conversationId) {
             setActiveConversation({ id: payload.conversationId, title: q.slice(0, 50), updatedAt: new Date().toISOString() });
+            window.localStorage.setItem(LAST_TUTOR_CONVERSATION_KEY, payload.conversationId);
+            saveTutorLearningMode(payload.conversationId, learningMode);
           }
         } else if (eventName === "error") {
+          if (sessionAtSend !== chatSessionRef.current) return;
           gotDone = true;
           setMessages((m) => {
             const copy = m.filter((msg) => msg.id !== streamId);
@@ -437,22 +520,28 @@ export function AITutorChat() {
 
       if (!gotDone && acc.trim()) {
         // Stream ended without a done event — keep what we have
-        finalizeStreamedMessage({ id: `ai-${Date.now()}`, content: liveDisplay(acc) });
+        if (sessionAtSend === chatSessionRef.current) {
+          finalizeStreamedMessage({ id: `ai-${Date.now()}`, content: liveDisplay(acc) });
+        }
       } else if (!gotDone && !acc.trim()) {
-        setMessages((m) => m.filter((msg) => msg.id !== streamId));
-        setError("AI didn't respond. Please try again.");
+        if (sessionAtSend === chatSessionRef.current) {
+          setMessages((m) => m.filter((msg) => msg.id !== streamId));
+          setError("AI didn't respond. Please try again.");
+        }
       }
 
       await loadConversations();
     } catch (e: any) {
       // Streaming failed (network / unsupported) — fall back to the classic endpoint
       try {
+        if (sessionAtSend !== chatSessionRef.current) return;
         const r = await fetch("/api/tutor/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: requestBody,
         });
         const d = await r.json();
+        if (sessionAtSend !== chatSessionRef.current) return;
         if (!r.ok) {
           setMessages((m) => m.filter((msg) => msg.id !== streamId));
           if (d.needsUpgrade || r.status === 402) {
@@ -484,6 +573,8 @@ export function AITutorChat() {
         if (d.examGen) autoGenerateExam(d.examGen);
         if (!activeConversation) {
           setActiveConversation({ id: d.conversationId, title: q.slice(0, 50), updatedAt: new Date().toISOString() });
+          window.localStorage.setItem(LAST_TUTOR_CONVERSATION_KEY, d.conversationId);
+          saveTutorLearningMode(d.conversationId, learningMode);
           await loadConversations();
         } else {
           await loadConversations();
@@ -1683,6 +1774,23 @@ export function AITutorChat() {
 
           {/* Input bar */}
           <div className="flex-shrink-0 border-t border-gray-200 bg-white p-3 pb-safe">
+            <div className="max-w-3xl mx-auto mb-2 flex items-center gap-2">
+              <label htmlFor="tutor-learning-mode" className="text-[11px] font-medium text-gray-500">Tutor mode</label>
+              <select
+                id="tutor-learning-mode"
+                value={learningMode}
+                onChange={(e) => changeLearningMode(e.target.value as TutorLearningMode)}
+                disabled={busy}
+                className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs text-gray-700 outline-none focus:ring-2 focus:ring-indigo-200"
+              >
+                <option value="standard">Standard</option>
+                <option value="explain">Explain step by step</option>
+                <option value="practice">Practice with me</option>
+                <option value="hint">Give me hints</option>
+                <option value="simpler">Use simpler language</option>
+              </select>
+              <span className="hidden sm:inline text-[10px] text-gray-400">Saved for this chat</span>
+            </div>
             {/* Pending image preview */}
             {pendingImage && (
               <div className="mb-2 flex items-center gap-2 p-2 bg-emerald-50 border border-emerald-200 rounded-xl">
@@ -1984,11 +2092,8 @@ function MessageBubble({
             </div>
           )}
 
-          {/* Thinking dropdown + proof badges (Phase 42) */}
-          {!isUser && msg.thinking && msg.thinking.length > 0 && (
-            <ThinkingDropdown thinking={msg.thinking} proof={msg.proof} />
-          )}
-          {!isUser && msg.proof && !msg.thinking && (
+          {/* Keep internal validation steps out of the learner-facing chat. */}
+          {!isUser && msg.proof && (
             <ProofBadges proof={msg.proof} />
           )}
 
@@ -2049,6 +2154,17 @@ function MessageBubble({
 }
 
 function AttachmentRenderer({ attachment, onSpecChange }: { attachment: Attachment; onSpecChange?: (newSpec: any) => void }) {
+  if (attachment.type === "source" && attachment.url) {
+    return (
+      <div className="rounded-lg border border-sky-100 bg-sky-50 px-3 py-2 flex items-start gap-2">
+        <span className="mt-0.5 text-[9px] font-bold uppercase tracking-wide text-sky-700">Source</span>
+        <a href={attachment.url} target="_blank" rel="noopener noreferrer" className="min-w-0 text-xs text-sky-800 hover:underline break-words">
+          {attachment.caption || attachment.url} ↗
+        </a>
+      </div>
+    );
+  }
+
   if (attachment.type === "video" && attachment.url) {
     const ytMatch = attachment.url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]+)/);
     const videoId = ytMatch?.[1];
@@ -2106,7 +2222,7 @@ function AttachmentRenderer({ attachment, onSpecChange }: { attachment: Attachme
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-1.5">
             <GitBranch className="w-3.5 h-3.5 text-indigo-500" />
-            <span className="text-[10px] font-bold uppercase text-indigo-500">Graph</span>
+            <span className="text-[10px] font-bold uppercase text-indigo-500">{spec?.type === "scene" ? "Drawing" : "Graph"}</span>
           </div>
           {spec && <DownloadGraphButton spec={spec} fileName={`graph-${spec.type ?? "custom"}.svg`} />}
         </div>
@@ -2193,7 +2309,7 @@ function MarkdownContent({ content, isUser }: { content: string; isUser: boolean
             "slopefield", "stemleaf", "frequency_polygon", "freeform",
             "argand", "contour", "vectorfield", "tessellation", "knot",
             "pictogram", "tally", "carroll", "ogive", "unitcircle",
-            "transform", "axes3d", "twoway", "erdiagram", "csv", "steps",
+            "transform", "axes3d", "twoway", "erdiagram", "csv", "steps", "scene",
           ]);
           if (
             (block.lang === "json" || block.lang === "text" || block.lang === "") &&
@@ -2567,62 +2683,6 @@ function CompareCard({ result, onPrefer }: { result: any; onPrefer: () => void }
         >
           👍 I prefer this one
         </button>
-      )}
-    </div>
-  );
-}
-
-// =====================================================================
-// ThinkingDropdown — shows the Proof Data Engine's thinking steps
-// in a collapsible dropdown (like DeepSeek/ChatGPT reasoning view)
-// =====================================================================
-function ThinkingDropdown({ thinking, proof }: { thinking: string[]; proof?: any }) {
-  const [expanded, setExpanded] = useState(false);
-
-  return (
-    <div className="mt-2 rounded-lg border border-gray-100 overflow-hidden">
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full px-3 py-1.5 flex items-center justify-between bg-gray-50 hover:bg-gray-100 transition text-[10px]"
-      >
-        <div className="flex items-center gap-2">
-          <Brain className="w-3 h-3 text-violet-500" />
-          <span className="font-semibold text-gray-600">
-            {expanded ? "Hide thinking" : "Show thinking"} ({thinking.length} steps)
-          </span>
-          {proof && (
-            <div className="flex items-center gap-1.5 ml-1">
-              {proof.curriculumMatch && <span className="text-emerald-500" title="Within curriculum">✓ curriculum</span>}
-              {proof.factualConfidence >= 80 && <span className="text-indigo-500" title="Fact-checked">✓ verified</span>}
-              {proof.readabilityScore >= 70 && <span className="text-amber-500" title="Readable">✓ readable</span>}
-              {!proof.passed && <span className="text-rose-500" title="Has warnings">⚠</span>}
-            </div>
-          )}
-        </div>
-        <ChevronLeft className={`w-3 h-3 text-gray-400 transition-transform ${expanded ? "rotate-90" : "-rotate-90"}`} />
-      </button>
-      {expanded && (
-        <div className="px-3 py-2 space-y-1 bg-white">
-          {thinking.map((step, i) => (
-            <div key={i} className="text-[10px] text-gray-500 font-mono leading-relaxed flex items-start gap-1.5">
-              <span className="text-gray-400 flex-shrink-0">{i + 1}.</span>
-              <span>{step}</span>
-            </div>
-          ))}
-          {proof && (
-            <div className="mt-2 pt-2 border-t border-gray-100 flex flex-wrap gap-2 text-[10px]">
-              <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">
-                Curriculum: {proof.curriculumMatch ? "✓" : "⚠"}
-              </span>
-              <span className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700">
-                Facts: {proof.factualConfidence}%
-              </span>
-              <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">
-                Readability: {proof.readabilityScore}%
-              </span>
-            </div>
-          )}
-        </div>
       )}
     </div>
   );

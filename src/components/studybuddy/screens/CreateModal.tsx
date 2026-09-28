@@ -45,7 +45,7 @@ const options: {
 
 type GenFlashcard = { front: string; back: string };
 type GenMcq = { question: string; options: string[]; correct_index: number; explanation: string };
-type GenResult = { flashcards: GenFlashcard[]; mcqs: GenMcq[] };
+type GenResult = { flashcards: GenFlashcard[]; mcqs: GenMcq[]; warning?: string; rejectedCards?: number };
 
 type ModalStep = "picker" | "input" | "generating" | "preview" | "saving" | "success";
 
@@ -273,6 +273,11 @@ export function CreateModal() {
                 <p className="font-semibold text-gray-900">{editedMcqs.length}</p>
               </div>
             </div>
+            {generated.warning && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                {generated.warning}
+              </div>
+            )}
 
             {editedFlashcards.length > 0 && (
               <div>

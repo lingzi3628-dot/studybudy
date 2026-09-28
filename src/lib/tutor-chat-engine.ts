@@ -23,6 +23,7 @@ import { getBuddy } from "@/lib/buddies/registry";
 import type { Buddy } from "@/lib/buddies/types";
 
 export type TutorAttachment = { type: string; url: string | null; caption: string };
+export type TutorLearningMode = "standard" | "explain" | "practice" | "hint" | "simpler";
 
 // ---------------------------------------------------------------
 // 1. Intent detection
@@ -62,6 +63,7 @@ export type TutorIntents = {
   wantsSteps: boolean;
   wantsSearch: boolean;
   wantsGraph: boolean;
+  wantsDrawing: boolean;
 };
 
 export function detectIntents(userMessage: string): TutorIntents {
@@ -104,6 +106,8 @@ export function detectIntents(userMessage: string): TutorIntents {
   const wantsERDiagram = /\b(er diagram|entity.?relationship|database schema|database design|access table|ms access|simple database|build a database|design a database)/i.test(userMessage);
   const wantsSteps = /\bstep by step\b|\bstep[- ]by[- ]step\b|\bshow your work\b|\bhow to solve\b|\bwork it out\b|\bworking for\b/i.test(userMessage) ||
                      (/\bsolve\b/i.test(userMessage) && /=/i.test(userMessage));
+  const wantsDrawing = /\b(draw|sketch|illustrate|visuali[sz]e|diagram|construction|construct)\b/i.test(userMessage) ||
+                       /\b(create|make|show)\s+(?:me\s+)?(?:a|an|the)?\s*(?:picture|drawing|diagram|concept map|mind map)\b/i.test(userMessage);
   const wantsSearch = /\bfind\b|\bsearch\b|\blook up\b|\bwhat is\b|\bwho is\b|\bwhen did\b|\bhow does\b/i.test(userMessage) && !wantsVideo &&
                       !wantsScatter && !wantsBar && !wantsHistogram && !wantsPie && !wantsVenn &&
                       !wantsNumberLine && !wantsTree && !wantsBoxPlot && !wantsVector && !wantsPolygon;
@@ -114,7 +118,7 @@ export function detectIntents(userMessage: string): TutorIntents {
                      wantsVectorField || wantsTessellation || wantsKnot ||
                      wantsPictogram || wantsTally || wantsCarroll || wantsOgive || wantsUnitCircle ||
                      wantsTransform || wantsAxes3D || wantsTwoWay ||
-                     wantsCSV || wantsERDiagram || wantsSteps;
+                     wantsCSV || wantsERDiagram || wantsSteps || wantsDrawing;
 
   return {
     wantsVideo, wantsImage, wantsFunctionPlot, wantsScatter, wantsBar, wantsHistogram,
@@ -122,7 +126,7 @@ export function detectIntents(userMessage: string): TutorIntents {
     wantsPolygon, wantsNetwork, wantsConceptMap, wantsArgand, wantsContour,
     wantsVectorField, wantsTessellation, wantsKnot, wantsPictogram, wantsTally,
     wantsCarroll, wantsOgive, wantsUnitCircle, wantsTransform, wantsAxes3D,
-    wantsTwoWay, wantsCSV, wantsERDiagram, wantsSteps, wantsSearch, wantsGraph,
+    wantsTwoWay, wantsCSV, wantsERDiagram, wantsSteps, wantsSearch, wantsGraph, wantsDrawing,
   };
 }
 
@@ -167,6 +171,19 @@ export async function runWebSearch(opts: {
           `- ${r.name ?? r.title ?? "Result"} (${r.url ?? r.link ?? ""})\n  ${r.snippet ?? r.description ?? ""}`
         ).join("\n");
         searchContext = `\n\nWEB SEARCH RESULTS for "${userMessage}":\n${resultLines}`;
+
+        if (intents.wantsSearch && !intents.wantsVideo) {
+          for (const result of results.slice(0, 4)) {
+            const url = result.url ?? result.link ?? "";
+            if (/^https?:\/\//i.test(url)) {
+              searchAttachments.push({
+                type: "source",
+                url,
+                caption: String(result.name ?? result.title ?? "Web source").slice(0, 180),
+              });
+            }
+          }
+        }
 
         // Find YouTube videos for video requests
         if (intents.wantsVideo) {
@@ -223,7 +240,7 @@ export async function runWebSearch(opts: {
 const STUDY_PROMPT_GRAPH_RULES = `SPECIAL CAPABILITIES — when the user asks, you can do these (the system has already fetched the content for you, just describe and reference it):
 
 - VIDEO: When the user asks for a video, you have been given YouTube URLs in the web search context above. Reference them in your reply like "Here's a YouTube video that explains it well: [Title](URL)".
-- IMAGE: When the user asks for an image/diagram, mention that you've attached an image below.
+- IMAGE: When the user asks for a photo or real-world image, mention that you've attached an image below. Drawings and diagrams are rendered from the mathgraph block.
 
 GRAPHING & DRAWING — when the user asks you to draw, plot, sketch, or illustrate something, you MUST include a fenced code block tagged "mathgraph" containing a JSON object. The frontend parses this and renders the appropriate visual as inline SVG.
 
@@ -249,15 +266,14 @@ CRITICAL RULES FOR THE mathgraph BLOCK:
   * Inequalities → numberline
   * Databases → erdiagram
   * Spreadsheets → csv
-  * Anything else → freeform (raw SVG)
+  * Any custom drawing or construction → scene
 - DOUBLE-CHECK your JSON is valid before outputting — no trailing commas, no missing brackets.
 - Include ALL required fields for the chosen type — check the schema reference above.
 
-The "type" field tells the frontend which renderer to use. Available types:
-1. function 2. scatter 3. bar 4. histogram 5. pie 6. venn 7. numberline 8. tree 9. network 10. vector 11. polygon 12. boxplot 13. slopefield 14. stemleaf 15. frequency_polygon 16. freeform 17. argand 18. contour 19. vectorfield 20. tessellation 21. knot 22. pictogram 23. tally 24. carroll 25. ogive 26. unitcircle 27. transform 28. axes3d 29. twoway 30. erdiagram 31. csv 32. steps
+The "type" field tells the frontend which renderer to use. Available types include specialized math renderers and the general-purpose "scene" renderer.
 
 GENERAL RULES:
-- ALWAYS pick the MOST APPROPRIATE graph type from the 32 types. Match by the user's question:
+- Pick a specialized type when it is a precise mathematical chart or structure. Use "scene" for custom diagrams, geometry constructions, labeled illustrations, and visuals that do not fit a specialized type:
   * "show 5 apples in pictogram" → pictogram
   * "tally the votes: A=4, B=7" → tally
   * "sort shapes by red AND square" → carroll
@@ -273,7 +289,10 @@ GENERAL RULES:
   * "build me an Excel sheet / spreadsheet / worksheet for [topic]" → csv
   * "draw a database schema / ER diagram / Access-style tables" → erdiagram
   * "solve ... step by step" / "show your work" / "explain how to solve" → steps
-- For anything not covered by the 32 types, use "freeform" with raw SVG.
+- For custom drawings, use a validated "scene" JSON spec; never output raw SVG.
+- Scene format: {"type":"scene","title":"...","width":1000,"height":750,"elements":[...]}. Coordinates use x=0–1000 and y=0–750.
+- Scene elements: rect {x,y,width,height,label?}, circle {cx,cy,r,label?}, ellipse {cx,cy,rx,ry,label?}, line/arrow {x1,y1,x2,y2,label?}, text {x,y,text}, polygon {points:[[x,y],...],label?}. Elements may include stroke and fill colors.
+- For constructions, include the construction lines/arcs with circles and lines, mark and label vertices, and show the important steps. For concept maps and processes, use labeled shapes connected by arrows and keep labels readable.
 
 CRITICAL RULES — NO MARKDOWN TABLES WHEN A GRAPH IS REQUESTED:
 - For database/spreadsheet requests, ALWAYS include a fenced \`\`\`mathgraph ...\`\`\` code block with the appropriate JSON spec ("erdiagram" or "csv"). Do NOT show plain markdown tables in your reply prose.
@@ -315,8 +334,11 @@ export async function buildTutorSystemPrompt(opts: {
   dataSaver: boolean;
   imageDataUrl: string | null;
   searchContext: string;
+  toolResults?: string;
+  learningMode?: TutorLearningMode;
 }): Promise<{ systemContent: string; teachingProfile: ReturnType<typeof buildTeachingProfile>; curriculumContext: string }> {
-  const { user, buddy, buddyId, userMessage, dataSaver, imageDataUrl, searchContext } = opts;
+  const { user, buddy, buddyId, userMessage, dataSaver, imageDataUrl, searchContext, toolResults = "", learningMode = "standard" } = opts;
+  const completeContext = [searchContext, toolResults].filter(Boolean).join("\n\n");
 
   const teachingProfile = buildTeachingProfile(user.grade ?? "Form 1");
   const curriculumContext = buildCurriculumContextResolved(user.grade ?? "Form 1");
@@ -355,7 +377,7 @@ export async function buildTutorSystemPrompt(opts: {
   let systemContent: string;
   if (buddyId === "study") {
     // Backward-compat path — exact same prompt as Phase 1-51.
-    systemContent = `You are StudyBuddy, a friendly AI tutor for Kenyan students (CBC / KCSE / KPSEA / KJSEA curriculum). ${teachingProfile.systemPromptSuffix}${curriculumContext}${dbCurriculumContext}${searchContext}
+    systemContent = `You are StudyBuddy, a friendly AI tutor for Kenyan students (CBC / KCSE / KPSEA / KJSEA curriculum). ${teachingProfile.systemPromptSuffix}${curriculumContext}${dbCurriculumContext}${completeContext}
 ${dataSaver ? `\nDATA SAVER MODE is ON. Keep your reply concise — target 1-2 short paragraphs (max ~150 words). Skip verbose examples and unnecessary elaboration. Lead with the direct answer; only add explanation if the user asks for it.\n` : ``}
 
 ${STUDY_PROMPT_GRAPH_RULES}`;
@@ -367,13 +389,31 @@ ${STUDY_PROMPT_GRAPH_RULES}`;
       currentModel: user.currentModel ?? "study_buddy_free",
       userMessage,
       dataSaver,
-      searchContext,
+      searchContext: completeContext,
       curriculumContext,
       dbCurriculumContext,
       teachingProfileSuffix: teachingProfile.systemPromptSuffix,
       hasImage: !!imageDataUrl,
       gradeBand: undefined,
     });
+  }
+
+  if (toolResults) {
+    systemContent += "\n\nTUTOR TOOL RESULTS: A tool result is included in the context above. Use it when relevant, preserve exact calculation/code output, and briefly tell the learner which tool you used. If a tool result reports failure, say that clearly and continue with a safe explanation instead of pretending it succeeded.";
+  }
+
+  const learningModeInstructions: Record<TutorLearningMode, string> = {
+    standard: "",
+    explain: "Teach this clearly in small numbered steps. Include one short example when it helps, and define unfamiliar terms.",
+    practice: "Use a practice-first teaching style. Ask one focused question at a time and let the learner attempt it before revealing the answer. If they asked a direct factual question, answer briefly, then offer one practice question.",
+    hint: "Give the smallest useful hint first. Do not reveal the full solution unless the learner explicitly asks for it. For factual questions, give a concise clue and invite a guess.",
+    simpler: "Use plain, age-appropriate language, short sentences, and explain any necessary technical word. Keep the answer concise.",
+  };
+  if (learningMode !== "standard") {
+    systemContent += `\n\nLEARNER-SELECTED TUTOR MODE (${learningMode}): ${learningModeInstructions[learningMode]}`;
+  }
+  if (searchContext.includes("WEB SEARCH RESULTS")) {
+    systemContent += "\n\nSOURCE CITATIONS: For claims that rely on the web results above, cite the matching result inline using a Markdown link with its supplied title and URL. Do not invent links. Distinguish sourced facts from your own explanation.";
   }
 
   return { systemContent, teachingProfile, curriculumContext };
@@ -405,7 +445,7 @@ const KNOWN_GRAPH_TYPES = new Set([
   "slopefield", "stemleaf", "frequency_polygon", "freeform",
   "argand", "contour", "vectorfield", "tessellation", "knot",
   "pictogram", "tally", "carroll", "ogive", "unitcircle",
-  "transform", "axes3d", "twoway", "erdiagram", "csv", "steps",
+  "transform", "axes3d", "twoway", "erdiagram", "csv", "steps", "scene",
 ]);
 
 function tryParseGraphSpec(raw: string): any | null {
@@ -542,6 +582,33 @@ export async function parseGraphAttachments(opts: {
         url: null,
         caption: JSON.stringify(correctedSpec),
       });
+    }
+
+    // Recover when a model explains a requested drawing but omits its spec.
+    // This keeps the drawing format generic and avoids one-off intent handlers.
+    if (intents.wantsDrawing && !intents.wantsConceptMap && attachments.length === 0) {
+      try {
+        const sceneReply = await callAI([
+          {
+            role: "system",
+            content: "Create a clear educational drawing as ONLY one JSON object. Use {\"type\":\"scene\",\"title\":\"...\",\"elements\":[...]}. Use scene elements of kind rect, circle, ellipse, line, arrow, text, or polygon. Coordinates: x 0–1000, y 0–750. Include readable labels, show important construction/relationship details, and do not output SVG, markdown, or prose.",
+          },
+          {
+            role: "user",
+            content: `Drawing requested: ${userMessage.slice(0, 1200)}\n\nTutor explanation for context: ${reply.slice(0, 1800)}`,
+          },
+        ], null, { userId, route: "/api/tutor/chat/retry-drawing" });
+        const recovered = tryParseGraphSpec(sceneReply);
+        if (recovered) {
+          recovered.type = "scene";
+          const validation = validateAndCorrectGraphSpec(recovered);
+          if (validation.valid) {
+            attachments.push({ type: "graph", url: null, caption: JSON.stringify(validation.correctedSpec) });
+          }
+        }
+      } catch (drawingErr: any) {
+        console.error("[tutor-engine] drawing recovery failed:", drawingErr?.message);
+      }
     }
 
     // 4) Concept map fallback synthesis (from reply structure)

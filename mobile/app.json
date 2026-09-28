@@ -1,0 +1,38 @@
+{
+  "expo": {
+    "name": "StudyBuddy",
+    "slug": "studybuddy-mobile",
+    "scheme": "studybuddy",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "icon": "./assets/icon.png",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "app.studybuddy.mobile"
+    },
+    "android": {
+      "package": "app.studybuddy.mobile",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#6657E8"
+      }
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-font",
+      [
+        "expo-notifications",
+        {
+          "color": "#6657E8",
+          "defaultChannel": "study-reminders"
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "d4d97d0e-6f9a-49aa-8579-a869ca8dacbc"
+      }
+    }
+  }
+}

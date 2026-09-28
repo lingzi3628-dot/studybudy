@@ -177,6 +177,8 @@ export function GraphRenderer({ spec, onSpecChange }: { spec: GraphSpec; onSpecC
       return <FrequencyPolygonSVG spec={spec} />;
     case "freeform":
       return <FreeformSVG spec={spec} />;
+    case "scene":
+      return <SceneSVG spec={spec} />;
     case "argand":
       return <ArgandSVG spec={spec} />;
     case "contour":
@@ -217,10 +219,59 @@ export function GraphRenderer({ spec, onSpecChange }: { spec: GraphSpec; onSpecC
           vector, polygon, boxplot, slopefield, stemleaf, frequency_polygon,
           freeform, argand, contour, vectorfield, tessellation, knot,
           pictogram, tally, carroll, ogive, unitcircle, transform, axes3d,
-          twoway, erdiagram, csv, steps.
+          twoway, erdiagram, csv, steps, scene.
         </div>
       );
   }
+}
+
+/** General-purpose diagram renderer using validated SVG primitives, never raw markup. */
+function SceneSVG({ spec }: { spec: any }) {
+  const elements = Array.isArray(spec?.elements) ? spec.elements : [];
+  if (!elements.length) return <div className="p-3 text-xs text-rose-600">This drawing could not be rendered.</div>;
+
+  const labelPosition = (el: any) => {
+    if (el.kind === "circle") return [el.cx, el.cy];
+    if (el.kind === "ellipse") return [el.cx, el.cy];
+    if (el.kind === "rect") return [el.x + el.width / 2, el.y + el.height / 2];
+    if (el.kind === "line" || el.kind === "arrow") return [(el.x1 + el.x2) / 2, (el.y1 + el.y2) / 2 - 8];
+    if (el.kind === "polygon" && Array.isArray(el.points) && el.points.length) {
+      return [el.points.reduce((sum: number, p: number[]) => sum + p[0], 0) / el.points.length,
+        el.points.reduce((sum: number, p: number[]) => sum + p[1], 0) / el.points.length];
+    }
+    return [el.x, el.y];
+  };
+
+  return (
+    <div className="w-full overflow-hidden rounded-lg bg-white">
+      <svg viewBox="0 0 1000 750" role="img" aria-label={spec.title ?? "AI generated diagram"} className="block w-full h-auto max-h-[560px]">
+        <defs>
+          <marker id="studybuddy-scene-arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto" markerUnits="strokeWidth">
+            <path d="M0,0 L10,4 L0,8 z" fill="#475569" />
+          </marker>
+        </defs>
+        <rect x="0" y="0" width="1000" height="750" fill="#ffffff" />
+        {elements.map((el: any, i: number) => {
+          const stroke = el.stroke ?? "#334155";
+          const fill = el.fill ?? "#e0e7ff";
+          const common = { key: `scene-${i}`, stroke, fill, strokeWidth: 2 };
+          let shape: ReactElement | null = null;
+          switch (el.kind) {
+            case "rect": shape = <rect {...common} x={el.x} y={el.y} width={el.width} height={el.height} rx={el.rx ?? 8} />; break;
+            case "circle": shape = <circle {...common} cx={el.cx} cy={el.cy} r={el.r} />; break;
+            case "ellipse": shape = <ellipse {...common} cx={el.cx} cy={el.cy} rx={el.rx} ry={el.ry} />; break;
+            case "line":
+            case "arrow": shape = <line {...common} fill="none" x1={el.x1} y1={el.y1} x2={el.x2} y2={el.y2} markerEnd={el.kind === "arrow" ? "url(#studybuddy-scene-arrow)" : undefined} />; break;
+            case "polygon": shape = Array.isArray(el.points) ? <polygon {...common} points={el.points.map((p: number[]) => p.join(",")).join(" ")} /> : null; break;
+            case "text": shape = <text key={`scene-${i}`} x={el.x} y={el.y} fill={stroke} fontSize={Math.max(12, Math.min(32, el.fontSize ?? 20))} textAnchor={el.anchor ?? "middle"}>{el.text ?? el.label}</text>; break;
+          }
+          const label = typeof el.label === "string" && el.kind !== "text" ? el.label : null;
+          const [lx, ly] = labelPosition(el);
+          return <g key={`scene-group-${i}`}>{shape}{label && <text x={lx} y={ly} fill="#0f172a" fontSize="18" textAnchor="middle" dominantBaseline="middle" pointerEvents="none">{label}</text>}</g>;
+        })}
+      </svg>
+    </div>
+  );
 }
 
 // =====================================================================

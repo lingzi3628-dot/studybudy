@@ -5,6 +5,7 @@ import { decryptApiKey } from "@/lib/crypto";
 import { callAIJson, type ChatMessage } from "@/lib/ai";
 import { checkRateLimit, refundRateLimit } from "@/lib/rate-limit";
 import { checkAndDeductTokens, refundTokens } from "@/lib/monetization";
+import { cleanGeneratedFlashcards, cleanGeneratedMcqs } from "@/lib/card-quality";
 
 export const runtime = "nodejs";
 
@@ -56,6 +57,7 @@ export async function POST(req: NextRequest) {
       content:
         `You are an expert exam prep tutor. Based on the following study material, generate ${whatToGenerate}.\n` +
         `Subject: ${subject ?? "General"}\nTopic: ${topic ?? "General"}\n` +
+        "Use only facts supported by the supplied material and topic. Each flashcard front must ask one clear question or name one term; the back must give its direct, useful answer. Avoid vague prompts, unrelated facts, repeated cards, and template/example text. If the material does not support enough cards, return fewer rather than inventing.\n" +
         "Return ONLY valid JSON in this format:\n" +
         JSON.stringify(
           {
@@ -97,16 +99,21 @@ export async function POST(req: NextRequest) {
     }>(messages, apiKey, { userId: user.id, route: "/api/generate/cards" });
 
     // Respect what the caller actually asked for (AI sometimes ignores "0")
-    const filteredFlashcards = numFlashcards > 0
-      ? (json.flashcards ?? []).slice(0, numFlashcards)
-      : [];
-    const filteredMcqs = numMCQs > 0
-      ? (json.mcqs ?? []).slice(0, numMCQs)
-      : [];
+    const cleanedFlashcards = cleanGeneratedFlashcards(json.flashcards);
+    const cleanedMcqs = cleanGeneratedMcqs(json.mcqs);
+    const filteredFlashcards = numFlashcards > 0 ? cleanedFlashcards.cards.slice(0, numFlashcards) : [];
+    const filteredMcqs = numMCQs > 0 ? cleanedMcqs.cards.slice(0, numMCQs) : [];
+    const shortfall = (numFlashcards > 0 && filteredFlashcards.length < numFlashcards) ||
+      (numMCQs > 0 && filteredMcqs.length < numMCQs);
+    const qualityWarning = cleanedFlashcards.rejected + cleanedMcqs.rejected > 0 || shortfall;
 
     return NextResponse.json({
       flashcards: filteredFlashcards,
       mcqs: filteredMcqs,
+      rejectedCards: cleanedFlashcards.rejected + cleanedMcqs.rejected,
+      warning: qualityWarning
+        ? "Some cards were incomplete, duplicated, or malformed, so they were removed. The AI may also have returned fewer cards than requested. Review the remaining cards before saving or retry generation."
+        : undefined,
       remaining: rl.remaining,
       tokenBalance: deduct.newBalance,
     });

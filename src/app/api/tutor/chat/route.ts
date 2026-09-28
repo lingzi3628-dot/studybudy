@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { callAI, type ChatMessage as AIMessage } from "@/lib/ai";
 import { checkAndDeductTokens, refundTokens } from "@/lib/monetization";
 import { getBuddy, isValidBuddyId, DEFAULT_BUDDY_ID } from "@/lib/buddies/registry";
+import { runTutorTools } from "@/lib/tutor-tools";
 import {
   detectIntents,
   runWebSearch,
@@ -48,6 +49,8 @@ export async function POST(req: NextRequest) {
   const imageDataUrl = (body?.image ?? "").toString().trim() || null;
   // Phase 45: Data Saver mode
   const dataSaver = !!body?.dataSaver;
+  const allowedLearningModes = ["standard", "explain", "practice", "hint", "simpler"] as const;
+  const learningMode = allowedLearningModes.includes(body?.learningMode) ? body.learningMode : "standard";
   // Phase 47/61: Buddy routing — if the client sends a buddyId, use it.
   // If not, fall back to the user's track to pick the right default buddy.
   // This ensures the AI Tutor persona matches the user's education track
@@ -119,11 +122,11 @@ export async function POST(req: NextRequest) {
     const intents = detectIntents(userMessage);
 
     // 5. Web search for general queries (and videos, images) — engine
-    const { searchContext, searchAttachments } = await runWebSearch({
+    const [{ searchContext, searchAttachments }, toolContext] = await Promise.all([runWebSearch({
       userMessage,
       intents,
       dataSaver,
-    });
+    }), runTutorTools(userMessage)]);
     const attachments: Array<{ type: string; url: string | null; caption: string }> = [...searchAttachments];
 
     // 6. Build the system prompt (engine) + assemble AI messages
@@ -135,6 +138,8 @@ export async function POST(req: NextRequest) {
       dataSaver,
       imageDataUrl,
       searchContext,
+      toolResults: toolContext,
+      learningMode,
     });
 
     const aiMessages: AIMessage[] = [

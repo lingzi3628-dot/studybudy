@@ -12,6 +12,7 @@ import {
   postProcessReply,
 } from "@/lib/tutor-chat-engine";
 import { checkSseOpen, releaseSse } from "@/lib/sse-rate-limit";
+import { runTutorTools } from "@/lib/tutor-tools";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -72,6 +73,8 @@ export async function POST(req: NextRequest) {
   const userMessage = (body?.message ?? "").toString().trim();
   const imageDataUrl = (body?.image ?? "").toString().trim() || null;
   const dataSaver = !!body?.dataSaver;
+  const allowedLearningModes = ["standard", "explain", "practice", "hint", "simpler"] as const;
+  const learningMode = allowedLearningModes.includes(body?.learningMode) ? body.learningMode : "standard";
   const requestedBuddyId = (body?.buddyId ?? "").toString().trim();
   const buddyId = isValidBuddyId(requestedBuddyId) ? requestedBuddyId : DEFAULT_BUDDY_ID;
   const buddy = getBuddy(buddyId);
@@ -141,7 +144,10 @@ export async function POST(req: NextRequest) {
     });
 
     const intents = detectIntents(userMessage);
-    const { searchContext, searchAttachments } = await runWebSearch({ userMessage, intents, dataSaver });
+    const [{ searchContext, searchAttachments }, toolContext] = await Promise.all([
+      runWebSearch({ userMessage, intents, dataSaver }),
+      runTutorTools(userMessage),
+    ]);
     const { systemContent } = await buildTutorSystemPrompt({
       user,
       buddy,
@@ -150,6 +156,8 @@ export async function POST(req: NextRequest) {
       dataSaver,
       imageDataUrl,
       searchContext,
+      toolResults: toolContext,
+      learningMode,
     });
 
     const aiMessages: AIMessage[] = [
