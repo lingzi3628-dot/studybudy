@@ -128,6 +128,7 @@ function MainApp() {
   useEffect(() => { const subscription = addNotificationResponseReceivedListener((response) => { if (response.notification.request.content.data?.screen === 'timetable') setScreen('timetable'); }); return () => subscription.remove(); }, []);
   const showNotifications = async () => { if (!token) return; try { await request('/api/notifications', token, { method: 'POST' }); const data = await request('/api/notifications', token); setUnreadNotifications(data.unreadCount || 0); const list = (data.notifications || []).slice(0, 8); if (!list.length) { Alert.alert('You’re all caught up', 'StudyBuddy will let you know when something needs your attention.'); return; } Alert.alert('Notifications', list.map((n: any) => `${n.read ? '•' : '●'} ${n.message}`).join('\n\n'), [{ text: 'Mark all read', onPress: async () => { await request('/api/notifications/read', token, { method: 'POST', body: JSON.stringify({ all: true }) }); setUnreadNotifications(0); } }, { text: 'Done', style: 'cancel' }]); } catch (error) { Alert.alert('Notifications unavailable', error instanceof Error ? error.message : 'Please try again.'); } };
   const refresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
+  const openLibrary = () => { setScreen('library'); void load(); };
   const openSet = async (set: StudySet) => {
     if (!token) return;
     try {
