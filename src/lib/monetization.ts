@@ -122,34 +122,34 @@ const FLAT_COSTS: Record<string, number> = {
 // These are intentionally generous — a free user can use the AI tutor
 // 30 times per day before being asked to upgrade.
 const FREE_DAILY_LIMITS: Record<string, number> = {
-  search: 50,
-  cards: 10,
-  quiz: 20,
-  tutor: 30,
-  graph: 50,
-  translate: 30,
-  learning_path: 5,
-  image_search: 30,
-  video_search: 20,
-  concept_map: 5,
-  ai_teacher: 30,
-  path_lesson: 15,
-  path_flashcards: 15,
-  path_quiz: 15,
-  whiteboard_solver: 20,
-  cover_image: 30,
-  voice_transcribe: 10,
-  tts: 10,
-  classroom: 10,
+  search: 200,
+  cards: 50,
+  quiz: 100,
+  tutor: 200,
+  graph: 200,
+  translate: 100,
+  learning_path: 20,
+  image_search: 100,
+  video_search: 50,
+  concept_map: 20,
+  ai_teacher: 200,
+  path_lesson: 50,
+  path_flashcards: 50,
+  path_quiz: 50,
+  whiteboard_solver: 50,
+  cover_image: 50,
+  voice_transcribe: 30,
+  tts: 30,
+  classroom: 50,
   // Phase 56 — AI App Dev tooling (generous: iterating on prompts is the point)
-  playground: 50,
+  playground: 500,
 };
 
 // ---------------------------------------------------------------------
 // Daily refill constants
 // ---------------------------------------------------------------------
 
-const FREE_DAILY_TOKEN_ALLOWANCE = 500;
+const FREE_DAILY_TOKEN_ALLOWANCE = 5000;
 const PREMIUM_DEFAULT_MONTHLY_ALLOWANCE = 5000;
 const DAILY_COIN_FLOOR = 50; // coins reset to this if below
 
