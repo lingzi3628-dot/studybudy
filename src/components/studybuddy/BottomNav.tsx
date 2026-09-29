@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Home, Search, Plus, BarChart3, User, Users, Lock, Calendar, Compass } from "lucide-react";
+import { Home, Search, Plus, BarChart3, User, Users, Lock, Calendar, Compass, Gamepad2 } from "lucide-react";
 import { useApp, type Screen } from "./store";
 import { useI18n } from "@/lib/useI18n";
 
@@ -197,6 +197,7 @@ export function Sidebar() {
     { key: "explore", label: "Explore", icon: Compass },
     { key: "progress", label: t("nav.progress"), icon: BarChart3 },
     { key: "calendar", label: t("nav.calendar"), icon: Calendar },
+    { key: "gameHub", label: "Games", icon: Gamepad2 },
     ...(isFamilyParent && !isFamilyChild
       ? [{ key: "parent" as Screen, label: t("nav.children"), icon: Users }]
       : []),

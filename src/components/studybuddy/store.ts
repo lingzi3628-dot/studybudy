@@ -59,7 +59,8 @@ export type Screen =
   | "explore"
   | "chatbotPlayground"
   | "aiTemplates"
-  | "dataLab";
+  | "dataLab"
+  | "gameHub";
 
 export type CreateOption =
   | "room"

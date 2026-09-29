@@ -113,6 +113,7 @@ model User {
   deployedBots          DeployedBot[]
   // Phase 72 — knowledge base sources (RAG)
   knowledgeSources      BotKnowledgeSource[]
+  studySessions         StudySession[]
 
   // Relations for search settings are handled in SearchSettings model
 }
@@ -1736,8 +1737,12 @@ model StudySession {
   flashcardsReviewed Int   @default(0)
   quizzesTaken    Int      @default(0)
   topicsStudied   Int      @default(0)
+  // Phase 80 — earned play time (30 min study = 600s play)
+  earnedPlaySeconds Int   @default(0)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @default(now()) @updatedAt
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([status])
@@ -2214,4 +2219,35 @@ model BotPlugin {
 
   @@unique([botId, name])
   @@index([botId])
+}
+
+// === Phase 80 — Entertainment & Games Hub ===
+//
+// Users earn play time by studying. 30 minutes of study = 10 minutes of
+// game time. Games are uploaded by the admin as ZIP files (HTML5 games)
+// and served via iframe.
+//
+// The hub looks like a Play Store: categories, featured, most played, new.
+
+model Game {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  category    String   @default("Arcade")  // Arcade, Puzzle, Strategy, Racing, Adventure, Educational, Sports
+  thumbnailUrl String?
+  gameUrl     String   @db.Text  // path to the game's index.html (e.g. /games/[id]/index.html)
+  fileSize    Int      @default(0)  // bytes
+  version     String   @default("1.0.0")
+  isFeatured  Boolean  @default(false)
+  isActive    Boolean  @default(true)
+  playCount   Int      @default(0)
+  rating      Float    @default(0)  // 0-5 stars
+  minStudyMinutes Int  @default(30)  // minutes of study required to unlock
+  playTimeMinutes Int  @default(10)  // minutes of play time granted
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([category])
+  @@index([isFeatured])
+  @@index([isActive])
 }
