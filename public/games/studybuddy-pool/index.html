@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>StudyBuddy Pool</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#1a1a2e;color:#fff;font-family:system-ui,sans-serif;overflow:hidden;touch-action:none}
+canvas{display:block;margin:0 auto;cursor:crosshair}
+.hud{position:fixed;top:0;left:0;right:0;padding:10px 16px;background:rgba(0,0,0,0.5);display:flex;justify-content:space-between;align-items:center;z-index:10}
+.hud span{font-size:14px;font-weight:700}
+#power{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);width:200px;height:30px;background:rgba(255,255,255,0.1);border-radius:15px;overflow:hidden;z-index:10}
+#power-bar{height:100%;width:0%;background:linear-gradient(90deg,#10b981,#f59e0b,#ef4444);transition:width 0.1s;border-radius:15px}
+.msg{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);font-size:24px;font-weight:900;text-align:center;z-index:20;pointer-events:none;text-shadow:0 0 20px rgba(124,58,237,0.8)}
+</style>
+</head>
+<body>
+<div class="hud">
+<span>Player: <b id="p1">0</b></span>
+<span id="turn">Your turn — aim and shoot!</span>
+<span>AI: <b id="p2">0</b></span>
+</div>
+<div id="power"><div id="power-bar"></div></div>
+<div class="msg" id="msg" style="display:none"></div>
+<canvas id="c"></canvas>
+<script>
+const cv=document.getElementById('c'),x=cv.getContext('2d');
+let W,H;function resize(){W=cv.width=innerWidth;H=cv.height=innerHeight}resize();addEventListener('resize',resize);
+const R=14,B=Math.PI*2,F=0.985,FRIC=0.985;
+const COLORS=[{s:'#ffd700',f:'#fbbf24'},{s:'#ef4444',f:'#f87171'},{s:'#3b82f6',f:'#60a5fa'},{s:'#a855f7',f:'#c084fc'},{s:'#f97316',f:'#fb923c'},{s:'#10b981',f:'#34d399'},{s:'#ec4899',f:'#f472b6'},{s:'#14b8a6',f:'#2dd4bf'}];
+let balls=[],cue,p1Score=0,p2Score=0,turn=1,aiming=false,power=0,powerDir=1,shooting=false,mx=0,my=0,gameOver=false;
+function dist(a,b){return Math.hypot(a.x-b.x,a.y-b.y)}
+function init(){
+balls=[];let cols=5,idx=0;
+for(let r=0;r<5;r++)for(let c=0;c<cols;c++){
+let bx=W/2+60+c*30-r*15,by=H/2-60+r*26;
+balls.push({x:bx,y:by,vx:0,vy:0,r:R,c:COLORS[idx%8],num:idx+1,sunk:false,solid:idx<4});
+idx++}
+cue={x:W/4,y:H/2,vx:0,vy:0,r:R,c:{s:'#ffffff',f:'#f5f5f5'},num:0,sunk:false,solid:true,isCue:true};
+balls.push(cue);
+p1Score=0;p2Score=0;turn=1;gameOver=false;
+document.getElementById('p1').textContent=0;document.getElementById('p2').textContent=0;
+}
+function showMsg(t){const m=document.getElementById('msg');m.textContent=t;m.style.display='block';setTimeout(()=>m.style.display='none',2000)}
+function sink(b){
+if(b.isCue){b.x=W/4;b.y=H/2;b.vx=0;b.vy=0;showMsg('Scratch! Cue ball reset.');return}
+b.sunk=true;b.vx=0;b.vy=0;
+if(turn===1){p1Score++;document.getElementById('p1').textContent=p1Score}else{p2Score++;document.getElementById('p2').textContent=p2Score}
+if(p1Score>=4){gameOver=true;showMsg('You win! 🎉')}
+else if(p2Score>=4){gameOver=true;showMsg('AI wins! 🤖')}
+}
+function update(){
+if(gameOver)return;
+let moving=false;
+for(let b of balls){
+if(b.sunk)continue;
+b.x+=b.vx;b.y+=b.vy;
+b.vx*=F;b.vy*=F;
+if(Math.abs(b.vx)<0.05)b.vx=0;
+if(Math.abs(b.vy)<0.05)b.vy=0;
+if(b.vx||b.vy)moving=true;
+// Walls
+if(b.x<b.r){b.x=b.r;b.vx*=-0.8}
+if(b.x>W-b.r){b.x=W-b.r;b.vx*=-0.8}
+if(b.y<b.r+50){b.y=b.r+50;b.vy*=-0.8}
+if(b.y>H-b.r-50){b.y=H-b.r-50;b.vy*=-0.8}
+// Pockets (6 holes)
+let pockets=[{x:50,y:70},{x:W/2,y:60},{x:W-50,y:70},{x:50,y:H-50},{x:W/2,y:H-40},{x:W-50,y:H-50}];
+for(let p of pockets){if(dist(b,p)<28){sink(b);break}}
+}
+// Ball collisions
+for(let i=0;i<balls.length;i++)for(let j=i+1;j<balls.length;j++){
+let a=balls[i],b=balls[j];if(a.sunk||b.sunk)continue;
+let d=dist(a,b),min=a.r+b.r;
+if(d<min){
+let dx=(b.x-a.x)/d,dy=(b.y-a.y)/d;
+let overlap=(min-d)/2;
+a.x-=dx*overlap;a.y-=dy*overlap;b.x+=dx*overlap;b.y+=dy*overlap;
+let dvx=b.vx-a.vx,dvy=b.vy-a.vy;
+let dot=dvx*dx+dvy*dy;
+if(dot>0)continue;
+a.vx+=dot*dx;a.vy+=dot*dy;b.vx-=dot*dx;b.vy-=dot*dy;
+}}
+// AI turn
+if(!moving&&!shooting&&turn===2&&!gameOver){
+shooting=true;
+setTimeout(()=>{
+let target=balls.find(b=>!b.sunk&&!b.isCue);
+if(!target){shooting=false;turn=1;return}
+let dx=target.x-cue.x,dy=target.y-cue.y,d=Math.hypot(dx,dy);
+let force=4+Math.random()*4;
+cue.vx=(dx/d)*force;cue.vy=(dy/d)*force;
+showMsg('AI shoots!');
+setTimeout(()=>{
+shooting=false;turn=1;
+document.getElementById('turn').textContent='Your turn — aim and shoot!';
+},1500);
+},1000);
+}
+// Power charging
+if(aiming){
+power+=powerDir*2;
+if(power>=100){power=100;powerDir=-1}
+if(power<=0){power=0;powerDir=1}
+document.getElementById('power-bar').style.width=power+'%';
+}
+}
+function draw(){
+x.fillStyle='#1a1a2e';x.fillRect(0,0,W,H);
+// Table
+x.fillStyle='#0d3b1d';x.fillRect(30,50,W-60,H-100);
+x.strokeStyle='#5c2e0e';x.lineWidth=8;x.strokeRect(30,50,W-60,H-100);
+// Pockets
+x.fillStyle='#000';
+let pockets=[{x:50,y:70},{x:W/2,y:60},{x:W-50,y:70},{x:50,y:H-50},{x:W/2,y:H-40},{x:W-50,y:H-50}];
+for(let p of pockets){x.beginPath();x.arc(p.x,p.y,22,0,B);x.fill()}
+// Aim line
+if(!shooting&&turn===1&&!gameOver&&cue&&!cue.sunk){
+x.strokeStyle='rgba(255,255,255,0.3)';x.lineWidth=2;
+x.beginPath();x.moveTo(cue.x,cue.y);x.lineTo(mx,my);x.stroke();
+}
+// Balls
+for(let b of balls){
+if(b.sunk)continue;
+x.beginPath();x.arc(b.x,b.y,b.r,0,B);
+x.fillStyle=b.c.s;x.fill();
+x.beginPath();x.arc(b.x,b.y,b.r*0.6,0,B);
+x.fillStyle=b.isCue?'#fff':(b.solid?b.c.f:'#fff');x.fill();
+if(!b.isCue){x.fillStyle='#000';x.font='bold 10px sans-serif';x.textAlign='center';x.textBaseline='middle';x.fillText(b.num,b.x,b.y)}
+}
+}
+function loop(){update();draw();requestAnimationFrame(loop)}
+// Input
+cv.addEventListener('mousemove',e=>{mx=e.clientX;my=e.clientY});
+cv.addEventListener('mousedown',e=>{
+if(turn!==1||shooting||gameOver)return;
+aiming=true;power=0;powerDir=1;
+});
+cv.addEventListener('mouseup',e=>{
+if(!aiming)return;
+aiming=false;
+let dx=mx-cue.x,dy=my-cue.y,d=Math.hypot(dx,dy);
+if(d>0){let force=(power/100)*8;cue.vx=(dx/d)*force;cue.vy=(dy/d)*force}
+power=0;document.getElementById('power-bar').style.width='0%';
+setTimeout(()=>{
+if(turn===1){turn=2;document.getElementById('turn').textContent='AI thinking...'}
+},2000);
+});
+// Touch support
+cv.addEventListener('touchmove',e=>{e.preventDefault();let t=e.touches[0];mx=t.clientX;my=t.clientY});
+cv.addEventListener('touchstart',e=>{e.preventDefault();let t=e.touches[0];mx=t.clientX;my=t.clientY;if(turn===1&&!shooting){aiming=true;power=0;powerDir=1}});
+cv.addEventListener('touchend',e=>{e.preventDefault();if(!aiming)return;aiming=false;let dx=mx-cue.x,dy=my-cue.y,d=Math.hypot(dx,dy);if(d>0){let force=(power/100)*8;cue.vx=(dx/d)*force;cue.vy=(dy/d)*force}power=0;document.getElementById('power-bar').style.width='0%';setTimeout(()=>{if(turn===1){turn=2;document.getElementById('turn').textContent='AI thinking...'}},2000)});
+init();loop();
+</script>
+</body>
+</html>

@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no">
+<title>StudyBuddy Memory</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0f0f23;color:#fff;font-family:system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;min-height:100vh}
+h1{font-size:20px;margin:16px 0 8px}
+.hud{font-size:14px;font-weight:700;margin-bottom:12px}
+#grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;max-width:400px;width:90vw}
+.card{aspect-ratio:1;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:32px;cursor:pointer;transition:all 0.2s;user-select:none}
+.card.back{background:#312e81}
+.card.front{background:#7c3aed}
+.card.matched{background:#10b981;opacity:0.5}
+</style>
+</head>
+<body>
+<h1>Memory Match</h1>
+<div class="hud">Moves: <b id="moves">0</b> · Pairs: <b id="pairs">0</b>/8</div>
+<div id="grid"></div>
+<script>
+const EMOJIS=['📚','🧮','🔬','💻','🎨','🌍','⚽','🎵'];
+let cards=[],flipped=[],matched=0,moves=0,canFlip=true;
+function init(){
+cards=[...EMOJIS,...EMOJIS].sort(()=>Math.random()-0.5);
+flipped=[];matched=0;moves=0;
+document.getElementById('moves').textContent=0;
+document.getElementById('pairs').textContent=0;
+const g=document.getElementById('grid');g.innerHTML='';
+cards.forEach((emoji,i)=>{
+const c=document.createElement('div');
+c.className='card back';c.dataset.emoji=emoji;c.dataset.idx=i;
+c.onclick=()=>flip(i,c);g.appendChild(c);
+});
+}
+function flip(i,el){
+if(!canFlip||flipped.length>=2||el.classList.contains('front')||el.classList.contains('matched'))return;
+el.classList.remove('back');el.classList.add('front');el.textContent=cards[i];
+flipped.push({idx:i,el});
+if(flipped.length===2){
+moves++;document.getElementById('moves').textContent=moves;canFlip=false;
+const[a,b]=flipped;
+if(cards[a.idx]===cards[b.idx]){
+setTimeout(()=>{a.el.classList.add('matched');b.el.classList.add('matched');matched++;document.getElementById('pairs').textContent=matched;flipped=[];canFlip=true;
+if(matched===8){const g=document.getElementById('grid');g.innerHTML='<div style="grid-column:1/-1;text-align:center;padding:40px"><h1>🎉 You won!</h1><p>Moves: '+moves+'</p><button onclick="init()" style="margin-top:16px;padding:10px 30px;font-size:16px;font-weight:700;background:#7c3aed;color:#fff;border:none;border-radius:30px;cursor:pointer">Play Again</button></div>'}
+},500);
+}else{
+setTimeout(()=>{a.el.classList.add('back');a.el.classList.remove('front');a.el.textContent='';b.el.classList.add('back');b.el.classList.remove('front');b.el.textContent='';flipped=[];canFlip=true;},800);
+}
+}
+}
+init();
+</script>
+</body>
+</html>

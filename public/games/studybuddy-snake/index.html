@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no">
+<title>StudyBuddy Snake</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0f0f23;color:#fff;font-family:system-ui,sans-serif;overflow:hidden;touch-action:none}
+canvas{display:block;margin:0 auto}
+.hud{position:fixed;top:0;left:0;right:0;padding:8px 16px;background:rgba(0,0,0,0.5);display:flex;justify-content:space-between;z-index:10;font-size:14px;font-weight:700}
+#over{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;z-index:20}
+#over button{margin-top:16px;padding:10px 30px;font-size:18px;font-weight:700;background:#7c3aed;color:#fff;border:none;border-radius:30px;cursor:pointer}
+</style>
+</head>
+<body>
+<div class="hud"><span>Score: <b id="score">0</b></span><span>Best: <b id="best">0</b></span></div>
+<canvas id="c"></canvas>
+<div id="over" style="display:none"><h1>Game Over!</h1><p id="final">Score: 0</p><button onclick="restart()">Play Again</button></div>
+<script>
+const cv=document.getElementById('c'),x=cv.getContext('2d'),S=20;
+let W,H,snake,food,dir,score,best=0,loop,running;
+function resize(){W=cv.width=innerWidth;H=cv.height=innerHeight}resize();addEventListener('resize',resize);
+function init(){snake=[{x:Math.floor(W/2/S),y:Math.floor(H/2/S)}];dir={x:1,y:0};score=0;document.getElementById('score').textContent=0;document.getElementById('over').style.display='none';spawnFood();running=true;clearInterval(loop);loop=setInterval(tick,100)}
+function spawnFood(){food={x:Math.floor(Math.random()*Math.floor(W/S)),y:Math.floor(Math.random()*Math.floor(H/S))+2}}
+function tick(){
+if(!running)return;
+let h={x:snake[0].x+dir.x,y:snake[0].y+dir.y};
+if(h.x<0||h.y<2||h.x*S>W||h.y*S>H||snake.some(s=>s.x===h.x&&s.y===h.y)){running=false;best=Math.max(best,score);document.getElementById('best').textContent=best;document.getElementById('final').textContent='Score: '+score;document.getElementById('over').style.display='block';return}
+snake.unshift(h);
+if(h.x===food.x&&h.y===food.y){score++;document.getElementById('score').textContent=score;spawnFood()}else snake.pop()
+draw()}
+function draw(){x.fillStyle='#0f0f23';x.fillRect(0,0,W,H);
+x.fillStyle='#ef4444';x.beginPath();x.arc(food.x*S+S/2,food.y*S+S/2,S/2-2,0,Math.PI*2);x.fill();
+snake.forEach((s,i)=>{x.fillStyle=i===0?'#a855f7':'#7c3aed';x.fillRect(s.x*S+1,s.y*S+1,S-2,S-2)})}
+function restart(){init()}
+document.addEventListener('keydown',e=>{let k=e.key;if(k==='ArrowUp'&&dir.y!==1)dir={x:0,y:-1};if(k==='ArrowDown'&&dir.y!==-1)dir={x:0,y:1};if(k==='ArrowLeft'&&dir.x!==1)dir={x:-1,y:0};if(k==='ArrowRight'&&dir.x!==-1)dir={x:1,y:0}});
+let tx,ty;cv.addEventListener('touchstart',e=>{tx=e.touches[0].clientX;ty=e.touches[0].clientY});cv.addEventListener('touchend',e=>{let dx=e.changedTouches[0].clientX-tx,dy=e.changedTouches[0].clientY-ty;if(Math.abs(dx)>Math.abs(dy)){if(dx>0&&dir.x!==-1)dir={x:1,y:0};if(dx<0&&dir.x!==1)dir={x:-1,y:0}}else{if(dy>0&&dir.y!==-1)dir={x:0,y:1};if(dy<0&&dir.y!==1)dir={x:0,y:-1}}});
+init();
+</script>
+</body>
+</html>
