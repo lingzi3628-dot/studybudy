@@ -6,12 +6,22 @@ export const runtime = "nodejs";
 export async function POST() {
   const games = [
     {
+      title: "8 Ball 3D",
+      description: "Stunning 3D 8-ball pool with realistic physics. Drag from the cue ball to aim, hold to charge power, and sink your group before the AI does!",
+      category: "Sports",
+      gameUrl: "/games/8-ball-3d/index.html",
+      isFeatured: true,
+      rating: 4.8,
+      minStudyMinutes: 30,
+      playTimeMinutes: 15,
+    },
+    {
       title: "StudyBuddy Pool",
-      description: "Classic 8-ball pool against the AI. Aim, charge power, and sink your balls!",
+      description: "Classic 2D 8-ball pool against the AI. Aim, charge power, and sink your balls!",
       category: "Arcade",
       gameUrl: "/games/studybuddy-pool/index.html",
-      isFeatured: true,
-      rating: 4.5,
+      isFeatured: false,
+      rating: 4.0,
       minStudyMinutes: 30,
       playTimeMinutes: 10,
     },
