@@ -61,6 +61,7 @@ model User {
   aiCallLogs            AiCallLog[]
   adminLogs             AdminLog[]
   sessions              UserSession[]
+  devicePairingCodes    DevicePairingCode[]
   paymentTransactions   PaymentTransaction[]
   activationKeys        ActivationKey[]
   tokenUsageLogs        TokenUsageLog[]
@@ -129,6 +130,23 @@ model UserSession {
 
   @@index([userId])
   @@index([createdAt])
+}
+
+model DevicePairingCode {
+  id             String    @id @default(uuid())
+  userId         String
+  codeHash       String    @unique
+  topicId        String?
+  conversationId String?
+  workspaceOffer Json?
+  expiresAt      DateTime
+  redeemedAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([expiresAt])
 }
 
 model StudySet {

@@ -29,11 +29,18 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ topi
     select: { workspaceProgress: true },
   });
   if (!room) return NextResponse.json({ error: "Study Room not found." }, { status: 404 });
-  const body = await req.json().catch(() => ({})) as { strokes?: Stroke[]; event?: "drawing_saved" | "work_checked" };
-  const existingProgress = { ...emptyProgress, ...(room.workspaceProgress as object || {}) } as typeof emptyProgress;
-  const nextProgress = { ...existingProgress };
+  const body = await req.json().catch(() => ({})) as { strokes?: Stroke[]; event?: "drawing_saved" | "work_checked" | "clear_computer_task" | "set_computer_task"; computerTask?: { title?: string; reason?: string; benefit?: string; workspace?: string } };
+  const nextProgress: Record<string, any> = { ...emptyProgress, ...(room.workspaceProgress as object || {}) };
   if (body.event === "drawing_saved") nextProgress.drawingsSaved += 1;
   if (body.event === "work_checked") nextProgress.workChecks += 1;
+  if (body.event === "clear_computer_task") delete nextProgress.computerTask;
+  if (body.event === "set_computer_task" && body.computerTask) {
+    const task = body.computerTask;
+    if (!["design", "code", "modeling", "simulation", "data"].includes(task.workspace || "") || ![task.title, task.reason, task.benefit].every((value) => typeof value === "string" && value.trim())) {
+      return NextResponse.json({ error: "Invalid computer activity." }, { status: 400 });
+    }
+    nextProgress.computerTask = { title: task.title!.trim().slice(0, 80), reason: task.reason!.trim().slice(0, 240), benefit: task.benefit!.trim().slice(0, 240), workspace: task.workspace, startedAt: new Date().toISOString() };
+  }
 
   const data: { workspaceProgress: typeof nextProgress; workspaceDrawing?: Stroke[] } = { workspaceProgress: nextProgress };
   if (body.strokes !== undefined) {

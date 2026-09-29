@@ -69,7 +69,7 @@ import { DataLabScreen } from "@/components/studybuddy/screens/DataLabScreen";
 const ADMIN_SECRET = "adminorg";
 
 export default function Page() {
-  const { screen, setScreen, darkMode } = useApp();
+  const { screen, setScreen, darkMode, setActiveTopicId } = useApp();
   const keyBuffer = useRef("");
   // Phase 61 — user's education track (k12 | dev | data | ml | aiapp | tvet | server | backend | web | mixed)
   // Drives which Home screen we render.
@@ -147,6 +147,19 @@ export default function Page() {
           setScreen("auth");
           return;
         }
+        const continueParams = new URLSearchParams(window.location.search);
+        const continueTopic = continueParams.get("continueTopic");
+        if (continueTopic) {
+          setActiveTopicId(continueTopic);
+          setScreen("study");
+          window.history.replaceState({}, "", window.location.pathname);
+          return;
+        }
+        if (continueParams.has("continueTutor")) {
+          setScreen("tutor");
+          window.history.replaceState({}, "", window.location.pathname);
+          return;
+        }
         if (d.user?.onboardingCompleted) {
           // Phase 20 — Family Mode has priority over School Mode for routing.
           // A family CHILD goes straight to their learning dashboard (home)
@@ -177,7 +190,7 @@ export default function Page() {
       .catch(() => {});
 
     return () => { mounted = false; };
-  }, [setScreen]);
+  }, [setScreen, setActiveTopicId]);
 
   // Hidden admin keyboard code — type "adminorg" anywhere to unlock
   useEffect(() => {

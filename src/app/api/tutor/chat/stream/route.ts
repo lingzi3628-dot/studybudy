@@ -159,7 +159,23 @@ export async function POST(req: NextRequest) {
         }).catch(() => []);
         const sourceText = sources.filter((source) => source.sourceText?.trim())
           .map((source) => `## ${source.title}\n${source.sourceText}`).join("\n\n").slice(0, 12_000);
-        studyContext = `LEARNER'S ACTIVE STUDY ROOM: ${room.topic.subject} — ${room.topic.name}. Use these source materials first, say when they do not contain an answer, and distinguish any outside information.\n\n${sourceText}`;
+        const activeClassroom = room.currentClassroomSessionId ? await db.classroomSession.findFirst({
+          where: { id: room.currentClassroomSessionId, userId: user.id, status: "active" },
+          select: { flowState: true, currentStep: true, totalSteps: true, progress: true, activeSeconds: true },
+        }).catch(() => null) : null;
+        const cachedLesson = await db.lessonContent.findFirst({ where: { topicId: studyRoomTopicId }, orderBy: { createdAt: "desc" }, select: { contentJson: true } }).catch(() => null);
+        const lessonText = Array.isArray(cachedLesson?.contentJson) ? (cachedLesson.contentJson as any[])
+          .map((block: any) => typeof block?.content === "string" ? block.content : "")
+          .filter(Boolean).join("\n").slice(0, 5_000) : "";
+        const computerTask = room.workspaceProgress && typeof room.workspaceProgress === "object" && !Array.isArray(room.workspaceProgress)
+          ? (room.workspaceProgress as Record<string, any>).computerTask : null;
+        const taskText = computerTask && typeof computerTask === "object"
+          ? `\nCURRENT COMPUTER WORKSPACE TASK: ${String(computerTask.title || "").slice(0, 80)}. Reason: ${String(computerTask.reason || "").slice(0, 240)}. Learner benefit: ${String(computerTask.benefit || "").slice(0, 240)}. Continue helping with this task while respecting their current classroom progress.`
+          : "";
+        const classroomStatus = activeClassroom
+          ? `ACTIVE CLASSROOM: state ${activeClassroom.flowState}; learning step ${activeClassroom.currentStep + 1} of ${activeClassroom.totalSteps}; saved progress ${Math.round(activeClassroom.progress * 100)}%; focused time ${Math.floor(activeClassroom.activeSeconds / 60)} minutes. Continue from this state and never claim progress that is not recorded.`
+          : "There is no active classroom session right now. Offer to resume or begin one when relevant; do not imply a session is active.";
+        studyContext = `LEARNER'S ACTIVE STUDY ROOM: ${room.topic.subject} — ${room.topic.name}. ${classroomStatus}${taskText} Use these source materials first, say when they do not contain an answer, and distinguish any outside information.\n\n${lessonText ? `CURRENT LESSON MATERIAL:\n${lessonText}\n\n` : ""}${sourceText}`;
       }
     }
 
@@ -245,21 +261,14 @@ export async function POST(req: NextRequest) {
             if (!reply) throw new Error("Vision AI returned empty response");
             send("delta", { text: reply });
           } else if (usePlatformStream) {
-            // True token streaming via the GLM platform path (free users only)
+            // True token streaming via the GLM platform path
             for await (const delta of streamPlatformAI(aiMessages, { userId: user.id, route: "/api/tutor/chat/stream" })) {
               reply += delta;
               send("delta", { text: delta });
             }
           } else {
-            // Custom-model path — full resolution via callAI (uses model-mapping
-            // to find the connected provider: OpenRouter, Mistral, etc.)
-            try {
-              reply = await callAI(aiMessages, null, { userId: user.id, route: "/api/tutor/chat/stream" });
-            } catch (modelErr: any) {
-              // If the custom model failed, stream the error message as the reply
-              // so the user sees what went wrong (not connected, rate-limited, etc.)
-              reply = modelErr?.message ?? "Failed to get a response. Please try again.";
-            }
+            // Custom-model path — full resolution (with meaningful errors), single delta
+            reply = await callAI(aiMessages, null, { userId: user.id, route: "/api/tutor/chat/stream" });
             send("delta", { text: reply });
           }
 

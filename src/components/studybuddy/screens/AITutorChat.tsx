@@ -105,7 +105,7 @@ type ConceptMapSpec = {
  * - Copy / retry buttons on AI messages
  */
 export function AITutorChat() {
-  const { setScreen, dataSaver, activeTopicId } = useApp();
+  const { setScreen, dataSaver, activeTopicId, openCreate } = useApp();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversation, setActiveConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<ChatMsg[]>([]);
@@ -404,6 +404,8 @@ export function AITutorChat() {
         if (visualClose === -1) visible = visible.slice(0, visualOpen);
         else visible = (visible.slice(0, visualOpen) + visible.slice(visualClose + 3)).trim();
       }
+      const workspaceOpen = visible.search(/```computer_workspace\b/i);
+      if (workspaceOpen !== -1) visible = visible.slice(0, workspaceOpen).trim();
       return visible;
     };
 
@@ -1523,6 +1525,11 @@ export function AITutorChat() {
                   key={msg.id || i}
                   msg={msg}
                   onCopy={() => copyMessage(msg)}
+                  onOpenWorkspace={(attachment) => {
+                    try { localStorage.setItem("studybuddy.pendingComputerWorkspace", JSON.stringify({ ...JSON.parse(attachment.caption), topicId: activeTopicId })); } catch {}
+                    if (activeTopicId) setScreen("study");
+                    else openCreate("room");
+                  }}
                   onRetry={msg.role === "user" && i === messages.length - 1 ? retry : undefined}
                   copied={copiedId === msg.id}
                   // Phase 48 — pass the "save as project" callback ONLY when the
@@ -1976,6 +1983,7 @@ function MessageBubble({
   onRetry,
   copied,
   onAttachmentChange,
+  onOpenWorkspace,
   // Phase 48 — callback to save the AI's code blocks as a Project.
   // Only passed when the active buddy supports code files (dev, web, backend).
   onSaveAsProject,
@@ -1985,6 +1993,7 @@ function MessageBubble({
   onRetry?: () => void;
   copied: boolean;
   onAttachmentChange?: (attIdx: number, newCaption: string) => void;
+  onOpenWorkspace?: (attachment: Attachment) => void;
   onSaveAsProject?: (fileCount: number) => void;
 }) {
   const isUser = msg.role === "user";
@@ -2103,6 +2112,7 @@ function MessageBubble({
                 <AttachmentRenderer
                   key={i}
                   attachment={att}
+                  onOpenWorkspace={onOpenWorkspace}
                   onSpecChange={onAttachmentChange ? (newSpec: any) => onAttachmentChange(i, JSON.stringify(newSpec)) : undefined}
                 />
               ))}
@@ -2167,7 +2177,21 @@ function MessageBubble({
   );
 }
 
-function AttachmentRenderer({ attachment, onSpecChange }: { attachment: Attachment; onSpecChange?: (newSpec: any) => void }) {
+function AttachmentRenderer({ attachment, onSpecChange, onOpenWorkspace }: { attachment: Attachment; onSpecChange?: (newSpec: any) => void; onOpenWorkspace?: (attachment: Attachment) => void }) {
+  if (attachment.type === "computer_workspace") {
+    let offer: any = null;
+    try { offer = JSON.parse(attachment.caption); } catch {}
+    if (!offer) return null;
+    return (
+      <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4">
+        <p className="text-[10px] font-bold uppercase tracking-wide text-indigo-600">Optional computer activity</p>
+        <h3 className="mt-1 text-sm font-bold text-gray-900">{offer.title}</h3>
+        <p className="mt-2 text-xs leading-5 text-gray-700">{offer.reason}</p>
+        <p className="mt-1 text-xs font-semibold leading-5 text-indigo-800">On a computer: {offer.benefit}</p>
+        <button onClick={() => onOpenWorkspace?.(attachment)} className="mt-3 rounded-xl bg-indigo-600 px-4 py-2.5 text-xs font-semibold text-white hover:bg-indigo-700">Set up the full computer workspace</button>
+      </div>
+    );
+  }
   if (attachment.type === "source" && attachment.url) {
     return (
       <div className="rounded-lg border border-sky-100 bg-sky-50 px-3 py-2 flex items-start gap-2">

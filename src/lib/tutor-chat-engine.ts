@@ -416,6 +416,7 @@ ${STUDY_PROMPT_GRAPH_RULES}`;
   if (learningMode !== "standard") {
     systemContent += `\n\nLEARNER-SELECTED TUTOR MODE (${learningMode}): ${learningModeInstructions[learningMode]}`;
   }
+  systemContent += `\n\nOPTIONAL COMPUTER WORKSPACE OFFER: Teach the learner fully in this conversation first. Only offer a computer when a currently available tool materially helps with the learner's task. Available tools: design = the Study Room drawing board with pen, line, and circle tools; code = a Python browser runner; modeling = the machine-learning playground; simulation = the available interactive science simulations; data = a Python notebook. Name one concrete reason and one specific benefit, keep the offer optional, and never claim capabilities beyond the selected tool (for example, do not promise CAD, equipment control, or arbitrary engineering simulation). Do not recommend a computer merely because the topic is difficult, and do not interrupt simple explanations, calculations, quick sketches, graphs, or concept maps that work well on the phone. If a computer would help, append exactly one block at the very end using this schema and valid JSON: \`\`\`computer_workspace\n{"title":"Short activity name","reason":"Why this task is easier to do on a computer","benefit":"What the learner will be able to do there","workspace":"design|code|modeling|simulation|data"}\n\`\`\`. Keep each field brief. Otherwise, do not emit this block.`;
   if (searchContext.includes("WEB SEARCH RESULTS")) {
     systemContent += "\n\nSOURCE CITATIONS: For claims that rely on the web results above, cite the matching result inline using a Markdown link with its supplied title and URL. Do not invent links. Distinguish sourced facts from your own explanation.";
   }
@@ -720,16 +721,37 @@ export async function postProcessReply(opts: {
 }> {
   const { reply, userMessage, userId, userGrade, intents, thinkingSteps } = opts;
 
+  // A structured, model-authored offer lets the clients show a real handoff
+  // action without guessing from topic keywords or displaying internal data.
+  const workspaceMatch = reply.match(/```computer_workspace\s*([\s\S]*?)```/i);
+  let workspaceOffer: { title: string; reason: string; benefit: string; workspace: string } | null = null;
+  if (workspaceMatch) {
+    try {
+      const value = JSON.parse(workspaceMatch[1]);
+      const workspace = ["design", "code", "modeling", "simulation", "data"].includes(value?.workspace) ? value.workspace : null;
+      if (workspace && [value.title, value.reason, value.benefit].every((part) => typeof part === "string" && part.trim().length > 0)) {
+        workspaceOffer = {
+          title: value.title.trim().slice(0, 80),
+          reason: value.reason.trim().slice(0, 240),
+          benefit: value.benefit.trim().slice(0, 240),
+          workspace,
+        };
+      }
+    } catch {}
+  }
+  const learnerReply = reply.replace(/\n?```computer_workspace\s*[\s\S]*?```\s*/i, "").trim();
+
   // Graph + concept map attachments
   const attachments = await parseGraphAttachments({
-    reply,
+    reply: learnerReply,
     userMessage,
     userId,
     intents,
   });
+  if (workspaceOffer) attachments.push({ type: "computer_workspace", url: null, caption: JSON.stringify(workspaceOffer) });
 
   // Exam generation config
-  const examGenRaw = parseExamGen(reply);
+  const examGenRaw = parseExamGen(learnerReply);
   const examGen = examGenRaw ? {
     topic: examGenRaw.topic ?? "General",
     numQuestions: Math.min(40, Math.max(5, Number(examGenRaw.numQuestions) || 10)),
@@ -740,10 +762,10 @@ export async function postProcessReply(opts: {
   } : null;
 
   // Proof Data Engine — validates the reply against curriculum
-  let finalReply = reply;
+  let finalReply = learnerReply;
   let proof: any = null;
   try {
-    proof = await runProofEngine(reply, userGrade ?? "Form 1", userMessage, userId);
+    proof = await runProofEngine(learnerReply, userGrade ?? "Form 1", userMessage, userId);
     if (proof.corrections.length > 0) {
       finalReply += "\n\n---\n**🔍 Verification Notes:**\n" + proof.corrections.join("\n");
     }

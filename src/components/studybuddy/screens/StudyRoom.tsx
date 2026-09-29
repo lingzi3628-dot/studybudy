@@ -73,7 +73,7 @@ type Lesson = {
 type TopicDetail = Awaited<ReturnType<typeof api.getTopic>>;
 
 type PracticeTab = "flashcards" | "quiz" | "solver";
-type ChatMsg = { role: "user" | "assistant"; content: string; image?: string };
+type ChatMsg = { role: "user" | "assistant"; content: string; image?: string; attachments?: any[] };
 type WorkStroke = { d: string; color: string; width: number };
 
 const COLLAPSE_KEYS = ["intro", "concepts", "examples", "formulas", "summary"] as const;
@@ -143,6 +143,7 @@ export function StudyRoom() {
   const [workColor, setWorkColor] = useState("#30334a");
   const [workSaving, setWorkSaving] = useState(false);
   const [workChecks, setWorkChecks] = useState(0);
+  const [computerTask, setComputerTask] = useState<any>(null);
   const workStrokeRef = useRef<{ tool: "pen" | "line" | "circle"; start: { x: number; y: number }; points: { x: number; y: number }[]; color: string } | null>(null);
   const workSvgRef = useRef<SVGSVGElement>(null);
 
@@ -175,7 +176,22 @@ export function StudyRoom() {
     let active = true;
     fetch(`/api/study-room/${activeTopicId}/workspace`)
       .then((r) => r.ok ? r.json() : null)
-      .then((d) => { if (active && d) { setWorkStrokes(Array.isArray(d.strokes) ? d.strokes : []); setWorkChecks(Number(d.progress?.workChecks) || 0); } })
+      .then(async (d) => {
+        if (!active || !d) return;
+        setWorkStrokes(Array.isArray(d.strokes) ? d.strokes : []);
+        setWorkChecks(Number(d.progress?.workChecks) || 0);
+        let pending: any = null;
+        try {
+          const raw = window.localStorage.getItem("studybuddy.pendingComputerWorkspace");
+          const parsed = raw ? JSON.parse(raw) : null;
+          if (parsed && (!parsed.topicId || parsed.topicId === activeTopicId)) pending = parsed;
+        } catch {}
+        if (pending) {
+          const saved = await fetch(`/api/study-room/${activeTopicId}/workspace`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ event: "set_computer_task", computerTask: pending }) }).catch(() => null);
+          if (saved?.ok) window.localStorage.removeItem("studybuddy.pendingComputerWorkspace");
+        }
+        if (active) setComputerTask(pending || d.progress?.computerTask || null);
+      })
       .catch(() => {});
     return () => { active = false; };
   }, [activeTopicId]);
@@ -502,7 +518,7 @@ export function StudyRoom() {
         let payload: any; try { payload = JSON.parse(rows.join("\n")); } catch { return; }
         if (event === "meta") nextConversationId = payload.conversationId || nextConversationId;
         else if (event === "status") setChatActivity(payload.text || "Your tutor is working…");
-        else if (event === "delta") { streamed += payload.text || ""; setChatMessages([...next, { role: "assistant", content: streamed.replace(/<thinking>[\s\S]*?(?:<\/thinking>|$)/gi, "") }]); }
+        else if (event === "delta") { streamed += payload.text || ""; setChatMessages([...next, { role: "assistant", content: streamed.replace(/<thinking>[\s\S]*?(?:<\/thinking>|$)/gi, "").replace(/```computer_workspace[\s\S]*(?:```|$)/gi, "").replace(/```(?:mathgraph|conceptmap|examgen)[\s\S]*(?:```|$)/gi, "").trim() }]); }
         else if (event === "done") final = payload;
         else if (event === "error") throw new Error(payload.error || "The tutor could not answer.");
       };
@@ -510,7 +526,7 @@ export function StudyRoom() {
       if (!final) throw new Error("The tutor stream ended before the review was saved.");
       nextConversationId = final.conversationId || nextConversationId;
       if (nextConversationId) { setChatConversationId(nextConversationId); window.localStorage.setItem(`studybuddy-room-chat.${activeTopicId}`, nextConversationId); }
-      setChatMessages([...next, { role: "assistant", content: final.reply || streamed || "I could not read enough detail to check this work. Try a clearer drawing or add a question." }]);
+      setChatMessages([...next, { role: "assistant", content: final.reply || streamed || "I could not read enough detail to check this work. Try a clearer drawing or add a question.", attachments: Array.isArray(final.attachments) ? final.attachments : [] }]);
     } catch (e: any) { setChatError(e?.message ?? "Tutor failed"); setChatMessages(next); }
     finally { setChatBusy(false); setChatActivity(""); }
   };
@@ -702,6 +718,28 @@ export function StudyRoom() {
         </div>
       </header>
 
+      {computerTask && (
+        <section className="mx-4 mt-4 rounded-2xl border border-indigo-200 bg-indigo-50 p-4 md:mx-6">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-indigo-600">Continue your computer activity</p>
+          <h2 className="mt-1 text-sm font-bold text-gray-900">{computerTask.title}</h2>
+          <p className="mt-2 text-xs leading-5 text-gray-700">{computerTask.reason}</p>
+          <p className="mt-1 text-xs font-semibold leading-5 text-indigo-800">Why this workspace helps: {computerTask.benefit}</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button onClick={() => {
+              if (computerTask.workspace === "code") setScreen("codeRunner");
+              else if (computerTask.workspace === "modeling") setScreen("mlPlayground");
+              else if (computerTask.workspace === "simulation") setScreen("lab");
+              else if (computerTask.workspace === "data") setScreen("notebook");
+              else document.getElementById("study-room-work-board")?.scrollIntoView({ behavior: "smooth", block: "center" });
+            }} className="rounded-xl bg-indigo-600 px-4 py-2.5 text-xs font-semibold text-white hover:bg-indigo-700">Open activity workspace</button>
+            <button onClick={async () => {
+              const response = await fetch(`/api/study-room/${activeTopicId}/workspace`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ event: "clear_computer_task" }) });
+              if (response.ok) setComputerTask(null);
+            }} className="rounded-xl border border-indigo-200 bg-white px-4 py-2.5 text-xs font-semibold text-gray-600">Dismiss</button>
+          </div>
+        </section>
+      )}
+
       <div className="px-4 py-5 md:grid md:grid-cols-[minmax(0,1.2fr)_minmax(300px,0.8fr)] md:items-start md:gap-6 lg:gap-8 md:pb-32">
         {/* LEFT COLUMN — Lesson + Interactive tools */}
         <div className="space-y-4">
@@ -836,7 +874,7 @@ export function StudyRoom() {
             )}
           </section>
 
-          <section className="rounded-2xl bg-white border border-gray-200 p-4 shadow-sm">
+          <section id="study-room-work-board" className="rounded-2xl bg-white border border-gray-200 p-4 shadow-sm">
             <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
               <div>
                 <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5"><Pencil className="w-4 h-4 text-indigo-600" /> My work board</h2>
@@ -1311,6 +1349,25 @@ export function StudyRoom() {
                       }`}>
                         {m.image && <img src={m.image} alt="Your drawing for tutor review" className="mb-2 max-h-40 w-full rounded-lg bg-white object-contain" />}
                         {m.content}
+                        {m.role === "assistant" && m.attachments?.filter((attachment: any) => attachment.type === "computer_workspace").map((attachment: any, index: number) => {
+                          let offer: any;
+                          try { offer = JSON.parse(attachment.caption); } catch { return null; }
+                          return <div key={index} className="mt-2 rounded-xl border border-indigo-200 bg-indigo-50 p-3">
+                            <p className="font-semibold text-indigo-800">{offer.title}</p>
+                            <p className="mt-1 text-gray-700">{offer.reason}</p>
+                            <p className="mt-1 font-medium text-indigo-800">{offer.benefit}</p>
+                            <button onClick={async () => {
+                              const saved = await fetch(`/api/study-room/${activeTopicId}/workspace`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ event: "set_computer_task", computerTask: offer }) });
+                              if (!saved.ok) { setChatError("Could not save this activity to your Study Room."); return; }
+                              setComputerTask({ ...offer, startedAt: new Date().toISOString() });
+                              if (offer.workspace === "code") setScreen("codeRunner");
+                              else if (offer.workspace === "modeling") setScreen("mlPlayground");
+                              else if (offer.workspace === "simulation") setScreen("lab");
+                              else if (offer.workspace === "data") setScreen("notebook");
+                              else document.getElementById("study-room-work-board")?.scrollIntoView({ behavior: "smooth", block: "center" });
+                            }} className="mt-2 rounded-lg bg-indigo-600 px-3 py-2 text-white font-semibold">Open activity workspace</button>
+                          </div>;
+                        })}
                       </div>
                     </div>
                   ))}
