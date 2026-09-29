@@ -34,13 +34,16 @@ import {
   Trophy,
   Award,
   CheckCircle2,
+  Gamepad2,
+  UploadCloud,
 } from "lucide-react";
 import { useApp } from "../store";
 import { api } from "../api";
 import { CurriculumTab } from "./admin/CurriculumTab";
+import { GamesTab } from "./admin/GamesTab";
 import { VisualApiEditor } from "./VisualApiEditor";
 
-type Tab = "dashboard" | "users" | "providers" | "content" | "logs" | "account" | "monetization" | "search" | "conceptMap" | "pathTemplates" | "badges" | "curriculum";
+type Tab = "dashboard" | "users" | "providers" | "content" | "logs" | "account" | "monetization" | "search" | "conceptMap" | "pathTemplates" | "badges" | "curriculum" | "games";
 
 type Stats = {
   totalUsers: number;
@@ -177,6 +180,7 @@ export function AdminPanel() {
             { key: "conceptMap" as const, label: "🗺️ Concept Maps", icon: MapIcon },
             { key: "pathTemplates" as const, label: "🛤️ Path Templates", icon: Route },
             { key: "badges" as const, label: "🏆 Badges", icon: Trophy },
+            { key: "games" as const, label: "🎮 Games", icon: Gamepad2 },
             { key: "account" as const, label: "Account", icon: Shield },
           ].map((t) => {
             const Icon = t.icon;
@@ -208,6 +212,7 @@ export function AdminPanel() {
         {tab === "conceptMap" && <ConceptMapSettingsTab />}
         {tab === "pathTemplates" && <PathTemplatesTab />}
         {tab === "badges" && <BadgesTab />}
+        {tab === "games" && <GamesTab />}
         {tab === "account" && <AccountTab adminEmail={adminEmail} onLogout={async () => {
           await fetch("/api/admin/auth/logout", { method: "POST" });
           setScreen("home");
