@@ -1,95 +1,35 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
-  GraduationCap,
-  BookOpen,
-  Users,
-  Laptop,
-  Lightbulb,
-  Calculator,
-  Type,
-  MessageCircle,
-  Languages,
-  FlaskConical,
-  Globe,
-  Code,
-  Heart,
-  Briefcase,
-  Check,
-  ChevronLeft,
-  ChevronRight,
-  Database,
-  Brain,
-  Wrench,
-  Sparkles,
-  Bot,
-  Zap,
-  Flame,
-  Car,
-  UtensilsCrossed,
-  Shirt,
-  Building,
-  Smartphone,
-  Server,
-  Table,
-  Eye,
-  BarChart3,
-  Settings,
+  GraduationCap, BookOpen, Users, Laptop, Lightbulb,
+  Calculator, Type, MessageCircle, Languages, FlaskConical,
+  Globe, Code, Heart, Briefcase, Check, ChevronLeft, ChevronRight,
+  Database, Brain, Wrench, Sparkles, Bot, Zap, Flame, Car,
+  UtensilsCrossed, Shirt, Building, Smartphone, Server, Table, Eye,
+  BarChart3, Settings, Search, AlertCircle, Lock, Rocket,
 } from "lucide-react";
 import { useApp } from "../store";
 import { api } from "../api";
+import {
+  EDUCATION_LEVELS, type EducationLevel, type LevelConfig,
+  searchUniversityCourses, searchTVETTrades,
+  getUniversityCourseCategories, getTVETTradeCategories,
+  type UniversityCourse, type TVETTrade,
+} from "@/lib/education-levels";
 
-const TOTAL_STEPS = 7; // Phase 51 — added track step
+// === Existing track/grade/subject configs (kept from Phase 78) ===
 
-const roles = [
-  { key: "Student", label: "Student", icon: GraduationCap },
-  { key: "Teacher", label: "Teacher / Tutor", icon: BookOpen },
-  { key: "Parent", label: "Parent", icon: Users },
-  { key: "Self-Learner", label: "Self-Learner", icon: Laptop },
-  { key: "Inventor", label: "Inventor / Maker", icon: Lightbulb },
-];
-
-// Phase 51 — Track picker (step 0 of onboarding).
-// Each track opens a different "world": K-12 (current), dev, data, ML,
-// AI app dev, TVET. Mixed = all 9 buddies equally accessible.
-const TRACKS = [
-  { key: "k12",   label: "K-12 School",         emoji: "📚", icon: GraduationCap, desc: "Kenya CBC / KCSE / KPSEA / KJSEA", accent: "from-indigo-500 to-violet-500", defaultBuddy: "study" },
-  { key: "dev",   label: "Coding & Programming", emoji: "💻", icon: Code,          desc: "Python, JS, TS, Go, Rust, debug + ship",        accent: "from-emerald-500 to-teal-500", defaultBuddy: "dev" },
-  { key: "data",  label: "Data Science",        emoji: "📊", icon: Database,      desc: "pandas, SQL, notebooks, EDA, visualization",     accent: "from-sky-500 to-cyan-500", defaultBuddy: "data" },
-  { key: "ml",    label: "Machine Learning",    emoji: "🧠", icon: Brain,         desc: "Train, visualize, evaluate models in-browser", accent: "from-violet-500 to-fuchsia-500", defaultBuddy: "ml" },
-  { key: "aiapp", label: "AI App Dev",          emoji: "🤖", icon: Bot,           desc: "Build AI apps: prompts, RAG, agents, evals",     accent: "from-fuchsia-500 to-purple-600", defaultBuddy: "ai" },
-  { key: "tvet",  label: "Technical (TVET)",   emoji: "🔧", icon: Wrench,        desc: "Electrical, mechanical, ICT, hospitality, etc.", accent: "from-amber-500 to-red-500", defaultBuddy: "tvet" },
-  { key: "mixed", label: "Multiple interests",  emoji: "🎯", icon: Sparkles,     desc: "Show me all 9 buddies — I'll pick per task",   accent: "from-rose-500 to-pink-500", defaultBuddy: "study" },
-] as const;
-
-// Per-track grade/level options for step 2
 const TRACK_GRADES: Record<string, string[]> = {
-  k12: [], // Populated from /api/curriculum/grades at runtime, falls back to FALLBACK_GRADES
-  dev: ["Beginner", "Intermediate", "Advanced", "Bootcamp student", "Self-taught", "Professional"],
-  data: ["Beginner", "Intermediate", "Advanced", "Analyst", "Data engineer", "Researcher"],
-  ml: ["Beginner", "Intermediate", "Advanced", "Researcher", "PhD student", "AI engineer"],
-  aiapp: ["Beginner", "Intermediate", "Advanced", "Full-stack dev adding AI", "AI engineer", "ML engineer"],
-  tvet: ["CDACC Level 4", "CDACC Level 5", "CDACC Level 6", "Artisan", "Trainer", "Vocational student"],
-  mixed: ["Beginner", "Intermediate", "Advanced", "Self-taught"],
+  k12: [], dev: ["Beginner","Intermediate","Advanced","Bootcamp student","Self-taught","Professional"],
+  data: ["Beginner","Intermediate","Advanced","Analyst","Data engineer","Researcher"],
+  ml: ["Beginner","Intermediate","Advanced","Researcher","PhD student","AI engineer"],
+  aiapp: ["Beginner","Intermediate","Advanced","Full-stack dev adding AI","AI engineer","ML engineer"],
+  tvet: ["CDACC Level 4","CDACC Level 5","CDACC Level 6","Artisan","Trainer","Vocational student"],
+  mixed: ["Beginner","Intermediate","Advanced","Self-taught"],
 };
 
-const FALLBACK_GRADES = [
-  "Kindergarten",
-  "Grade 1", "Grade 2", "Grade 3", "Grade 4", "Grade 5",
-  "Grade 6", "Grade 7", "Grade 8", "Grade 9", "Grade 10",
-  "Grade 11", "Grade 12",
-  "Form 1", "Form 2", "Form 3", "Form 4",
-  "University", "Self-Learner",
-];
-
-type CurriculumGradeInfo = {
-  id: string;
-  name: string;
-  status: "ready" | "coming_soon";
-  description: string | null;
-  subjectCount: number;
-};
+const FALLBACK_GRADES = ["Kindergarten","Grade 1","Grade 2","Grade 3","Grade 4","Grade 5","Grade 6","Grade 7","Grade 8","Grade 9","Grade 10","Grade 11","Grade 12","Form 1","Form 2","Form 3","Form 4","University","Self-Learner"];
 
 const K12_SUBJECTS = [
   { key: "Mathematics", label: "Mathematics", icon: Calculator },
@@ -102,7 +42,6 @@ const K12_SUBJECTS = [
   { key: "Life Skills", label: "Life Skills", icon: Heart },
   { key: "Business", label: "Business", icon: Briefcase },
 ];
-
 const TVET_SUBJECTS = [
   { key: "Electrical Installation", label: "Electrical Installation", icon: Zap },
   { key: "Plumbing", label: "Plumbing", icon: Wrench },
@@ -114,7 +53,6 @@ const TVET_SUBJECTS = [
   { key: "Building & Construction", label: "Building & Construction", icon: Building },
   { key: "Business Studies", label: "Business Studies", icon: Briefcase },
 ];
-
 const DEV_SUBJECTS = [
   { key: "Web Development", label: "Web Development", icon: Code },
   { key: "Python", label: "Python", icon: Code },
@@ -124,61 +62,48 @@ const DEV_SUBJECTS = [
   { key: "DevOps", label: "DevOps & Cloud", icon: Server },
   { key: "API Design", label: "API Design", icon: Settings },
 ];
-
-const DATA_SUBJECTS = [
-  { key: "Data Analysis", label: "Data Analysis", icon: BarChart3 },
-  { key: "Statistics", label: "Statistics", icon: Calculator },
-  { key: "Excel", label: "Excel & Spreadsheets", icon: Table },
-  { key: "Python", label: "Python for Data", icon: Code },
-  { key: "SQL", label: "SQL & Databases", icon: Database },
-  { key: "Visualization", label: "Data Visualization", icon: BarChart3 },
-];
-
-const ML_SUBJECTS = [
-  { key: "Machine Learning", label: "Machine Learning", icon: Brain },
-  { key: "Deep Learning", label: "Deep Learning", icon: Brain },
-  { key: "NLP", label: "Natural Language Processing", icon: MessageCircle },
-  { key: "Computer Vision", label: "Computer Vision", icon: Eye },
-  { key: "Python", label: "Python for ML", icon: Code },
-  { key: "Statistics", label: "Statistics & Math", icon: Calculator },
-];
-
-const AIAPP_SUBJECTS = [
-  { key: "Prompt Engineering", label: "Prompt Engineering", icon: Sparkles },
-  { key: "RAG", label: "RAG & Knowledge Bases", icon: Database },
-  { key: "AI Agents", label: "AI Agents", icon: Bot },
-  { key: "LLM Apps", label: "LLM Applications", icon: Code },
-  { key: "MCP", label: "Model Context Protocol", icon: Zap },
-];
-
 const TRACK_SUBJECTS: Record<string, Array<{ key: string; label: string; icon: any }>> = {
-  k12: K12_SUBJECTS,
-  tvet: TVET_SUBJECTS,
-  dev: DEV_SUBJECTS,
-  data: DATA_SUBJECTS,
-  ml: ML_SUBJECTS,
-  aiapp: AIAPP_SUBJECTS,
-  server: DEV_SUBJECTS,
-  backend: DEV_SUBJECTS,
-  web: DEV_SUBJECTS,
+  k12: K12_SUBJECTS, tvet: TVET_SUBJECTS, dev: DEV_SUBJECTS,
+  data: DEV_SUBJECTS, ml: DEV_SUBJECTS, aiapp: DEV_SUBJECTS,
+  server: DEV_SUBJECTS, backend: DEV_SUBJECTS, web: DEV_SUBJECTS,
   mixed: [...K12_SUBJECTS, ...DEV_SUBJECTS],
 };
 
-const goals = [
-  "Pass my exams with good grades",
-  "Learn a new language",
-  "Become an engineer",
-  "Invent something new",
-  "Learn coding",
-  "Improve my career skills",
+const roles = [
+  { key: "Student", label: "Student", icon: GraduationCap },
+  { key: "Teacher", label: "Teacher / Tutor", icon: BookOpen },
+  { key: "Parent", label: "Parent", icon: Users },
+  { key: "Self-Learner", label: "Self-Learner", icon: Laptop },
+  { key: "Inventor", label: "Inventor / Maker", icon: Lightbulb },
 ];
 
+const goals = [
+  "Pass my exams with good grades","Learn a new language","Become an engineer",
+  "Invent something new","Learn coding","Improve my career skills",
+];
 const languages = ["English", "Kiswahili", "Chinese", "French", "Spanish", "Arabic"];
+
+// === New Onboarding Flow (Phase 79) ===
+// Steps:
+//   0: Pick education level (6 cards)
+//   1: Pick grade (level-specific)
+//   2: Verification quiz (pass → continue, fail → back to step 0)
+//   3: Role (Student/Teacher/Parent/etc.)
+//   4: Track-specific content:
+//      - K12: pick K-12 subjects
+//      - University: search courses → sets track
+//      - TVET: search trades
+//   5: Goal + language
+//   6: Study Buddy model (Free/Plus/Pro)
+//   7: Welcome tutorial (how to use the app)
+
+const TOTAL_STEPS = 8;
 
 export function Onboarding() {
   const { completeOnboarding } = useApp();
   const [step, setStep] = useState(0);
-  const [track, setTrack] = useState<string | null>(null);  // Phase 51
+  const [educationLevel, setEducationLevel] = useState<EducationLevel | null>(null);
+  const [track, setTrack] = useState<string | null>(null);
   const [role, setRole] = useState<string | null>(null);
   const [grade, setGrade] = useState<string | null>(null);
   const [pickedSubjects, setPickedSubjects] = useState<string[]>([]);
@@ -186,78 +111,89 @@ export function Onboarding() {
   const [language, setLanguage] = useState<string>("English");
   const [selectedBuddy, setSelectedBuddy] = useState<string>("study_buddy_free");
   const [saving, setSaving] = useState(false);
-  // Phase 22 — curriculum grades fetched from the DB
-  const [curriculumGrades, setCurriculumGrades] = useState<CurriculumGradeInfo[] | null>(null);
 
-  useEffect(() => {
-    fetch("/api/curriculum/grades")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (d?.grades && d.grades.length > 0) {
-          setCurriculumGrades(d.grades);
-        }
-      })
-      .catch(() => {});
-  }, []);
+  // Quiz state
+  const [quizAnswer, setQuizAnswer] = useState<number | null>(null);
+  const [quizResult, setQuizResult] = useState<"pending" | "correct" | "wrong">("pending");
 
-  // Compute the grade list to show:
-  //   - For k12 track: use curriculum grades from DB (or FALLBACK_GRADES)
-  //   - For other tracks: use TRACK_GRADES[track]
-  const gradeList: string[] = (track && track !== "k12" && TRACK_GRADES[track])
-    ? TRACK_GRADES[track]
-    : (curriculumGrades
-      ? curriculumGrades.map((g) => g.name)
-      : FALLBACK_GRADES);
+  // University/TVET course search
+  const [courseSearch, setCourseSearch] = useState("");
+  const [selectedCourse, setSelectedCourse] = useState<string | null>(null);
+  const [selectedCourseTrack, setSelectedCourseTrack] = useState<string | null>(null);
 
-  const gradeStatus = (g: string): "ready" | "coming_soon" | null => {
-    if (!curriculumGrades || (track && track !== "k12")) return null;
-    return curriculumGrades.find((cg) => cg.name === g)?.status ?? null;
-  };
-
-  const gradeDescription = (g: string): string | null => {
-    if (!curriculumGrades || (track && track !== "k12")) return null;
-    return curriculumGrades.find((cg) => cg.name === g)?.description ?? null;
-  };
+  const levelConfig = educationLevel ? EDUCATION_LEVELS.find((l) => l.id === educationLevel) : null;
 
   const next = () => setStep((s) => Math.min(s + 1, TOTAL_STEPS - 1));
   const back = () => setStep((s) => Math.max(s - 1, 0));
 
   const toggleSubject = (k: string) =>
-    setPickedSubjects((prev) =>
-      prev.includes(k) ? prev.filter((x) => x !== k) : [...prev, k]
-    );
+    setPickedSubjects((prev) => prev.includes(k) ? prev.filter((x) => x !== k) : [...prev, k]);
 
-  const isLast = step === TOTAL_STEPS - 1;
-  const canContinue =
-    (step === 0 && track) ||  // Phase 51 — track step
-    (step === 1 && role) ||
-    (step === 2 && grade) ||
-    step === 3 ||
-    (step === 4 && goal) ||
-    step === 5 ||
-    step === 6;
-
-  // Phase 51 — when track changes, update default Study Buddy model + grade list
-  // (the default buddy id for AI Tutor is set later via track-aware logic in /api/tutor/chat)
-  const onTrackSelect = (trackKey: string) => {
-    setTrack(trackKey);
-    // Reset grade since the grade list changes per track
-    setGrade(null);
+  // Quiz submission
+  const submitQuiz = () => {
+    if (quizAnswer === null || !levelConfig) return;
+    if (quizAnswer === levelConfig.quizQuestion.correctIndex) {
+      setQuizResult("correct");
+      setTimeout(() => { next(); }, 1200);
+    } else {
+      setQuizResult("wrong");
+    }
   };
+
+  const resetQuiz = () => {
+    setQuizAnswer(null);
+    setQuizResult("pending");
+  };
+
+  const onLevelSelect = (level: EducationLevel) => {
+    const config = EDUCATION_LEVELS.find((l) => l.id === level);
+    if (!config) return;
+    setEducationLevel(level);
+    setTrack(config.track);
+    setGrade(null);
+    resetQuiz();
+  };
+
+  // When university course is selected, set the track
+  const onCourseSelect = (course: UniversityCourse) => {
+    setSelectedCourse(course.name);
+    setSelectedCourseTrack(course.track);
+    setTrack(course.track);
+  };
+
+  const onTradeSelect = (trade: TVETTrade) => {
+    setSelectedCourse(trade.name);
+    setTrack("tvet");
+  };
+
+  const canContinue =
+    (step === 0 && educationLevel) ||
+    (step === 1 && grade) ||
+    (step === 2 && quizResult === "correct") ||
+    (step === 3 && role) ||
+    (step === 4 && (educationLevel === "university" ? selectedCourse : educationLevel === "tvet" ? selectedCourse : pickedSubjects.length > 0)) ||
+    (step === 5 && goal) ||
+    step === 6 ||
+    step === 7;
 
   const finish = async () => {
     setSaving(true);
     try {
-      // 1) Save onboarding profile — Phase 51: include the track field
+      const finalTrack = track ?? "k12";
+      const finalGrade = grade ?? levelConfig?.grades[0] ?? "Self-Learner";
+      const finalSubjects = educationLevel === "university" || educationLevel === "tvet"
+        ? (selectedCourse ? [selectedCourse] : [])
+        : pickedSubjects;
+
       try {
         const r = await fetch("/api/user/onboarding", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             role: role ?? undefined,
-            grade: grade ?? undefined,
-            track: track ?? "k12",  // Phase 51
-            subjects: pickedSubjects,
+            grade: finalGrade,
+            track: finalTrack,
+            subjects: finalSubjects,
             ambitions: goal ? [goal] : [],
             preferred_language: language,
             name: role ? `${role} user` : undefined,
@@ -272,34 +208,23 @@ export function Onboarding() {
         }
         if (!r.ok) {
           await api.updateUser({
-            grade: grade ?? undefined,
-            track: track ?? "k12",  // Phase 51
-            subjects: pickedSubjects,
-            ambitions: goal ? [goal] : [],
-            learningLanguage: language,
+            grade: finalGrade, track: finalTrack, subjects: finalSubjects,
+            ambitions: goal ? [goal] : [], learningLanguage: language,
             name: role ? `${role} user` : undefined,
           });
         }
       } catch {
         await api.updateUser({
-          grade: grade ?? undefined,
-          track: track ?? "k12",  // Phase 51
-          subjects: pickedSubjects,
-          ambitions: goal ? [goal] : [],
-          learningLanguage: language,
+          grade: finalGrade, track: finalTrack, subjects: finalSubjects,
+          ambitions: goal ? [goal] : [], learningLanguage: language,
           name: role ? `${role} user` : undefined,
         });
       }
 
-      // 2) Mark onboarding complete (NO auto learning path creation —
-      //    Phase 22d: the learning path is now created inside each
-      //    curriculum subject via the chatbot, not during onboarding.
       await fetch("/api/onboarding/complete", { method: "POST" }).catch(() => {});
 
-      // Phase 61 — save the track to localStorage so page.tsx routes to the
-      // correct Home IMMEDIATELY after onboarding (no flash of K-12 dashboard).
-      if (track) {
-        try { localStorage.setItem("studybuddy_user_track", track); } catch { /* ignore */ }
+      if (finalTrack) {
+        try { localStorage.setItem("studybuddy_user_track", finalTrack); } catch { /* ignore */ }
       }
     } catch (e) {
       console.warn("Onboarding save failed", e);
@@ -309,144 +234,147 @@ export function Onboarding() {
     }
   };
 
+  // Filtered course lists
+  const uniResults = useMemo(() => searchUniversityCourses(courseSearch), [courseSearch]);
+  const tvetResults = useMemo(() => searchTVETTrades(courseSearch), [courseSearch]);
+  const uniCategories = useMemo(() => getUniversityCourseCategories(), []);
+  const tvetCategories = useMemo(() => getTVETTradeCategories(), []);
+
+  const subjectList: Array<{ key: string; label: string; icon: any }> = (track && TRACK_SUBJECTS[track]) || K12_SUBJECTS;
+
   return (
     <div className="min-h-screen bg-white max-w-md mx-auto flex flex-col">
-      {/* progress bar */}
+      {/* Progress bar */}
       <div className="px-4 pt-5 pb-2">
         <div className="flex items-center gap-2">
           {Array.from({ length: TOTAL_STEPS }).map((_, i) => (
-            <div
-              key={i}
-              className={`h-1.5 flex-1 rounded-full transition-colors ${
-                i <= step ? "bg-indigo-600" : "bg-gray-200"
-              }`}
-            />
+            <div key={i} className={`h-1.5 flex-1 rounded-full transition-colors ${i <= step ? "bg-indigo-600" : "bg-gray-200"}`} />
           ))}
         </div>
         <div className="mt-2 flex items-center justify-between">
-          <button
-            onClick={back}
-            disabled={step === 0}
-            className="flex items-center text-sm text-gray-500 disabled:opacity-0"
-          >
+          <button onClick={back} disabled={step === 0} className="flex items-center text-sm text-gray-500 disabled:opacity-0">
             <ChevronLeft className="w-4 h-4" /> Back
           </button>
-          <span className="text-xs text-gray-400 font-medium">
-            Step {step + 1} of {TOTAL_STEPS}
-          </span>
+          <span className="text-xs text-gray-400 font-medium">Step {step + 1} of {TOTAL_STEPS}</span>
         </div>
       </div>
 
       <div className="flex-1 px-4 overflow-y-auto pb-32">
-        {/* Phase 61 — Step 0: Pick your path (K-12 vs Higher Education), then sub-track */}
+        {/* Step 0: Pick education level */}
         {step === 0 && (
           <section>
-            <h1 className="text-2xl font-bold text-gray-900 mt-4">What do you want to learn?</h1>
-            <p className="text-sm text-gray-500 mt-1">
-              Choose your path — each one opens a different world. You can switch anytime.
-            </p>
-
-            {/* Two main paths */}
-            <div className="mt-6 grid grid-cols-1 gap-3">
-              {/* K-12 Path */}
-              <button
-                onClick={() => onTrackSelect("k12")}
-                className={`w-full text-left p-4 rounded-2xl border-2 transition-all ${
-                  track === "k12" ? "border-indigo-600 bg-indigo-50" : "border-gray-200 bg-white hover:border-indigo-300"
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center text-3xl flex-shrink-0 shadow-md">
-                    📚
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-base font-bold text-gray-900">K-12 School</p>
-                    <p className="text-xs text-gray-500 mt-0.5">Kenya CBC / KCSE / KPSEA / KJSEA — from PP1 to Form 4</p>
-                    <div className="flex items-center gap-1 mt-1">
-                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 font-medium">Lessons</span>
-                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 font-medium">Exams</span>
-                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 font-medium">Flashcards</span>
-                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 font-medium">Graphs</span>
+            <h1 className="text-2xl font-bold text-gray-900 mt-4">What's your education level?</h1>
+            <p className="text-sm text-gray-500 mt-1">Choose your level — each one has its own dashboard and tools.</p>
+            <div className="mt-6 space-y-3">
+              {EDUCATION_LEVELS.map((level) => {
+                const selected = educationLevel === level.id;
+                return (
+                  <button
+                    key={level.id}
+                    onClick={() => onLevelSelect(level.id)}
+                    className={`w-full text-left p-4 rounded-2xl border-2 transition ${selected ? "border-indigo-600 bg-indigo-50" : "border-gray-200 bg-white hover:border-indigo-300"}`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="text-3xl">{level.icon}</span>
+                      <div className="flex-1">
+                        <p className="font-bold text-gray-900">{level.label}</p>
+                        <p className="text-xs text-gray-500">{level.description}</p>
+                      </div>
+                      {selected && <Check className="w-5 h-5 text-indigo-600" />}
                     </div>
-                  </div>
-                  {track === "k12" && <Check className="w-5 h-5 text-indigo-600 flex-shrink-0" />}
-                </div>
-              </button>
-
-              {/* Higher Education Path — expandable */}
-              <div className={`rounded-2xl border-2 transition-all ${
-                track && track !== "k12" ? "border-emerald-600 bg-emerald-50/30" : "border-gray-200 bg-white"
-              }`}>
-                <div className="p-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-3xl flex-shrink-0 shadow-md">
-                      🎓
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-base font-bold text-gray-900">Higher Education & Beyond</p>
-                      <p className="text-xs text-gray-500 mt-0.5">Coding, Data Science, ML, AI, TVET, Server/DevOps — pick your specialty</p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Sub-tracks for Higher Ed */}
-                <div className="px-4 pb-4 grid grid-cols-2 gap-2">
-                  {TRACKS.filter(t => t.key !== "k12" && t.key !== "mixed").map((t) => {
-                    const selected = track === t.key;
-                    return (
-                      <button
-                        key={t.key}
-                        onClick={() => onTrackSelect(t.key)}
-                        className={`text-left p-2.5 rounded-xl border transition-all ${
-                          selected ? "border-emerald-600 bg-emerald-50" : "border-gray-200 bg-white hover:border-emerald-300"
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${t.accent} flex items-center justify-center text-base flex-shrink-0`}>
-                            {t.emoji}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs font-bold text-gray-900">{t.label}</p>
-                            <p className="text-[10px] text-gray-500 line-clamp-1">{t.desc}</p>
-                          </div>
-                          {selected && <Check className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Mixed */}
-              <button
-                onClick={() => onTrackSelect("mixed")}
-                className={`w-full text-left p-3 rounded-2xl border-2 transition-all ${
-                  track === "mixed" ? "border-rose-600 bg-rose-50" : "border-gray-200 bg-white hover:border-rose-300"
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-rose-500 to-pink-500 flex items-center justify-center text-xl flex-shrink-0">
-                    🎯
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-sm font-semibold text-gray-900">Multiple interests</p>
-                    <p className="text-[11px] text-gray-500">Show me everything — I'll pick per task</p>
-                  </div>
-                  {track === "mixed" && <Check className="w-4 h-4 text-rose-600 flex-shrink-0" />}
-                </div>
-              </button>
+                  </button>
+                );
+              })}
             </div>
-
-            <p className="mt-4 text-xs text-center text-gray-400">
-              💡 Each track unlocks different AI buddies, tools, and a custom home screen.
-            </p>
           </section>
         )}
 
-        {step === 1 && (
+        {/* Step 1: Pick grade */}
+        {step === 1 && levelConfig && (
           <section>
-            <h1 className="text-2xl font-bold text-gray-900 mt-4">Who are you?</h1>
-            <p className="text-sm text-gray-500 mt-1">We&apos;ll personalise your study experience.</p>
+            <h1 className="text-2xl font-bold text-gray-900 mt-4">What grade are you in?</h1>
+            <p className="text-sm text-gray-500 mt-1">{levelConfig.label} — select your current grade.</p>
+            <div className="mt-6 grid grid-cols-2 gap-3">
+              {levelConfig.grades.map((g) => (
+                <button
+                  key={g}
+                  onClick={() => setGrade(g)}
+                  className={`p-4 rounded-xl border-2 text-center font-semibold transition ${grade === g ? "border-indigo-600 bg-indigo-50 text-indigo-700" : "border-gray-200 bg-white text-gray-700 hover:border-indigo-300"}`}
+                >
+                  {g}
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Step 2: Verification quiz */}
+        {step === 2 && levelConfig && (
+          <section>
+            <h1 className="text-2xl font-bold text-gray-900 mt-4">Quick verification</h1>
+            <p className="text-sm text-gray-500 mt-1">Answer this question to confirm you're from this level.</p>
+
+            {quizResult === "wrong" && (
+              <div className="mt-4 p-4 rounded-xl bg-rose-50 border border-rose-200">
+                <div className="flex items-center gap-2 text-rose-700">
+                  <AlertCircle className="w-5 h-5" />
+                  <p className="font-bold text-sm">Wrong answer</p>
+                </div>
+                <p className="text-xs text-rose-600 mt-1">
+                  We detected you might not be from {levelConfig.label}. Please go back and choose the correct level.
+                </p>
+                <button
+                  onClick={() => { resetQuiz(); setStep(0); setEducationLevel(null); setGrade(null); }}
+                  className="mt-3 w-full h-10 rounded-full bg-rose-600 text-white text-sm font-semibold"
+                >
+                  Choose a different level
+                </button>
+              </div>
+            )}
+
+            {quizResult === "correct" && (
+              <div className="mt-4 p-4 rounded-xl bg-emerald-50 border border-emerald-200">
+                <div className="flex items-center gap-2 text-emerald-700">
+                  <Check className="w-5 h-5" />
+                  <p className="font-bold text-sm">Correct! Welcome to {levelConfig.label}.</p>
+                </div>
+              </div>
+            )}
+
+            {quizResult === "pending" && (
+              <div className="mt-6 p-6 rounded-2xl bg-gray-50 border border-gray-200">
+                <p className="text-lg font-semibold text-gray-900 mb-4">{levelConfig.quizQuestion.question}</p>
+                <div className="space-y-2">
+                  {levelConfig.quizQuestion.options.map((opt, i) => (
+                    <button
+                      key={i}
+                      onClick={() => setQuizAnswer(i)}
+                      className={`w-full p-3 rounded-xl border-2 text-left text-sm font-medium transition ${quizAnswer === i ? "border-indigo-600 bg-indigo-50 text-indigo-700" : "border-gray-200 bg-white text-gray-700 hover:border-indigo-300"}`}
+                    >
+                      {opt}
+                    </button>
+                  ))}
+                </div>
+                {levelConfig.quizQuestion.hint && quizAnswer === null && (
+                  <p className="text-xs text-gray-400 mt-3">Hint: {levelConfig.quizQuestion.hint}</p>
+                )}
+                <button
+                  onClick={submitQuiz}
+                  disabled={quizAnswer === null}
+                  className="mt-4 w-full h-11 rounded-full bg-indigo-600 text-white text-sm font-semibold disabled:opacity-40"
+                >
+                  Submit answer
+                </button>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* Step 3: Role */}
+        {step === 3 && (
+          <section>
+            <h1 className="text-2xl font-bold text-gray-900 mt-4">What's your role?</h1>
+            <p className="text-sm text-gray-500 mt-1">How do you want to use StudyBuddy?</p>
             <div className="mt-6 space-y-3">
               {roles.map((r) => {
                 const Icon = r.icon;
@@ -455,14 +383,10 @@ export function Onboarding() {
                   <button
                     key={r.key}
                     onClick={() => setRole(r.key)}
-                    className={`w-full flex items-center gap-4 p-4 rounded-2xl border-2 transition-all ${
-                      selected ? "border-indigo-600 bg-indigo-50" : "border-gray-200 bg-white hover:border-indigo-300"
-                    }`}
+                    className={`w-full p-4 rounded-xl border-2 flex items-center gap-3 transition ${selected ? "border-indigo-600 bg-indigo-50" : "border-gray-200 bg-white hover:border-indigo-300"}`}
                   >
-                    <span className={`w-10 h-10 rounded-full flex items-center justify-center ${selected ? "bg-indigo-600 text-white" : "bg-gray-100 text-gray-600"}`}>
-                      <Icon className="w-5 h-5" />
-                    </span>
-                    <span className="text-base font-medium text-gray-900">{r.label}</span>
+                    <Icon className="w-5 h-5 text-indigo-600" />
+                    <span className="font-semibold text-gray-900">{r.label}</span>
                     {selected && <Check className="w-5 h-5 text-indigo-600 ml-auto" />}
                   </button>
                 );
@@ -471,207 +395,210 @@ export function Onboarding() {
           </section>
         )}
 
-        {step === 2 && (
-          <section>
-            <h1 className="text-2xl font-bold text-gray-900 mt-4">
-              {track === "k12" ? "Select your grade or level" : "Pick your experience level"}
-            </h1>
-            <p className="text-sm text-gray-500 mt-1">
-              {track === "k12"
-                ? (curriculumGrades
-                  ? "Grades with content ready are highlighted. Others are coming soon — we'll email you when ready."
-                  : "Pick the level that best describes you.")
-                : "This helps your AI buddy tailor explanations to your level."}
-            </p>
-            <div className="mt-6 grid grid-cols-2 gap-3">
-              {gradeList.map((g) => {
-                const selected = grade === g;
-                const status = gradeStatus(g);
-                const isComingSoon = status === "coming_soon";
-                const desc = gradeDescription(g);
-                return (
-                  <button
-                    key={g}
-                    onClick={() => setGrade(g)}
-                    className={`relative p-3 rounded-2xl border-2 text-sm font-medium transition-all ${
-                      selected
-                        ? "border-indigo-600 bg-indigo-50 text-indigo-700"
-                        : isComingSoon
-                        ? "border-amber-200 bg-amber-50/50 text-gray-600 hover:border-amber-300"
-                        : "border-gray-200 bg-white text-gray-700 hover:border-indigo-300"
-                    }`}
-                  >
-                    {g}
-                    {isComingSoon && (
-                      <span className="block text-[9px] font-bold uppercase tracking-wide text-amber-600 mt-0.5">
-                        Coming soon
-                      </span>
-                    )}
-                    {selected && (
-                      <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-indigo-600" />
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-            {grade && gradeStatus(grade) === "coming_soon" && (
-              <div className="mt-4 rounded-xl bg-amber-50 border border-amber-200 p-3 text-xs text-amber-700">
-                📧 <strong>{grade}</strong> content is being prepared. You can still create your account — we'll email you when {grade} subjects are ready!
-              </div>
-            )}
-            {grade && gradeStatus(grade) === "ready" && (
-              <div className="mt-4 rounded-xl bg-indigo-50 border border-indigo-200 p-3 text-xs text-indigo-700">
-                ✓ <strong>{grade}</strong> is ready — you'll see your subjects in the dashboard after onboarding.
-              </div>
-            )}
-          </section>
-        )}
-
-        {step === 3 && (
-          <section>
-            <h1 className="text-2xl font-bold text-gray-900 mt-4">Which subjects do you want to learn?</h1>
-            <p className="text-sm text-gray-500 mt-1">Select all that apply.</p>
-            <div className="mt-6 grid grid-cols-2 gap-3">
-              {(TRACK_SUBJECTS[track ?? "k12"] ?? K12_SUBJECTS).map((s) => {
-                const Icon = s.icon;
-                const selected = pickedSubjects.includes(s.key);
-                return (
-                  <button
-                    key={s.key}
-                    onClick={() => toggleSubject(s.key)}
-                    className={`relative flex flex-col items-center justify-center gap-2 p-4 rounded-2xl border-2 transition-all ${
-                      selected ? "border-indigo-600 bg-indigo-50" : "border-gray-200 bg-white hover:border-indigo-300"
-                    }`}
-                  >
-                    <span className={`w-10 h-10 rounded-full flex items-center justify-center ${selected ? "bg-indigo-600 text-white" : "bg-gray-100 text-gray-600"}`}>
-                      <Icon className="w-5 h-5" />
-                    </span>
-                    <span className="text-xs font-medium text-gray-900 text-center">{s.label}</span>
-                    {selected && <Check className="w-4 h-4 text-indigo-600 absolute top-2 right-2" />}
-                  </button>
-                );
-              })}
-            </div>
-          </section>
-        )}
-
+        {/* Step 4: Track-specific content */}
         {step === 4 && (
           <section>
-            <h1 className="text-2xl font-bold text-gray-900 mt-4">What is your goal?</h1>
-            <p className="text-sm text-gray-500 mt-1">Choose one main goal to focus on.</p>
-            <div className="mt-6 space-y-3">
-              {goals.map((g) => {
-                const selected = goal === g;
-                return (
-                  <button
-                    key={g}
-                    onClick={() => setGoal(g)}
-                    className={`w-full flex items-center justify-between p-4 rounded-2xl border-2 transition-all ${
-                      selected ? "border-indigo-600 bg-indigo-50" : "border-gray-200 bg-white hover:border-indigo-300"
-                    }`}
-                  >
-                    <span className="text-sm font-medium text-gray-900">{g}</span>
-                    <span className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${selected ? "border-indigo-600 bg-indigo-600" : "border-gray-300"}`}>
-                      {selected && <Check className="w-3 h-3 text-white" />}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
+            {educationLevel === "university" ? (
+              <>
+                <h1 className="text-2xl font-bold text-gray-900 mt-4">What course are you taking?</h1>
+                <p className="text-sm text-gray-500 mt-1">Search for your course — we'll customize your dashboard.</p>
+                <div className="mt-4 relative">
+                  <Search className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
+                  <input
+                    type="text"
+                    value={courseSearch}
+                    onChange={(e) => setCourseSearch(e.target.value)}
+                    placeholder="Search courses... (e.g. Computer Science, Law, Nursing)"
+                    className="w-full h-11 rounded-xl bg-gray-50 border border-gray-200 pl-10 pr-3 text-sm outline-none focus:border-indigo-400"
+                  />
+                </div>
+                <div className="mt-3 max-h-80 overflow-y-auto space-y-1">
+                  {uniResults.slice(0, 30).map((c) => (
+                    <button
+                      key={c.name}
+                      onClick={() => onCourseSelect(c)}
+                      className={`w-full p-3 rounded-lg border text-left transition ${selectedCourse === c.name ? "border-indigo-600 bg-indigo-50" : "border-gray-100 bg-white hover:border-indigo-300"}`}
+                    >
+                      <p className="text-sm font-semibold text-gray-900">{c.name}</p>
+                      <p className="text-[10px] text-gray-400">{c.category}</p>
+                    </button>
+                  ))}
+                  {uniResults.length === 0 && <p className="text-xs text-gray-400 text-center py-4">No courses found. Try another search.</p>}
+                </div>
+                {selectedCourse && (
+                  <div className="mt-3 p-3 rounded-xl bg-indigo-50 border border-indigo-200">
+                    <p className="text-xs text-indigo-700">Selected: <b>{selectedCourse}</b> → Dashboard: {selectedCourseTrack}</p>
+                  </div>
+                )}
+              </>
+            ) : educationLevel === "tvet" ? (
+              <>
+                <h1 className="text-2xl font-bold text-gray-900 mt-4">What trade are you training in?</h1>
+                <p className="text-sm text-gray-500 mt-1">Search for your trade — we'll customize your dashboard.</p>
+                <div className="mt-4 relative">
+                  <Search className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
+                  <input
+                    type="text"
+                    value={courseSearch}
+                    onChange={(e) => setCourseSearch(e.target.value)}
+                    placeholder="Search trades... (e.g. Electrical, Plumbing, Welding)"
+                    className="w-full h-11 rounded-xl bg-gray-50 border border-gray-200 pl-10 pr-3 text-sm outline-none focus:border-indigo-400"
+                  />
+                </div>
+                <div className="mt-3 max-h-80 overflow-y-auto space-y-1">
+                  {tvetResults.slice(0, 30).map((t) => (
+                    <button
+                      key={t.name}
+                      onClick={() => onTradeSelect(t)}
+                      className={`w-full p-3 rounded-lg border text-left transition ${selectedCourse === t.name ? "border-indigo-600 bg-indigo-50" : "border-gray-100 bg-white hover:border-indigo-300"}`}
+                    >
+                      <p className="text-sm font-semibold text-gray-900">{t.name}</p>
+                      <p className="text-[10px] text-gray-400">{t.category} · {t.cdaccLevel}</p>
+                    </button>
+                  ))}
+                  {tvetResults.length === 0 && <p className="text-xs text-gray-400 text-center py-4">No trades found. Try another search.</p>}
+                </div>
+                {selectedCourse && (
+                  <div className="mt-3 p-3 rounded-xl bg-indigo-50 border border-indigo-200">
+                    <p className="text-xs text-indigo-700">Selected: <b>{selectedCourse}</b></p>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <h1 className="text-2xl font-bold text-gray-900 mt-4">Which subjects do you want to learn?</h1>
+                <p className="text-sm text-gray-500 mt-1">Select all that apply.</p>
+                <div className="mt-6 grid grid-cols-2 gap-3">
+                  {subjectList.map((s) => {
+                    const Icon = s.icon;
+                    const selected = pickedSubjects.includes(s.key);
+                    return (
+                      <button
+                        key={s.key}
+                        onClick={() => toggleSubject(s.key)}
+                        className={`p-3 rounded-xl border-2 flex flex-col items-center gap-2 transition ${selected ? "border-indigo-600 bg-indigo-50" : "border-gray-200 bg-white hover:border-indigo-300"}`}
+                      >
+                        <Icon className="w-5 h-5 text-indigo-600" />
+                        <span className="text-xs font-semibold text-gray-900 text-center">{s.label}</span>
+                        {selected && <Check className="w-4 h-4 text-indigo-600" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
           </section>
         )}
 
+        {/* Step 5: Goal + Language */}
         {step === 5 && (
           <section>
-            <h1 className="text-2xl font-bold text-gray-900 mt-4">Choose your learning language</h1>
-            <p className="text-sm text-gray-500 mt-1">We&apos;ll use this for lessons and explanations.</p>
-            <div className="mt-6 space-y-3">
-              {languages.map((l) => {
-                const selected = language === l;
-                return (
-                  <button
-                    key={l}
-                    onClick={() => setLanguage(l)}
-                    className={`w-full flex items-center justify-between p-4 rounded-2xl border-2 transition-all ${
-                      selected ? "border-indigo-600 bg-indigo-50" : "border-gray-200 bg-white hover:border-indigo-300"
-                    }`}
-                  >
-                    <span className="text-sm font-medium text-gray-900">{l}</span>
-                    {selected && <Check className="w-5 h-5 text-indigo-600" />}
-                  </button>
-                );
-              })}
+            <h1 className="text-2xl font-bold text-gray-900 mt-4">What's your goal?</h1>
+            <div className="mt-6 space-y-2">
+              {goals.map((g) => (
+                <button
+                  key={g}
+                  onClick={() => setGoal(g)}
+                  className={`w-full p-3 rounded-xl border-2 text-left text-sm font-medium transition ${goal === g ? "border-indigo-600 bg-indigo-50 text-indigo-700" : "border-gray-200 bg-white text-gray-700 hover:border-indigo-300"}`}
+                >
+                  {g}
+                </button>
+              ))}
+            </div>
+            <h2 className="text-lg font-bold text-gray-900 mt-8 mb-3">Preferred language</h2>
+            <div className="flex flex-wrap gap-2">
+              {languages.map((l) => (
+                <button
+                  key={l}
+                  onClick={() => setLanguage(l)}
+                  className={`px-4 py-2 rounded-full text-sm font-medium transition ${language === l ? "bg-indigo-600 text-white" : "bg-gray-100 text-gray-600"}`}
+                >
+                  {l}
+                </button>
+              ))}
             </div>
           </section>
         )}
 
+        {/* Step 6: Study Buddy model */}
         {step === 6 && (
           <section>
-            <h1 className="text-2xl font-bold text-gray-900 mt-4">Pick your Study Buddy! 🤖</h1>
-            <p className="text-sm text-gray-500 mt-1">Choose your AI study companion. You can change this later.</p>
+            <h1 className="text-2xl font-bold text-gray-900 mt-4">Choose your Study Buddy</h1>
+            <p className="text-sm text-gray-500 mt-1">Your AI companion — pick the one that fits. You can switch anytime.</p>
             <div className="mt-6 space-y-3">
               {[
-                { model: "study_buddy_free", emoji: "🌱", name: "Study Buddy Free", desc: "Basic AI — great for getting started", color: "from-gray-500 to-gray-600", locked: false },
-                { model: "study_buddy_plus", emoji: "⚡", name: "Study Buddy Plus", desc: "Faster & smarter responses", color: "from-blue-500 to-indigo-600", locked: true },
-                { model: "study_buddy_pro", emoji: "🚀", name: "Study Buddy Pro", desc: "Advanced reasoning & depth", color: "from-indigo-500 to-violet-600", locked: true },
-                { model: "study_buddy_king", emoji: "👑", name: "Study Buddy King", desc: "GPT-4o powered — top tier", color: "from-amber-500 to-orange-600", locked: true },
-                { model: "study_buddy_ultra", emoji: "💎", name: "Study Buddy Ultra", desc: "GLM-4 — unlimited power", color: "from-violet-500 to-purple-700", locked: true },
-                { model: "study_buddy_teddy", emoji: "🧸", name: "Study Buddy Teddy", desc: "Llama 3.1 70B — massive capacity", color: "from-rose-400 to-pink-600", locked: true },
-                { model: "study_buddy_photo", emoji: "📸", name: "Study Buddy Photo", desc: "Image + text generation", color: "from-emerald-500 to-teal-600", locked: true },
-              ].map((b) => {
-                const selected = selectedBuddy === b.model;
+                { id: "study_buddy_free", name: "Study Buddy Free", emoji: "🌱", desc: "Free · Daily limits · GLM model", color: "bg-emerald-50 border-emerald-200" },
+                { id: "study_buddy_plus", name: "Study Buddy Plus", emoji: "⚡", desc: "Premium · Higher limits · Mistral", color: "bg-violet-50 border-violet-200", premium: true },
+                { id: "study_buddy_pro", name: "Study Buddy Pro", emoji: "🚀", desc: "Premium · Best AI · Gemini Pro", color: "bg-fuchsia-50 border-fuchsia-200", premium: true },
+                { id: "study_buddy_king", name: "Study Buddy King", emoji: "👑", desc: "Premium · Unlimited · Mistral", color: "bg-amber-50 border-amber-200", premium: true },
+              ].map((b) => (
+                <button
+                  key={b.id}
+                  onClick={() => setSelectedBuddy(b.id)}
+                  className={`w-full p-4 rounded-2xl border-2 flex items-center gap-3 transition ${selectedBuddy === b.id ? "border-indigo-600 bg-indigo-50" : b.color + " hover:border-indigo-300"}`}
+                >
+                  <span className="text-2xl">{b.emoji}</span>
+                  <div className="flex-1 text-left">
+                    <p className="font-bold text-gray-900 text-sm">{b.name}</p>
+                    <p className="text-xs text-gray-500">{b.desc}</p>
+                  </div>
+                  {selectedBuddy === b.id && <Check className="w-5 h-5 text-indigo-600" />}
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Step 7: Welcome tutorial */}
+        {step === 7 && (
+          <section>
+            <h1 className="text-2xl font-bold text-gray-900 mt-4">Welcome to StudyBuddy AI!</h1>
+            <p className="text-sm text-gray-500 mt-1">Here's how to get started:</p>
+            <div className="mt-6 space-y-4">
+              {[
+                { icon: MessageCircle, title: "Ask AI Tutor", desc: "Tap the chat icon to ask questions. Your Study Buddy will explain concepts, solve problems, and help you learn." },
+                { icon: BookOpen, title: "Study Subjects", desc: "Browse your subjects in the dashboard. Each has lessons, quizzes, and practice questions." },
+                { icon: FlaskConical, title: "Do Experiments", desc: "If you're in a science track, use the lab tools to run simulations and explore concepts." },
+                { icon: Brain, title: "Track Progress", desc: "Earn XP, coins, and badges as you learn. Keep your streak alive by studying daily!" },
+                { icon: Rocket, title: "Build & Deploy", desc: "If you're in a dev/AI track, build projects in the playground and deploy them to the web." },
+              ].map((t, i) => {
+                const Icon = t.icon;
                 return (
-                  <button
-                    key={b.model}
-                    onClick={() => !b.locked && setSelectedBuddy(b.model)}
-                    className={`w-full flex items-center gap-3 p-3 rounded-2xl border-2 transition-all ${
-                      selected ? "border-indigo-600 bg-indigo-50" : "border-gray-200 bg-white hover:border-indigo-300"
-                    } ${b.locked ? "opacity-50 cursor-not-allowed" : ""}`}
-                  >
-                    <span className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${b.color} flex items-center justify-center text-2xl flex-shrink-0 shadow-md`}>
-                      {b.emoji}
-                    </span>
-                    <div className="flex-1 text-left">
-                      <p className="text-sm font-semibold text-gray-900">{b.name}</p>
-                      <p className="text-[11px] text-gray-500">{b.desc}</p>
+                  <div key={i} className="flex items-start gap-3 p-3 rounded-xl bg-gray-50">
+                    <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center flex-shrink-0">
+                      <Icon className="w-5 h-5 text-indigo-600" />
                     </div>
-                    {b.locked ? (
-                      <span className="text-[9px] font-bold uppercase bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">Premium</span>
-                    ) : (
-                      selected && <Check className="w-5 h-5 text-indigo-600" />
-                    )}
-                  </button>
+                    <div>
+                      <p className="font-bold text-sm text-gray-900">{t.title}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">{t.desc}</p>
+                    </div>
+                  </div>
                 );
               })}
             </div>
-            <p className="mt-3 text-xs text-center text-gray-400">
-              🔒 Premium buddies unlock with an activation key from the Premium page.
-            </p>
-          </section>
-        )}
-      </div>
-
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 pb-safe">
-        <div className="max-w-md mx-auto px-4 py-3">
-          {isLast ? (
             <button
               onClick={finish}
               disabled={saving}
-              className="w-full h-12 rounded-full bg-indigo-600 text-white font-semibold shadow-md hover:bg-indigo-700 transition disabled:opacity-60"
+              className="mt-8 w-full h-12 rounded-full bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-bold flex items-center justify-center gap-2 disabled:opacity-50"
             >
-              {saving ? "Saving..." : "Start Learning"}
+              {saving ? <><Sparkles className="w-4 h-4 animate-spin" /> Setting up…</> : <><Rocket className="w-4 h-4" /> Start learning!</>}
             </button>
-          ) : (
-            <button
-              onClick={next}
-              disabled={!canContinue}
-              className="w-full h-12 rounded-full bg-indigo-600 text-white font-semibold shadow-md hover:bg-indigo-700 transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1"
-            >
-              Continue <ChevronRight className="w-4 h-4" />
-            </button>
-          )}
-        </div>
+          </section>
+        )}
       </div>
+
+      {/* Continue button (hidden on last step + quiz step when wrong) */}
+      {step < TOTAL_STEPS - 1 && !(step === 2 && quizResult !== "correct") && (
+        <div className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white border-t border-gray-200 p-4">
+          <button
+            onClick={next}
+            disabled={!canContinue}
+            className="w-full h-12 rounded-full bg-indigo-600 text-white font-bold flex items-center justify-center gap-2 disabled:opacity-40"
+          >
+            Continue <ChevronRight className="w-5 h-5" />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
