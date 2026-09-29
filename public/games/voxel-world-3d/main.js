@@ -194,19 +194,43 @@
     HOTBAR.forEach((slot, i) => {
       const div = document.createElement('div');
       div.className = 'slot' + (i === selectedSlot ? ' sel' : '');
-      const info = window.BLOCKS[slot.id];
-      // Build mini canvas with block color
-      const canvas = document.createElement('canvas');
-      canvas.width = 32; canvas.height = 32;
-      const ctx = canvas.getContext('2d');
-      const hex = '#' + info.color.toString(16).padStart(6, '0');
-      ctx.fillStyle = hex;
-      ctx.fillRect(0, 0, 32, 32);
-      // Darken top/bottom edges to suggest 3D
-      ctx.fillStyle = 'rgba(0,0,0,0.25)';
-      ctx.fillRect(0, 28, 32, 4);
-      ctx.fillRect(0, 0, 4, 32);
-      div.style.backgroundImage = `url(${canvas.toDataURL()})`;
+      // Use the block's "side" texture (exposed via window from world.js) for the hotbar preview.
+      // For grass, the side texture shows grass-on-top-of-dirt — looks great.
+      const sideTextureCanvas = window.BLOCK_SIDE_CANVASES && window.BLOCK_SIDE_CANVASES[slot.id];
+      const topTextureCanvas = window.BLOCK_TOP_CANVASES && window.BLOCK_TOP_CANVASES[slot.id];
+      if (sideTextureCanvas) {
+        // Composite: top half shows the top texture (perspective), bottom half shows side
+        const canvas = document.createElement('canvas');
+        canvas.width = 48; canvas.height = 48;
+        const ctx = canvas.getContext('2d');
+        ctx.imageSmoothingEnabled = false;
+        // Side fills the whole slot
+        ctx.drawImage(sideTextureCanvas, 0, 0, 48, 48);
+        // Top diamond (perspective effect) — small overlay in top half
+        if (topTextureCanvas) {
+          ctx.save();
+          ctx.globalAlpha = 0.95;
+          // Draw a small top-texture square at the top to suggest depth
+          ctx.drawImage(topTextureCanvas, 8, 4, 24, 12);
+          ctx.restore();
+        }
+        // Edge shading
+        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+        ctx.fillRect(0, 44, 48, 4);
+        ctx.fillRect(0, 0, 4, 48);
+        ctx.fillRect(44, 0, 4, 48);
+        div.style.backgroundImage = `url(${canvas.toDataURL()})`;
+      } else {
+        // Fallback to flat color
+        const info = window.BLOCKS[slot.id];
+        const hex = '#' + info.color.toString(16).padStart(6, '0');
+        const canvas = document.createElement('canvas');
+        canvas.width = 32; canvas.height = 32;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = hex;
+        ctx.fillRect(0, 0, 32, 32);
+        div.style.backgroundImage = `url(${canvas.toDataURL()})`;
+      }
       div.innerHTML = `<span class="num">${i + 1}</span><span class="cnt">∞</span>`;
       div.addEventListener('click', () => selectSlot(i));
       hotbarEl.appendChild(div);

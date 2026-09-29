@@ -24,13 +24,289 @@
     14: { name: 'Bedrock',    color: 0x222222, transparent: false, solid: true },
   };
 
+  // ============================================================
+  // Procedural pixel-art texture generation (Minecraft-style)
+  // ============================================================
+
+  // Helper: pack a #rrggbb hex into a number
+  function hx(s) { return parseInt(s.replace('#',''), 16); }
+
+  // Mulberry32 seeded PRNG for stable per-texture randomness
+  function makeRng(seed) {
+    let a = seed | 0;
+    return function() {
+      a = (a + 0x6D2B79F5) | 0;
+      let t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  // Build a 16×16 pixel-art texture on a canvas
+  // pixelFn(x, y, rng) returns a hex color string or null (skip)
+  function makeTexture(pixelFn, seed) {
+    const cv = document.createElement('canvas');
+    cv.width = 16; cv.height = 16;
+    const ctx = cv.getContext('2d');
+    const rng = makeRng(seed);
+    for (let y = 0; y < 16; y++) {
+      for (let x = 0; x < 16; x++) {
+        const c = pixelFn(x, y, rng);
+        if (c) {
+          ctx.fillStyle = c;
+          ctx.fillRect(x, y, 1, 1);
+        }
+      }
+    }
+    return cv;
+  }
+
+  function darken(hex, amt) {
+    const r = Math.max(0, ((hex >> 16) & 0xff) - amt);
+    const g = Math.max(0, ((hex >> 8) & 0xff) - amt);
+    const b = Math.max(0, (hex & 0xff) - amt);
+    return '#' + ((r << 16) | (g << 8) | b).toString(16).padStart(6, '0');
+  }
+  function lighten(hex, amt) {
+    const r = Math.min(255, ((hex >> 16) & 0xff) + amt);
+    const g = Math.min(255, ((hex >> 8) & 0xff) + amt);
+    const b = Math.min(255, (hex & 0xff) + amt);
+    return '#' + ((r << 16) | (g << 8) | b).toString(16).padStart(6, '0');
+  }
+  function hex2str(hex) { return '#' + hex.toString(16).padStart(6, '0'); }
+
+  // Texture builders — each returns a canvas
+  function texGrassTop() {
+    const base = 0x7ab84a, dark = 0x5e9e3a, light = 0x9bd86a;
+    return makeTexture((x, y, rng) => {
+      const r = rng();
+      if (r < 0.15) return hex2str(dark);
+      if (r > 0.85) return hex2str(light);
+      return hex2str(base);
+    }, 100);
+  }
+  function texGrassSide() {
+    // Brown dirt bottom, green grass top with a few pixels of overhang
+    const dirt = 0x7a5230, dirtDark = 0x5e3f24, dirtLight = 0x9c6638;
+    const grass = 0x7ab84a, grassDark = 0x5e9e3a, grassLight = 0x9bd86a;
+    return makeTexture((x, y, rng) => {
+      if (y < 3 + Math.floor(rng() * 1.5)) {
+        // Top grass strip (top 3-4 pixels)
+        const r = rng();
+        if (r < 0.2) return hex2str(grassDark);
+        if (r > 0.8) return hex2str(grassLight);
+        return hex2str(grass);
+      } else if (y < 5 && rng() < 0.3) {
+        // Grass overhang pixels
+        return hex2str(grass);
+      } else {
+        // Dirt body
+        const r = rng();
+        if (r < 0.2) return hex2str(dirtDark);
+        if (r > 0.8) return hex2str(dirtLight);
+        return hex2str(dirt);
+      }
+    }, 200);
+  }
+  function texDirt() {
+    const base = 0x7a5230, dark = 0x5e3f24, light = 0x9c6638;
+    return makeTexture((x, y, rng) => {
+      const r = rng();
+      if (r < 0.2) return hex2str(dark);
+      if (r > 0.8) return hex2str(light);
+      return hex2str(base);
+    }, 300);
+  }
+  function texStone() {
+    const base = 0x808080, dark = 0x606060, light = 0xa0a0a0;
+    return makeTexture((x, y, rng) => {
+      const r = rng();
+      if (r < 0.15) return hex2str(dark);
+      if (r > 0.85) return hex2str(light);
+      // Add a few cracks
+      if ((x === 4 && y >= 4 && y <= 9) || (y === 11 && x >= 2 && x <= 7)) return hex2str(dark);
+      return hex2str(base);
+    }, 400);
+  }
+  function texCobble() {
+    const base = 0x707070, dark = 0x4a4a4a, light = 0x9a9a9a;
+    return makeTexture((x, y, rng) => {
+      // Cobblestone: alternating light/dark "rocks" with mortar lines
+      const cellX = Math.floor(x / 4), cellY = Math.floor(y / 4);
+      const subX = x % 4, subY = y % 4;
+      // Mortar (dark border between cells)
+      if (subX === 0 || subY === 0) return hex2str(dark);
+      const r = ((cellX * 7 + cellY * 13 + subX + subY) % 17) / 17;
+      if (r < 0.3) return hex2str(light);
+      if (r > 0.85) return hex2str(dark);
+      return hex2str(base);
+    }, 500);
+  }
+  function texSand() {
+    const base = 0xe8d68f, dark = 0xc7b272, light = 0xf4e8b5;
+    return makeTexture((x, y, rng) => {
+      const r = rng();
+      if (r < 0.2) return hex2str(dark);
+      if (r > 0.8) return hex2str(light);
+      return hex2str(base);
+    }, 600);
+  }
+  function texWoodTop() {
+    // Tree rings
+    const center = 0x9a7245, ring = 0x6b4423, dark = 0x4a3018;
+    return makeTexture((x, y, rng) => {
+      const dx = x - 7.5, dy = y - 7.5;
+      const d = Math.sqrt(dx*dx + dy*dy);
+      const ringIdx = Math.floor(d);
+      if (ringIdx % 2 === 0) return hex2str(ring);
+      return hex2str(center);
+    }, 700);
+  }
+  function texWoodSide() {
+    // Vertical bark grain
+    const base = 0x6b4423, dark = 0x4a3018, light = 0x8b5a2b;
+    return makeTexture((x, y, rng) => {
+      // Vertical streaks
+      const streak = (x * 3 + Math.floor(y / 4)) % 5;
+      if (streak === 0) return hex2str(dark);
+      if (streak === 4) return hex2str(light);
+      // Random dark pixels for knots
+      if (rng() < 0.04) return hex2str(dark);
+      return hex2str(base);
+    }, 800);
+  }
+  function texLeaves() {
+    const base = 0x4a8c2e, dark = 0x356823, light = 0x6bac42;
+    return makeTexture((x, y, rng) => {
+      const r = rng();
+      if (r < 0.35) return hex2str(dark);
+      if (r > 0.7) return hex2str(light);
+      return hex2str(base);
+    }, 900);
+  }
+  function texPlank() {
+    const base = 0xb88853, dark = 0x8e6840, light = 0xd2a76e;
+    return makeTexture((x, y, rng) => {
+      // Horizontal planks 4px tall, vertical seams offset
+      const row = Math.floor(y / 4);
+      const seamX = (row % 2 === 0) ? 8 : 0;
+      if (y % 4 === 0) return hex2str(dark);
+      if (x === seamX) return hex2str(dark);
+      const r = rng();
+      if (r < 0.15) return hex2str(dark);
+      if (r > 0.85) return hex2str(light);
+      return hex2str(base);
+    }, 1000);
+  }
+  function texBrick() {
+    const base = 0x9c3838, mortar = 0xc8b8a0, dark = 0x6e2424;
+    return makeTexture((x, y, rng) => {
+      const row = Math.floor(y / 4);
+      const brickH = y % 4;
+      const offset = (row % 2 === 0) ? 0 : 4;
+      const brickX = (x + offset) % 8;
+      if (brickH === 0) return hex2str(mortar);
+      if (brickX === 0) return hex2str(mortar);
+      if (rng() < 0.08) return hex2str(dark);
+      return hex2str(base);
+    }, 1100);
+  }
+  function texGlass() {
+    return makeTexture((x, y, rng) => {
+      // Border frame + transparent center with a few highlight streaks
+      if (x === 0 || y === 0 || x === 15 || y === 15) return '#a8d8f0';
+      if (x === 1 || y === 1 || x === 14 || y === 14) return '#c8e8ff';
+      // Diagonal highlight
+      if (x === y && x < 8) return '#ffffff';
+      if (x + y === 6 && x < 6) return '#e0f4ff';
+      return '#d0e8f5';
+    }, 1200);
+  }
+  function texGold() {
+    const base = 0xfcc438, dark = 0xc89028, light = 0xffe878;
+    return makeTexture((x, y, rng) => {
+      const r = rng();
+      if (r < 0.25) return hex2str(dark);
+      if (r > 0.75) return hex2str(light);
+      // Shiny spots
+      if ((x === 4 && y === 4) || (x === 11 && y === 9)) return hex2str(light);
+      return hex2str(base);
+    }, 1300);
+  }
+  function texDiamond() {
+    const base = 0x5ce8e8, dark = 0x2ec0c8, light = 0xa0f8f8;
+    return makeTexture((x, y, rng) => {
+      const r = rng();
+      if (r < 0.2) return hex2str(dark);
+      if (r > 0.85) return hex2str(light);
+      // Crystal facets
+      if (x === 7 && y === 7) return hex2str(light);
+      if (x + y === 14 && x >= 5 && x <= 10) return hex2str(light);
+      return hex2str(base);
+    }, 1400);
+  }
+  function texBedrock() {
+    const base = 0x383838, dark = 0x1a1a1a, light = 0x555555;
+    return makeTexture((x, y, rng) => {
+      const r = rng();
+      if (r < 0.3) return hex2str(dark);
+      if (r > 0.8) return hex2str(light);
+      return hex2str(base);
+    }, 1500);
+  }
+  function texWater() {
+    const base = 0x3b6ed8, dark = 0x2854b8, light = 0x6a98ec;
+    return makeTexture((x, y, rng) => {
+      // Wavy pattern
+      const wave = Math.sin((x + y * 0.5) * 0.8) * 0.5 + 0.5;
+      if (wave < 0.3) return hex2str(dark);
+      if (wave > 0.7) return hex2str(light);
+      return hex2str(base);
+    }, 1600);
+  }
+
+  // Per-block-type face textures: { top, side, bottom }
+  // For most blocks, all three are the same; for grass and wood they differ.
+  const TEXTURES = {
+    1:  { top: texGrassTop(), side: texGrassSide(), bottom: texDirt() },     // Grass
+    2:  { top: texDirt(), side: texDirt(), bottom: texDirt() },               // Dirt
+    3:  { top: texStone(), side: texStone(), bottom: texStone() },            // Stone
+    4:  { top: texSand(), side: texSand(), bottom: texSand() },               // Sand
+    5:  { top: texWoodTop(), side: texWoodSide(), bottom: texWoodTop() },     // Wood
+    6:  { top: texLeaves(), side: texLeaves(), bottom: texLeaves() },         // Leaves
+    7:  { top: texWater(), side: texWater(), bottom: texWater() },            // Water
+    8:  { top: texBrick(), side: texBrick(), bottom: texBrick() },            // Brick
+    9:  { top: texGlass(), side: texGlass(), bottom: texGlass() },            // Glass
+    10: { top: texGold(), side: texGold(), bottom: texGold() },               // Gold
+    11: { top: texDiamond(), side: texDiamond(), bottom: texDiamond() },      // Diamond
+    12: { top: texPlank(), side: texPlank(), bottom: texPlank() },           // Plank
+    13: { top: texCobble(), side: texCobble(), bottom: texCobble() },         // Cobble
+    14: { top: texBedrock(), side: texBedrock(), bottom: texBedrock() },       // Bedrock
+  };
+
+  // Cache of THREE.Texture per block id + face direction
+  const textureCache = {};
+  function getTexture(THREE, blockId, face) {
+    const key = blockId + ':' + face;
+    if (textureCache[key]) return textureCache[key];
+    const texSet = TEXTURES[blockId];
+    if (!texSet) return null;
+    const cv = face === 'top' ? texSet.top : face === 'bottom' ? texSet.bottom : texSet.side;
+    const tex = new THREE.CanvasTexture(cv);
+    tex.magFilter = THREE.NearestFilter; // crisp pixel art
+    tex.minFilter = THREE.NearestFilter;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    textureCache[key] = tex;
+    return tex;
+  }
+
   function hash2D(x, z, seed) {
     let h = (x * 374761393 + z * 668265263 + seed * 374761391) | 0;
     h = (h ^ (h >>> 13)) * 1274126177;
     h = h ^ (h >>> 16);
     return (h >>> 0) / 4294967295; // 0..1
   }
-
   function smoothNoise(x, z, seed) {
     const x0 = Math.floor(x), z0 = Math.floor(z);
     const x1 = x0 + 1, z1 = z0 + 1;
@@ -153,64 +429,66 @@
 
   // === Mesh building ===
   // For each block, only render faces that are exposed to air or transparent.
-  // We build a single merged geometry grouped by block-id material groups.
+  // We split faces by (blockId, faceDirection) so we can apply different
+  // textures to top/side/bottom of grass, wood, etc.
   World.prototype.buildMesh = function (THREE) {
     const s = this.size, h = this.height;
-    // Per block-type: arrays of { position, normal, uv, ao }
-    const byType = {}; // blockId → { positions, normals, indices, uvs }
+    // byType: { "blockId:face" → { positions, normals, indices, uvs } }
+    const byType = {};
     for (let x = 0; x < s; x++) {
       for (let y = 0; y < h; y++) {
         for (let z = 0; z < s; z++) {
           const b = this.get(x, y, z);
           if (b === 0) continue;
           const info = BLOCKS[b];
-          if (!info || info.transparent && b === 7) {
-            // Water handled separately as a flat translucent plane on top
-            // Actually for simplicity, we'll render water as solid faces with transparency
-          }
+          if (!info) continue;
           // Check 6 neighbors
           const neighbors = [
-            { dx: 1, dy: 0, dz: 0, face: 'right' },
-            { dx: -1, dy: 0, dz: 0, face: 'left' },
+            { dx: 1, dy: 0, dz: 0, face: 'side' },
+            { dx: -1, dy: 0, dz: 0, face: 'side' },
             { dx: 0, dy: 1, dz: 0, face: 'top' },
             { dx: 0, dy: -1, dz: 0, face: 'bottom' },
-            { dx: 0, dy: 0, dz: 1, face: 'front' },
-            { dx: 0, dy: 0, dz: -1, face: 'back' },
+            { dx: 0, dy: 0, dz: 1, face: 'side' },
+            { dx: 0, dy: 0, dz: -1, face: 'side' },
           ];
           for (const n of neighbors) {
             const nb = this.get(x + n.dx, y + n.dy, z + n.dz);
             const nbInfo = BLOCKS[nb];
             if (nb === 0 || (nbInfo && nbInfo.transparent && nb !== b)) {
-              // Add this face
-              if (!byType[b]) byType[b] = { positions: [], normals: [], indices: [], uvs: [] };
-              this._addFace(THREE, byType[b], x, y, z, n.face, info);
+              const key = b + ':' + n.face;
+              if (!byType[key]) byType[key] = { positions: [], normals: [], indices: [], uvs: [] };
+              this._addFace(THREE, byType[key], x, y, z, n.face === 'top' ? 'top' : n.face === 'bottom' ? 'bottom' : 'side', info, n.face);
             }
           }
         }
       }
     }
-    // Build a Group of meshes per block-type
+    // Build a Group of meshes per (blockId, face)
     const group = new THREE.Group();
     const meshes = {};
-    for (const id in byType) {
-      const d = byType[id];
-      const info = BLOCKS[id];
+    for (const key in byType) {
+      const d = byType[key];
+      const [blockIdStr, faceDir] = key.split(':');
+      const blockId = parseInt(blockIdStr, 10);
+      const info = BLOCKS[blockId];
       const geom = new THREE.BufferGeometry();
       geom.setAttribute('position', new THREE.Float32BufferAttribute(d.positions, 3));
       geom.setAttribute('normal', new THREE.Float32BufferAttribute(d.normals, 3));
       geom.setAttribute('uv', new THREE.Float32BufferAttribute(d.uvs, 2));
       geom.setIndex(d.indices);
-      const mat = new THREE.MeshLambertMaterial({
-        color: info.color,
+      const tex = getTexture(THREE, blockId, faceDir);
+      const matOpts = {
+        map: tex,
         transparent: !!info.transparent,
         opacity: info.opacity || 1.0,
-      });
+      };
+      const mat = new THREE.MeshLambertMaterial(matOpts);
       const mesh = new THREE.Mesh(geom, mat);
       mesh.castShadow = false;
       mesh.receiveShadow = true;
-      mesh.userData.blockId = parseInt(id, 10);
+      mesh.userData = { blockId, faceDir: key };
       group.add(mesh);
-      meshes[id] = mesh;
+      meshes[key] = mesh;
     }
     this.meshGroup = group;
     this.meshes = meshes;
@@ -218,11 +496,11 @@
     return group;
   };
 
-  World.prototype._addFace = function (THREE, d, x, y, z, face, info) {
+  World.prototype._addFace = function (THREE, d, x, y, z, faceType, info, origFace) {
     const baseIdx = d.positions.length / 3;
     let positions, normals;
     // Each face = 4 vertices (CCW from outside)
-    if (face === 'top') {
+    if (origFace === 'top') {
       positions = [
         x, y + 1, z,
         x + 1, y + 1, z,
@@ -230,7 +508,7 @@
         x, y + 1, z + 1,
       ];
       normals = [0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0];
-    } else if (face === 'bottom') {
+    } else if (origFace === 'bottom') {
       positions = [
         x, y, z + 1,
         x + 1, y, z + 1,
@@ -238,7 +516,7 @@
         x, y, z,
       ];
       normals = [0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0];
-    } else if (face === 'right') {
+    } else if (origFace === 'right') {
       positions = [
         x + 1, y, z,
         x + 1, y + 1, z,
@@ -246,7 +524,7 @@
         x + 1, y, z + 1,
       ];
       normals = [1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0];
-    } else if (face === 'left') {
+    } else if (origFace === 'left') {
       positions = [
         x, y, z + 1,
         x, y + 1, z + 1,
@@ -254,7 +532,7 @@
         x, y, z,
       ];
       normals = [-1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0];
-    } else if (face === 'front') {
+    } else if (origFace === 'front') {
       positions = [
         x + 1, y, z + 1,
         x + 1, y + 1, z + 1,
@@ -320,4 +598,11 @@
 
   window.World = World;
   window.BLOCKS = BLOCKS;
+  // Expose the per-block texture canvases so main.js can render pixel-art hotbar previews
+  window.BLOCK_SIDE_CANVASES = {};
+  window.BLOCK_TOP_CANVASES = {};
+  for (const id in TEXTURES) {
+    window.BLOCK_SIDE_CANVASES[id] = TEXTURES[id].side;
+    window.BLOCK_TOP_CANVASES[id] = TEXTURES[id].top;
+  }
 })();
