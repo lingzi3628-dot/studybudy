@@ -39,16 +39,6 @@ const SEED_GAMES = [
     playTimeMinutes: 15,
   },
   {
-    title: "StudyBuddy Pool",
-    description: "Classic 2D 8-ball pool against the AI. Aim, charge power, and sink your balls!",
-    category: "Arcade",
-    gameUrl: "/games/studybuddy-pool/index.html",
-    isFeatured: false,
-    rating: 4.0,
-    minStudyMinutes: 30,
-    playTimeMinutes: 10,
-  },
-  {
     title: "StudyBuddy Snake",
     description: "The classic snake game. Eat food, grow longer, don't hit yourself!",
     category: "Arcade",
