@@ -144,10 +144,10 @@ export function Landing() {
         <div className="mt-6 max-w-md mx-auto rounded-2xl bg-white border-2 border-indigo-100 p-5 shadow-lg">
           <div className="text-center">
             <div className="inline-flex items-center gap-1 bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full text-[10px] font-semibold mb-2">
-              📱 Play Store coming soon
+              📱 Direct Android download · Play Store coming soon
             </div>
-            <h3 className="text-sm font-bold text-gray-900">Download the Android App</h3>
-            <p className="mt-1 text-xs text-gray-500">Get the full native experience with offline support.</p>
+            <h3 className="text-sm font-bold text-gray-900">Get the StudyBuddy Android App</h3>
+            <p className="mt-1 text-xs text-gray-500">Download the production app and install it on your Android device. Android may ask you to allow installs from your browser.</p>
           </div>
           <div className="mt-3 flex justify-center">
             <ApkDownloadButton />
