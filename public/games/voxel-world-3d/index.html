@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>VOXEL WORLD 3D</title>
+<style>
+  :root { --grn: #7ac74f; --gold: #ffd24a; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0e1a; }
+  body { font-family: "Segoe UI", Arial, sans-serif; color: #eef4e8; }
+  #game { position: fixed; inset: 0; }
+  #game canvas { display: block; }
+
+  /* crosshair */
+  #cross {
+    position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    z-index: 5; pointer-events: none; font-size: 22px; font-weight: 300;
+    color: rgba(255,255,255,.85); text-shadow: 0 0 4px rgba(0,0,0,.8);
+  }
+
+  /* hud top-left */
+  #hud {
+    position: fixed; top: 12px; left: 14px; z-index: 6; pointer-events: none;
+    font-size: 12px; letter-spacing: 1px; color: rgba(238,244,232,.85);
+    text-shadow: 0 1px 3px rgba(0,0,0,.8); line-height: 1.7;
+  }
+  #hud b { color: var(--gold); }
+  #timeIcon {
+    position: fixed; top: 10px; left: 50%; transform: translateX(-50%);
+    z-index: 6; font-size: 24px; pointer-events: none;
+    filter: drop-shadow(0 0 6px rgba(0,0,0,.6));
+  }
+
+  /* hotbar */
+  #hotbar {
+    position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 5px; z-index: 6; pointer-events: none;
+  }
+  .slot {
+    width: 52px; height: 52px; border-radius: 8px; position: relative;
+    border: 2px solid rgba(255,255,255,.25); background-size: cover; image-rendering: pixelated;
+    background-color: rgba(0,0,0,.35);
+    transition: transform .1s ease, border-color .1s ease;
+  }
+  .slot.sel { border-color: var(--gold); transform: translateY(-5px); box-shadow: 0 4px 14px rgba(0,0,0,.5); }
+  .slot .num {
+    position: absolute; top: 1px; left: 4px; font-size: 10px; color: rgba(255,255,255,.7);
+    text-shadow: 0 1px 2px #000;
+  }
+  .slot .cnt {
+    position: absolute; bottom: 1px; right: 4px; font-size: 12px; font-weight: 800;
+    color: var(--gold); text-shadow: 0 1px 2px #000;
+  }
+  .slot.empty { opacity: .45; filter: grayscale(.7); }
+  .slot.empty .cnt { color: #ff7b6b; }
+  #blockName {
+    position: fixed; bottom: 76px; left: 50%; transform: translateX(-50%);
+    z-index: 6; font-size: 14px; letter-spacing: 2px; color: var(--gold);
+    text-shadow: 0 1px 3px #000; pointer-events: none;
+  }
+
+  #hintB {
+    position: fixed; bottom: 92px; left: 50%; transform: translateX(-50%);
+    z-index: 5; font-size: 12px; color: rgba(238,244,232,.55); letter-spacing: 1px;
+    pointer-events: none; text-shadow: 0 1px 2px #000; text-align: center;
+  }
+
+  /* overlays */
+  .overlay {
+    position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column;
+    justify-content: center; align-items: center; text-align: center; padding: 20px;
+    background: radial-gradient(ellipse at center, rgba(16,26,16,.82), rgba(5,8,6,.95));
+    opacity: 0; pointer-events: none; transition: opacity .3s ease; overflow-y: auto;
+    backdrop-filter: blur(3px);
+  }
+  .overlay.show { opacity: 1; pointer-events: auto; }
+  .title {
+    font-size: clamp(40px, 8vw, 80px); letter-spacing: 8px; font-weight: 900; color: #f2fff0;
+    text-shadow: 0 0 30px rgba(122,199,79,.7), 0 4px 0 rgba(0,0,0,.6);
+  }
+  .title span { color: var(--grn); }
+  .subtitle { margin-top: 8px; font-size: 14px; letter-spacing: 4px; color: rgba(238,244,232,.7); }
+  .panel {
+    margin-top: 26px; background: rgba(0,0,0,.35); border: 1px solid rgba(122,199,79,.35);
+    border-radius: 14px; padding: 20px 26px; display: flex; flex-direction: column; gap: 14px;
+    min-width: min(400px, 92vw);
+  }
+  .row { display: flex; gap: 10px; align-items: center; justify-content: center; flex-wrap: wrap; }
+  .row label { font-size: 13px; letter-spacing: 1.5px; color: rgba(238,244,232,.75); }
+  #seedInput {
+    font-family: inherit; font-size: 15px; letter-spacing: 2px; text-align: center;
+    background: rgba(255,255,255,.08); color: #fff; border: 1px solid rgba(122,199,79,.5);
+    border-radius: 8px; padding: 10px 14px; width: 170px; outline: none;
+  }
+  select {
+    font-family: inherit; font-size: 14px; background: rgba(255,255,255,.08); color: #fff;
+    border: 1px solid rgba(122,199,79,.5); border-radius: 8px; padding: 9px 12px; outline: none;
+  }
+  select option { background: #14210f; }
+  .big-btn {
+    font-family: inherit; cursor: pointer; font-size: 17px; letter-spacing: 2px; font-weight: 800;
+    color: #0c1705; background: linear-gradient(180deg, #9ee069, #5da435);
+    border: none; border-radius: 12px; padding: 15px 32px;
+    box-shadow: 0 6px 24px rgba(122,199,79,.35);
+    transition: transform .15s ease;
+  }
+  .big-btn:hover { transform: translateY(-2px); }
+  .big-btn.ghost { background: transparent; color: var(--grn); border: 1px solid rgba(122,199,79,.5); box-shadow: none; }
+  .controls-grid {
+    margin-top: 24px; display: grid; grid-template-columns: auto auto; gap: 6px 22px;
+    font-size: 13px; color: rgba(238,244,232,.7); text-align: left; letter-spacing: 1px;
+  }
+  .controls-grid b { color: var(--grn); font-weight: 700; }
+  #genStatus { margin-top: 16px; font-size: 13px; letter-spacing: 2px; color: var(--gold); min-height: 18px; }
+
+  /* health */
+  #hearts {
+    position: fixed; bottom: 118px; left: 50%; transform: translateX(-50%);
+    z-index: 6; display: none; gap: 1px; font-size: 19px; pointer-events: none;
+    text-shadow: 0 1px 3px rgba(0,0,0,.9);
+  }
+  #dmgFlash {
+    position: fixed; inset: 0; z-index: 9; pointer-events: none; opacity: 0;
+    background: radial-gradient(ellipse at center, rgba(255,0,0,0) 35%, rgba(255,25,25,.5) 100%);
+    transition: opacity .4s ease;
+  }
+
+  /* pause */
+  #pauseOverlay .panel { min-width: 280px; }
+
+  /* mobile */
+  #mc { display: none; position: fixed; inset: 0; z-index: 8; pointer-events: none; }
+  #mc .zone { position: absolute; bottom: 0; top: 40%; width: 50%; pointer-events: auto; }
+  #zoneL { left: 0; }
+  #zoneR { right: 0; pointer-events: auto; }
+  .mbtn {
+    position: absolute; pointer-events: auto; width: 62px; height: 62px; border-radius: 50%;
+    background: rgba(0,0,0,.4); border: 2px solid rgba(122,199,79,.5); color: #fff;
+    font-size: 20px; display: flex; align-items: center; justify-content: center;
+    touch-action: none; user-select: none;
+  }
+  #btnJump { right: 22px; bottom: 96px; }
+  #btnPlace { right: 96px; bottom: 40px; }
+  #btnBreak { right: 22px; bottom: 40px; }
+</style>
+</head>
+<body>
+<div id="game"></div>
+
+<div id="cross">+</div>
+<div id="hud"></div>
+<div id="timeIcon">☀️</div>
+<div id="blockName"></div>
+<div id="hearts"></div>
+<div id="dmgFlash"></div>
+<div id="hintB">WASD move · mouse look · LMB break · RMB place · F fly · 1–9 blocks</div>
+<div id="hotbar"></div>
+
+<div class="overlay show" id="menuOverlay">
+  <div class="title">VOXEL <span>WORLD</span> 3D</div>
+  <div class="subtitle">BUILD · MINE · EXPLORE · SURVIVE THE NIGHT? (NO—JUST VIBES)</div>
+  <div class="panel">
+    <div class="row">
+      <label>SEED</label>
+      <input id="seedInput" maxlength="12" value="">
+      <button class="big-btn ghost" id="randSeed" style="padding:9px 14px;font-size:13px">🎲</button>
+    </div>
+    <div class="row">
+      <label>WORLD SIZE</label>
+      <select id="sizeSel">
+        <option value="6">Medium — 96×96</option>
+        <option value="9">Large — 144×144</option>
+      </select>
+    </div>
+    <div class="row">
+      <button class="big-btn" id="createBtn">⛏️ Create World</button>
+      <button class="big-btn ghost" id="continueBtn" style="display:none">↻ Continue</button>
+    </div>
+  </div>
+  <div class="controls-grid">
+    <b>W A S D</b><span>move</span>
+    <b>MOUSE</b><span>look (click to lock pointer)</span>
+    <b>SPACE / SHIFT</b><span>jump · sneak down (fly)</span>
+    <b>LMB / RMB</b><span>break / place block</span>
+    <b>1–9 · WHEEL</b><span>select block</span>
+    <b>F</b><span>toggle fly</span>
+    <b>ESC</b><span>pause</span>
+  </div>
+  <div id="genStatus"></div>
+</div>
+
+<div class="overlay" id="pauseOverlay">  <div class="title" style="font-size:44px">PAUSED</div>
+  <div class="panel">
+    <button class="big-btn" id="resumeBtn">▶ Resume</button>
+    <button class="big-btn ghost" id="quitBtn">Save &amp; Menu</button>
+  </div>
+</div>
+
+<div id="mc">
+  <div class="zone" id="zoneL"></div>
+  <div class="zone" id="zoneR"></div>
+  <div class="mbtn" id="btnJump">⬆</div>
+  <div class="mbtn" id="btnPlace">🧱</div>
+  <div class="mbtn" id="btnBreak">⛏️</div>
+</div>
+
+<script src="three.min.js"></script>
+<script src="world.js"></script>
+<script src="mobs.js"></script>
+<script src="main.js"></script>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a42a3451e9ed9c08',t:'MTc5MDY3NjY5Mg=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>

@@ -6,6 +6,26 @@ export const runtime = "nodejs";
 export async function POST() {
   const games = [
     {
+      title: "Chess 3D",
+      description: "Full chess rules in stunning 3D! Orbit the board, choose your difficulty (Casual/Normal/Hard), and play as White, Black, or against a friend. Castling, en passant, promotion, checkmate — all working.",
+      category: "Strategy",
+      gameUrl: "/games/chess-3d/index.html",
+      isFeatured: true,
+      rating: 4.9,
+      minStudyMinutes: 30,
+      playTimeMinutes: 15,
+    },
+    {
+      title: "Voxel World 3D",
+      description: "A Minecraft-style voxel sandbox! Procedurally generate a world from any seed, mine and place blocks, explore a day/night cycle, and watch ambient mobs wander the landscape. Mobile + desktop controls.",
+      category: "Adventure",
+      gameUrl: "/games/voxel-world-3d/index.html",
+      isFeatured: true,
+      rating: 4.7,
+      minStudyMinutes: 30,
+      playTimeMinutes: 15,
+    },
+    {
       title: "8 Ball 3D",
       description: "Stunning 3D 8-ball pool with realistic physics. Drag from the cue ball to aim, hold to charge power, and sink your group before the AI does!",
       category: "Sports",

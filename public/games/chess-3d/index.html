@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>CHESS 3D</title>
+<style>
+  :root {
+    --gold: #d4af37;
+    --gold-dim: rgba(212,175,55,.45);
+    --ink: #0b0d14;
+    --parchment: #efe8d8;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: var(--ink); }
+  body { font-family: Georgia, "Times New Roman", serif; color: var(--parchment); }
+  #game { position: fixed; inset: 0; }
+  #game canvas { display: block; }
+
+  /* ---------- HUD ---------- */
+  #hud {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 6;
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 12px 18px; pointer-events: none;
+    background: linear-gradient(180deg, rgba(11,13,20,.85), transparent);
+  }
+  #hud > * { pointer-events: auto; }
+  .brand {
+    font-size: 20px; letter-spacing: 4px; font-weight: 700; color: var(--gold);
+    text-shadow: 0 0 18px rgba(212,175,55,.35); white-space: nowrap;
+  }
+  #status {
+    flex: 1; text-align: center; font-size: 15px; letter-spacing: 1.5px;
+    color: #d9d2c0; min-height: 20px;
+  }
+  #status .check { color: #ff5340; font-weight: 700; }
+  .hud-btns { display: flex; gap: 8px; }
+  .hbtn {
+    font-family: inherit; cursor: pointer; font-size: 13px; letter-spacing: 1.5px;
+    color: var(--gold); background: rgba(212,175,55,.08);
+    border: 1px solid var(--gold-dim); border-radius: 8px; padding: 8px 14px;
+    transition: background .15s ease, transform .15s ease;
+  }
+  .hbtn:hover { background: rgba(212,175,55,.2); transform: translateY(-1px); }
+
+  /* ---------- Move list ---------- */
+  #movePanel {
+    position: fixed; top: 64px; right: 14px; bottom: 64px; width: 190px; z-index: 5;
+    background: rgba(14,16,26,.82); border: 1px solid rgba(212,175,55,.25);
+    border-radius: 12px; backdrop-filter: blur(6px); padding: 12px;
+    display: flex; flex-direction: column; transition: transform .3s ease;
+  }
+  #movePanel h3 {
+    font-size: 12px; letter-spacing: 3px; color: var(--gold);
+    text-transform: uppercase; margin-bottom: 8px; text-align: center;
+  }
+  #moveScroll { overflow-y: auto; flex: 1; scrollbar-width: thin; }
+  #moveTable { width: 100%; border-collapse: collapse; font-size: 14px; }
+  #moveTable td { padding: 3px 6px; border-bottom: 1px solid rgba(255,255,255,.05); }
+  #moveTable td.n { color: #8a8467; width: 28px; }
+  @media (max-width: 700px) {
+    #movePanel { transform: translateX(115%); top: auto; bottom: 70px; height: 40%; }
+    #movePanel.open { transform: translateX(0); }
+  }
+
+  /* ---------- hint ---------- */
+  #hint {
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 6; text-align: center;
+    padding: 10px; font-size: 12px; letter-spacing: 2px; color: rgba(217,210,192,.55);
+    background: linear-gradient(0deg, rgba(11,13,20,.8), transparent); pointer-events: none;
+  }
+
+  /* ---------- overlays ---------- */
+  .overlay {
+    position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column;
+    justify-content: center; align-items: center; text-align: center; padding: 20px;
+    background: radial-gradient(ellipse at center, rgba(20,18,32,.82), rgba(6,7,12,.95));
+    opacity: 0; pointer-events: none; transition: opacity .35s ease;
+  }
+  .overlay.show { opacity: 1; pointer-events: auto; }
+  .title {
+    font-size: clamp(44px, 8vw, 84px); letter-spacing: 10px; font-weight: 700;
+    color: var(--parchment);
+    text-shadow: 0 0 30px rgba(212,175,55,.55), 0 4px 0 rgba(0,0,0,.5);
+  }
+  .title span { color: var(--gold); }
+  .subtitle { margin-top: 10px; font-size: 14px; letter-spacing: 4px; color: rgba(217,210,192,.7); }
+  .diff-row { margin-top: 34px; display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+  .diff-row .label { width: 100%; font-size: 12px; letter-spacing: 3px; color: rgba(217,210,192,.6); margin-bottom: 4px; }
+  .diff-btn {
+    font-family: inherit; cursor: pointer; min-width: 92px;
+    font-size: 14px; letter-spacing: 2px; color: var(--parchment);
+    background: transparent; border: 1px solid rgba(217,210,192,.3); border-radius: 9px; padding: 10px 18px;
+    transition: all .15s ease;
+  }
+  .diff-btn.active { border-color: var(--gold); color: var(--gold); background: rgba(212,175,55,.12); }
+  .mode-row { margin-top: 22px; display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
+  .big-btn {
+    font-family: inherit; cursor: pointer; font-size: 17px; letter-spacing: 3px;
+    color: var(--ink); background: linear-gradient(180deg, #e5c55a, #b8902a);
+    border: none; border-radius: 12px; padding: 16px 30px; font-weight: 700;
+    box-shadow: 0 6px 24px rgba(212,175,55,.35);
+    transition: transform .15s ease, box-shadow .15s ease;
+  }
+  .big-btn:hover { transform: translateY(-2px); box-shadow: 0 10px 32px rgba(212,175,55,.5); }
+  .big-btn.alt { background: linear-gradient(180deg, #454058, #262233); color: var(--parchment); box-shadow: 0 6px 24px rgba(0,0,0,.6); }
+  .big-btn.ghost { background: transparent; color: var(--gold); border: 1px solid var(--gold-dim); box-shadow: none; }
+
+  /* ---------- result ---------- */
+  #resultTitle { font-size: clamp(30px, 6vw, 56px); letter-spacing: 6px; color: var(--gold); }
+  #resultSub { margin-top: 8px; font-size: 16px; color: rgba(217,210,192,.8); letter-spacing: 2px; }
+
+  /* ---------- promotion ---------- */
+  #promoModal .panel {
+    background: rgba(14,16,26,.95); border: 1px solid var(--gold-dim); border-radius: 14px;
+    padding: 26px 30px;
+  }
+  #promoModal h4 { font-size: 14px; letter-spacing: 3px; color: var(--gold); text-transform: uppercase; margin-bottom: 14px; }
+  .promo-row { display: flex; gap: 12px; }
+  .promo-btn {
+    cursor: pointer; width: 78px; height: 78px; font-size: 52px; line-height: 1;
+    background: rgba(212,175,55,.07); border: 1px solid rgba(212,175,55,.4); border-radius: 12px;
+    display: flex; align-items: center; justify-content: center; transition: all .12s ease;
+  }
+  .promo-btn:hover { background: rgba(212,175,55,.22); transform: scale(1.06); }
+  .promo-btn.w { color: #efe8d8; }
+  .promo-btn.b { color: #45405a; text-shadow: 0 0 2px rgba(239,232,216,.4); }
+</style>
+</head>
+<body>
+<div id="game"></div>
+
+<header id="hud">
+  <div class="brand">♞ CHESS<span style="color:var(--gold)">3D</span></div>
+  <div id="status">White to move</div>
+  <div class="hud-btns">
+    <button class="hbtn" id="flipBtn">⇄ Flip view</button>
+    <button class="hbtn" id="movesBtn">☰ Moves</button>
+    <button class="hbtn" id="soundBtn">🔊</button>
+    <button class="hbtn" id="menuBtn">Menu</button>
+  </div>
+</header>
+
+<aside id="movePanel">
+  <h3>Move history</h3>
+  <div id="moveScroll"><table id="moveTable"></table></div>
+</aside>
+
+<div id="hint">drag to orbit · scroll to zoom · click a piece, then a highlighted square</div>
+
+<div class="overlay show" id="startScreen">
+  <div class="title">CHESS <span>3D</span></div>
+  <div class="subtitle">FULL RULES · ORBIT CAMERA · AI OPPONENT</div>
+  <div class="diff-row">
+    <div class="label">AI DIFFICULTY</div>
+    <button class="diff-btn" data-diff="easy">Casual</button>
+    <button class="diff-btn active" data-diff="normal">Normal</button>
+    <button class="diff-btn" data-diff="hard">Hard</button>
+  </div>
+  <div class="mode-row">
+    <button class="big-btn" data-mode="ai-white">♔ Play White</button>
+    <button class="big-btn alt" data-mode="ai-black">♚ Play Black</button>
+    <button class="big-btn ghost" data-mode="local">2 Players</button>
+  </div>
+</div>
+
+<div class="overlay" id="resultScreen">
+  <div id="resultTitle">Checkmate</div>
+  <div id="resultSub">White wins</div>
+  <div class="mode-row">
+    <button class="big-btn" id="againBtn">↻ Play again</button>
+    <button class="big-btn ghost" id="resultMenuBtn">Menu</button>
+  </div>
+</div>
+
+<div class="overlay" id="promoModal">
+  <div class="panel">
+    <h4>Promote pawn to</h4>
+    <div class="promo-row" id="promoRow"></div>
+  </div>
+</div>
+
+<script src="three.min.js"></script>
+<script src="OrbitControls.js"></script>
+<script src="chess-engine.js"></script>
+<script src="ai.js"></script>
+<script src="main3d.js"></script>
+</body>
+</html>
