@@ -58,6 +58,22 @@ export async function POST(req: NextRequest) {
       const result = await sendEmail({ to: email, subject, html });
       if (!result.ok) {
         console.error("Forgot password email failed:", result.error);
+        // Phase 79 — In dev/preview (no SMTP configured), return the code
+        // in the API response so the user can still reset their password.
+        // In production with SMTP configured, the code is only in the email.
+        const isDev = process.env.NODE_ENV !== "production" || !process.env.SMTP_USER;
+        if (isDev) {
+          return NextResponse.json({
+            ok: true,
+            message: "Email service not configured. Use this code to reset your password.",
+            devCode: code,  // Only returned when SMTP is not set up
+          });
+        }
+        // In production with SMTP configured but failing — surface the error
+        return NextResponse.json(
+          { error: "Email service is temporarily unavailable. Please try again or contact support." },
+          { status: 503 }
+        );
       }
     }
 

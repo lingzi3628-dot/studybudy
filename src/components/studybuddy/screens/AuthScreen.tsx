@@ -21,7 +21,7 @@ type Mode = "signin" | "signup";
 
 export function AuthScreen() {
   const { setScreen } = useApp();
-  const [mode, setMode] = useState<Mode>("signup");
+  const [mode, setMode] = useState<Mode>("signin"); // Phase 79 — default to signin so Forgot Password is visible
   // Phase 23b — email verification state (lifted up so AuthScreen can switch views)
   const [showVerification, setShowVerification] = useState(false);
   const [verificationEmail, setVerificationEmail] = useState("");
@@ -461,6 +461,7 @@ function ForgotPasswordLink() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [devCode, setDevCode] = useState<string | null>(null); // Phase 79 — dev mode code display
 
   const sendCode = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -470,6 +471,7 @@ function ForgotPasswordLink() {
     }
     setBusy(true);
     setError(null);
+    setDevCode(null);
     try {
       const r = await fetch("/api/auth/forgot-password", {
         method: "POST",
@@ -478,6 +480,12 @@ function ForgotPasswordLink() {
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error ?? "Failed");
+      // Phase 79 — If devCode is returned (SMTP not configured), show it.
+      if (d.devCode) {
+        setDevCode(d.devCode);
+        // Auto-fill the code field so the user can just click Continue.
+        setCode(d.devCode);
+      }
       setStep("code");
     } catch (e: any) {
       setError(e?.message ?? "Failed");
@@ -601,6 +609,18 @@ function ForgotPasswordLink() {
 
               {step === "code" && (
                 <form onSubmit={verifyCode} className="space-y-3">
+                  {devCode && (
+                    <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs">
+                      <p className="font-bold mb-1">Email service not configured</p>
+                      <p>Your reset code is: <span className="font-mono font-bold text-base tracking-wider">{devCode}</span></p>
+                      <p className="text-amber-600 mt-1">The code has been auto-filled. Just click Continue.</p>
+                    </div>
+                  )}
+                  {!devCode && (
+                    <p className="text-xs text-gray-500 text-center">
+                      Enter the 6-digit code we sent to <b>{email}</b>
+                    </p>
+                  )}
                   <input
                     type="text"
                     value={code}
