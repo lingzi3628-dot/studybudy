@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
     const topicId = typeof body.topicId === "string" ? body.topicId.slice(0, 100) : null;
     const conversationId = typeof body.conversationId === "string" ? body.conversationId.slice(0, 100) : null;
     const candidate = body.workspaceOffer;
-    const allowedWorkspaces = ["design", "code", "modeling", "simulation", "data"];
+    const allowedWorkspaces = ["computer", "design", "study", "exam", "code", "web", "modeling", "simulation", "data", "tvet"];
     const workspaceOffer = candidate && typeof candidate === "object" &&
       allowedWorkspaces.includes(candidate.workspace) &&
       [candidate.title, candidate.reason, candidate.benefit].every((value) => typeof value === "string" && value.trim().length > 0)

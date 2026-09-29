@@ -285,6 +285,28 @@ export function AITutorChat() {
     loadConversations();
   }, [loadConversations]);
 
+  // A phone-to-computer handoff without an existing Study Room resumes the
+  // tutor conversation and routes directly to the workspace the tutor offered.
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem("studybuddy.pendingComputerWorkspace");
+      const pending = raw ? JSON.parse(raw) : null;
+      if (!pending || pending.topicId) return;
+      const targets: Record<string, string> = {
+        exam: "examHub", code: "codeRunner", web: "webBuilder",
+        modeling: "mlPlayground", simulation: "lab", data: "notebook", tvet: "tvetBuddy",
+      };
+      const target = targets[pending.workspace];
+      if (target) {
+        window.localStorage.removeItem("studybuddy.pendingComputerWorkspace");
+        setScreen(target as any);
+      } else if (pending.workspace === "computer") {
+        window.localStorage.removeItem("studybuddy.pendingComputerWorkspace");
+        setScreen("tutor");
+      } else openCreate("room");
+    } catch { /* A malformed/stale handoff should not block opening chat. */ }
+  }, [openCreate, setScreen]);
+
   useEffect(() => () => {
     chatSessionRef.current += 1;
   }, []);
@@ -419,6 +441,7 @@ export function AITutorChat() {
       // Phase 47: route to the right buddy prompt builder
       buddyId: activeBuddyId,
       learningMode,
+      clientPlatform: "web",
     });
 
     const finalizeStreamedMessage = (patch: Partial<ChatMsg>) => {

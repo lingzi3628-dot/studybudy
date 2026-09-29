@@ -340,8 +340,9 @@ export async function buildTutorSystemPrompt(opts: {
   toolResults?: string;
   studyContext?: string;
   learningMode?: TutorLearningMode;
+  clientPlatform?: "mobile" | "web";
 }): Promise<{ systemContent: string; teachingProfile: ReturnType<typeof buildTeachingProfile>; curriculumContext: string }> {
-  const { user, buddy, buddyId, userMessage, dataSaver, imageDataUrl, searchContext, toolResults = "", studyContext = "", learningMode = "standard" } = opts;
+  const { user, buddy, buddyId, userMessage, dataSaver, imageDataUrl, searchContext, toolResults = "", studyContext = "", learningMode = "standard", clientPlatform = "web" } = opts;
   const completeContext = [searchContext, toolResults, studyContext].filter(Boolean).join("\n\n");
 
   const teachingProfile = buildTeachingProfile(user.grade ?? "Form 1");
@@ -416,7 +417,8 @@ ${STUDY_PROMPT_GRAPH_RULES}`;
   if (learningMode !== "standard") {
     systemContent += `\n\nLEARNER-SELECTED TUTOR MODE (${learningMode}): ${learningModeInstructions[learningMode]}`;
   }
-  systemContent += `\n\nOPTIONAL COMPUTER WORKSPACE OFFER: Teach the learner fully in this conversation first. Only offer a computer when a currently available tool materially helps with the learner's task. Available tools: design = the Study Room drawing board with pen, line, and circle tools; code = a Python browser runner; modeling = the machine-learning playground; simulation = the available interactive science simulations; data = a Python notebook. Name one concrete reason and one specific benefit, keep the offer optional, and never claim capabilities beyond the selected tool (for example, do not promise CAD, equipment control, or arbitrary engineering simulation). Do not recommend a computer merely because the topic is difficult, and do not interrupt simple explanations, calculations, quick sketches, graphs, or concept maps that work well on the phone. If a computer would help, append exactly one block at the very end using this schema and valid JSON: \`\`\`computer_workspace\n{"title":"Short activity name","reason":"Why this task is easier to do on a computer","benefit":"What the learner will be able to do there","workspace":"design|code|modeling|simulation|data"}\n\`\`\`. Keep each field brief. Otherwise, do not emit this block.`;
+  systemContent += `\n\nOPTIONAL COMPUTER WORKSPACE OFFER (${clientPlatform} client): First answer the learner's question and continue useful teaching on this device. On a mobile client, offer a computer when the requested next activity is materially blocked or awkward on a phone, or needs a real interactive workspace. On the web client, do not suggest switching to a computer; direct the learner to use the matching workspace already in this site. Match offers to an existing workspace: design = graph explorer and Study Room work board; study = Study Room with uploaded PDFs/documents, lesson material, and tutor; exam = curriculum exam and printable exam tools; code = Python runner; web = web builder and project workspace; modeling = ML playground; simulation = science lab; data = Python notebook; tvet = circuit, gear, network and PLC simulators. For an unsupported activity, say exactly what the available tool can do and what it cannot; never promise CAD, arbitrary freeform technical drawing, real equipment control, or arbitrary engineering simulation. A complex multi-step construction or repeated annotation can justify a larger board, but clearly say the board is only freehand plus basic lines/circles and is not precision CAD. If a requested drawing cannot be generated or validated, say so plainly, explain the limitation briefly, and on mobile offer design so the learner can sketch/check work on the larger board. Do not treat low tokens as a reason to send the learner to a computer: account limits are shared across devices and switching devices does not refill tokens. For exams, offer computer use for a full timed sitting, long written responses, or printing/downloading a paper; keep quick practice on the phone. Also consider multi-file coding, dataset analysis, model training, long document-based study, and practical simulator tasks when the matching tool really helps. Never recommend a computer only because a topic is hard. On mobile only, if helpful, append exactly one block at the very end using this schema and valid JSON: \`\`\`computer_workspace\n{"title":"Short activity name","reason":"Why this task is easier to do on a computer","benefit":"What the learner will be able to do there","workspace":"design|study|exam|code|web|modeling|simulation|data|tvet"}\n\`\`\`. Keep each field brief. Otherwise, do not emit this block.`;
+  systemContent += `\n\nMANDATORY MOBILE FALLBACK: If you cannot complete any requested task in the mobile app/chat, or the user asks for a capability the app lacks, do not end with only a refusal or “unsupported”. Briefly state what failed and append one computer_workspace block. Choose a matching workspace when possible; otherwise use workspace "computer" to continue the same tutor conversation on the full website. The website may still have limits, so do not guarantee success. This rule overrides the optional handoff wording above. Never use the computer handoff for exhausted tokens because the account limit is shared. On a web client, do not offer a device switch.`;
   if (searchContext.includes("WEB SEARCH RESULTS")) {
     systemContent += "\n\nSOURCE CITATIONS: For claims that rely on the web results above, cite the matching result inline using a Markdown link with its supplied title and URL. Do not invent links. Distinguish sourced facts from your own explanation.";
   }
@@ -711,6 +713,7 @@ export async function postProcessReply(opts: {
   userGrade: string | null;
   intents: TutorIntents;
   thinkingSteps: string[];
+  clientPlatform?: "mobile" | "web";
 }): Promise<{
   reply: string;
   attachments: TutorAttachment[];
@@ -719,7 +722,7 @@ export async function postProcessReply(opts: {
   thinkingSteps: string[];
   proofThinkingSteps: string[];
 }> {
-  const { reply, userMessage, userId, userGrade, intents, thinkingSteps } = opts;
+  const { reply, userMessage, userId, userGrade, intents, thinkingSteps, clientPlatform = "web" } = opts;
 
   // A structured, model-authored offer lets the clients show a real handoff
   // action without guessing from topic keywords or displaying internal data.
@@ -728,7 +731,7 @@ export async function postProcessReply(opts: {
   if (workspaceMatch) {
     try {
       const value = JSON.parse(workspaceMatch[1]);
-      const workspace = ["design", "code", "modeling", "simulation", "data"].includes(value?.workspace) ? value.workspace : null;
+      const workspace = ["computer", "design", "study", "exam", "code", "web", "modeling", "simulation", "data", "tvet"].includes(value?.workspace) ? value.workspace : null;
       if (workspace && [value.title, value.reason, value.benefit].every((part) => typeof part === "string" && part.trim().length > 0)) {
         workspaceOffer = {
           title: value.title.trim().slice(0, 80),
@@ -748,6 +751,29 @@ export async function postProcessReply(opts: {
     userId,
     intents,
   });
+  let drawingFallback = false;
+  // If generation/recovery yielded no renderable drawing, offer the real
+  // Study Room board as a graceful fallback instead of leaving a prose-only
+  // answer that looks like the tutor ignored the drawing request.
+  if (intents.wantsDrawing && !attachments.some((item) => item.type === "graph" || item.type === "conceptmap")) {
+    drawingFallback = true;
+    workspaceOffer ??= {
+      title: "Continue the drawing on a computer",
+      reason: "I could not produce a clear, renderable drawing for this request in chat.",
+      benefit: "Use the larger Study Room board to sketch the construction and ask me to review your work.",
+      workspace: "design",
+    };
+  }
+  const refusalWithoutHandoff = clientPlatform === "mobile" && !workspaceOffer &&
+    /\b(?:unsupported|not supported\b|not available\b|unavailable\b|too complex to handle on (?:this|a) (?:phone|mobile)|beyond (?:my|the app's|the mobile app's) (?:current )?(?:ability|capabilities|limits)|outside (?:my|the app's|the mobile app's) (?:current )?(?:ability|capabilities)|(?:I|we) (?:can't|cannot|am unable to) (?:(?:help|assist|do|draw|create|generate|render|build|run|perform|handle|support|make|edit|analy[sz]e|complete|fulfill)\b.{0,120}(?:here|in chat|on (?:this|the )?(?:phone|device)|in (?:the )?app|with the available tools|currently)?|do that|help with that|complete that|fulfill that|perform that task|support that request))/i.test(learnerReply);
+  if (refusalWithoutHandoff) {
+    workspaceOffer = {
+      title: "Continue with the full website tutor",
+      reason: "This task is beyond what the mobile app can complete in this chat.",
+      benefit: "Continue this same conversation on the website and use its larger tutor workspace and available tools.",
+      workspace: "computer",
+    };
+  }
   if (workspaceOffer) attachments.push({ type: "computer_workspace", url: null, caption: JSON.stringify(workspaceOffer) });
 
   // Exam generation config
@@ -762,7 +788,9 @@ export async function postProcessReply(opts: {
   } : null;
 
   // Proof Data Engine — validates the reply against curriculum
-  let finalReply = learnerReply;
+  let finalReply = drawingFallback
+    ? `${learnerReply}\n\nI could not create a clear drawing to display here. You can continue on the computer drawing board below; it supports freehand sketches and basic lines and circles, and I can review a saved attempt.`
+    : learnerReply;
   let proof: any = null;
   try {
     proof = await runProofEngine(learnerReply, userGrade ?? "Form 1", userMessage, userId);

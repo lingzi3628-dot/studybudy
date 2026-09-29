@@ -44,6 +44,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const conversationId = (body?.conversationId ?? "").toString().trim() || null;
   const userMessage = (body?.message ?? "").toString().trim();
+  const clientPlatform = body?.clientPlatform === "mobile" ? "mobile" : "web";
   // Optional image attachment — base64 data URL (e.g. "data:image/jpeg;base64,...")
   // When present, the AI calls the vision model to analyze the image.
   const imageDataUrl = (body?.image ?? "").toString().trim() || null;
@@ -140,6 +141,7 @@ export async function POST(req: NextRequest) {
       searchContext,
       toolResults: toolContext,
       learningMode,
+      clientPlatform,
     });
 
     const aiMessages: AIMessage[] = [
@@ -220,6 +222,7 @@ export async function POST(req: NextRequest) {
       userGrade: user.grade,
       intents,
       thinkingSteps,
+      clientPlatform,
     });
     const finalReply = post.reply;
     const allAttachments = [...attachments, ...post.attachments];

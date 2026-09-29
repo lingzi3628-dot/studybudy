@@ -504,7 +504,7 @@ export function StudyRoom() {
     try {
       const response = await fetch("/api/tutor/chat/stream", {
         method: "POST", headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
-        body: JSON.stringify({ message: q || "Please check my drawing.", conversationId: chatConversationId, studyRoomTopicId: activeTopicId, ...(image ? { image } : {}) }),
+        body: JSON.stringify({ message: q || "Please check my drawing.", conversationId: chatConversationId, studyRoomTopicId: activeTopicId, clientPlatform: "web", ...(image ? { image } : {}) }),
       });
       if (!response.ok || !response.body) {
         const data = await response.json().catch(() => ({}));
@@ -726,10 +726,15 @@ export function StudyRoom() {
           <p className="mt-1 text-xs font-semibold leading-5 text-indigo-800">Why this workspace helps: {computerTask.benefit}</p>
           <div className="mt-3 flex flex-wrap gap-2">
             <button onClick={() => {
-              if (computerTask.workspace === "code") setScreen("codeRunner");
+              if (computerTask.workspace === "exam") setScreen("examHub");
+              else if (computerTask.workspace === "code") setScreen("codeRunner");
+              else if (computerTask.workspace === "web") setScreen("webBuilder");
               else if (computerTask.workspace === "modeling") setScreen("mlPlayground");
               else if (computerTask.workspace === "simulation") setScreen("lab");
               else if (computerTask.workspace === "data") setScreen("notebook");
+              else if (computerTask.workspace === "tvet") setScreen("tvetBuddy");
+              else if (computerTask.workspace === "computer") setTutorOpen(true);
+              else if (computerTask.workspace === "study") window.scrollTo({ top: 0, behavior: "smooth" });
               else document.getElementById("study-room-work-board")?.scrollIntoView({ behavior: "smooth", block: "center" });
             }} className="rounded-xl bg-indigo-600 px-4 py-2.5 text-xs font-semibold text-white hover:bg-indigo-700">Open activity workspace</button>
             <button onClick={async () => {
@@ -1360,10 +1365,15 @@ export function StudyRoom() {
                               const saved = await fetch(`/api/study-room/${activeTopicId}/workspace`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ event: "set_computer_task", computerTask: offer }) });
                               if (!saved.ok) { setChatError("Could not save this activity to your Study Room."); return; }
                               setComputerTask({ ...offer, startedAt: new Date().toISOString() });
-                              if (offer.workspace === "code") setScreen("codeRunner");
+                              if (offer.workspace === "exam") setScreen("examHub");
+                              else if (offer.workspace === "code") setScreen("codeRunner");
+                              else if (offer.workspace === "web") setScreen("webBuilder");
                               else if (offer.workspace === "modeling") setScreen("mlPlayground");
                               else if (offer.workspace === "simulation") setScreen("lab");
                               else if (offer.workspace === "data") setScreen("notebook");
+                              else if (offer.workspace === "tvet") setScreen("tvetBuddy");
+                              else if (offer.workspace === "computer") setTutorOpen(true);
+                              else if (offer.workspace === "study") window.scrollTo({ top: 0, behavior: "smooth" });
                               else document.getElementById("study-room-work-board")?.scrollIntoView({ behavior: "smooth", block: "center" });
                             }} className="mt-2 rounded-lg bg-indigo-600 px-3 py-2 text-white font-semibold">Open activity workspace</button>
                           </div>;

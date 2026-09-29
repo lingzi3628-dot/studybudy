@@ -121,7 +121,7 @@ export function TutorScreen({ token, request, user, studyRoomTopicId, initialIma
     const history = [...messages, { role: 'user' as const, content: text }];
     setMessages([...history, { role: 'assistant', content: '' }]); setQuestion(''); setBusy(true); setError(''); setActivityStatus('Waiting for your tutor…');
     try {
-      const response = await request('/api/tutor/chat/stream', token, { method: 'POST', headers: { Accept: 'text/event-stream' }, body: JSON.stringify({ message: text, conversationId, learningMode, studyRoomTopicId, ...(pendingImage ? { image: pendingImage } : {}) }) });
+      const response = await request('/api/tutor/chat/stream', token, { method: 'POST', headers: { Accept: 'text/event-stream' }, body: JSON.stringify({ message: text, conversationId, learningMode, studyRoomTopicId, clientPlatform: 'mobile', ...(pendingImage ? { image: pendingImage } : {}) }) });
       const reader = response?.body?.getReader?.();
       if (!reader) throw new Error(response?.error || 'Live tutor updates are unavailable on this connection. Please try again.');
       const decoder = new TextDecoder(); let buffer = ''; let streamed = ''; let nextId = conversationId; let finalReply: any = null;
@@ -151,7 +151,13 @@ export function TutorScreen({ token, request, user, studyRoomTopicId, initialIma
       const list = await request('/api/tutor/conversations', token);
       setConversations(Array.isArray(list.conversations) ? list.conversations : []);
     }
-    catch (e) { setError(e instanceof Error ? e.message : 'Tutor is unavailable. Please try again.'); setMessages(history); }
+    catch (e) {
+      const message = e instanceof Error ? e.message : 'Tutor is unavailable. Please try again.';
+      if (/\b402\b/.test(message) && /(token|daily limit|refill)/i.test(message)) {
+        setError(`${message.replace(/^402:\s*/, '')} Your AI allowance is shared across this app and the website, so switching to a computer will not restore it. You can keep studying with saved notes or practice materials while you wait.`);
+      } else setError(message);
+      setMessages(history);
+    }
     finally { setBusy(false); setActivityStatus(''); }
   };
   const startComputerHandoff = async (offer: any) => {

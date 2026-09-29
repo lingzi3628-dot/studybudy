@@ -71,6 +71,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const conversationId = (body?.conversationId ?? "").toString().trim() || null;
   const userMessage = (body?.message ?? "").toString().trim();
+  const clientPlatform = body?.clientPlatform === "mobile" ? "mobile" : "web";
   const imageDataUrl = (body?.image ?? "").toString().trim() || null;
   const studyRoomTopicId = (body?.studyRoomTopicId ?? "").toString().trim();
   const dataSaver = !!body?.dataSaver;
@@ -221,6 +222,7 @@ export async function POST(req: NextRequest) {
             toolResults: toolContext,
             studyContext,
             learningMode,
+            clientPlatform,
           });
           const aiMessages: AIMessage[] = [
             { role: "system", content: systemContent },
@@ -285,6 +287,7 @@ export async function POST(req: NextRequest) {
             userGrade: user.grade,
             intents,
             thinkingSteps,
+            clientPlatform,
           });
 
           const allAttachments = [...searchAttachments, ...post.attachments];
