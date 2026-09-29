@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  ActivityIndicator, Alert, KeyboardAvoidingView, Platform, RefreshControl,
+  ActivityIndicator, Alert, AppState, DeviceEventEmitter, KeyboardAvoidingView, Platform, RefreshControl,
   ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
@@ -17,11 +17,14 @@ import { SchedulableTriggerInputTypes } from 'expo-notifications/build/Notificat
 import { AndroidImportance } from 'expo-notifications/build/NotificationChannelManager.types';
 import { addNotificationResponseReceivedListener } from 'expo-notifications/build/NotificationsEmitter';
 import { StatusBar } from 'expo-status-bar';
+import * as Updates from 'expo-updates';
 import { Ionicons } from '@expo/vector-icons';
 import { CreateSetScreen, MobileStudyRoomScreen, OnboardingScreen, ProfileScreen, ProgressScreen, SearchScreen, setScreenDarkMode, TodayPlan, TimetableScreen, TutorScreen, WelcomeGuide } from './src/screens';
 
 const API_URL = (process.env.EXPO_PUBLIC_API_URL || '').replace(/\/$/, '');
 const COOKIE_SESSION = '__studybuddy_cookie_session__';
+const CONNECTION_EVENT = 'studybuddy-connection-state';
+const CONNECTION_MESSAGE = "Can't connect to StudyBuddy right now. Check your internet connection and try again.";
 const INK = '#17182B';
 const PURPLE = '#6657E8';
 const MUTED = '#888BA0';
@@ -73,8 +76,25 @@ async function syncTimetableReminders(slots: TimetableSlot[]) {
   return true;
 }
 
+function isConnectionFailure(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  return /failed to fetch|network|load failed|unable to resolve host|unknownhost|no address associated|connection|connect|socket|dns|unreachable|internet disconnected|vercel/i.test(message);
+}
+
+async function fetchWithConnectionFeedback(input: RequestInfo | URL, init?: RequestInit) {
+  try {
+    const response = await fetch(input, init);
+    DeviceEventEmitter.emit(CONNECTION_EVENT, false);
+    return response;
+  } catch (error) {
+    if (!isConnectionFailure(error)) throw error;
+    DeviceEventEmitter.emit(CONNECTION_EVENT, true);
+    throw new Error(CONNECTION_MESSAGE);
+  }
+}
+
 async function request(path: string, token: string, init: RequestInit = {}) {
-  const response = await fetch(`${API_URL}${path}`, {
+  const response = await fetchWithConnectionFeedback(`${API_URL}${path}`, {
     ...init,
     credentials: 'include',
     headers: { Accept: 'application/json', ...(token !== COOKIE_SESSION ? { Authorization: `Bearer ${token}` } : {}), ...(init.body ? { 'Content-Type': 'application/json' } : {}), ...init.headers },
@@ -229,8 +249,66 @@ function MainApp() {
   </SafeAreaView>;
 }
 
+function AppOverlays() {
+  const [connectionIssue, setConnectionIssue] = useState(false);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [updating, setUpdating] = useState(false);
+
+  useEffect(() => {
+    const subscription = DeviceEventEmitter.addListener(CONNECTION_EVENT, setConnectionIssue);
+    return () => subscription.remove();
+  }, []);
+
+  useEffect(() => {
+    if (__DEV__ || !Updates.isEnabled) return;
+    let active = true;
+    const checkForUpdate = async () => {
+      try {
+        const result = await Updates.checkForUpdateAsync();
+        if (active) setUpdateAvailable(result.isAvailable);
+      } catch { /* Keep the installed app usable when update checks are offline. */ }
+    };
+    void checkForUpdate();
+    const appState = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void checkForUpdate();
+    });
+    const poll = setInterval(() => void checkForUpdate(), 15 * 60 * 1000);
+    return () => { active = false; appState.remove(); clearInterval(poll); };
+  }, []);
+
+  const updateNow = async () => {
+    if (updating) return;
+    setUpdating(true);
+    try {
+      const result = await Updates.fetchUpdateAsync();
+      if (result.isNew) await Updates.reloadAsync();
+      else setUpdateAvailable(false);
+    } catch {
+      Alert.alert('Update unavailable', 'We could not download the update. Check your internet connection and try again.');
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  return <View style={{ flex: 1 }}>
+    <MainApp />
+    {connectionIssue && <View style={{ position: 'absolute', top: 8, left: 12, right: 12, zIndex: 20, minHeight: 46, paddingHorizontal: 12, borderRadius: 13, backgroundColor: '#9B5B12', flexDirection: 'row', alignItems: 'center', gap: 8, elevation: 8 }}>
+      <Ionicons name="cloud-offline-outline" size={18} color="white" />
+      <Text style={{ color: 'white', fontSize: 11, fontWeight: '700', flex: 1 }}>Can't connect to StudyBuddy. Check your internet connection.</Text>
+      <TouchableOpacity onPress={() => setConnectionIssue(false)} accessibilityLabel="Dismiss connection notice"><Ionicons name="close" size={18} color="white" /></TouchableOpacity>
+    </View>}
+    {updateAvailable && <View style={{ position: 'absolute', top: connectionIssue ? 62 : 8, left: 12, right: 12, zIndex: 21, minHeight: 50, paddingHorizontal: 12, borderRadius: 13, backgroundColor: '#292445', flexDirection: 'row', alignItems: 'center', gap: 8, elevation: 8 }}>
+      <Ionicons name="cloud-download-outline" size={18} color="white" />
+      <Text style={{ color: 'white', fontSize: 11, fontWeight: '700', flex: 1 }}>{updating ? 'Downloading update…' : 'A new StudyBuddy update is available.'}</Text>
+      <TouchableOpacity disabled={updating} onPress={() => void updateNow()} style={{ paddingHorizontal: 10, paddingVertical: 7, borderRadius: 9, backgroundColor: '#6657E8', opacity: updating ? 0.7 : 1 }}>
+        <Text style={{ color: 'white', fontSize: 10, fontWeight: '800' }}>{updating ? 'Please wait' : 'Update now'}</Text>
+      </TouchableOpacity>
+    </View>}
+  </View>;
+}
+
 export default function App() {
-  return <SafeAreaProvider><MainApp /></SafeAreaProvider>;
+  return <SafeAreaProvider><AppOverlays /></SafeAreaProvider>;
 }
 
 function Stat({ icon, color, value, label }: { icon: keyof typeof Ionicons.glyphMap; color: string; value: string; label: string }) {
@@ -249,7 +327,7 @@ function LoginScreen({ onLogin }: { onLogin: (token: string, user: User) => void
   const [name, setName] = useState(''); const [email, setEmail] = useState(''); const [password, setPassword] = useState(''); const [otp, setOtp] = useState(''); const [busy, setBusy] = useState(false);
   const [error, setError] = useState(''); const [notice, setNotice] = useState('');
   const authRequest = async (path: string, body: Record<string, string>) => {
-    const res = await fetch(`${API_URL}${path}`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(body) });
+    const res = await fetchWithConnectionFeedback(`${API_URL}${path}`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(body) });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || 'Request failed. Please try again.');
     return data;

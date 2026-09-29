@@ -4,7 +4,7 @@ import { FileDown } from "lucide-react";
 export function ApkDownloadButton() {
   return (
     <a
-      href="/app-release.apk?v=f718c693"
+      href="/app-release.apk?v=24a56483"
       download="StudyBuddy-Android.apk"
       className="inline-flex min-h-12 w-full max-w-sm items-center justify-center gap-2 rounded-full bg-indigo-600 px-5 text-sm font-semibold text-white shadow-lg transition hover:bg-indigo-700"
     >

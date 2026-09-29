@@ -24,3 +24,22 @@ progress data. Each account gets a short guided tour and a personalized
 onboarding flow that can create a four-week learning path. Home shows saved
 daily goals, and an optional local 7:00 PM study reminder can be enabled during
 onboarding or from Profile. The API continues to use Neon on the server.
+
+## Publishing app updates
+
+The production APK checks the `production` EAS Update channel on launch, when
+the app returns to the foreground, and every 15 minutes while it is open. If a
+JavaScript/assets update is available, StudyBuddy shows an **Update now** banner;
+tapping it downloads the update in the app and restarts into the new version.
+
+Publish screen, copy, and other JavaScript changes with:
+
+```sh
+cd mobile
+EXPO_PUBLIC_API_URL=https://studybudy-chi.vercel.app npx eas-cli update --channel production --message "Describe the update"
+```
+
+Changes to native dependencies, permissions, the Expo SDK, or other native app
+configuration still need a new production APK. Increase `expo.version` and
+`expo.android.versionCode` for each new APK so Android can install it over the
+previous release.

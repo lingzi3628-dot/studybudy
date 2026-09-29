@@ -4,6 +4,11 @@
     "slug": "studybuddy-mobile",
     "scheme": "studybuddy",
     "version": "1.0.0",
+    "runtimeVersion": { "policy": "appVersion" },
+    "updates": {
+      "url": "https://u.expo.dev/d4d97d0e-6f9a-49aa-8579-a869ca8dacbc",
+      "checkAutomatically": "NEVER"
+    },
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "icon": "./assets/icon.png",
@@ -13,6 +18,7 @@
     },
     "android": {
       "package": "app.studybuddy.mobile",
+      "versionCode": 2,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#6657E8"
