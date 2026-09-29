@@ -1,14 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminJwt as requireAdmin } from "@/lib/admin-session";
 import { db } from "@/lib/db";
-import { writeFile, mkdir, rm, readdir, stat } from "fs/promises";
-import { existsSync } from "fs";
-import path from "path";
 import JSZip from "jszip";
 
 export const runtime = "nodejs";
 export const maxDuration = 120; // 2 min for big zip extraction
-// Disable body parsing — we read formData manually
 export const dynamic = "force-dynamic";
 
 /**
@@ -24,11 +20,11 @@ export const dynamic = "force-dynamic";
  *   playTimeMinutes?: number        (default 10)
  *   entryFile?: relative path inside zip to the entry HTML (default: auto-detect)
  *
- * The zip is extracted to /public/games/<slug>/ where slug is derived from the
- * title (lowercased, kebab-case). A Game record is created in the database
- * pointing at /games/<slug>/<entryFile>.
+ * On Vercel, /public is read-only at runtime — so instead of extracting the
+ * ZIP to disk, we store each file as base64 in the Game.files JSON field.
+ * The game is then served via /api/games/serve/[id]/[...path].
  *
- * Returns: { game }
+ * Returns: { game, extracted: { fileCount, totalSizeBytes, entryFile } }
  */
 export async function POST(req: NextRequest) {
   try { await requireAdmin(); } catch {
@@ -67,17 +63,7 @@ export async function POST(req: NextRequest) {
   const playTimeMinutes = playTimeMinutesRaw ? Number(playTimeMinutesRaw) : 10;
   const customEntry = (form.get("entryFile") as string | null)?.toString().trim() || null;
 
-  // Build slug from title (kebab-case, max 60 chars)
-  const slug = title
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9\s-]/g, "")
-    .replace(/\s+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 60) || `game-${Date.now()}`;
-
-  // Read zip file into JSZip
+  // Read zip into JSZip
   let zip: JSZip;
   try {
     const buffer = Buffer.from(await file.arrayBuffer());
@@ -86,11 +72,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid or corrupted ZIP file" }, { status: 400 });
   }
 
-  // Collect all file paths inside the zip (excluding directories and junk)
+  // Collect all file entries
   const allEntries: { path: string; entry: JSZip.JSZipObject }[] = [];
   zip.forEach((relativePath, entry) => {
     if (entry.dir) return;
-    // Skip macOS junk
     if (relativePath.startsWith("__MACOSX/") || relativePath.includes("/.DS_Store")) return;
     allEntries.push({ path: relativePath, entry });
   });
@@ -99,34 +84,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "ZIP contains no files" }, { status: 400 });
   }
 
-  // Detect common root folder (e.g. "my-game/" prefix on everything)
-  // If all files share the same top-level folder, strip it.
+  // Detect common root folder
   const topLevelFolders = new Set<string>();
   for (const e of allEntries) {
     const parts = e.path.split("/");
     if (parts.length > 1) {
       topLevelFolders.add(parts[0]);
     } else {
-      // File at root → no common folder
       topLevelFolders.clear();
       break;
     }
   }
   const commonRoot = topLevelFolders.size === 1 ? [...topLevelFolders][0] : null;
 
-  // Find entry HTML file
-  // Strategy:
-  // 1. If customEntry provided, use it (after stripping common root)
-  // 2. Look for index.html at root (after stripping common root)
-  // 3. Look for any *.html file at root
-  // 4. Look for index.html anywhere
-  // 5. Look for any *.html anywhere
   const strippedPaths = allEntries.map(e => ({
     original: e.path,
     stripped: commonRoot ? e.path.slice(commonRoot.length + 1) : e.path,
     entry: e.entry,
   }));
 
+  // Find entry HTML file
   let entryFile: string | null = null;
   if (customEntry) {
     const normalized = customEntry.replace(/^\.?\//, "");
@@ -137,22 +114,18 @@ export async function POST(req: NextRequest) {
     }
   }
   if (!entryFile) {
-    // index.html at root
     const rootIndex = strippedPaths.find(e => e.stripped === "index.html");
     if (rootIndex) entryFile = rootIndex.stripped;
   }
   if (!entryFile) {
-    // any .html at root
     const rootHtml = strippedPaths.find(e => !e.stripped.includes("/") && e.stripped.toLowerCase().endsWith(".html"));
     if (rootHtml) entryFile = rootHtml.stripped;
   }
   if (!entryFile) {
-    // index.html anywhere
     const indexAnywhere = strippedPaths.find(e => e.stripped.toLowerCase().endsWith("/index.html"));
     if (indexAnywhere) entryFile = indexAnywhere.stripped;
   }
   if (!entryFile) {
-    // any .html anywhere
     const anyHtml = strippedPaths.find(e => e.stripped.toLowerCase().endsWith(".html"));
     if (anyHtml) entryFile = anyHtml.stripped;
   }
@@ -162,76 +135,79 @@ export async function POST(req: NextRequest) {
     }, { status: 400 });
   }
 
-  // Path traversal protection: each stripped path must not escape
+  // Path traversal protection
   for (const e of strippedPaths) {
-    if (e.stripped.includes("..") || path.isAbsolute(e.stripped)) {
+    if (e.stripped.includes("..") || e.stripped.startsWith("/")) {
       return NextResponse.json({ error: "ZIP contains an unsafe path" }, { status: 400 });
     }
   }
 
-  // Target directory: /public/games/<slug>/
-  const publicGamesRoot = path.join(process.cwd(), "public", "games");
-  const targetDir = path.join(publicGamesRoot, slug);
-
-  // If the directory already exists (re-upload of same game), wipe it first
-  if (existsSync(targetDir)) {
-    await rm(targetDir, { recursive: true, force: true }).catch(() => {});
-  }
-  await mkdir(targetDir, { recursive: true });
-
-  // Extract files
+  // Read all files into memory as base64
+  // Total size cap to avoid DB bloat: 30 MB across all files
+  const MAX_TOTAL = 30 * 1024 * 1024;
   let totalSize = 0;
-  let fileCount = 0;
+  const filesMap: Record<string, string> = {};  // path → base64 (no data: prefix)
+  let thumbnailPath: string | null = null;
+
   for (const e of strippedPaths) {
-    const targetPath = path.join(targetDir, e.stripped);
-    // Ensure parent directory exists
-    const parentDir = path.dirname(targetPath);
-    await mkdir(parentDir, { recursive: true });
     const data = await e.entry.async("nodebuffer");
-    await writeFile(targetPath, data);
     totalSize += data.length;
-    fileCount++;
+    if (totalSize > MAX_TOTAL) {
+      return NextResponse.json({
+        error: `Unzipped total size exceeds ${MAX_TOTAL / (1024 * 1024)} MB limit. Try removing large assets.`,
+      }, { status: 413 });
+    }
+    filesMap[e.stripped] = data.toString("base64");
+    // Detect thumbnail
+    const lower = e.stripped.toLowerCase();
+    if (!thumbnailPath && (
+      lower === "thumbnail.png" || lower === "thumbnail.jpg" || lower === "thumbnail.jpeg" ||
+      lower === "thumb.png" || lower === "thumb.jpg" ||
+      lower === "cover.png" || lower === "cover.jpg"
+    )) {
+      thumbnailPath = e.stripped;
+    }
   }
 
-  // Compute gameUrl: /games/<slug>/<entryFile>
-  const gameUrl = `/games/${slug}/${entryFile}`;
+  // gameUrl: served via our DB-streaming route
+  // Build the URL with the game title (we'll use the game ID after creation)
+  // We use a placeholder here and update after creating the record.
+  // Actually, since we know we'll use the game's ID, we'll set it after upsert/create.
+  // For now, set it to /api/games/serve/<id>/<entryFile> — but we need the ID first.
+  // Solution: do create/update in two steps.
 
-  // Try to find a thumbnail image inside the zip (thumbnail.png/jpg at root)
-  let thumbnailUrl: string | null = null;
-  const thumbCandidate = strippedPaths.find(e => {
-    const p = e.stripped.toLowerCase();
-    return (p === "thumbnail.png" || p === "thumbnail.jpg" || p === "thumbnail.jpeg"
-         || p === "thumb.png" || p === "thumb.jpg" || p === "cover.png" || p === "cover.jpg");
-  });
-  if (thumbCandidate) {
-    thumbnailUrl = `/games/${slug}/${thumbCandidate.stripped}`;
-  }
-
-  // Create or update the Game record (lookup by title, since title is not @@unique)
+  // Look up existing game by title
   const existing = await db.game.findFirst({ where: { title } }).catch(() => null);
+
   let game;
+  const gameUrlPlaceholder = "/api/games/serve/PLACEHOLDER/" + entryFile;
+  const thumbnailUrl = thumbnailPath ? `/api/games/serve/PLACEHOLDER/${thumbnailPath}` : null;
+
   if (existing) {
+    // Update existing — replace files entirely
     game = await db.game.update({
       where: { id: existing.id },
       data: {
         description,
         category,
-        gameUrl,
-        thumbnailUrl,
+        gameUrl: `/api/games/serve/${existing.id}/${entryFile}`,
+        thumbnailUrl: thumbnailPath ? `/api/games/serve/${existing.id}/${thumbnailPath}` : null,
         fileSize: totalSize,
         isFeatured,
         minStudyMinutes,
         playTimeMinutes,
         isActive: true,
+        files: filesMap,
       },
     });
   } else {
+    // Create new
     game = await db.game.create({
       data: {
         title,
         description,
         category,
-        gameUrl,
+        gameUrl: gameUrlPlaceholder,  // temp, will fix below
         thumbnailUrl,
         fileSize: totalSize,
         isFeatured,
@@ -241,6 +217,15 @@ export async function POST(req: NextRequest) {
         rating: 0,
         playCount: 0,
         version: "1.0.0",
+        files: filesMap,
+      },
+    });
+    // Now fix gameUrl + thumbnailUrl to point to the real ID
+    game = await db.game.update({
+      where: { id: game.id },
+      data: {
+        gameUrl: `/api/games/serve/${game.id}/${entryFile}`,
+        thumbnailUrl: thumbnailPath ? `/api/games/serve/${game.id}/${thumbnailPath}` : null,
       },
     });
   }
@@ -248,13 +233,13 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     game,
     extracted: {
-      slug,
-      fileCount,
+      fileCount: Object.keys(filesMap).length,
       totalSizeBytes: totalSize,
       entryFile,
-      gameUrl,
-      thumbnailUrl,
+      gameUrl: game.gameUrl,
+      thumbnailUrl: game.thumbnailUrl,
       commonRootStripped: commonRoot,
+      storedIn: "database",
     },
   });
 }

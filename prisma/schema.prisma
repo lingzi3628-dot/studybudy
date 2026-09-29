@@ -2235,7 +2235,7 @@ model Game {
   description String?
   category    String   @default("Arcade")  // Arcade, Puzzle, Strategy, Racing, Adventure, Educational, Sports
   thumbnailUrl String?
-  gameUrl     String   @db.Text  // path to the game's index.html (e.g. /games/[id]/index.html)
+  gameUrl     String   @db.Text  // path to the game's index.html (e.g. /games/[id]/index.html OR /api/games/serve/[id]/index.html)
   fileSize    Int      @default(0)  // bytes
   version     String   @default("1.0.0")
   isFeatured  Boolean  @default(false)
@@ -2244,6 +2244,11 @@ model Game {
   rating      Float    @default(0)  // 0-5 stars
   minStudyMinutes Int  @default(30)  // minutes of study required to unlock
   playTimeMinutes Int  @default(10)  // minutes of play time granted
+  // NEW: when a game is uploaded via admin panel (Vercel read-only FS),
+  // we store all its files as base64 in this JSON field.
+  // Shape: { "index.html": "<base64>", "main.js": "<base64>", ... }
+  // When null/empty, the game is served from the static /public/games/<slug>/ path.
+  files       Json?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
