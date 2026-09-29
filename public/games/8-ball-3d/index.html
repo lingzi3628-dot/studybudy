@@ -155,11 +155,12 @@
   <div class="title" style="font-size:clamp(28px,5vw,44px)">HOW TO PLAY</div>
   <div class="subtitle">Quick guide</div>
   <div style="max-width:400px;text-align:left;font-size:13px;line-height:1.8;color:rgba(255,255,255,0.8)">
-    <p><b>🎯 Aim:</b> Click + drag from the white cue ball. The further you drag, the more power.</p>
-    <p style="margin-top:10px"><b>⚪ Guidelines:</b> White line = cue ball path. Yellow line = where the target ball will go.</p>
+    <p><b>🎯 Aim (pull-back-and-release):</b> Click + drag from the cue ball in the OPPOSITE direction of where you want it to go. Like pulling a slingshot back — release to launch the ball forward.</p>
+    <p style="margin-top:10px"><b>⚡ Power:</b> Drag distance = power. Drag farther for harder shots.</p>
+    <p style="margin-top:10px"><b>⚪ Guidelines:</b> White line = cue ball path. Yellow line = where the target ball will go after impact.</p>
     <p style="margin-top:10px"><b>🎱 Goal:</b> Sink your group (solids 1-7 OR stripes 9-15) before the AI sinks theirs. Then sink the 8-ball to win!</p>
     <p style="margin-top:10px"><b>📸 Camera:</b> Right-click + drag to orbit. Scroll wheel to zoom.</p>
-    <p style="margin-top:10px"><b>🪙 Coins:</b> Earn 50 coins per win + 10 per ball sunk. Spend in the shop on premium skins.</p>
+    <p style="margin-top:10px"><b>🪙 Coins:</b> Earn 50 coins per win + 5 per ball sunk. Spend in the shop on premium skins.</p>
   </div>
   <button class="secondary-btn" id="howToBackBtn" style="margin-top:20px;width:200px">← Back</button>
 </div>
@@ -186,7 +187,7 @@
   <div id="powerBar"><div id="powerFill"></div></div>
 </div>
 
-<div class="hint">Drag from cue ball · Right-click to orbit · Scroll to zoom</div>
+<div class="hint">Drag from cue ball · Right-click to orbit · Scroll to zoom · Ball goes OPPOSITE your drag</div>
 
 <!-- GAME OVER -->
 <div id="gameOver">
@@ -777,8 +778,11 @@ canvas.addEventListener('pointermove', (e) => {
   }
   if (!dragging) return;
   dragCurrent = { x: e.clientX, y: e.clientY };
+  // PULL-BACK-AND-RELEASE mechanic (like 8 Ball Pool mobile):
+  // Drag distance = power. Drag direction = OPPOSITE of shot direction
+  // (player pulls cue stick BACK, ball goes FORWARD)
   const dragDist = Math.hypot(dragCurrent.x - dragStart.x, dragCurrent.y - dragStart.y);
-  state.aimPower = Math.min(1, dragDist / 250);
+  state.aimPower = Math.min(1, dragDist / 220);
   document.getElementById('powerFill').style.width = (state.aimPower * 100) + '%';
 });
 
@@ -803,13 +807,22 @@ canvas.addEventListener('pointerup', (e) => {
     document.getElementById('aimInfo').classList.add('show');
     return;
   }
-  // Compute aim direction (from cue ball toward where pointer went)
-  // We use the drag END position projected to table
-  const end = pointerToWorld(dragCurrent.x, dragCurrent.y);
-  // Direction: from cue ball to end (player aims toward target)
-  const dx = end.x - cueBall.mesh.position.x;
-  const dz = end.z - cueBall.mesh.position.z;
-  const d = Math.hypot(dx, dz);
+  // PULL-BACK-AND-RELEASE mechanic:
+  // Shot direction = OPPOSITE of drag direction
+  // (player dragged AWAY from cue ball = pulling cue stick back)
+  // Ball goes in the direction FROM drag-end TO cue ball
+  const start = pointerToWorld(dragStart.x, dragStart.y);  // where they clicked (near cue ball)
+  const end = pointerToWorld(dragCurrent.x, dragCurrent.y);  // where they dragged to (pulled back)
+  // Direction = from drag-end back to start (opposite of drag)
+  let dx = start.x - end.x;
+  let dz = start.z - end.z;
+  let d = Math.hypot(dx, dz);
+  // Fallback: if drag start wasn't near cue ball, use cue ball as the pivot
+  if (d < 0.001) {
+    dx = cueBall.mesh.position.x - end.x;
+    dz = cueBall.mesh.position.z - end.z;
+    d = Math.hypot(dx, dz);
+  }
   if (d < 0.001) {
     console.warn('[pool] aim direction too small, no shot fired');
     return;
@@ -818,6 +831,11 @@ canvas.addEventListener('pointerup', (e) => {
   const vel = state.aimPower * MAX_VEL;
   console.log('[pool] shot fired: vel=' + vel.toFixed(2) + ' m/s, dir=(' + nx.toFixed(2) + ',' + nz.toFixed(2) + '), cueBall.num=' + cueBall.num);
   cueBall.vel.set(nx * vel, 0, nz * vel);
+
+  // Visual + audio feedback that the shot fired
+  flashShot();
+  playShotSound(vel / MAX_VEL);
+
   state.aimPower = 0;
   state.shooting = true;
   state.firstHit = null;
@@ -843,15 +861,24 @@ canvas.addEventListener('wheel', (e) => {
 // ============================================================
 function updateAimVisuals() {
   if (!state.aiming) return;
-  // Aim direction = from cue ball toward current pointer
+  // PULL-BACK-AND-RELEASE: aim direction = OPPOSITE of drag direction
+  // (player drags away from cue ball to "pull back" — ball goes the other way)
+  const start = pointerToWorld(dragStart.x, dragStart.y);
   const end = pointerToWorld(dragCurrent.x, dragCurrent.y);
-  const dx = end.x - cueBall.mesh.position.x;
-  const dz = end.z - cueBall.mesh.position.z;
-  const d = Math.hypot(dx, dz);
+  // Direction = from drag-end back to drag-start (= shot direction)
+  let dx = start.x - end.x;
+  let dz = start.z - end.z;
+  let d = Math.hypot(dx, dz);
+  // Fallback: use cue ball as pivot if drag start wasn't meaningful
+  if (d < 0.001) {
+    dx = cueBall.mesh.position.x - end.x;
+    dz = cueBall.mesh.position.z - end.z;
+    d = Math.hypot(dx, dz);
+  }
   if (d < 0.001) return;
   const nx = dx / d, nz = dz / d;
 
-  // Raycast from cue ball forward to find first ball hit
+  // Raycast from cue ball forward (in shot direction) to find first ball hit
   let hitBall = null;
   let hitDist = Infinity;
   for (const b of balls) {
@@ -872,7 +899,7 @@ function updateAimVisuals() {
     }
   }
 
-  // Draw aim line (from cue ball forward)
+  // Draw aim line (from cue ball forward in shot direction)
   const aimEndX = hitBall
     ? cueBall.mesh.position.x + nx * (hitDist - 2 * BALL_R)
     : cueBall.mesh.position.x + nx * 2;
@@ -897,7 +924,7 @@ function updateAimVisuals() {
     const tdz = hitBall.mesh.position.z - aimEndZ;
     const td = Math.hypot(tdx, tdz);
     if (td > 0.001) {
-      const tnx = tdx / td, tnz = td / td;
+      const tnx = tdx / td, tnz = tdz / td;  // FIXED: was tdz / td (correct)
       const targetPos = targetLine.geometry.attributes.position.array;
       targetPos[0] = hitBall.mesh.position.x;
       targetPos[1] = BALL_R;
@@ -915,20 +942,51 @@ function updateAimVisuals() {
     targetLine.visible = false;
   }
 
-  // Cue stick positioning — behind cue ball, opposite aim direction
+  // Cue stick positioning — BEHIND the cue ball (opposite of shot direction)
+  // i.e., on the side where the player is "pulling back" from
   const pullback = 0.04 + state.aimPower * 0.18;
   cueStickGroup.position.set(
     cueBall.mesh.position.x - nx * (BALL_R + pullback + 0.35),
     BALL_R + 0.005,
     cueBall.mesh.position.z - nz * (BALL_R + pullback + 0.35)
   );
-  // Orient: cylinder is along Z (after rotation), aim along (nx, 0, nz)
   cueStickGroup.lookAt(
     cueBall.mesh.position.x + nx,
     BALL_R + 0.005,
     cueBall.mesh.position.z + nz
   );
   cueStickGroup.rotateY(Math.PI / 2);
+}
+
+// ============================================================
+// SHOT FEEDBACK — visual flash + sound on every shot
+// ============================================================
+let audioCtx = null;
+function playShotSound(power) {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.connect(g); g.connect(audioCtx.destination);
+    o.type = 'sine';
+    // Higher power = louder, lower freq (thunk sound)
+    const freq = 280 - power * 80;
+    o.frequency.value = freq;
+    g.gain.value = 0.08 + power * 0.12;
+    o.start();
+    o.frequency.exponentialRampToValueAtTime(freq * 0.5, audioCtx.currentTime + 0.12);
+    g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.15);
+    o.stop(audioCtx.currentTime + 0.17);
+  } catch (e) {}
+}
+
+function flashShot() {
+  // Brief screen flash to confirm the shot fired
+  const flash = document.createElement('div');
+  flash.style.cssText = 'position:fixed;inset:0;z-index:60;background:rgba(255,255,255,0.15);pointer-events:none;transition:opacity 0.3s';
+  document.body.appendChild(flash);
+  requestAnimationFrame(() => { flash.style.opacity = '0'; });
+  setTimeout(() => flash.remove(), 350);
 }
 
 // ============================================================
