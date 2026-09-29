@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 
 export const runtime = "nodejs";
+import { checkAuthRateLimit, getClientIp } from "@/lib/auth-rate-limit";
 
 /**
  * POST /api/auth/reset-password

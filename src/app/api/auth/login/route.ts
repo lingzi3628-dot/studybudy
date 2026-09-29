@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { signUserToken, getUserCookieName, getUserCookieMaxAge } from "@/lib/user-jwt";
 
 export const runtime = "nodejs";
+import { checkAuthRateLimit, getClientIp } from "@/lib/auth-rate-limit";
 
 /**
  * POST /api/auth/login

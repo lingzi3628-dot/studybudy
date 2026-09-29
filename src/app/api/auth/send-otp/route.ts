@@ -4,6 +4,7 @@ import { sendEmail, emailVerificationOtp } from "@/lib/email";
 import { randomInt } from "crypto";
 
 export const runtime = "nodejs";
+import { checkAuthRateLimit, getClientIp } from "@/lib/auth-rate-limit";
 
 /**
  * POST /api/auth/send-otp

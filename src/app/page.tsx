@@ -18,6 +18,7 @@ import { LearningPathScreen } from "@/components/studybuddy/screens/LearningPath
 import { StudyRoom } from "@/components/studybuddy/screens/StudyRoom";
 import { AdminPanel } from "@/components/studybuddy/screens/AdminPanel";
 import { AdminLogin } from "@/components/studybuddy/screens/AdminLogin";
+import { OfflineBanner } from "@/components/studybuddy/OfflineBanner";
 import { Landing } from "@/components/studybuddy/screens/Landing";
 import { AuthScreen } from "@/components/studybuddy/screens/AuthScreen";
 import { PremiumScreen } from "@/components/studybuddy/screens/PremiumScreen";
@@ -220,6 +221,7 @@ export default function Page() {
   if (screen === "onboarding") {
     return (
       <div className="min-h-screen bg-gray-50 text-gray-900">
+        <OfflineBanner />
         <Onboarding />
         <CreateModal />
       </div>
@@ -229,6 +231,7 @@ export default function Page() {
   if (screen === "landing" || screen === "adminLogin" || screen === "auth" || screen === "premium" || screen === "billing" || screen === "schoolRegister" || screen === "familyRegister" || screen === "familyChildLogin") {
     return (
       <div className="min-h-screen bg-gray-50 text-gray-900">
+        <OfflineBanner />
         {screen === "landing" && <Landing />}
         {screen === "adminLogin" && <AdminLogin />}
         {screen === "auth" && <AuthScreen />}
@@ -306,6 +309,7 @@ export default function Page() {
   // Tabbed screens — sidebar on desktop, top bar + bottom nav on mobile
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900">
+      <OfflineBanner />
       <Sidebar />
       <div className="md:pl-60">
         <TopBar />
