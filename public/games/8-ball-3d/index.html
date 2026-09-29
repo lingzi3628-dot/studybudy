@@ -503,6 +503,11 @@ function createBall(num, x, z) {
   return ball;
 }
 
+// cueBall is `let` so rackBalls() can re-assign it on every reset (otherwise
+// the reference becomes stale after resetGame() → rackBalls() rebuilds the
+// balls array, and shots would set velocity on an invisible ghost ball)
+let cueBall = balls[0];
+
 function rackBalls() {
   // Clear existing balls
   for (const b of balls) scene.remove(b.mesh);
@@ -527,10 +532,12 @@ function rackBalls() {
       createBall(nums[i], x, z);
     }
   }
+  // CRITICAL: refresh the cueBall reference so it points to the NEW cue ball
+  // (without this, the reference stays stale after a reset and shots set
+  // velocity on an invisible ghost ball that's no longer in the scene)
+  cueBall = balls[0];
 }
 rackBalls();
-
-const cueBall = balls[0];
 
 // ============================================================
 // AIM HELPERS — guideline + ghost ball + cue stick
@@ -735,6 +742,10 @@ let camDragStart = { x: 0, y: 0 };
 
 canvas.addEventListener('pointerdown', (e) => {
   if (state.screen !== 'playing' || state.shooting || state.gameOver) return;
+  // Capture the pointer so we keep getting move/up events even if the cursor
+  // leaves the canvas during the drag (otherwise pointerup may never fire
+  // and the shot never registers)
+  try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
   // Right-click or shift = camera orbit
   if (e.button === 2 || e.shiftKey) {
     cameraDragging = true;
@@ -772,6 +783,8 @@ canvas.addEventListener('pointermove', (e) => {
 });
 
 canvas.addEventListener('pointerup', (e) => {
+  // Release pointer capture (we set it in pointerdown)
+  try { canvas.releasePointerCapture(e.pointerId); } catch (err) {}
   if (cameraDragging) {
     cameraDragging = false;
     return;
@@ -797,9 +810,13 @@ canvas.addEventListener('pointerup', (e) => {
   const dx = end.x - cueBall.mesh.position.x;
   const dz = end.z - cueBall.mesh.position.z;
   const d = Math.hypot(dx, dz);
-  if (d < 0.001) return;
+  if (d < 0.001) {
+    console.warn('[pool] aim direction too small, no shot fired');
+    return;
+  }
   const nx = dx / d, nz = dz / d;
   const vel = state.aimPower * MAX_VEL;
+  console.log('[pool] shot fired: vel=' + vel.toFixed(2) + ' m/s, dir=(' + nx.toFixed(2) + ',' + nz.toFixed(2) + '), cueBall.num=' + cueBall.num);
   cueBall.vel.set(nx * vel, 0, nz * vel);
   state.aimPower = 0;
   state.shooting = true;
