@@ -164,6 +164,19 @@ export function Profile() {
   return (
     <div className="md:px-8 md:py-6">
       <div className="max-w-md mx-auto px-4 pt-4 pb-28 md:max-w-3xl md:px-0 md:pb-8">
+        {/* Phase 85.4 — Profile repair card for legacy/broken accounts.
+            Shows when user has track='mixed' (legacy) or a dev track without
+            a course, OR a higher-ed track without a course. Lets them pick
+            their actual track + course so they get the right dashboard. */}
+        <ProfileRepairCard
+          currentTrack={userTrack}
+          currentCourse={userCourse}
+          currentGrade={userGrade}
+          onFixed={() => {
+            // Reload to pick up the new track + course in all components
+            setTimeout(() => window.location.reload(), 800);
+          }}
+        />
         {/* profile header */}
         <div className="flex items-center gap-4">
           <div className="w-16 h-16 rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center text-white text-xl font-bold ring-4 ring-white shadow-md">
@@ -1113,6 +1126,181 @@ function TrackSwitcher({
           ))}
         </select>
       </div>
+    </div>
+  );
+}
+
+// =====================================================================
+// ProfileRepairCard — Phase 85.4
+// Shows when the user's profile is "broken" (legacy track or missing course)
+// and lets them pick their actual track + course (or grade for K-12).
+// =====================================================================
+
+function ProfileRepairCard({ currentTrack, currentCourse, currentGrade, onFixed }: {
+  currentTrack: string;
+  currentCourse: string | null;
+  currentGrade: string;
+  onFixed: () => void;
+}) {
+  const isLegacyDev = ["dev", "data", "ml", "aiapp", "web", "backend", "server", "mixed"].includes(currentTrack);
+  const isHigherEd = currentTrack === "university" || currentTrack === "college" || currentTrack === "tvet";
+  const needsRepair =
+    currentTrack === "mixed" ||
+    (isLegacyDev && !currentCourse) ||
+    (isHigherEd && !currentCourse);
+
+  const [expanded, setExpanded] = useState(needsRepair);
+  const [pickTrack, setPickTrack] = useState(
+    currentTrack === "mixed" || isLegacyDev ? "university" : currentTrack
+  );
+  const [pickCourse, setPickCourse] = useState(currentCourse || "");
+  const [pickGrade, setPickGrade] = useState(currentGrade || "");
+  const [courseSearch, setCourseSearch] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const [availableCourses, setAvailableCourses] = useState<string[]>([]);
+  useEffect(() => {
+    if (pickTrack === "university" || pickTrack === "college" || pickTrack === "tvet") {
+      import("@/lib/education/catalog").then(({ getCoursesForTrack }) => {
+        setAvailableCourses(getCoursesForTrack(pickTrack).map(c => c.name));
+      }).catch(() => setAvailableCourses([]));
+    }
+  }, [pickTrack]);
+
+  if (!needsRepair && !expanded) return null;
+
+  const filteredCourses = courseSearch.trim()
+    ? availableCourses.filter(c => c.toLowerCase().includes(courseSearch.toLowerCase()))
+    : availableCourses;
+
+  const TRACK_OPTIONS = [
+    { value: "k12", label: "📚 K-12 (CBC)" },
+    { value: "secondary", label: "🏫 Secondary (8-4-4)" },
+    { value: "university", label: "🎓 University" },
+    { value: "college", label: "🏛️ College / Tertiary" },
+    { value: "tvet", label: "🔧 TVET (CDACC)" },
+  ];
+
+  const GRADE_OPTIONS_K12 = ["PP1", "PP2", "Grade 1", "Grade 2", "Grade 3", "Grade 4", "Grade 5", "Grade 6", "Grade 7", "Grade 8", "Grade 9", "Grade 10", "Grade 11", "Grade 12"];
+  const GRADE_OPTIONS_SEC = ["Form 1", "Form 2", "Form 3", "Form 4"];
+
+  const isHigherEdPick = pickTrack === "university" || pickTrack === "college" || pickTrack === "tvet";
+  const canSave = isHigherEdPick ? !!pickCourse : !!pickGrade;
+
+  const save = async () => {
+    if (!canSave) return;
+    setSaving(true);
+    setToast(null);
+    try {
+      const r = await fetch("/api/user/profile", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          track: pickTrack,
+          course: isHigherEdPick ? pickCourse : undefined,
+          grade: !isHigherEdPick ? pickGrade : undefined,
+        }),
+      });
+      if (!r.ok) throw new Error("Failed to update profile");
+      setToast("✓ Profile updated! Reloading…");
+      try {
+        localStorage.removeItem("studybuddy_user_track");
+        localStorage.removeItem("studybuddy_user_course");
+      } catch {}
+      setTimeout(() => onFixed(), 600);
+    } catch (e: any) {
+      setToast(`✗ ${e?.message ?? "Failed"}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mt-4 rounded-2xl bg-amber-50 border-2 border-amber-300 p-4 shadow-sm">
+      <div className="flex items-start gap-3">
+        <span className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center text-xl flex-shrink-0">⚠️</span>
+        <div className="flex-1 min-w-0">
+          <h3 className="text-sm font-bold text-amber-900">Complete your profile</h3>
+          <p className="text-xs text-amber-700 mt-0.5">
+            {currentTrack === "mixed"
+              ? "Your account uses a legacy track. Pick your actual education level so we can show you the right dashboard."
+              : isHigherEd && !currentCourse
+                ? `You're on the ${currentTrack} track but haven't picked a course yet. Pick your course to get a tailored dashboard.`
+                : `Your track is set to "${currentTrack}" which is a legacy developer track. If you're a university/college/TVET student, pick your course below.`}
+          </p>
+          {toast && <p className="text-xs mt-2 text-emerald-700 font-semibold">{toast}</p>}
+        </div>
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="text-xs text-amber-700 font-semibold underline flex-shrink-0"
+        >
+          {expanded ? "Hide" : "Fix now"}
+        </button>
+      </div>
+
+      {expanded && (
+        <div className="mt-4 space-y-3">
+          <div>
+            <label className="text-xs font-semibold text-gray-700 mb-1 block">Education level</label>
+            <select
+              value={pickTrack}
+              onChange={(e) => { setPickTrack(e.target.value); setPickCourse(""); setPickGrade(""); }}
+              className="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm outline-none focus:border-amber-400"
+            >
+              {TRACK_OPTIONS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+            </select>
+          </div>
+
+          {isHigherEdPick ? (
+            <div>
+              <label className="text-xs font-semibold text-gray-700 mb-1 block">Your course</label>
+              <input
+                type="text"
+                value={courseSearch}
+                onChange={(e) => setCourseSearch(e.target.value)}
+                placeholder="Search courses… (e.g. Law, Medicine, Business)"
+                className="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm outline-none focus:border-amber-400 mb-2"
+                autoFocus
+              />
+              <select
+                value={pickCourse}
+                onChange={(e) => setPickCourse(e.target.value)}
+                className="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm outline-none focus:border-amber-400"
+                size={5}
+              >
+                <option value="">— Pick a course —</option>
+                {filteredCourses.slice(0, 50).map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+          ) : (
+            <div>
+              <label className="text-xs font-semibold text-gray-700 mb-1 block">Grade</label>
+              <select
+                value={pickGrade}
+                onChange={(e) => setPickGrade(e.target.value)}
+                className="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm outline-none focus:border-amber-400"
+              >
+                <option value="">— Pick a grade —</option>
+                {(pickTrack === "k12" ? GRADE_OPTIONS_K12 : GRADE_OPTIONS_SEC).map(g => (
+                  <option key={g} value={g}>{g}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <button
+            onClick={save}
+            disabled={!canSave || saving}
+            className="w-full h-10 rounded-xl bg-amber-600 hover:bg-amber-700 disabled:opacity-40 text-white text-sm font-bold"
+          >
+            {saving ? "Saving…" : "Save & Update My Dashboard"}
+          </button>
+          <p className="text-[10px] text-amber-600 text-center">
+            Your dashboard + AI Tutor will adapt to your selection.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
