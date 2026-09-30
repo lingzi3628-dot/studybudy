@@ -128,6 +128,8 @@ model User {
   courseSwitchRequests  CourseSwitchRequest[]
   // Phase 83 — admin-reviewed course switch requests (audit trail)
   reviewedSwitchRequests CourseSwitchRequest[] @relation("AdminReviewer")
+  // Phase 84 — course knowledge entries uploaded by this user
+  uploadedKnowledge      CourseKnowledge[]
 
   // Relations for search settings are handled in SearchSettings model
 }
@@ -2362,4 +2364,54 @@ model CourseSwitchRequest {
   @@index([userId])
   @@index([status])
   @@index([status, createdAt])
+}
+
+// ============================================================
+// Course Knowledge Base — Phase 84
+// Stores parsed course outlines / syllabi / learning material uploaded
+// by users (or admins). The AI tutor uses this as RAG context to answer
+// questions specific to the user's track + grade + course.
+//
+// Examples:
+//   - University student uploads "Bachelor of Business Management" course outline PDF
+//   - AI parses it into a structured topic list + key concepts
+//   - Next time the student (or any student on the same course) asks a question,
+//     the AI uses this knowledge to give course-specific answers
+//
+// Knowledge can be:
+//   - track-specific (e.g. "k12" + "Grade 5" + subject "Mathematics")
+//   - course-specific (e.g. "university" + course "Bachelor of Medicine")
+//
+// Growth model: knowledge accumulates over time. AI learns from user uploads
+// + question patterns. New users on the same course benefit immediately.
+// ============================================================
+
+model CourseKnowledge {
+  id           String   @id @default(uuid())
+  // Targeting — same shape as ExploreProject
+  track        String   @default("k12")        // k12 | secondary | university | college | tvet
+  gradeLevel   String?                            // null = all grades in track
+  course       String?                            // for university/college/tvet
+  subject      String   @default("General")
+  // Source
+  title        String                              // e.g. "Bachelor of Business Management — Course Outline"
+  sourceType   String   @default("outline")       // outline | syllabus | notes | textbook | other
+  sourceFileName String?                           // original PDF/DOCX filename
+  // Parsed content (AI-extracted)
+  rawText      String   @db.Text                    // extracted text from upload
+  summary      String   @db.Text                    // AI-generated overview
+  topics       Json?                                // [{ title, description, keyConcepts: [] }]
+  // Metadata
+  uploadedById String?
+  uploadedBy   User?    @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  isVerified   Boolean  @default(false)             // admin can verify a knowledge entry
+  viewCount    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([track, gradeLevel])
+  @@index([track, course])
+  @@index([track, course, subject])
+  @@index([track, gradeLevel, subject])
+  @@index([isVerified])
 }

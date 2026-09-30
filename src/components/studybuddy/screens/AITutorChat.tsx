@@ -28,6 +28,7 @@ import {
   Square,
   Save,
   FileText,
+  GraduationCap,
 } from "lucide-react";
 import { useApp } from "../store";
 import { GraphRenderer, type GraphSpec } from "./GraphRenderers";
@@ -118,6 +119,9 @@ export function AITutorChat() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const docInputRef = useRef<HTMLInputElement | null>(null);
   const [uploadingDoc, setUploadingDoc] = useState(false);
+  // Phase 84 — course outline upload (separate from generic document upload)
+  const outlineInputRef = useRef<HTMLInputElement | null>(null);
+  const [uploadingOutline, setUploadingOutline] = useState(false);
   // Continuous voice conversation mode (like ChatGPT voice mode)
   const [voiceMode, setVoiceMode] = useState(false);
   const voiceModeRef = useRef(false); // ref version for use inside callbacks
@@ -905,6 +909,46 @@ export function AITutorChat() {
       setError(e?.message ?? "Document upload failed");
     } finally {
       setUploadingDoc(false);
+    }
+  };
+
+  // Phase 84 — Course outline upload (PDF/DOCX → AI parses into CourseKnowledge DB)
+  // This makes the AI smarter for the user's specific track + grade + course.
+  const handleOutlineUpload = async (file: File) => {
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      setError("Outline too large (max 10MB)");
+      return;
+    }
+    setUploadingOutline(true);
+    setError(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("title", file.name.replace(/\.[^/.]+$/, ""));
+      formData.append("sourceType", "outline");
+      const r = await fetch("/api/tutor/upload-outline", {
+        method: "POST",
+        body: formData,
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Outline upload failed");
+      // Notify the user via a system message in the chat
+      const msg = d.message || `✓ Outline uploaded and parsed.`;
+      const topicCount = d.knowledge?.topicCount || 0;
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `outline-${Date.now()}`,
+          role: "assistant" as const,
+          content: `${msg}\n\n📚 **Topics extracted:** ${topicCount}\n📎 File: ${file.name}\n\nNow when you ask questions about your course, I'll use this knowledge to give you specific, accurate answers. Try asking "what can you teach me?" to see what I now know!`,
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+    } catch (e: any) {
+      setError(e?.message ?? "Outline upload failed");
+    } finally {
+      setUploadingOutline(false);
     }
   };
 
@@ -1957,6 +2001,31 @@ export function AITutorChat() {
                 }`}
               >
                 {uploadingDoc ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+              </button>
+              {/* Phase 84 — Upload Course Outline button (PDF/DOCX → AI parses into course knowledge) */}
+              <input
+                ref={outlineInputRef}
+                type="file"
+                accept=".pdf,.docx,.doc,.txt"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) handleOutlineUpload(f);
+                  e.target.value = "";
+                }}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => outlineInputRef.current?.click()}
+                disabled={busy || uploadingOutline}
+                title="Upload your course outline / syllabus (PDF, DOCX) — AI learns your course topics"
+                className={`w-10 h-10 rounded-full flex items-center justify-center disabled:opacity-50 transition flex-shrink-0 ${
+                  uploadingOutline
+                    ? "bg-violet-500 text-white"
+                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                }`}
+              >
+                {uploadingOutline ? <Loader2 className="w-4 h-4 animate-spin" /> : <GraduationCap className="w-4 h-4" />}
               </button>
               <button
                 type="submit"

@@ -330,7 +330,7 @@ When the user asks to "test me", "generate an exam", "create a test", "give me q
 The frontend will detect this, show a progress bar, generate the exam via the exam engine, publish it to the Exam Hub, and show the user a download link.`;
 
 export async function buildTutorSystemPrompt(opts: {
-  user: { grade?: string | null; learningLanguage?: string | null; currentModel?: string | null };
+  user: { grade?: string | null; track?: string | null; course?: string | null; subjects?: string[] | null; learningLanguage?: string | null; currentModel?: string | null };
   buddy: Buddy;
   buddyId: string;
   userMessage: string;
@@ -345,13 +345,121 @@ export async function buildTutorSystemPrompt(opts: {
   const { user, buddy, buddyId, userMessage, dataSaver, imageDataUrl, searchContext, toolResults = "", studyContext = "", learningMode = "standard", clientPlatform = "web" } = opts;
   const completeContext = [searchContext, toolResults, studyContext].filter(Boolean).join("\n\n");
 
-  const teachingProfile = buildTeachingProfile(user.grade ?? "Form 1");
-  const curriculumContext = buildCurriculumContextResolved(user.grade ?? "Form 1");
+  // Phase 84 — track + course awareness
+  // Don't blindly assume Form 1 — use the user's actual track + course.
+  const track = user.track || "k12";
+  const course = user.course || null;
+  const isHigherEd = track === "university" || track === "college" || track === "tvet";
 
-  // Admin-uploaded curriculum content from DB (best-effort)
+  // For K-12/secondary: use grade-based teaching profile
+  // For university/college/tvet: use a generic adult-learner profile (no grade fallback)
+  const gradeForProfile = (track === "k12" || track === "secondary")
+    ? (user.grade || "Form 1")
+    : "Higher Education";
+  const teachingProfile = buildTeachingProfile(gradeForProfile);
+  const curriculumContext = buildCurriculumContextResolved(gradeForProfile);
+
+  // Phase 84 — load CourseKnowledge for this user's track + course/grade
+  // This is the RAG context the AI uses to answer course-specific questions.
+  let courseKnowledgeContext = "";
+  try {
+    const where: any = { track };
+    if (isHigherEd && course) {
+      // Match this course OR general (null course) for the track
+      where.OR = [{ course }, { course: null }];
+    } else if (user.grade) {
+      where.OR = [{ gradeLevel: user.grade }, { gradeLevel: null }];
+    }
+    const knowledgeEntries = await db.courseKnowledge.findMany({
+      where,
+      orderBy: [{ isVerified: "desc" }, { createdAt: "desc" }],
+      take: 5,  // top 5 most recent verified entries
+    }).catch(() => []);
+    if (knowledgeEntries.length > 0) {
+      const blocks: string[] = [];
+      for (const k of knowledgeEntries) {
+        const topics = Array.isArray(k.topics) ? k.topics.slice(0, 8) : [];
+        const topicList = topics.map((t: any) =>
+          `  • ${t.title}${t.description ? ` — ${t.description}` : ""}${Array.isArray(t.keyConcepts) && t.keyConcepts.length ? ` (key: ${t.keyConcepts.join(", ")})` : ""}`
+        ).join("\n");
+        blocks.push(`### ${k.title}
+Source: ${k.sourceType} uploaded ${new Date(k.createdAt).toLocaleDateString()}
+Summary: ${k.summary.slice(0, 500)}${k.summary.length > 500 ? "…" : ""}
+Topics:
+${topicList || "  (no structured topics extracted)"}
+
+Excerpt:
+${k.rawText.slice(0, 1000)}${k.rawText.length > 1000 ? "…" : ""}`);
+      }
+      courseKnowledgeContext = `\n\n=== COURSE KNOWLEDGE BASE (Phase 84) ===
+The following knowledge entries were uploaded by students/instructors on the same track${course ? ` + course (${course})` : user.grade ? ` + grade (${user.grade})` : ""} as the current user.
+Use this knowledge as PRIMARY CONTEXT for answering their questions. Cite it naturally in your responses.
+
+${blocks.join("\n\n---\n\n")}
+
+=== END COURSE KNOWLEDGE BASE ===\n`;
+    }
+  } catch {}
+
+  // Phase 84 — track + course context (system prompt section)
+  let trackContext = "";
+  if (isHigherEd && course) {
+    trackContext = `
+=== STUDENT CONTEXT ===
+The student is enrolled in: ${track.toUpperCase()} — ${course}
+This is a higher-education student. Do NOT assume they are in a Kenyan secondary school grade.
+Tailor every answer to the ${course} curriculum.
+If they ask "what can you teach", list subjects/topics relevant to ${course} — NOT Form 1 / KCSE subjects.
+Be professional but warm — like a knowledgeable course tutor.
+=== END STUDENT CONTEXT ===
+`;
+  } else if (track === "secondary" && user.grade) {
+    trackContext = `
+=== STUDENT CONTEXT ===
+The student is in: ${track.toUpperCase()} — ${user.grade}
+Tailor answers to the Kenyan ${user.grade} curriculum.
+=== END STUDENT CONTEXT ===
+`;
+  } else if (track === "k12" && user.grade) {
+    trackContext = `
+=== STUDENT CONTEXT ===
+The student is in: K-12 — ${user.grade}
+Tailor answers to the Kenyan CBC curriculum for ${user.grade}.
+=== END STUDENT CONTEXT ===
+`;
+  }
+
+  // Phase 84 — proactive prompt to upload course outline if no knowledge exists yet
+  let uploadPrompt = "";
+  if (courseKnowledgeContext === "") {
+    if (isHigherEd && course) {
+      uploadPrompt = `
+=== KNOWLEDGE GAP ===
+No course outline has been uploaded yet for "${course}".
+If the student asks general questions like "what can you teach" or "what topics do you cover",
+warmly suggest they upload their course outline / syllabus (PDF or DOCX) using the 📎 upload button
+so you can give them course-specific answers. Phrase it like a helpful tutor, e.g.:
+"I can help with a wide range of ${course} topics — but to give you the most accurate answers,
+I'd love to see your course outline! Tap the 📎 button below to upload it (PDF or DOCX)."
+Only suggest this ONCE per conversation — don't nag.
+=== END KNOWLEDGE GAP ===
+`;
+    } else if (track === "k12" || track === "secondary") {
+      uploadPrompt = `
+=== KNOWLEDGE GAP ===
+No curriculum outline has been uploaded for ${track}${user.grade ? ` / ${user.grade}` : ""} yet.
+If the student asks for topic lists or seems to need curriculum structure, gently suggest they
+upload their class notes / syllabus (PDF or DOCX) using the 📎 button so you can be more specific.
+Only suggest this ONCE per conversation — don't nag.
+=== END KNOWLEDGE GAP ===
+`;
+    }
+  }
+
+  // Admin-uploaded curriculum content from DB (best-effort) — keep for K-12/secondary
   let dbCurriculumContext = "";
   try {
-    if (user.grade) {
+    if ((track === "k12" || track === "secondary") && user.grade) {
       const matchingGrade = await db.curriculumGrade.findFirst({
         where: { name: { equals: user.grade, mode: "insensitive" }, status: "ready" },
         include: {
@@ -381,8 +489,8 @@ export async function buildTutorSystemPrompt(opts: {
 
   let systemContent: string;
   if (buddyId === "study") {
-    // Backward-compat path — exact same prompt as Phase 1-51.
-    systemContent = `You are StudyBuddy, a friendly AI tutor for Kenyan students (CBC / KCSE / KPSEA / KJSEA curriculum). ${teachingProfile.systemPromptSuffix}${curriculumContext}${dbCurriculumContext}${completeContext}
+    // Phase 84 — system prompt now includes track context + course knowledge + upload prompt
+    systemContent = `You are StudyBuddy, a friendly AI tutor for students of all levels (K-12 CBC, Secondary, University, College, TVET). ${teachingProfile.systemPromptSuffix}${trackContext}${uploadPrompt}${courseKnowledgeContext}${curriculumContext}${dbCurriculumContext}${completeContext}
 ${dataSaver ? `\nDATA SAVER MODE is ON. Keep your reply concise — target 1-2 short paragraphs (max ~150 words). Skip verbose examples and unnecessary elaboration. Lead with the direct answer; only add explanation if the user asks for it.\n` : ``}
 
 ${STUDY_PROMPT_GRAPH_RULES}`;
@@ -401,6 +509,8 @@ ${STUDY_PROMPT_GRAPH_RULES}`;
       hasImage: !!imageDataUrl,
       gradeBand: undefined,
     });
+    // Phase 84 — append track + course + knowledge context to all buddies (not just "study")
+    systemContent += `\n${trackContext}${uploadPrompt}${courseKnowledgeContext}`;
   }
 
   if (toolResults) {
