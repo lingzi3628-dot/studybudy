@@ -60,16 +60,31 @@ NEVER use kinds like "label", "node", "box", "shape", "rectangle", "dot", "conne
 Colors should be hex like "#475569" or named like "blue". Default fill is "#e0e7ff" (light indigo).
 Coordinate space: viewBox is 1000×750. Place elements accordingly.
 
-Example concept map (digestive system):
+CRITICAL — DRAW REAL SHAPES, NOT JUST TEXT:
+- Use rect/circle/ellipse for BODY PARTS, CONTAINERS, and OBJECTS (not just text labels)
+- Use arrow elements to show FLOW or CONNECTIONS between shapes
+- Use text elements ONLY for small labels on shapes (not as the main content)
+- Each shape should have a "label" field for its name
+- Use DIFFERENT fill colors for different elements to make the drawing visually clear
+- Think about LAYOUT: place connected items near each other, use arrows to connect them
+- For anatomy (e.g. digestive system): draw the mouth as a rect at top, esophagus as a
+  narrow rect below it, stomach as an ellipse, intestines as curves/polygons, etc.
+- For flowcharts: use rects for steps, arrows between them
+- For concept maps: use circles for nodes, lines/arrows for connections, text for labels
+
+Example — digestive system (REAL shapes, not just text):
 \`\`\`mathgraph
 {
   "type": "scene",
   "title": "Digestive System",
   "elements": [
-    { "kind": "rect", "x": 400, "y": 50, "width": 200, "height": 60, "fill": "#fde68a", "label": "Mouth" },
-    { "kind": "arrow", "x1": 500, "y1": 110, "x2": 500, "y2": 180, "stroke": "#475569" },
-    { "kind": "rect", "x": 400, "y": 180, "width": 200, "height": 60, "fill": "#fca5a5", "label": "Stomach" },
-    { "kind": "text", "x": 500, "y": 145, "text": "esophagus", "fontSize": 14 }
+    { "kind": "rect", "x": 380, "y": 30, "width": 240, "height": 50, "fill": "#fde68a", "stroke": "#92400e", "label": "Mouth" },
+    { "kind": "rect", "x": 470, "y": 80, "width": 60, "height": 100, "fill": "#fca5a5", "stroke": "#991b1b", "label": "Esophagus" },
+    { "kind": "ellipse", "cx": 500, "cy": 200, "rx": 150, "ry": 60, "fill": "#fbbf24", "stroke": "#92400e", "label": "Stomach" },
+    { "kind": "polygon", "points": [[300,280],[400,260],[450,320],[380,380],[320,360],[280,320]], "fill": "#86efac", "stroke": "#166534", "label": "Small Intestine" },
+    { "kind": "rect", "x": 500, "y": 350, "width": 120, "height": 180, "fill": "#a7f3d0", "stroke": "#166534", "label": "Large Intestine" },
+    { "kind": "arrow", "x1": 500, "y1": 80, "x2": 500, "y2": 130, "stroke": "#475569" },
+    { "kind": "arrow", "x1": 450, "y1": 240, "x2": 380, "y2": 280, "stroke": "#475569" }
   ]
 }
 \`\`\`

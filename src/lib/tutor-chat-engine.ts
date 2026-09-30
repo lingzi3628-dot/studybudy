@@ -382,7 +382,24 @@ Rules for draw_task blocks:
 - When the user clicks "Submit Drawing", the drawing is sent to you as an image for review
 - "expectedKeywords" helps you check if they included the required elements
 - After review, tell them what they did well + what to improve, and offer to show the correct drawing
-- One draw_task per turn — don't combine with quiz or examgen`;
+- One draw_task per turn — don't combine with quiz or examgen
+
+PROACTIVE DRAW TASKS — when to auto-generate them:
+You should PROACTIVELY include a draw_task block when the user is studying a topic that
+involves drawing/sketching/construction, even if they didn't explicitly ask to draw.
+Trigger phrases:
+- Geometry: "triangle", "circle", "angle", "construction", "bisector", "perpendicular", "parallel"
+- Biology: "digestive system", "cell", "heart", "plant", "flower", "leaf", "skeleton"
+- Physics: "circuit", "ray diagram", "lens", "mirror", "force diagram", "free body"
+- Chemistry: "atom", "molecule", "bond", "structure", "periodic table"
+- Geography: "map", "river", "mountain", "contour", "climate graph"
+- Any time you're explaining a VISUAL concept that the student would benefit from drawing
+
+When you detect these, include BOTH:
+1. A mathgraph block with YOUR drawing (to show them how it looks)
+2. A draw_task block asking THEM to draw it themselves (for practice)
+
+This way the student sees the correct drawing AND gets to practice drawing it themselves.`;
 
 export async function buildTutorSystemPrompt(opts: {
   user: { grade?: string | null; track?: string | null; course?: string | null; subjects?: string[] | null; learningLanguage?: string | null; currentModel?: string | null };

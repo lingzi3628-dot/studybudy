@@ -302,13 +302,14 @@ export function AITutorChat() {
       const reviewPrompt = task
         ? `I've drawn my attempt at: "${task.prompt}". Please review my drawing and tell me what I did well and what to improve. ${task.expectedKeywords ? `Check if I included: ${task.expectedKeywords.join(", ")}` : ""} If I made mistakes, offer to show me the correct drawing.`
         : "Please review my drawing and give me feedback.";
-      setPendingImage(detail.imageDataUrl);
-      // Small delay to let the pendingImage state settle
-      setTimeout(() => send(reviewPrompt), 100);
+      // Phase 86.3 — pass the image directly to send() instead of using
+      // setPendingImage (which is async and causes a stale-closure bug where
+      // send() reads the OLD pendingImage = null → skips the image entirely)
+      send(reviewPrompt, detail.imageDataUrl);
     };
     window.addEventListener("studybuddy:submit-drawing", handler);
     return () => window.removeEventListener("studybuddy:submit-drawing", handler);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // A phone-to-computer handoff without an existing Study Room resumes the
   // tutor conversation and routes directly to the workspace the tutor offered.
@@ -396,9 +397,12 @@ export function AITutorChat() {
   };
 
   // Send a message (Phase 52 — streaming via /api/tutor/chat/stream)
-  const send = async (text?: string) => {
+  // Phase 86.3 — accept optional overrideImage param so callers (like the
+  // drawing canvas submit handler) can pass an image directly without relying
+  // on the async setState + stale closure issue.
+  const send = async (text?: string, overrideImage?: string | null) => {
     const q = (text ?? input).trim();
-    const img = pendingImage;
+    const img = overrideImage ?? pendingImage;
     const doc = pendingDocument;
     if ((!q && !img && !doc) || busy) return;
     setInput("");
