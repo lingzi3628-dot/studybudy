@@ -220,6 +220,7 @@ export async function POST(req: NextRequest) {
       userMessage,
       userId: user.id,
       userGrade: user.grade,
+      userTrack: (user as any).track,  // Phase 88.1 — needed to skip proof engine for higher-ed
       intents,
       thinkingSteps,
       clientPlatform,

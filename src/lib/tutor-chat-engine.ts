@@ -421,15 +421,25 @@ export async function buildTutorSystemPrompt(opts: {
   // Don't blindly assume Form 1 — use the user's actual track + course.
   const track = user.track || "k12";
   const course = user.course || null;
-  const isHigherEd = track === "university" || track === "college" || track === "tvet";
+  const isHigherEd = track === "university" || track === "college" || track === "tvet"
+    || (track === "mixed" && !!course);  // legacy mixed users with a course
 
-  // For K-12/secondary: use grade-based teaching profile
-  // For university/college/tvet: use a generic adult-learner profile (no grade fallback)
+  // For K-12/secondary: use grade-based teaching profile + curriculum context
+  // For university/college/tvet: use adult-learner profile, NO K-12 curriculum
   const gradeForProfile = (track === "k12" || track === "secondary")
     ? (user.grade || "Form 1")
     : "Higher Education";
   const teachingProfile = buildTeachingProfile(gradeForProfile);
-  const curriculumContext = buildCurriculumContextResolved(gradeForProfile);
+
+  // Phase 88.1 — CRITICAL FIX: Do NOT load K-12 curriculum context for
+  // university/college/tvet students. The curriculum engine has hardcoded
+  // rules like "Only teach topics listed above" + "If advanced, say it's
+  // in a higher grade" — these were being injected for ALL users including
+  // university Law students, causing the AI to refuse to teach Law and
+  // redirect to Form 1 Math/Biology instead.
+  const curriculumContext = isHigherEd
+    ? ""  // No K-12 curriculum for higher-ed — let the AI use its own knowledge
+    : buildCurriculumContextResolved(gradeForProfile);
 
   // Phase 84 — load CourseKnowledge for this user's track + course/grade
   // This is the RAG context the AI uses to answer course-specific questions.
@@ -939,6 +949,7 @@ export async function postProcessReply(opts: {
   userMessage: string;
   userId: string;
   userGrade: string | null;
+  userTrack?: string | null;  // Phase 88.1 — needed to skip proof engine for higher-ed
   intents: TutorIntents;
   thinkingSteps: string[];
   clientPlatform?: "mobile" | "web";
@@ -950,7 +961,9 @@ export async function postProcessReply(opts: {
   thinkingSteps: string[];
   proofThinkingSteps: string[];
 }> {
-  const { reply, userMessage, userId, userGrade, intents, thinkingSteps, clientPlatform = "web" } = opts;
+  const { reply, userMessage, userId, userGrade, userTrack, intents, thinkingSteps, clientPlatform = "web" } = opts;
+  const isHigherEd = userTrack === "university" || userTrack === "college" || userTrack === "tvet"
+    || (userTrack === "mixed" && !!userGrade);  // unlikely but safe
 
   // A structured, model-authored offer lets the clients show a real handoff
   // action without guessing from topic keywords or displaying internal data.
@@ -1044,16 +1057,23 @@ export async function postProcessReply(opts: {
     ? `${learnerReply}\n\nI could not create a clear drawing to display here. You can continue on the computer drawing board below; it supports freehand sketches and basic lines and circles, and I can review a saved attempt.`
     : learnerReply;
   let proof: any = null;
-  try {
-    proof = await runProofEngine(learnerReply, userGrade ?? "Form 1", userMessage, userId);
-    if (proof.corrections.length > 0) {
-      finalReply += "\n\n---\n**🔍 Verification Notes:**\n" + proof.corrections.join("\n");
+  // Phase 88.1 — Skip proof engine for higher-ed students.
+  // The proof engine validates against K-12 curriculum + checks readability
+  // for primary school levels. For university/college/tvet students, it
+  // produces false warnings like "Some sentences may be too long for upper
+  // primary students" — which is irrelevant + confusing for adult learners.
+  if (!isHigherEd) {
+    try {
+      proof = await runProofEngine(learnerReply, userGrade ?? "Form 1", userMessage, userId);
+      if (proof.corrections.length > 0) {
+        finalReply += "\n\n---\n**🔍 Verification Notes:**\n" + proof.corrections.join("\n");
+      }
+      if (proof.warnings.length > 0) {
+        finalReply += "\n\n**⚠️ Notes:**\n" + proof.warnings.join("\n");
+      }
+    } catch (proofErr: any) {
+      console.error("[tutor-engine] proof engine failed:", proofErr?.message);
     }
-    if (proof.warnings.length > 0) {
-      finalReply += "\n\n**⚠️ Notes:**\n" + proof.warnings.join("\n");
-    }
-  } catch (proofErr: any) {
-    console.error("[tutor-engine] proof engine failed:", proofErr?.message);
   }
 
   return {
