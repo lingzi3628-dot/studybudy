@@ -39,8 +39,8 @@ export async function POST(req: NextRequest) {
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "file is required" }, { status: 400 });
   }
-  if (file.size > 4 * 1024 * 1024) {
-    return NextResponse.json({ error: "File too large (max 4MB)" }, { status: 413 });
+  if (file.size > 6 * 1024 * 1024) {
+    return NextResponse.json({ error: "File too large (max 6MB)" }, { status: 413 });
   }
   if (!file.name.toLowerCase().endsWith(".zip")) {
     return NextResponse.json({ error: "Only .zip files are accepted" }, { status: 400 });
@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
   // Phase 88 — optional separate thumbnail/wallpaper image upload
   const thumbnailFile = form.get("thumbnail");
   let customThumbnailBase64: string | null = null;
-  if (thumbnailFile instanceof File && thumbnailFile.size > 0 && thumbnailFile.size < 4 * 1024 * 1024) {
+  if (thumbnailFile instanceof File && thumbnailFile.size > 0 && thumbnailFile.size < 6 * 1024 * 1024) {
     const thumbBuffer = Buffer.from(await thumbnailFile.arrayBuffer());
     customThumbnailBase64 = `data:${thumbnailFile.type || "image/jpeg"};base64,${thumbBuffer.toString("base64")}`;
   }
@@ -125,7 +125,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Read all files as base64
-  const MAX_TOTAL = 3 * 1024 * 1024;
+  const MAX_TOTAL = 5 * 1024 * 1024;
   let totalSize = 0;
   const filesMap: Record<string, string> = {};
   let thumbnailPath: string | null = null;

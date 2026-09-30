@@ -144,8 +144,8 @@ export function ExploreTab() {
       setError("Please select a .zip file");
       return;
     }
-    if (f.size > 50 * 1024 * 1024) {
-      setError("File too large (max 4MB)");
+    if (f.size > 6 * 1024 * 1024) {
+      setError("File too large (max 6MB)");
       return;
     }
     setError(null);
@@ -311,7 +311,7 @@ export function ExploreTab() {
             <div className="flex flex-col items-center gap-2">
               <UploadCloud className="w-10 h-10 text-gray-300" />
               <p className="text-sm font-semibold text-gray-700">Drop your project ZIP here</p>
-              <p className="text-xs text-gray-500">or click to browse — max 4MB</p>
+              <p className="text-xs text-gray-500">or click to browse — max 6MB</p>
             </div>
           )}
         </div>
@@ -411,7 +411,7 @@ export function ExploreTab() {
                 onChange={(e) => {
                   const f = e.target.files?.[0];
                   if (!f) return;
-                  if (f.size > 4 * 1024 * 1024) { setError("Thumbnail too large (max 4MB)"); return; }
+                  if (f.size > 4 * 1024 * 1024) { setError("Thumbnail too large (max 6MB)"); return; }
                   setThumbnail(f);
                   const reader = new FileReader();
                   reader.onload = () => setThumbnailPreview(reader.result as string);

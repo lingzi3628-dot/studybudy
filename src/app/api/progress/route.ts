@@ -156,3 +156,77 @@ export async function GET() {
     correctAttempts,
   });
 }
+
+/**
+ * POST /api/progress — Award XP for an activity
+ *
+ * Body: { xp: number, activity?: string }
+ *
+ * Updates UserXp record:
+ *   - Increments xpAmount
+ *   - Recalculates level (xp / 200 + 1)
+ *   - Updates streak (consecutive days with activity)
+ *   - Updates lastActivityDate
+ */
+export async function POST(req: any) {
+  let user;
+  try { user = await getCurrentUser(); }
+  catch { return NextResponse.json({ error: "Auth required" }, { status: 401 }); }
+
+  const body = await req.json().catch(() => ({})) as { xp?: number; activity?: string };
+  const xpGain = Math.min(50, Math.max(1, Number(body.xp) || 5));
+
+  try {
+    // Find or create UserXp record
+    let userXp = await db.userXp.findUnique({ where: { userId: user.id } }).catch(() => null);
+    if (!userXp) {
+      userXp = await db.userXp.create({
+        data: { userId: user.id, xpAmount: 0, level: 1, streakDays: 0 },
+      });
+    }
+
+    // Calculate new streak
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const yesterday = new Date(today.getTime() - 86400000);
+    const lastActivity = userXp.lastActivityDate ? new Date(userXp.lastActivityDate) : null;
+    let newStreak = userXp.streakDays;
+    if (lastActivity) {
+      const lastDay = new Date(lastActivity.getFullYear(), lastActivity.getMonth(), lastActivity.getDate());
+      if (lastDay.getTime() === today.getTime()) {
+        // Already active today — keep streak
+      } else if (lastDay.getTime() === yesterday.getTime()) {
+        // Active yesterday → increment streak
+        newStreak = userXp.streakDays + 1;
+      } else {
+        // Streak broken → reset to 1
+        newStreak = 1;
+      }
+    } else {
+      newStreak = 1;
+    }
+
+    const newXp = userXp.xpAmount + xpGain;
+    const newLevel = Math.floor(newXp / 200) + 1;
+
+    const updated = await db.userXp.update({
+      where: { userId: user.id },
+      data: {
+        xpAmount: newXp,
+        level: newLevel,
+        streakDays: newStreak,
+        lastActivityDate: now,
+      },
+    });
+
+    return NextResponse.json({
+      ok: true,
+      xp: updated.xpAmount,
+      level: updated.level,
+      streak: updated.streakDays,
+      xpGain,
+    });
+  } catch (e: any) {
+    return NextResponse.json({ error: "Failed to update XP" }, { status: 500 });
+  }
+}

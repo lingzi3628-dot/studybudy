@@ -87,13 +87,43 @@ export async function POST(req: NextRequest) {
       data: { lastActive: new Date() },
     }).catch(() => {});
 
-    // Best-effort: update XP via the progress system
-    // (The /api/progress POST endpoint handles XP + level + streak)
+    // Best-effort: directly update UserXp (no internal HTTP fetch needed)
+    // Phase 88.3 — this is more reliable than calling /api/progress via fetch
     try {
-      await fetch(`${req.nextUrl.origin}/api/progress`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ xp: xpGain, activity }),
+      let userXp = await db.userXp.findUnique({ where: { userId: user.id } }).catch(() => null);
+      if (!userXp) {
+        userXp = await db.userXp.create({
+          data: { userId: user.id, xpAmount: 0, level: 1, streakDays: 0 },
+        });
+      }
+      // Calculate streak
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const yesterday = new Date(today.getTime() - 86400000);
+      const lastActivity = userXp.lastActivityDate ? new Date(userXp.lastActivityDate) : null;
+      let newStreak = userXp.streakDays;
+      if (lastActivity) {
+        const lastDay = new Date(lastActivity.getFullYear(), lastActivity.getMonth(), lastActivity.getDate());
+        if (lastDay.getTime() === today.getTime()) {
+          // Already active today — keep streak
+        } else if (lastDay.getTime() === yesterday.getTime()) {
+          newStreak = userXp.streakDays + 1;
+        } else {
+          newStreak = 1;
+        }
+      } else {
+        newStreak = 1;
+      }
+      const newXp = userXp.xpAmount + xpGain;
+      const newLevel = Math.floor(newXp / 200) + 1;
+      await db.userXp.update({
+        where: { userId: user.id },
+        data: {
+          xpAmount: newXp,
+          level: newLevel,
+          streakDays: newStreak,
+          lastActivityDate: now,
+        },
       });
     } catch {}
 
