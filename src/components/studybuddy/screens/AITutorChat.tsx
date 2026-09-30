@@ -292,6 +292,24 @@ export function AITutorChat() {
     loadConversations();
   }, [loadConversations]);
 
+  // Phase 86.2 — Listen for drawing submissions from DrawTaskRenderer
+  // When the user submits a drawing, send it to the AI as an image for review
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { imageDataUrl: string; task: any };
+      if (!detail?.imageDataUrl) return;
+      const task = detail.task;
+      const reviewPrompt = task
+        ? `I've drawn my attempt at: "${task.prompt}". Please review my drawing and tell me what I did well and what to improve. ${task.expectedKeywords ? `Check if I included: ${task.expectedKeywords.join(", ")}` : ""} If I made mistakes, offer to show me the correct drawing.`
+        : "Please review my drawing and give me feedback.";
+      setPendingImage(detail.imageDataUrl);
+      // Small delay to let the pendingImage state settle
+      setTimeout(() => send(reviewPrompt), 100);
+    };
+    window.addEventListener("studybuddy:submit-drawing", handler);
+    return () => window.removeEventListener("studybuddy:submit-drawing", handler);
+  }, []);
+
   // A phone-to-computer handoff without an existing Study Room resumes the
   // tutor conversation and routes directly to the workspace the tutor offered.
   useEffect(() => {
@@ -2436,7 +2454,189 @@ function AttachmentRenderer({ attachment, onSpecChange, onOpenWorkspace }: { att
     return <QuizRenderer quiz={quizSpec} />;
   }
 
+  // Phase 86.2 — Draw task (user draws on canvas, AI reviews)
+  if (attachment.type === "draw_task") {
+    let drawSpec: any = null;
+    try { drawSpec = JSON.parse(attachment.caption); } catch { return null; }
+    if (!drawSpec || !drawSpec.prompt) return null;
+    return <DrawTaskRenderer task={drawSpec} onSubmit={(imageDataUrl) => {
+      // Send the drawing as an image attachment to the AI for review
+      // The send() function will include it as a vision input
+      const event = new CustomEvent("studybuddy:submit-drawing", { detail: { imageDataUrl, task: drawSpec } });
+      window.dispatchEvent(event);
+    }} />;
+  }
+
   return null;
+}
+
+// =====================================================================
+// DrawTaskRenderer — Phase 86.2
+// Renders an interactive canvas where the user draws, then submits the
+// drawing as an image to the AI for review.
+// =====================================================================
+function DrawTaskRenderer({ task, onSubmit }: { task: any; onSubmit: (imageDataUrl: string) => void }) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [drawing, setDrawing] = useState(false);
+  const [color, setColor] = useState("#1f2937");
+  const [brushSize, setBrushSize] = useState(3);
+  const [hasDrawn, setHasDrawn] = useState(false);
+  const [showHint, setShowHint] = useState(false);
+  const lastPos = useRef<{ x: number; y: number } | null>(null);
+
+  // Initialize canvas
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    // Set canvas size to match displayed size
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * 2;  // retina
+    canvas.height = 400 * 2;
+    ctx.scale(2, 2);
+    // White background
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, rect.width, 400);
+  }, []);
+
+  const getPos = (e: React.PointerEvent) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+    };
+  };
+
+  const startDraw = (e: React.PointerEvent) => {
+    e.preventDefault();
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    canvas.setPointerCapture(e.pointerId);
+    setDrawing(true);
+    lastPos.current = getPos(e);
+  };
+
+  const draw = (e: React.PointerEvent) => {
+    if (!drawing) return;
+    e.preventDefault();
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx || !lastPos.current) return;
+    const pos = getPos(e);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = brushSize;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    ctx.moveTo(lastPos.current.x, lastPos.current.y);
+    ctx.lineTo(pos.x, pos.y);
+    ctx.stroke();
+    lastPos.current = pos;
+    setHasDrawn(true);
+  };
+
+  const endDraw = (e: React.PointerEvent) => {
+    e.preventDefault();
+    setDrawing(false);
+    lastPos.current = null;
+  };
+
+  const clearCanvas = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const rect = canvas.getBoundingClientRect();
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, rect.width, 400);
+    setHasDrawn(false);
+  };
+
+  const submit = () => {
+    const canvas = canvasRef.current;
+    if (!canvas || !hasDrawn) return;
+    // Convert canvas to PNG data URL
+    const dataUrl = canvas.toDataURL("image/png");
+    onSubmit(dataUrl);
+  };
+
+  return (
+    <div className="rounded-2xl border-2 border-violet-200 bg-violet-50/50 p-4 mt-2">
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-2xl">✏️</span>
+        <div className="flex-1">
+          <h3 className="text-sm font-bold text-gray-900">{task.title || "Drawing Task"}</h3>
+        </div>
+      </div>
+      <p className="text-sm text-gray-700 mb-2">{task.prompt}</p>
+      {task.hint && (
+        <button onClick={() => setShowHint(!showHint)} className="text-xs text-violet-600 font-semibold mb-2">
+          {showHint ? "Hide hint" : "💡 Show hint"}
+        </button>
+      )}
+      {showHint && task.hint && (
+        <div className="mb-2 p-2 rounded-lg bg-amber-50 border border-amber-200">
+          <p className="text-xs text-amber-800">{task.hint}</p>
+        </div>
+      )}
+
+      {/* Drawing canvas */}
+      <div className="rounded-xl overflow-hidden border-2 border-gray-300 bg-white">
+        <canvas
+          ref={canvasRef}
+          onPointerDown={startDraw}
+          onPointerMove={draw}
+          onPointerUp={endDraw}
+          onPointerLeave={endDraw}
+          className="block w-full touch-none cursor-crosshair"
+          style={{ height: "400px" }}
+        />
+      </div>
+
+      {/* Toolbar */}
+      <div className="mt-2 flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-1">
+          {["#1f2937", "#dc2626", "#2563eb", "#16a34a", "#ca8a04", "#7c3aed"].map(c => (
+            <button
+              key={c}
+              onClick={() => setColor(c)}
+              className={`w-6 h-6 rounded-full border-2 ${color === c ? "border-gray-900 scale-110" : "border-gray-300"} transition`}
+              style={{ backgroundColor: c }}
+            />
+          ))}
+        </div>
+        <div className="flex items-center gap-1">
+          {[2, 4, 8].map(s => (
+            <button
+              key={s}
+              onClick={() => setBrushSize(s)}
+              className={`w-7 h-7 rounded-full border-2 flex items-center justify-center ${brushSize === s ? "border-violet-500 bg-violet-100" : "border-gray-300"}`}
+            >
+              <span className="rounded-full bg-gray-700" style={{ width: s, height: s }} />
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={clearCanvas}
+          className="ml-auto px-3 h-8 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-semibold"
+        >
+          🗑 Clear
+        </button>
+      </div>
+
+      <button
+        onClick={submit}
+        disabled={!hasDrawn}
+        className="mt-3 w-full h-11 rounded-xl bg-violet-600 hover:bg-violet-700 disabled:opacity-40 text-white text-sm font-bold transition"
+      >
+        {hasDrawn ? "📤 Submit Drawing for Review" : "Draw something first…"}
+      </button>
+    </div>
+  );
 }
 
 // =====================================================================

@@ -362,7 +362,27 @@ Rules for quiz blocks:
 - "type" must be "mcq" (multiple choice) — for now, only MCQ is supported
 - Include "explanation" for each question — shown after the user answers
 - The user picks options in-chat, clicks Submit, sees their score + correct answers
-- DO NOT also include an examgen block — pick ONE (quiz for in-chat, examgen for full exam)`;
+- DO NOT also include an examgen block — pick ONE (quiz for in-chat, examgen for full exam)
+
+DRAW TASK MODE (user draws in-chat, AI reviews):
+When you want the USER to draw something (e.g. "draw a triangle and label its sides",
+"construct a perpendicular bisector", "sketch the water cycle"), include a fenced code
+block tagged "draw_task" with JSON:
+\`\`\`draw_task
+{
+  "title": "Draw a Triangle",
+  "prompt": "Draw a triangle ABC with sides AB = 5cm, BC = 6cm, and AC = 7cm. Label all vertices.",
+  "hint": "Start with side AB as a horizontal line, then use a compass to find point C.",
+  "expectedKeywords": ["triangle", "ABC", "vertices", "sides"]
+}
+\`\`\`
+Rules for draw_task blocks:
+- Use when you want the user to practice drawing/sketching (NOT when YOU draw — use mathgraph for that)
+- The frontend shows a canvas where the user draws with their finger/mouse
+- When the user clicks "Submit Drawing", the drawing is sent to you as an image for review
+- "expectedKeywords" helps you check if they included the required elements
+- After review, tell them what they did well + what to improve, and offer to show the correct drawing
+- One draw_task per turn — don't combine with quiz or examgen`;
 
 export async function buildTutorSystemPrompt(opts: {
   user: { grade?: string | null; track?: string | null; course?: string | null; subjects?: string[] | null; learningLanguage?: string | null; currentModel?: string | null };
@@ -871,6 +891,28 @@ export function parseQuiz(reply: string): any | null {
   return null;
 }
 
+// Phase 86.2 — parse draw_task blocks (user draws on canvas, AI reviews)
+// Format: ```draw_task { "title": "...", "prompt": "...", "hint": "...", "expectedKeywords": [...] } ```
+export function parseDrawTask(reply: string): any | null {
+  try {
+    const match = reply.match(/```draw_task\s*([\s\S]*?)```/);
+    if (!match) return null;
+    let cleaned = match[1].trim();
+    if (cleaned.startsWith("```")) {
+      cleaned = cleaned.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "");
+    }
+    const firstBrace = cleaned.indexOf("{");
+    const lastBrace = cleaned.lastIndexOf("}");
+    if (firstBrace === -1 || lastBrace === -1) return null;
+    const parsed = JSON.parse(cleaned.slice(firstBrace, lastBrace + 1));
+    if (!parsed || !parsed.prompt) return null;
+    return parsed;
+  } catch (err: any) {
+    console.error("[tutor-engine] draw_task parse failed:", err?.message);
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------
 // 7. Post-process pipeline (graphs + examgen + proof engine)
 // ---------------------------------------------------------------
@@ -955,6 +997,17 @@ export async function postProcessReply(opts: {
       type: "quiz",
       url: null,
       caption: JSON.stringify(quizSpec),
+    });
+  }
+
+  // Phase 86.2 — Draw task (user draws on canvas, AI reviews)
+  const drawTaskSpec = parseDrawTask(learnerReply);
+  if (drawTaskSpec) {
+    learnerReply = learnerReply.replace(/```draw_task\s*[\s\S]*?```\s*/i, "").trim();
+    attachments.push({
+      type: "draw_task",
+      url: null,
+      caption: JSON.stringify(drawTaskSpec),
     });
   }
 

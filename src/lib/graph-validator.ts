@@ -462,12 +462,13 @@ export function validateAndCorrectGraphSpec(spec: any): ValidationResult {
     }
 
     case "scene": {
-      if (!Array.isArray(corrected.elements) || corrected.elements.length === 0) {
+      const originalElements = Array.isArray(corrected.elements) ? corrected.elements : [];
+      if (originalElements.length === 0) {
         errors.push("scene spec needs a non-empty 'elements' array");
         return { valid: false, correctedSpec: null, errors, warnings };
       }
-      if (corrected.elements.length > MAX_SCENE_ELEMENTS) {
-        corrected.elements = corrected.elements.slice(0, MAX_SCENE_ELEMENTS);
+      if (originalElements.length > MAX_SCENE_ELEMENTS) {
+        corrected.elements = originalElements.slice(0, MAX_SCENE_ELEMENTS);
         warnings.push(`scene.elements was limited to ${MAX_SCENE_ELEMENTS} items`);
       }
       const supported = new Set(["rect", "circle", "ellipse", "line", "arrow", "text", "polygon"]);
@@ -528,6 +529,14 @@ export function validateAndCorrectGraphSpec(spec: any): ValidationResult {
         }
         return item;
       }).filter((el: any) => el !== null);  // Phase 86 — drop unsupported elements silently
+      // Phase 86.1 — even if all elements were dropped, keep the spec valid
+      // so the SceneSVG component can do generative recovery (synthesize a
+      // basic diagram from the title + labels). We keep the ORIGINAL elements
+      // so the recovery code can extract labels from them.
+      if (corrected.elements.length === 0 && originalElements.length > 0) {
+        corrected.elements = originalElements;  // keep originals for label extraction
+        warnings.push("scene had no valid elements — showing generative fallback");
+      }
       break;
     }
 
