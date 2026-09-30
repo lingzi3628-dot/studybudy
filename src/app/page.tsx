@@ -317,13 +317,16 @@ export default function Page() {
         <TopBar />
         <DesktopTopBar />
         <main>
-          {/* Phase 61 — Home screen routes based on the user's education track.
-              K-12 users see the existing PathDashboard. All other tracks
-              (dev, data, ml, aiapp, tvet, server, backend, web, mixed) see
-              the new TrackHome — a track-specific home with hero, quick actions,
-              embedded AI Tutor, and recent projects. */}
-          {screen === "home" && userTrack === "k12" && <PathDashboard />}
-          {screen === "home" && userTrack !== "k12" && <TrackHome track={userTrack} />}
+          {/* Phase 85 — Home screen routes based on the user's education track.
+              - K-12 (CBC) + Secondary → PathDashboard (curriculum-focused)
+              - University / College / TVET → HigherEdHome with course-specific dashboard
+                (Law student sees ⚖️ Law dashboard, Medicine sees 🩺 Medicine, etc.
+                NO DevBuddy/MLBuddy for non-coding courses)
+              - Dev tracks (dev/data/ml/web/backend/server) → TrackHome (specialized)
+              - Legacy "mixed" → TrackHome (all tools) */}
+          {screen === "home" && (userTrack === "k12" || userTrack === "secondary") && <PathDashboard />}
+          {screen === "home" && (userTrack === "university" || userTrack === "college" || userTrack === "tvet") && <HigherEdHome />}
+          {screen === "home" && userTrack !== "k12" && userTrack !== "secondary" && userTrack !== "university" && userTrack !== "college" && userTrack !== "tvet" && <TrackHome track={userTrack} />}
           {screen === "search" && <Search />}
           {screen === "progress" && <Progress />}
           {screen === "profile" && <Profile />}

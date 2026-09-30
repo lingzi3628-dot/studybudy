@@ -36,13 +36,172 @@ const BUDDY_GRID = [
 ] as const;
 
 const TRACK_LABELS: Record<string, { label: string; emoji: string }> = {
-  k12:   { label: "K-12",         emoji: "📚" },
+  k12:        { label: "K-12",              emoji: "📚" },
+  secondary:  { label: "Secondary",         emoji: "🏫" },
+  university: { label: "University",        emoji: "🎓" },
+  college:    { label: "College",            emoji: "🏛️" },
+  tvet:       { label: "TVET",              emoji: "🔧" },
   dev:   { label: "Coding",        emoji: "💻" },
   data:  { label: "Data Science",  emoji: "📊" },
   ml:    { label: "Machine Learning", emoji: "🧠" },
   aiapp: { label: "AI App Dev",    emoji: "🤖" },
-  tvet:  { label: "Technical / TVET", emoji: "🔧" },
   mixed: { label: "Multiple Interests", emoji: "🎯" },
+};
+
+// ============================================================
+// Phase 85 — Course-specific dashboard configuration
+// For university/college/tvet users, the dashboard is tailored to
+// their specific course. Each course has:
+//   - A relevant emoji + tagline
+//   - Tools that make sense for that course (NOT DevBuddy/MLBuddy
+//     for a Law student!)
+//   - Customized quick actions
+//
+// The "study" buddy is always available (it's the AI Tutor that
+// knows about their course via the CourseKnowledge base).
+// ============================================================
+
+type CourseDashboard = {
+  emoji: string;
+  tagline: string;
+  // Tool buttons to show (filtered subset of the existing quick tools)
+  tools: ("tutor" | "documents" | "calendar" | "explore" | "notes" | "webBuilder" | "codeEditor" | "notebook" | "mlPlayground" | "sqlSandbox")[];
+};
+
+// Helper: return the dashboard config for a course, falling back to a sensible default
+function getCourseDashboard(course: string | null, track: string): CourseDashboard {
+  // Default for any university/college/tvet course
+  const defaultDashboard: CourseDashboard = {
+    emoji: "🎓",
+    tagline: "Your personalized learning workspace",
+    tools: ["tutor", "documents", "calendar", "explore", "notes"],
+  };
+
+  if (!course) return defaultDashboard;
+
+  const c = course.toLowerCase();
+
+  // Law
+  if (c.includes("law") || c.includes("llb")) {
+    return {
+      emoji: "⚖️",
+      tagline: "Legal research, case studies, and statutory analysis",
+      tools: ["tutor", "documents", "calendar", "explore", "notes"],
+    };
+  }
+  // Medicine / Health
+  if (c.includes("medicine") || c.includes("nursing") || c.includes("pharmacy") || c.includes("dental") || c.includes("clinical") || c.includes("public health") || c.includes("biomedical")) {
+    return {
+      emoji: "🩺",
+      tagline: "Clinical knowledge, anatomy, and case-based learning",
+      tools: ["tutor", "documents", "calendar", "explore", "notes"],
+    };
+  }
+  // Business / Commerce / Accounting / Economics
+  if (c.includes("business") || c.includes("commerce") || c.includes("accounting") || c.includes("economics") || c.includes("finance") || c.includes("marketing") || c.includes("hr") || c.includes("human resource") || c.includes("supply chain") || c.includes("actuarial") || c.includes("bba")) {
+    return {
+      emoji: "💼",
+      tagline: "Business cases, financial models, and market analysis",
+      tools: ["tutor", "documents", "calendar", "explore", "notes", "notebook"],
+    };
+  }
+  // Engineering
+  if (c.includes("engineering") || c.includes("civil") || c.includes("mechanical") || c.includes("electrical eng") || c.includes("mechatronic") || c.includes("chemical eng") || c.includes("aerospace") || c.includes("agricultural eng")) {
+    return {
+      emoji: "⚙️",
+      tagline: "Engineering principles, calculations, and design",
+      tools: ["tutor", "documents", "calendar", "explore", "notes", "codeEditor", "notebook"],
+    };
+  }
+  // Computing / CS / IT
+  if (c.includes("computer") || c.includes("software") || c.includes("information tech") || c.includes("data science") || c.includes("cyber") || c.includes("artificial intelligence") || c.includes("network eng")) {
+    return {
+      emoji: "💻",
+      tagline: "Code, build, and deploy software projects",
+      tools: ["tutor", "documents", "calendar", "explore", "codeEditor", "notebook", "webBuilder", "sqlSandbox"],
+    };
+  }
+  // Education
+  if (c.includes("education") || c.includes("b.ed") || c.includes("teaching")) {
+    return {
+      emoji: "👩‍🏫",
+      tagline: "Lesson planning, pedagogy, and teaching practice",
+      tools: ["tutor", "documents", "calendar", "explore", "notes"],
+    };
+  }
+  // Sciences (Math, Physics, Chemistry, Biology, Statistics, Environmental)
+  if (c.includes("science") || c.includes("mathematics") || c.includes("physics") || c.includes("chemistry") || c.includes("biology") || c.includes("statistics") || c.includes("environmental")) {
+    return {
+      emoji: "🔬",
+      tagline: "Scientific principles, lab work, and analysis",
+      tools: ["tutor", "documents", "calendar", "explore", "notes", "notebook"],
+    };
+  }
+  // Agriculture
+  if (c.includes("agricult") || c.includes("agribusiness") || c.includes("horticulture")) {
+    return {
+      emoji: "🌾",
+      tagline: "Crop science, animal husbandry, and agribusiness",
+      tools: ["tutor", "documents", "calendar", "explore", "notes"],
+    };
+  }
+  // Arts / Social Sciences
+  if (c.includes("arts") || c.includes("communication") || c.includes("psychology") || c.includes("sociology") || c.includes("political") || c.includes("social work")) {
+    return {
+      emoji: "🎨",
+      tagline: "Critical thinking, research, and analysis",
+      tools: ["tutor", "documents", "calendar", "explore", "notes"],
+    };
+  }
+  // Hospitality / Tourism
+  if (c.includes("hospitality") || c.includes("tourism") || c.includes("food")) {
+    return {
+      emoji: "🍽️",
+      tagline: "Hospitality operations, service, and management",
+      tools: ["tutor", "documents", "calendar", "explore", "notes"],
+    };
+  }
+  // Architecture / Design
+  if (c.includes("architect") || c.includes("interior design")) {
+    return {
+      emoji: "🏛️",
+      tagline: "Design principles, drafting, and urban planning",
+      tools: ["tutor", "documents", "calendar", "explore", "notes"],
+    };
+  }
+  // Media / Journalism
+  if (c.includes("journalism") || c.includes("media") || c.includes("film") || c.includes("broadcast")) {
+    return {
+      emoji: "📰",
+      tagline: "Reporting, editing, and media production",
+      tools: ["tutor", "documents", "calendar", "explore", "notes"],
+    };
+  }
+
+  // TVET-specific courses
+  if (track === "tvet") {
+    return {
+      emoji: "🔧",
+      tagline: "Hands-on technical training and practical skills",
+      tools: ["tutor", "documents", "calendar", "explore", "notes"],
+    };
+  }
+
+  return defaultDashboard;
+}
+
+// Quick tool definitions — used by both the dev-track grid and the course dashboard
+const QUICK_TOOLS: Record<string, { label: string; sublabel: string; emoji: string; bgColor: string; screen?: string }> = {
+  tutor:      { label: "AI Tutor",         sublabel: "Ask anything about your course", emoji: "🤖", bgColor: "bg-indigo-50 text-indigo-600" },
+  documents:  { label: "Documents",        sublabel: "Notes & uploads",                 emoji: "📄", bgColor: "bg-emerald-50 text-emerald-600" },
+  calendar:   { label: "Calendar",          sublabel: "Schedule & timetable",            emoji: "📅", bgColor: "bg-rose-50 text-rose-600" },
+  explore:    { label: "Explore",           sublabel: "Course projects",                 emoji: "🧭", bgColor: "bg-amber-50 text-amber-600" },
+  notes:      { label: "Notebook",          sublabel: "Take notes",                      emoji: "📝", bgColor: "bg-violet-50 text-violet-600" },
+  webBuilder: { label: "Website Builder",   sublabel: "Prompt → live site",              emoji: "🌐", bgColor: "bg-amber-50 text-amber-600", screen: "webBuilder" },
+  codeEditor: { label: "Code Editor",       sublabel: "Multi-file projects",             emoji: "💻", bgColor: "bg-emerald-50 text-emerald-600", screen: "devBuddy" },
+  notebook:   { label: "Jupyter Notebook",  sublabel: "Data analysis",                   emoji: "📊", bgColor: "bg-sky-50 text-sky-600", screen: "notebook" },
+  mlPlayground:{ label: "ML Playground",    sublabel: "Train models",                    emoji: "🧠", bgColor: "bg-violet-50 text-violet-600", screen: "mlBuddy" },
+  sqlSandbox: { label: "SQL & API Sandbox", sublabel: "Schema → test",                   emoji: "⚙️", bgColor: "bg-rose-50 text-rose-600", screen: "backendBuddy" },
 };
 
 type ProjectSummary = {
@@ -59,6 +218,7 @@ export function HigherEdHome() {
   const { setScreen } = useApp();
   const [progress, setProgress] = useState<ProgressData | null>(null);
   const [userTrack, setUserTrack] = useState<string>("dev");  // default if fetch fails
+  const [userCourse, setUserCourse] = useState<string | null>(null);
   const [userName, setUserName] = useState<string>("");
   const [recentProjects, setRecentProjects] = useState<ProjectSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -78,6 +238,7 @@ export function HigherEdHome() {
         if (meRes.ok) {
           const me = await meRes.json();
           if (me.user?.track) setUserTrack(me.user.track);
+          if (me.user?.course) setUserCourse(me.user.course);
           if (me.user?.name) setUserName(me.user.name.split(" ")[0]);
           else if (me.user?.email) setUserName(me.user.email.split("@")[0]);
         }
@@ -108,6 +269,11 @@ export function HigherEdHome() {
   const xp = progress?.xp ?? 0;
   const level = progress?.level ?? 1;
 
+  // Phase 85 — Course-specific dashboard for university/college/tvet users
+  // For these tracks, show a tailored dashboard (only relevant tools, NOT all 8 buddies)
+  const isHigherEdCourse = userTrack === "university" || userTrack === "college" || userTrack === "tvet";
+  const courseDashboard = isHigherEdCourse ? getCourseDashboard(userCourse, userTrack) : null;
+
   if (loading) {
     return (
       <div className="md:px-8 md:py-6">
@@ -119,6 +285,147 @@ export function HigherEdHome() {
     );
   }
 
+  // === Phase 85 — Course-specific dashboard for university/college/tvet users ===
+  // A Law student sees: ⚖️ Law dashboard with AI Tutor, Documents, Calendar, Explore, Notes
+  // A Medicine student sees: 🩺 Medicine dashboard with the same set
+  // A CS student sees: 💻 Computing dashboard WITH Code Editor, Notebook, etc.
+  // NO DevBuddy/MLBuddy/WebBuddy/etc. for non-coding courses.
+  if (courseDashboard) {
+    return (
+      <div className="md:px-8 md:py-6">
+        <div className="max-w-md mx-auto px-4 pt-4 pb-28 md:max-w-5xl md:px-0 md:pb-8">
+          {/* Greeting + course badge */}
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-500">Welcome back, {userName || "there"}! 👋</p>
+              <h1 className="text-2xl font-bold text-gray-900">{userCourse || trackMeta.label}</h1>
+              <p className="text-xs text-gray-500 mt-0.5">{courseDashboard.tagline}</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-700 flex items-center gap-1">
+                {courseDashboard.emoji} {trackMeta.label}
+              </span>
+              {streak > 0 && (
+                <span className="hidden md:flex items-center gap-1.5 bg-amber-50 text-amber-700 px-3 py-1.5 rounded-full">
+                  <Flame className="w-4 h-4 text-amber-500" />
+                  <span className="text-sm font-bold">{streak}</span>
+                  <span className="text-xs text-amber-600/80">day streak</span>
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Stats row */}
+          <div className="mt-4 grid grid-cols-3 gap-2">
+            <div className="rounded-xl bg-white border border-gray-200 p-3">
+              <p className="text-[10px] font-bold uppercase text-gray-500">Level</p>
+              <p className="text-lg font-bold text-gray-900">Lv. {level}</p>
+            </div>
+            <div className="rounded-xl bg-white border border-gray-200 p-3">
+              <p className="text-[10px] font-bold uppercase text-gray-500">XP</p>
+              <p className="text-lg font-bold text-gray-900">{xp.toLocaleString()}</p>
+            </div>
+            <div className="rounded-xl bg-white border border-gray-200 p-3">
+              <p className="text-[10px] font-bold uppercase text-gray-500">Projects</p>
+              <p className="text-lg font-bold text-gray-900">{recentProjects.length}</p>
+            </div>
+          </div>
+
+          {/* AI Tutor hero card — the primary entry point */}
+          <section className="mt-6">
+            <button
+              onClick={() => openTutorWithBuddy("study")}
+              className="w-full text-left rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 p-5 text-white shadow-md hover:shadow-lg transition"
+            >
+              <div className="flex items-start gap-3">
+                <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center text-2xl">
+                  🤖
+                </div>
+                <div className="flex-1">
+                  <p className="text-base font-bold">Ask your AI Tutor</p>
+                  <p className="text-xs text-white/80 mt-0.5">
+                    About {userCourse || "your course"} — I learn from your uploads
+                  </p>
+                  <p className="text-[10px] text-white/60 mt-2">Open full chat →</p>
+                </div>
+              </div>
+            </button>
+          </section>
+
+          {/* Course-specific tools */}
+          <section className="mt-6">
+            <h2 className="text-sm font-semibold text-gray-900 mb-3">Your tools</h2>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              {courseDashboard.tools.map((toolKey) => {
+                const tool = QUICK_TOOLS[toolKey];
+                if (!tool) return null;
+                return (
+                  <button
+                    key={toolKey}
+                    onClick={() => {
+                      if (toolKey === "tutor") openTutorWithBuddy("study");
+                      else if (tool.screen) setScreen(tool.screen as any);
+                      else if (toolKey === "documents") setScreen("bookshelf" as any);
+                      else if (toolKey === "calendar") setScreen("calendar" as any);
+                      else if (toolKey === "explore") setScreen("explore" as any);
+                      else if (toolKey === "notes") setScreen("bookshelf" as any);
+                    }}
+                    className="flex flex-col items-start gap-1.5 p-3 rounded-2xl bg-white border border-gray-200 hover:border-indigo-300 hover:shadow-sm transition text-left"
+                  >
+                    <span className={`w-9 h-9 rounded-lg ${tool.bgColor} flex items-center justify-center text-lg`}>
+                      {tool.emoji}
+                    </span>
+                    <p className="text-xs font-semibold text-gray-900">{tool.label}</p>
+                    <p className="text-[10px] text-gray-500">{tool.sublabel}</p>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
+          {/* Recent projects */}
+          {recentProjects.length > 0 && (
+            <section className="mt-6">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-semibold text-gray-900">Recent projects</h2>
+                <button onClick={() => setScreen("bookshelf" as any)} className="text-xs text-indigo-600 font-semibold">See all →</button>
+              </div>
+              <div className="space-y-2">
+                {recentProjects.map((p) => (
+                  <div key={p.id} className="rounded-xl bg-white border border-gray-200 p-3 flex items-center gap-3">
+                    <span className="w-9 h-9 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center text-sm font-bold">
+                      {(p.title || "P").charAt(0).toUpperCase()}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-gray-900 truncate">{p.title}</p>
+                      <p className="text-[10px] text-gray-500">{p.fileCount} file{p.fileCount !== 1 ? "s" : ""} · {new Date(p.updatedAt).toLocaleDateString()}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Course knowledge status banner */}
+          <section className="mt-6 rounded-2xl bg-violet-50 border border-violet-200 p-4">
+            <div className="flex items-start gap-3">
+              <span className="w-9 h-9 rounded-full bg-violet-100 flex items-center justify-center text-lg">🎓</span>
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-violet-900">Make your AI Tutor smarter</p>
+                <p className="text-xs text-violet-700 mt-0.5">
+                  Upload your course outline or syllabus (PDF/DOCX) in the AI Tutor chat
+                  (🎓 button). The AI will parse it and give you course-specific answers.
+                  Future students on the same course benefit too!
+                </p>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    );
+  }
+
+  // === Existing dashboard for dev tracks (dev/data/ml/web/backend/server/mixed) ===
   return (
     <div className="md:px-8 md:py-6">
       <div className="max-w-md mx-auto px-4 pt-4 pb-28 md:max-w-5xl md:px-0 md:pb-8">

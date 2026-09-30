@@ -1306,8 +1306,10 @@ export function AITutorChat() {
   const allowedBands = gradeToRecommendationBands(userGrade);
   let suggestedQuestions: typeof allSuggestedQuestions;
 
-  if (userTrack === "university" || userTrack === "college" || userTrack === "tvet") {
+  if (userTrack === "university" || userTrack === "college" || userTrack === "tvet"
+      || (userTrack === "mixed" && userCourse)) {
     // Higher-ed user — show course-specific suggestions + general capabilities
+    // (also handles legacy "mixed" users who have a course set)
     const courseLabel = userCourse || "your course";
     suggestedQuestions = [
       // Course-specific (dynamically generated from user's track+course)
@@ -1568,7 +1570,7 @@ export function AITutorChat() {
                 </div>
                 <h2 className="text-lg font-bold text-gray-900">AI Tutor</h2>
                 <p className="text-sm text-gray-500 mt-1 max-w-md mx-auto">
-                  {userTrack === "university" || userTrack === "college" || userTrack === "tvet" ? (
+                  {userTrack === "university" || userTrack === "college" || userTrack === "tvet" || (userTrack === "mixed" && userCourse) ? (
                     <>Ask anything about <span className="text-indigo-600 font-medium">{userCourse || "your course"}</span> — I can fetch videos, draw graphs, build concept maps, and read your notes. Your chat history is saved automatically.</>
                   ) : userTrack === "dev" || userTrack === "data" || userTrack === "ml" || userTrack === "web" || userTrack === "backend" || userTrack === "server" ? (
                     <>Ask anything about coding — I can run Python/JS, draw charts, build concept maps, and help you debug. Your chat history is saved automatically.</>
@@ -1582,7 +1584,8 @@ export function AITutorChat() {
                 <div className="mt-6 max-w-xl mx-auto">
                   {/* Phase 84 — dynamic context label */}
                   {(() => {
-                    const ctxLabel = userTrack === "university" || userTrack === "college" || userTrack === "tvet"
+                    const isCourseAware = userTrack === "university" || userTrack === "college" || userTrack === "tvet" || (userTrack === "mixed" && userCourse);
+                    const ctxLabel = isCourseAware
                       ? (userCourse ? `${userCourse}` : userTrack)
                       : userGrade
                         ? userGrade
@@ -1970,7 +1973,7 @@ export function AITutorChat() {
                     send();
                   }
                 }}
-                placeholder={userTrack === "university" || userTrack === "college" || userTrack === "tvet"
+                placeholder={userTrack === "university" || userTrack === "college" || userTrack === "tvet" || (userTrack === "mixed" && userCourse)
                   ? `Ask about ${userCourse || "your course"}… (try 'what can you teach?' or 'explain a key concept')`
                   : userTrack === "dev" || userTrack === "data" || userTrack === "ml" || userTrack === "web" || userTrack === "backend" || userTrack === "server"
                     ? "Ask anything about coding… (try 'show me a Python example' or 'debug this error')"
