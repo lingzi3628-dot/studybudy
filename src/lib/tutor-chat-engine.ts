@@ -327,7 +327,42 @@ When the user asks to "test me", "generate an exam", "create a test", "give me q
   "difficulty": "medium"
 }
 \`\`\`
-The frontend will detect this, show a progress bar, generate the exam via the exam engine, publish it to the Exam Hub, and show the user a download link.`;
+The frontend will detect this, show a progress bar, generate the exam via the exam engine, publish it to the Exam Hub, and show the user a download link.
+
+IN-CHAT QUIZ MODE (interactive, no exam hub):
+When the user says "quiz me", "test me here", "ask me a question", "practice questions",
+"give me a quick quiz", or similar SHORT interactive requests (NOT full exam generation),
+include a fenced code block tagged "quiz" with JSON:
+\`\`\`quiz
+{
+  "title": "Quick Quiz: Photosynthesis",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "mcq",
+      "question": "What gas do plants absorb during photosynthesis?",
+      "options": ["Oxygen", "Carbon dioxide", "Nitrogen", "Hydrogen"],
+      "correctIndex": 1,
+      "explanation": "Plants absorb CO₂ from the air through stomata in their leaves."
+    },
+    {
+      "id": "q2",
+      "type": "mcq",
+      "question": "Which part of the plant contains chlorophyll?",
+      "options": ["Roots", "Stem", "Leaves", "Flowers"],
+      "correctIndex": 2,
+      "explanation": "Chlorophyll is in the chloroplasts, mainly in the leaves."
+    }
+  ]
+}
+\`\`\`
+Rules for quiz blocks:
+- Use for short interactive quizzes (2-10 questions) — NOT for full exams (use examgen for those)
+- Each question must have a unique "id"
+- "type" must be "mcq" (multiple choice) — for now, only MCQ is supported
+- Include "explanation" for each question — shown after the user answers
+- The user picks options in-chat, clicks Submit, sees their score + correct answers
+- DO NOT also include an examgen block — pick ONE (quiz for in-chat, examgen for full exam)`;
 
 export async function buildTutorSystemPrompt(opts: {
   user: { grade?: string | null; track?: string | null; course?: string | null; subjects?: string[] | null; learningLanguage?: string | null; currentModel?: string | null };
@@ -812,6 +847,30 @@ export function parseExamGen(reply: string): any | null {
   return null;
 }
 
+// Phase 86 — parse in-chat interactive quiz blocks
+// Format: ```quiz { "title": "...", "questions": [...] } ```
+// Returns the parsed quiz spec or null
+export function parseQuiz(reply: string): any | null {
+  try {
+    const quizMatch = reply.match(/```quiz\s*([\s\S]*?)```/);
+    if (!quizMatch) return null;
+    let cleaned = quizMatch[1].trim();
+    if (cleaned.startsWith("```")) {
+      cleaned = cleaned.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "");
+    }
+    const firstBrace = cleaned.indexOf("{");
+    const lastBrace = cleaned.lastIndexOf("}");
+    if (firstBrace === -1 || lastBrace === -1) return null;
+    const parsed = JSON.parse(cleaned.slice(firstBrace, lastBrace + 1));
+    // Validate basic shape
+    if (!parsed || !Array.isArray(parsed.questions) || parsed.questions.length === 0) return null;
+    return parsed;
+  } catch (quizParseErr: any) {
+    console.error("[tutor-engine] quiz parse failed:", quizParseErr?.message);
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------
 // 7. Post-process pipeline (graphs + examgen + proof engine)
 // ---------------------------------------------------------------
@@ -852,7 +911,7 @@ export async function postProcessReply(opts: {
       }
     } catch {}
   }
-  const learnerReply = reply.replace(/\n?```computer_workspace\s*[\s\S]*?```\s*/i, "").trim();
+  let learnerReply = reply.replace(/\n?```computer_workspace\s*[\s\S]*?```\s*/i, "").trim();
 
   // Graph + concept map attachments
   const attachments = await parseGraphAttachments({
@@ -885,6 +944,19 @@ export async function postProcessReply(opts: {
     };
   }
   if (workspaceOffer) attachments.push({ type: "computer_workspace", url: null, caption: JSON.stringify(workspaceOffer) });
+
+  // Phase 86 — In-chat interactive quiz
+  // Parse the ```quiz block + strip it from the visible reply + return as attachment
+  const quizSpec = parseQuiz(learnerReply);
+  if (quizSpec) {
+    // Strip the quiz block from the visible reply (so user doesn't see raw JSON)
+    learnerReply = learnerReply.replace(/```quiz\s*[\s\S]*?```\s*/i, "").trim();
+    attachments.push({
+      type: "quiz",
+      url: null,
+      caption: JSON.stringify(quizSpec),
+    });
+  }
 
   // Exam generation config
   const examGenRaw = parseExamGen(learnerReply);

@@ -45,6 +45,34 @@ CRITICAL RULES FOR THE mathgraph BLOCK:
 - One graph per turn — don't include multiple mathgraph blocks unless the user explicitly asks for several.
 - Use REAL data from the user's question, not placeholder/template data.
 - If the user's request doesn't map to any graph type, explain in words and skip the block.
+
+SCENE TYPE (for diagrams, concept maps, flowcharts, anatomical drawings, etc.):
+Use "type": "scene" with an "elements" array. Each element MUST have one of these EXACT kinds:
+  - "rect"     — rectangle. Fields: x, y, width, height, optional rx (rounded corners), stroke, fill, label
+  - "circle"   — circle. Fields: cx, cy, r, stroke, fill, label
+  - "ellipse"  — ellipse. Fields: cx, cy, rx, ry, stroke, fill, label
+  - "line"     — line. Fields: x1, y1, x2, y2, stroke, label
+  - "arrow"    — arrow. Fields: x1, y1, x2, y2, stroke, label
+  - "polygon"  — polygon. Fields: points (array of [x, y] pairs), stroke, fill, label
+  - "text"     — text label. Fields: x, y, text, fontSize, anchor
+
+NEVER use kinds like "label", "node", "box", "shape", "rectangle", "dot", "connector" — they will be silently dropped.
+Colors should be hex like "#475569" or named like "blue". Default fill is "#e0e7ff" (light indigo).
+Coordinate space: viewBox is 1000×750. Place elements accordingly.
+
+Example concept map (digestive system):
+\`\`\`mathgraph
+{
+  "type": "scene",
+  "title": "Digestive System",
+  "elements": [
+    { "kind": "rect", "x": 400, "y": 50, "width": 200, "height": 60, "fill": "#fde68a", "label": "Mouth" },
+    { "kind": "arrow", "x1": 500, "y1": 110, "x2": 500, "y2": 180, "stroke": "#475569" },
+    { "kind": "rect", "x": 400, "y": 180, "width": 200, "height": 60, "fill": "#fca5a5", "label": "Stomach" },
+    { "kind": "text", "x": 500, "y": 145, "text": "esophagus", "fontSize": 14 }
+  ]
+}
+\`\`\`
 `;
 
 export const EXAMGEN_INSTRUCTIONS = `

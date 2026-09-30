@@ -471,12 +471,32 @@ export function validateAndCorrectGraphSpec(spec: any): ValidationResult {
         warnings.push(`scene.elements was limited to ${MAX_SCENE_ELEMENTS} items`);
       }
       const supported = new Set(["rect", "circle", "ellipse", "line", "arrow", "text", "polygon"]);
+      // Phase 86 — auto-recover common kind typos so the AI's drawings don't break
+      const KIND_ALIASES: Record<string, string> = {
+        rectangle: "rect", box: "rect", square: "rect",
+        round: "circle", dot: "circle", node: "circle", point: "circle",
+        oval: "ellipse",
+        segment: "line", connector: "line", link: "line", edge: "line",
+        directed: "arrow", arrowhead: "arrow", directededge: "arrow",
+        label: "text", string: "text", caption: "text", title: "text", word: "text",
+        triangle: "polygon", hexagon: "polygon", shape: "polygon",
+      };
       corrected.width = Math.max(100, Math.min(1200, sceneNumber(corrected.width, 800)));
       corrected.height = Math.max(100, Math.min(900, sceneNumber(corrected.height, 600)));
       corrected.elements = corrected.elements.map((element: any, index: number) => {
-        if (!element || typeof element !== "object" || !supported.has(element.kind)) {
-          errors.push(`scene.elements[${index}] has an unsupported kind`);
+        if (!element || typeof element !== "object") {
           return element;
+        }
+        // Auto-fix kind typos / aliases
+        if (typeof element.kind === "string" && !supported.has(element.kind)) {
+          const alias = KIND_ALIASES[element.kind.toLowerCase()];
+          if (alias) {
+            element.kind = alias;
+          }
+        }
+        if (!supported.has(element.kind)) {
+          // Drop unsupported silently — don't show error to user (was confusing)
+          return null;
         }
         const item = { ...element };
         for (const field of ["x", "y", "x1", "y1", "x2", "y2", "cx", "cy", "width", "height", "r", "rx", "ry", "fontSize"]) {
@@ -507,7 +527,7 @@ export function validateAndCorrectGraphSpec(spec: any): ValidationResult {
           errors.push(`scene.elements[${index}] line needs x1, y1, x2, and y2`);
         }
         return item;
-      });
+      }).filter((el: any) => el !== null);  // Phase 86 — drop unsupported elements silently
       break;
     }
 

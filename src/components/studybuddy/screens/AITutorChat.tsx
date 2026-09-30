@@ -2428,7 +2428,157 @@ function AttachmentRenderer({ attachment, onSpecChange, onOpenWorkspace }: { att
     );
   }
 
+  // Phase 86 — In-chat interactive quiz
+  if (attachment.type === "quiz") {
+    let quizSpec: any = null;
+    try { quizSpec = JSON.parse(attachment.caption); } catch { return null; }
+    if (!quizSpec || !Array.isArray(quizSpec.questions)) return null;
+    return <QuizRenderer quiz={quizSpec} />;
+  }
+
   return null;
+}
+
+// =====================================================================
+// QuizRenderer — Phase 86
+// Interactive MCQ quiz that renders inline in the chat.
+// User picks options, clicks Submit, sees score + correct answers + explanations.
+// =====================================================================
+function QuizRenderer({ quiz }: { quiz: any }) {
+  const [answers, setAnswers] = useState<Record<string, number>>({});
+  const [submitted, setSubmitted] = useState(false);
+
+  const questions = quiz.questions || [];
+  const totalQ = questions.length;
+
+  const score = submitted ? questions.reduce((acc: number, q: any) => {
+    return acc + (answers[q.id] === q.correctIndex ? 1 : 0);
+  }, 0) : 0;
+
+  const allAnswered = questions.every((q: any) => answers[q.id] !== undefined);
+
+  const handleSubmit = () => {
+    if (!allAnswered) return;
+    setSubmitted(true);
+  };
+
+  const handleReset = () => {
+    setAnswers({});
+    setSubmitted(false);
+  };
+
+  return (
+    <div className="rounded-2xl border-2 border-indigo-200 bg-indigo-50/50 p-4 mt-2">
+      <div className="flex items-center gap-2 mb-3">
+        <span className="text-2xl">📝</span>
+        <div className="flex-1">
+          <h3 className="text-sm font-bold text-gray-900">{quiz.title || "Quick Quiz"}</h3>
+          <p className="text-xs text-gray-500">{totalQ} question{totalQ !== 1 ? "s" : ""}</p>
+        </div>
+        {submitted && (
+          <div className={`px-3 py-1.5 rounded-full text-xs font-bold ${
+            score === totalQ ? "bg-emerald-500 text-white"
+              : score >= totalQ * 0.5 ? "bg-amber-500 text-white"
+              : "bg-rose-500 text-white"
+          }`}>
+            {score} / {totalQ} ({Math.round((score / totalQ) * 100)}%)
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-4">
+        {questions.map((q: any, idx: number) => {
+          const userAnswer = answers[q.id];
+          const isCorrect = submitted && userAnswer === q.correctIndex;
+          return (
+            <div key={q.id || idx} className="bg-white rounded-xl p-3 border border-gray-200">
+              <p className="text-sm font-semibold text-gray-900 mb-2">
+                <span className="text-indigo-600">Q{idx + 1}.</span> {q.question}
+              </p>
+              <div className="space-y-1.5">
+                {(q.options || []).map((opt: string, optIdx: number) => {
+                  const isPicked = userAnswer === optIdx;
+                  const isCorrectAnswer = submitted && optIdx === q.correctIndex;
+                  const isWrongPick = submitted && isPicked && !isCorrectAnswer;
+                  return (
+                    <button
+                      key={optIdx}
+                      disabled={submitted}
+                      onClick={() => !submitted && setAnswers(prev => ({ ...prev, [q.id]: optIdx }))}
+                      className={`w-full text-left px-3 py-2 rounded-lg text-sm border transition flex items-center gap-2 ${
+                        submitted
+                          ? isCorrectAnswer
+                            ? "bg-emerald-50 border-emerald-400 text-emerald-900 font-semibold"
+                            : isWrongPick
+                              ? "bg-rose-50 border-rose-400 text-rose-900"
+                              : "bg-gray-50 border-gray-200 text-gray-500"
+                          : isPicked
+                            ? "bg-indigo-100 border-indigo-400 text-indigo-900 font-semibold"
+                            : "bg-gray-50 border-gray-200 text-gray-700 hover:border-indigo-300"
+                      }`}
+                    >
+                      <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold ${
+                        submitted
+                          ? isCorrectAnswer
+                            ? "bg-emerald-500 text-white"
+                            : isWrongPick
+                              ? "bg-rose-500 text-white"
+                              : "bg-gray-300 text-gray-600"
+                          : isPicked
+                            ? "bg-indigo-500 text-white"
+                            : "bg-gray-200 text-gray-600"
+                      }`}>
+                        {String.fromCharCode(65 + optIdx)}
+                      </span>
+                      <span className="flex-1">{opt}</span>
+                      {submitted && isCorrectAnswer && <span className="text-emerald-600 text-xs">✓</span>}
+                      {submitted && isWrongPick && <span className="text-rose-600 text-xs">✗</span>}
+                    </button>
+                  );
+                })}
+              </div>
+              {submitted && q.explanation && (
+                <div className="mt-2 p-2 rounded-lg bg-blue-50 border border-blue-200">
+                  <p className="text-xs text-blue-800">
+                    <span className="font-bold">💡 Explanation:</span> {q.explanation}
+                  </p>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {!submitted ? (
+        <button
+          onClick={handleSubmit}
+          disabled={!allAnswered}
+          className="mt-4 w-full h-11 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:bg-gray-300 text-white text-sm font-bold transition"
+        >
+          {allAnswered ? "Submit Quiz" : `Answer all questions (${Object.keys(answers).length}/${totalQ})`}
+        </button>
+      ) : (
+        <div className="mt-4 space-y-2">
+          <div className={`rounded-xl p-3 text-center ${
+            score === totalQ ? "bg-emerald-100 text-emerald-800"
+              : score >= totalQ * 0.5 ? "bg-amber-100 text-amber-800"
+              : "bg-rose-100 text-rose-800"
+          }`}>
+            <p className="text-lg font-bold">
+              {score === totalQ ? "🎉 Perfect!" : score >= totalQ * 0.5 ? "👍 Good job!" : "📚 Keep practicing!"}
+            </p>
+            <p className="text-sm">You scored {score} out of {totalQ} ({Math.round((score / totalQ) * 100)}%)</p>
+          </div>
+          <button
+            onClick={handleReset}
+            className="w-full h-10 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-semibold"
+          >
+            ↻ Try Again
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // =====================================================================
