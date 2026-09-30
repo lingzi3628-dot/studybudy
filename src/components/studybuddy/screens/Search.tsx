@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import {
   Search as SearchIcon,
   X,
@@ -22,9 +21,22 @@ import {
 } from "lucide-react";
 import { useApp } from "../store";
 import { api, type SearchResult } from "../api";
+import { useEffect, useState, useMemo } from "react";
+import { getCourseByName, getTrack } from "@/lib/education/catalog";
+// Phase 85.2 — Dynamic filters + recent searches based on user's track + course
+// OLD: hardcoded ["All", "Math", "English", "Kiswahili", "Chinese", "Science"]
+// NEW: loads user's track + course + grade from /api/auth/me, then builds
+// filter chips from the course's subjects (university/college/tvet) or the
+// track's subjects (K-12/secondary).
 
-const filters = ["All", "Math", "English", "Kiswahili", "Chinese", "Science"];
-const recent = ["photosynthesis", "quadratic equations", "swahili greetings", "world war 2"];
+// Recent search suggestions per track (course-aware for higher-ed)
+const RECENT_BY_TRACK: Record<string, string[]> = {
+  k12: ["photosynthesis", "quadratic equations", "swahili greetings", "world war 2"],
+  secondary: ["periodic table", "Newton's laws", "essay writing", "Kenyan constitution"],
+  university: ["explain a key concept", "practice questions", "case study analysis", "exam preparation tips"],
+  college: ["practical demonstration", "industry best practices", "study guide", "past papers"],
+  tvet: ["safety procedures", "tool identification", "step-by-step tutorial", "practical exam prep"],
+};
 
 type SearchTab = "all" | "images" | "videos";
 
@@ -37,6 +49,58 @@ export function Search() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<SearchTab>("all");
+
+  // Phase 85.2 — user profile (track + course + grade) for dynamic filters
+  const [userTrack, setUserTrack] = useState<string>("k12");
+  const [userCourse, setUserCourse] = useState<string | null>(null);
+  const [userGrade, setUserGrade] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch("/api/auth/me");
+        if (r.ok) {
+          const d = await r.json();
+          if (d.user?.track) setUserTrack(d.user.track);
+          if (d.user?.course) setUserCourse(d.user.course);
+          if (d.user?.grade) setUserGrade(d.user.grade);
+        }
+      } catch {}
+    })();
+  }, []);
+
+  // Build dynamic filter chips based on user's track + course
+  const filters = useMemo(() => {
+    const isHigherEd = userTrack === "university" || userTrack === "college" || userTrack === "tvet" || (userTrack === "mixed" && userCourse);
+    if (isHigherEd && userCourse) {
+      // Use the course's subjects from the catalog
+      const courseData = getCourseByName(userCourse);
+      if (courseData && courseData.subjects.length > 0) {
+        return ["All", ...courseData.subjects.slice(0, 8)];
+      }
+    }
+    // K-12 / secondary: use track's subjects
+    const trackData = getTrack(userTrack);
+    if (trackData && trackData.subjects.length > 0) {
+      return ["All", ...trackData.subjects.slice(0, 8)];
+    }
+    // Fallback
+    return ["All", "Math", "English", "Science"];
+  }, [userTrack, userCourse]);
+
+  // Dynamic recent searches
+  const recent = useMemo(() => {
+    if (userCourse) {
+      // Course-specific suggestions
+      return [
+        `key concepts in ${userCourse}`,
+        "practice questions",
+        "case study analysis",
+        "exam preparation",
+      ];
+    }
+    return RECENT_BY_TRACK[userTrack] || RECENT_BY_TRACK.k12;
+  }, [userTrack, userCourse]);
 
   // Images state
   const [images, setImages] = useState<string[]>([]);
@@ -196,7 +260,7 @@ export function Search() {
               ))}
             </div>
             <p className="mt-6 text-xs text-gray-400">
-              Try: <button onClick={() => { setQuery("photosynthesis"); doSearch("photosynthesis"); }} className="text-indigo-600 underline">photosynthesis</button>
+              Try: <button onClick={() => { const q = recent[0] || "photosynthesis"; setQuery(q); doSearch(q); }} className="text-indigo-600 underline">{recent[0] || "photosynthesis"}</button>
             </p>
           </section>
         )}
