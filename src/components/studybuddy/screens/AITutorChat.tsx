@@ -131,6 +131,9 @@ export function AITutorChat() {
   const [availableBuddies, setAvailableBuddies] = useState<Array<{ modelName: string; displayName: string; emoji: string; canUse: boolean }>>([]);
   const [currentModel, setCurrentModel] = useState<string>("");
   const [userGrade, setUserGrade] = useState<string>("");
+  // Phase 84 — track + course awareness for dynamic suggestions + placeholder
+  const [userTrack, setUserTrack] = useState<string>("k12");
+  const [userCourse, setUserCourse] = useState<string | null>(null);
   // Phase 47 — which buddy is active for this conversation. Read from
   // localStorage on mount so the user's last choice is remembered.
   const [activeBuddyId, setActiveBuddyId] = useState<BuddyId>("study");
@@ -967,6 +970,9 @@ export function AITutorChat() {
           const me = await meRes.json();
           if (me.authed) setCurrentModel(me.user?.currentModel ?? "study_buddy_free");
           if (me.user?.grade) setUserGrade(me.user.grade);
+          // Phase 84 — load track + course for dynamic suggestions + placeholder
+          if (me.user?.track) setUserTrack(me.user.track);
+          if (me.user?.course) setUserCourse(me.user.course);
           // Phase 51 — if the user has a higher-ed track AND no buddy was previously
           // chosen (localStorage is empty), default to the track's preferred buddy.
           // This makes DevBuddy/DataBuddy/MLBuddy/TVETBuddy the default for higher-ed
@@ -1293,9 +1299,40 @@ export function AITutorChat() {
     { icon: "⛰️", text: "Draw a contour map showing a hill with 3 elevation levels", category: "General" },
   ];
 
-  // Only show recommendations that match the user's current grade band.
+  // Phase 84 — Dynamic suggestions based on user's track + course + grade.
+  // For K-12/secondary: use the grade-band filter (existing behavior).
+  // For university/college/tvet: show course-aware suggestions (or generic if no course).
+  // For dev tracks: show dev-focused suggestions.
   const allowedBands = gradeToRecommendationBands(userGrade);
-  const suggestedQuestions = allSuggestedQuestions.filter((q) => allowedBands.includes(q.category));
+  let suggestedQuestions: typeof allSuggestedQuestions;
+
+  if (userTrack === "university" || userTrack === "college" || userTrack === "tvet") {
+    // Higher-ed user — show course-specific suggestions + general capabilities
+    const courseLabel = userCourse || "your course";
+    suggestedQuestions = [
+      // Course-specific (dynamically generated from user's track+course)
+      { icon: "📚", text: `What topics does ${courseLabel} cover?`, category: "Course" },
+      { icon: "🎯", text: `Explain the key concepts I need to master in ${courseLabel}`, category: "Course" },
+      { icon: "📝", text: `Give me practice questions for ${courseLabel}`, category: "Course" },
+      { icon: "🎓", text: `Upload my course outline (🎓 button) so you can give me specific answers`, category: "Course" },
+      // General capabilities (always useful)
+      { icon: "📊", text: "Draw a bar chart comparing 5 categories", category: "General" },
+      { icon: "🧠", text: "Make a concept map of the main ideas in my field", category: "General" },
+      { icon: "📷", text: "Upload a photo of my notes using the 📎 button and ask 'help me understand this'", category: "Vision" },
+      { icon: "💡", text: "Explain a complex topic in my field using a simple analogy", category: "General" },
+    ];
+  } else if (userTrack === "dev" || userTrack === "data" || userTrack === "ml" || userTrack === "web" || userTrack === "backend" || userTrack === "server") {
+    // Dev tracks
+    suggestedQuestions = [
+      { icon: "💻", text: "Show me a Python example I can run", category: "Code" },
+      { icon: "🧪", text: "Help me debug an error in my code", category: "Code" },
+      { icon: "📊", text: "Draw a chart visualizing some sample data", category: "General" },
+      { icon: "🧠", text: "Make a concept map of how a key concept works", category: "General" },
+    ];
+  } else {
+    // K-12 / secondary — use the existing grade-band-filtered suggestions
+    suggestedQuestions = allSuggestedQuestions.filter((q) => allowedBands.includes(q.category));
+  }
 
   // Exam viewer panel — full screen, shows the generated exam HTML
   if (viewingExam) {
@@ -1395,39 +1432,18 @@ export function AITutorChat() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {/* Phase 47 — Buddy switcher (specialized AI persona picker) */}
-            <BuddySwitcher
-              activeBuddyId={activeBuddyId}
-              onBuddyChange={(id) => setActiveBuddyId(id)}
-              compact
-            />
-            {/* Per-conversation model switcher (Feature #7) */}
-            <div className="relative">
-              <button
-                onClick={() => setShowModelPicker(!showModelPicker)}
-                className="h-8 px-2 rounded-full bg-indigo-50 text-indigo-700 text-xs font-semibold flex items-center gap-1 hover:bg-indigo-100"
-                title="Switch Study Buddy model"
-              >
-                {currentBuddy?.emoji ?? "🤖"} <span className="hidden sm:inline">{currentBuddy?.displayName ?? "AI"}</span>
-                <ChevronLeft className="w-3 h-3 rotate-90" />
-              </button>
-              {showModelPicker && (
-                <div className="absolute right-0 top-10 z-50 bg-white rounded-xl shadow-lg border border-gray-200 p-1 min-w-[180px] max-h-72 overflow-y-auto">
-                  {availableBuddies.filter(b => b.canUse).map((buddy) => (
-                    <button
-                      key={buddy.modelName}
-                      onClick={() => switchModel(buddy.modelName)}
-                      className={`w-full px-3 py-2 text-left text-xs rounded-lg flex items-center gap-2 hover:bg-indigo-50 ${
-                        buddy.modelName === currentModel ? "bg-indigo-50 font-bold text-indigo-700" : "text-gray-700"
-                      }`}
-                    >
-                      <span className="text-lg">{buddy.emoji}</span>
-                      <span className="flex-1">{buddy.displayName}</span>
-                      {buddy.modelName === currentModel && <Check className="w-3 h-3 text-indigo-600" />}
-                    </button>
-                  ))}
-                </div>
-              )}
+            {/* Phase 84 — BuddySwitcher REMOVED.
+                The buddy is now auto-selected from the user's education track
+                at registration time (k12 → StudyBuddy, university → StudyBuddy,
+                dev → DevBuddy, etc.). Users don't need to manually pick —
+                the AI knows who they are from their profile. */}
+            {/* Phase 84 — Static buddy badge (no dropdown).
+                The buddy is auto-selected from the user's track at registration.
+                Showing the badge tells the user who they're talking to without
+                letting them switch — the AI knows who they are. */}
+            <div className="h-8 px-3 rounded-full bg-indigo-50 text-indigo-700 text-xs font-semibold flex items-center gap-1.5">
+              <span className="text-sm">{currentBuddy?.emoji ?? "🤖"}</span>
+              <span className="hidden sm:inline">{currentBuddy?.displayName ?? "AI Tutor"}</span>
             </div>
             {/* Model comparison button (Feature #1) — hidden in Data Saver mode (Phase 45) */}
             {!dataSaver && (
@@ -1552,17 +1568,31 @@ export function AITutorChat() {
                 </div>
                 <h2 className="text-lg font-bold text-gray-900">AI Tutor</h2>
                 <p className="text-sm text-gray-500 mt-1 max-w-md mx-auto">
-                  Ask anything — I can <span className="text-indigo-600 font-medium">fetch videos</span>,{" "}
-                  <span className="text-emerald-600 font-medium">draw 16 kinds of graphs</span> (scatter, bar, pie, Venn, slope fields, stem-leaf, 3D solids, knots & more),{" "}
-                  <span className="text-violet-600 font-medium">build concept maps</span>, and{" "}
-                  <span className="text-amber-600 font-medium">render any custom SVG drawing</span>. Your chat history is saved automatically.
+                  {userTrack === "university" || userTrack === "college" || userTrack === "tvet" ? (
+                    <>Ask anything about <span className="text-indigo-600 font-medium">{userCourse || "your course"}</span> — I can fetch videos, draw graphs, build concept maps, and read your notes. Your chat history is saved automatically.</>
+                  ) : userTrack === "dev" || userTrack === "data" || userTrack === "ml" || userTrack === "web" || userTrack === "backend" || userTrack === "server" ? (
+                    <>Ask anything about coding — I can run Python/JS, draw charts, build concept maps, and help you debug. Your chat history is saved automatically.</>
+                  ) : (
+                    <>Ask anything — I can <span className="text-indigo-600 font-medium">fetch videos</span>,{" "}
+                      <span className="text-emerald-600 font-medium">draw 16 kinds of graphs</span> (scatter, bar, pie, Venn, slope fields, stem-leaf, 3D solids, knots & more),{" "}
+                      <span className="text-violet-600 font-medium">build concept maps</span>, and{" "}
+                      <span className="text-amber-600 font-medium">render any custom SVG drawing</span>. Your chat history is saved automatically.</>
+                  )}
                 </p>
                 <div className="mt-6 max-w-xl mx-auto">
-                  {userGrade ? (
-                    <p className="text-[11px] font-medium text-indigo-600 mb-2 text-center">
-                      Showing suggestions for {userGrade}
-                    </p>
-                  ) : null}
+                  {/* Phase 84 — dynamic context label */}
+                  {(() => {
+                    const ctxLabel = userTrack === "university" || userTrack === "college" || userTrack === "tvet"
+                      ? (userCourse ? `${userCourse}` : userTrack)
+                      : userGrade
+                        ? userGrade
+                        : null;
+                    return ctxLabel ? (
+                      <p className="text-[11px] font-medium text-indigo-600 mb-2 text-center">
+                        Showing suggestions for {ctxLabel}
+                      </p>
+                    ) : null;
+                  })()}
                   {suggestedQuestions.length > 0 ? (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       {suggestedQuestions.map((q) => (
@@ -1940,7 +1970,12 @@ export function AITutorChat() {
                     send();
                   }
                 }}
-                placeholder="Ask anything… (try 'plot (0,0) (1,5) (2,10)' or '📷 upload a photo of your homework' or 'draw a 3D cube')"
+                placeholder={userTrack === "university" || userTrack === "college" || userTrack === "tvet"
+                  ? `Ask about ${userCourse || "your course"}… (try 'what can you teach?' or 'explain a key concept')`
+                  : userTrack === "dev" || userTrack === "data" || userTrack === "ml" || userTrack === "web" || userTrack === "backend" || userTrack === "server"
+                    ? "Ask anything about coding… (try 'show me a Python example' or 'debug this error')"
+                    : "Ask anything… (try 'plot (0,0) (1,5) (2,10)' or '📷 upload a photo of your homework' or 'draw a 3D cube')"
+                }
                 className="flex-1 px-4 py-2.5 rounded-full bg-gray-100 text-sm outline-none focus:bg-white focus:ring-2 focus:ring-indigo-200"
                 disabled={busy}
               />

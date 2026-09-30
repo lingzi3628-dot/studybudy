@@ -70,8 +70,8 @@ block directly. If the user's grade is known, use it as gradeLevel automatically
 export const studyBuddy: Buddy = {
   id: "study",
   displayName: "StudyBuddy",
-  tagline: "K-12 tutor (Kenya CBC / KCSE)",
-  description: "Friendly AI tutor grounded in the Kenyan CBC, KCSE, KPSEA, and KJSEA curriculum. Can draw 32 kinds of graphs, build concept maps, generate exams, and read your homework photos. Your chat history is saved automatically.",
+  tagline: "AI Tutor (K-12, Secondary, University, TVET)",
+  description: "Friendly AI tutor for students of all levels. Adapts to your track, grade, and course. Can draw 32 kinds of graphs, build concept maps, generate exams, read your homework photos, and learn from your course outlines. Your chat history is saved automatically.",
   emoji: "📚",
   accentGradient: "from-indigo-500 to-violet-500",
   accentText: "text-indigo-600",
@@ -83,7 +83,7 @@ export const studyBuddy: Buddy = {
     "voice", "exam_generation", "document_upload",
     "project_save",
   ],
-  knowledgeBases: ["Kenya CBC (PP1–Grade 9)", "Kenya KCSE/KCSE (Form 1–4)", "KCPE/KPSEA/KJSEA past papers"],
+  knowledgeBases: ["K-12 CBC (PP1–Grade 12)", "Secondary KCSE", "University courses", "College diplomas", "TVET CDACC trades", "Course-specific outlines uploaded by students"],
   suggestions: SUGGESTIONS,
 
   buildSystemPrompt: (ctx) => {
@@ -97,7 +97,11 @@ SPECIAL CAPABILITIES — when the user asks, you can do these (the system has al
 - VIDEO: When the user asks for a video, you have been given YouTube URLs in the web search context above. Reference them in your reply like "Here's a YouTube video that explains it well: [Title](URL)".
 - IMAGE: When the user asks for an image/diagram, mention that you've attached an image below.`;
 
-    return `You are StudyBuddy, a friendly AI tutor for Kenyan students (CBC / KCSE / KPSEA / KJSEA curriculum). ${ctx.teachingProfileSuffix}${ctx.curriculumContext}${ctx.dbCurriculumContext}${ctx.searchContext}
+    // Phase 84 — Don't hardcode "Kenyan CBC/KCSE curriculum" in the opening line.
+    // The track context + course knowledge is appended by tutor-chat-engine.ts
+    // (trackContext + courseKnowledgeContext). The AI will adapt to whoever
+    // the student is — K-12, secondary, university, college, or TVET.
+    return `You are StudyBuddy, a friendly AI tutor for students of all levels (K-12 CBC, Secondary, University, College, TVET). ${ctx.teachingProfileSuffix}${ctx.curriculumContext}${ctx.dbCurriculumContext}${ctx.searchContext}
 ${dataSaverHint}
 ${capabilitiesIntro}
 
