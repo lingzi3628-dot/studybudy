@@ -114,6 +114,8 @@ model User {
   // Phase 72 — knowledge base sources (RAG)
   knowledgeSources      BotKnowledgeSource[]
   studySessions         StudySession[]
+  // Phase 82 — admin-uploaded Explore projects (track+grade+subject-targeted)
+  exploreProjects       ExploreProject[]
 
   // Relations for search settings are handled in SearchSettings model
 }
@@ -2255,4 +2257,58 @@ model Game {
   @@index([category])
   @@index([isFeatured])
   @@index([isActive])
+}
+
+// ============================================================
+// Explore Project — interactive educational projects organized by
+// education track + grade level + subject.
+//
+// Admin uploads HTML/CSS/JS demo projects (ZIP) targeted at a specific
+// audience (e.g. "Grade 5 Mathematics" or "Form 4 Physics" or
+// "TVET Electrical Installation"). Users see only projects matching
+// their own track + grade + subjects when they open the Explore screen.
+//
+// Files are stored as base64 in the `files` JSON field (same pattern as
+// Game model — Vercel's /public is read-only at runtime, so we serve
+// via /api/explore/serve/[id]/[...path]).
+// ============================================================
+
+model ExploreProject {
+  id           String   @id @default(uuid())
+  title        String
+  description  String?
+  // Audience targeting:
+  //   - track: k12 | secondary | university | college | tvet | dev
+  //   - gradeLevel: e.g. "Grade 5", "Form 4", "Year 1", "CDACC Level 5" (null = all levels of track)
+  //   - subject: e.g. "Mathematics", "Physics", "Electrical Installation"
+  //   - category: demo | tutorial | interactive | game | quiz | reference | project
+  track        String   @default("k12")
+  gradeLevel   String?  // null = visible to all grades in this track
+  subject      String
+  category     String   @default("interactive")
+  tags         String[] @default([])
+  // Project content:
+  files        Json?    // { "index.html": "<base64>", "main.js": "<base64>", ... } | null
+  entryFile    String   @db.Text  // relative path inside ZIP, e.g. "index.html"
+  projectUrl   String   @db.Text  // /api/explore/serve/<id>/<entryFile>
+  thumbnailUrl String?
+  fileSize     Int      @default(0)
+  // Engagement:
+  viewCount    Int      @default(0)
+  forkCount    Int      @default(0)
+  starCount    Int      @default(0)
+  // Visibility:
+  isPublished  Boolean  @default(true)
+  isFeatured   Boolean  @default(false)
+  // Authoring:
+  authorId     String?
+  author       User?    @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([track, gradeLevel])
+  @@index([track, subject])
+  @@index([track, gradeLevel, subject])
+  @@index([isPublished])
+  @@index([isFeatured])
 }
