@@ -14,10 +14,11 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const user = await getCurrentUser();
   const body = await req.json().catch(() => ({}));
-  const { name, grade, track, subjects, ambitions, learningLanguage } = body as {
+  const { name, grade, track, course, subjects, ambitions, learningLanguage } = body as {
     name?: string;
     grade?: string;
     track?: string;
+    course?: string;
     subjects?: string[];
     ambitions?: string[];
     learningLanguage?: string;
@@ -27,6 +28,7 @@ export async function POST(req: NextRequest) {
   if (typeof name === "string") data.name = name;
   if (typeof grade === "string") data.grade = grade;
   if (typeof track === "string") data.track = track;  // Phase 51
+  if (typeof course === "string") data.course = course;  // Phase 85.3
   if (Array.isArray(subjects)) data.subjects = subjects;
   if (Array.isArray(ambitions)) data.ambitions = ambitions;
   if (typeof learningLanguage === "string") data.learningLanguage = learningLanguage;

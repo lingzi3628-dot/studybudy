@@ -86,6 +86,13 @@ export default function Page() {
     }
     return "k12";
   });
+  // Phase 85.3 — also load the user's course from localStorage for routing
+  const [userCourse, setUserCourse] = useState<string | null>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("studybuddy_user_course");
+    }
+    return null;
+  });
 
   // Phase 61 — fetch the user's track from /api/auth/me on mount to verify
   // the localStorage value matches the server (in case they switched tracks
@@ -101,6 +108,10 @@ export default function Page() {
           try { localStorage.setItem("studybuddy_user_track", serverTrack); } catch { /* ignore */ }
           // Only update state if it changed (avoids unnecessary re-renders)
           setUserTrack((prev) => (prev !== serverTrack ? serverTrack : prev));
+        }
+        if (d?.user?.course) {
+          try { localStorage.setItem("studybuddy_user_course", d.user.course); } catch { /* ignore */ }
+          setUserCourse(d.user.course);
         }
       })
       .catch(() => {});
@@ -317,16 +328,14 @@ export default function Page() {
         <TopBar />
         <DesktopTopBar />
         <main>
-          {/* Phase 85 — Home screen routes based on the user's education track.
-              - K-12 (CBC) + Secondary → PathDashboard (curriculum-focused)
-              - University / College / TVET → HigherEdHome with course-specific dashboard
-                (Law student sees ⚖️ Law dashboard, Medicine sees 🩺 Medicine, etc.
-                NO DevBuddy/MLBuddy for non-coding courses)
-              - Dev tracks (dev/data/ml/web/backend/server) → TrackHome (specialized)
-              - Legacy "mixed" → TrackHome (all tools) */}
+          {/* Phase 85.3 — Home screen routes based on the user's education track + course.
+              - K-12 + Secondary → PathDashboard (curriculum-focused)
+              - University / College / TVET → HigherEdHome (course-aware dashboard)
+              - Legacy "mixed" with a course set → HigherEdHome (treat as university)
+              - Dev tracks (dev/data/ml/web/backend/server) + legacy "mixed" without course → TrackHome */}
           {screen === "home" && (userTrack === "k12" || userTrack === "secondary") && <PathDashboard />}
-          {screen === "home" && (userTrack === "university" || userTrack === "college" || userTrack === "tvet") && <HigherEdHome />}
-          {screen === "home" && userTrack !== "k12" && userTrack !== "secondary" && userTrack !== "university" && userTrack !== "college" && userTrack !== "tvet" && <TrackHome track={userTrack} />}
+          {screen === "home" && (userTrack === "university" || userTrack === "college" || userTrack === "tvet" || (userTrack === "mixed" && userCourse)) && <HigherEdHome />}
+          {screen === "home" && userTrack !== "k12" && userTrack !== "secondary" && userTrack !== "university" && userTrack !== "college" && userTrack !== "tvet" && !(userTrack === "mixed" && userCourse) && <TrackHome track={userTrack} />}
           {screen === "search" && <Search />}
           {screen === "progress" && <Progress />}
           {screen === "profile" && <Profile />}

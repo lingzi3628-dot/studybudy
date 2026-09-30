@@ -193,6 +193,7 @@ export function Onboarding() {
             role: role ?? undefined,
             grade: finalGrade,
             track: finalTrack,
+            course: selectedCourse || undefined, // Phase 85.3 — save the course name
             subjects: finalSubjects,
             ambitions: goal ? [goal] : [],
             preferred_language: language,
@@ -208,14 +209,16 @@ export function Onboarding() {
         }
         if (!r.ok) {
           await api.updateUser({
-            grade: finalGrade, track: finalTrack, subjects: finalSubjects,
+            grade: finalGrade, track: finalTrack, course: selectedCourse || undefined,
+            subjects: finalSubjects,
             ambitions: goal ? [goal] : [], learningLanguage: language,
             name: role ? `${role} user` : undefined,
           });
         }
       } catch {
         await api.updateUser({
-          grade: finalGrade, track: finalTrack, subjects: finalSubjects,
+          grade: finalGrade, track: finalTrack, course: selectedCourse || undefined,
+          subjects: finalSubjects,
           ambitions: goal ? [goal] : [], learningLanguage: language,
           name: role ? `${role} user` : undefined,
         });
