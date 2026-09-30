@@ -41,8 +41,8 @@ export async function POST(req: NextRequest) {
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "file is required" }, { status: 400 });
   }
-  if (file.size > 10 * 1024 * 1024) {
-    return NextResponse.json({ error: "File too large (max 10MB)" }, { status: 413 });
+  if (file.size > 4 * 1024 * 1024) {
+    return NextResponse.json({ error: "File too large (max 4MB)" }, { status: 413 });
   }
 
   const title = (form.get("title") as string | null)?.toString().trim() || file.name.replace(/\.[^/.]+$/, "");

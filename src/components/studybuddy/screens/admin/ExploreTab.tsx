@@ -81,6 +81,9 @@ export function ExploreTab() {
   const [tags, setTags] = useState("");
   const [isFeatured, setIsFeatured] = useState(false);
   const [entryFile, setEntryFile] = useState("");
+  const [thumbnail, setThumbnail] = useState<File | null>(null);
+  const [thumbnailPreview, setThumbnailPreview] = useState<string | null>(null);
+  const thumbnailInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [dragOver, setDragOver] = useState(false);
@@ -142,7 +145,7 @@ export function ExploreTab() {
       return;
     }
     if (f.size > 50 * 1024 * 1024) {
-      setError("File too large (max 50 MB)");
+      setError("File too large (max 4MB)");
       return;
     }
     setError(null);
@@ -175,6 +178,8 @@ export function ExploreTab() {
       if (tags.trim()) fd.append("tags", tags.trim());
       fd.append("isFeatured", String(isFeatured));
       if (entryFile.trim()) fd.append("entryFile", entryFile.trim());
+      // Phase 88 — attach custom thumbnail/wallpaper image
+      if (thumbnail) fd.append("thumbnail", thumbnail);
 
       const xhr = new XMLHttpRequest();
       xhr.open("POST", "/api/admin/explore/upload");
@@ -200,6 +205,9 @@ export function ExploreTab() {
       setTags("");
       setIsFeatured(false);
       setEntryFile("");
+      setThumbnail(null);
+      setThumbnailPreview(null);
+      if (thumbnailInputRef.current) thumbnailInputRef.current.value = "";
       setUploadProgress(0);
       if (fileInputRef.current) fileInputRef.current.value = "";
       await loadProjects();
@@ -303,7 +311,7 @@ export function ExploreTab() {
             <div className="flex flex-col items-center gap-2">
               <UploadCloud className="w-10 h-10 text-gray-300" />
               <p className="text-sm font-semibold text-gray-700">Drop your project ZIP here</p>
-              <p className="text-xs text-gray-500">or click to browse — max 50 MB</p>
+              <p className="text-xs text-gray-500">or click to browse — max 4MB</p>
             </div>
           )}
         </div>
@@ -389,6 +397,52 @@ export function ExploreTab() {
             <input type="checkbox" checked={isFeatured} onChange={(e) => setIsFeatured(e.target.checked)} className="w-4 h-4 rounded accent-indigo-600" />
             <span className="text-sm text-gray-700">Show as Featured project in the hub</span>
           </label>
+
+          {/* Phase 88 — Custom thumbnail/wallpaper image upload */}
+          <div className="sm:col-span-2">
+            <label className="text-xs font-semibold text-gray-700 mb-1 block">
+              Project wallpaper / thumbnail (optional)
+            </label>
+            <div className="flex items-center gap-3">
+              <input
+                ref={thumbnailInputRef}
+                type="file"
+                accept="image/*"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (!f) return;
+                  if (f.size > 4 * 1024 * 1024) { setError("Thumbnail too large (max 4MB)"); return; }
+                  setThumbnail(f);
+                  const reader = new FileReader();
+                  reader.onload = () => setThumbnailPreview(reader.result as string);
+                  reader.readAsDataURL(f);
+                }}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => thumbnailInputRef.current?.click()}
+                className="px-3 h-10 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-semibold"
+              >
+                {thumbnail ? "📷 Change photo" : "📷 Upload photo"}
+              </button>
+              {thumbnailPreview && (
+                <div className="relative">
+                  <img src={thumbnailPreview} alt="Thumbnail preview" className="w-16 h-16 rounded-lg object-cover border border-gray-200" />
+                  <button
+                    type="button"
+                    onClick={() => { setThumbnail(null); setThumbnailPreview(null); if (thumbnailInputRef.current) thumbnailInputRef.current.value = ""; }}
+                    className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-rose-500 text-white text-xs flex items-center justify-center"
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
+              {!thumbnailPreview && (
+                <p className="text-xs text-gray-400">If not provided, auto-detects thumbnail.png/cover.jpg from the ZIP</p>
+              )}
+            </div>
+          </div>
         </div>
 
         <button onClick={onUpload} disabled={!file || uploading || !title.trim()}

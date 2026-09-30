@@ -39,8 +39,8 @@ export async function POST(req: NextRequest) {
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "file is required" }, { status: 400 });
   }
-  if (file.size > 50 * 1024 * 1024) {
-    return NextResponse.json({ error: "File too large (max 50MB)" }, { status: 413 });
+  if (file.size > 4 * 1024 * 1024) {
+    return NextResponse.json({ error: "File too large (max 4MB)" }, { status: 413 });
   }
   if (!file.name.toLowerCase().endsWith(".zip")) {
     return NextResponse.json({ error: "Only .zip files are accepted" }, { status: 400 });
@@ -59,6 +59,13 @@ export async function POST(req: NextRequest) {
   const tags = tagsRaw ? tagsRaw.split(",").map(s => s.trim()).filter(Boolean) : [];
   const isFeatured = ((form.get("isFeatured") as string | null)?.toString() || "").toLowerCase() === "true";
   const customEntry = (form.get("entryFile") as string | null)?.toString().trim() || null;
+  // Phase 88 — optional separate thumbnail/wallpaper image upload
+  const thumbnailFile = form.get("thumbnail");
+  let customThumbnailBase64: string | null = null;
+  if (thumbnailFile instanceof File && thumbnailFile.size > 0 && thumbnailFile.size < 4 * 1024 * 1024) {
+    const thumbBuffer = Buffer.from(await thumbnailFile.arrayBuffer());
+    customThumbnailBase64 = `data:${thumbnailFile.type || "image/jpeg"};base64,${thumbBuffer.toString("base64")}`;
+  }
 
   // Parse ZIP
   let zip: JSZip;
@@ -118,7 +125,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Read all files as base64
-  const MAX_TOTAL = 30 * 1024 * 1024;
+  const MAX_TOTAL = 3 * 1024 * 1024;
   let totalSize = 0;
   const filesMap: Record<string, string> = {};
   let thumbnailPath: string | null = null;
@@ -139,6 +146,10 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Phase 88 — custom thumbnail takes priority over auto-detected thumbnail
+  const finalThumbnailUrl = customThumbnailBase64
+    || (thumbnailPath ? `/api/explore/serve/PLACEHOLDER/${thumbnailPath}` : null);
+
   // Two-step create: insert with placeholder URL, then update with real ID
   const project = await db.exploreProject.create({
     data: {
@@ -146,7 +157,7 @@ export async function POST(req: NextRequest) {
       files: filesMap,
       entryFile,
       projectUrl: "/api/explore/serve/PLACEHOLDER/" + entryFile,
-      thumbnailUrl: thumbnailPath ? "/api/explore/serve/PLACEHOLDER/" + thumbnailPath : null,
+      thumbnailUrl: finalThumbnailUrl,
       fileSize: totalSize,
       isFeatured,
       isPublished: true,
@@ -158,7 +169,8 @@ export async function POST(req: NextRequest) {
     where: { id: project.id },
     data: {
       projectUrl: `/api/explore/serve/${project.id}/${entryFile}`,
-      thumbnailUrl: thumbnailPath ? `/api/explore/serve/${project.id}/${thumbnailPath}` : null,
+      thumbnailUrl: customThumbnailBase64
+        || (thumbnailPath ? `/api/explore/serve/${project.id}/${thumbnailPath}` : null),
     },
   });
 

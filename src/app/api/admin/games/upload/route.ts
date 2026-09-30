@@ -44,8 +44,8 @@ export async function POST(req: NextRequest) {
   }
 
   // Size check (50 MB)
-  if (file.size > 50 * 1024 * 1024) {
-    return NextResponse.json({ error: "File too large (max 50MB)" }, { status: 413 });
+  if (file.size > 4 * 1024 * 1024) {
+    return NextResponse.json({ error: "File too large (max 4MB)" }, { status: 413 });
   }
 
   const originalName = file.name;
@@ -144,7 +144,7 @@ export async function POST(req: NextRequest) {
 
   // Read all files into memory as base64
   // Total size cap to avoid DB bloat: 30 MB across all files
-  const MAX_TOTAL = 30 * 1024 * 1024;
+  const MAX_TOTAL = 3 * 1024 * 1024;
   let totalSize = 0;
   const filesMap: Record<string, string> = {};  // path → base64 (no data: prefix)
   let thumbnailPath: string | null = null;

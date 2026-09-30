@@ -10,6 +10,14 @@ const nextConfig: NextConfig = {
     ignoreBuildErrors: true,
   },
   reactStrictMode: false,
+  // Phase 88 — increase body size limit for file uploads (game zips, explore
+  // projects, course outlines, AI tutor images). Vercel's default is 4.5MB
+  // which causes 413 errors on larger files.
+  experimental: {
+    serverActions: {
+      bodySizeLimit: "50mb",
+    },
+  },
   // Phase 25 — extend API route timeout to 60s for AI calls
   // (default is 10s on Vercel Hobby plan which causes 504s)
   async headers() {

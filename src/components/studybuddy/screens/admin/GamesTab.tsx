@@ -102,7 +102,7 @@ export function GamesTab() {
       return;
     }
     if (f.size > 50 * 1024 * 1024) {
-      setError("File too large (max 50 MB)");
+      setError("File too large (max 4MB)");
       return;
     }
     setError(null);
@@ -273,7 +273,7 @@ export function GamesTab() {
             <div className="flex flex-col items-center gap-2">
               <UploadCloud className="w-10 h-10 text-gray-300" />
               <p className="text-sm font-semibold text-gray-700">Drop your game ZIP here</p>
-              <p className="text-xs text-gray-500">or click to browse — max 50 MB</p>
+              <p className="text-xs text-gray-500">or click to browse — max 4MB</p>
             </div>
           )}
         </div>
