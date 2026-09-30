@@ -141,6 +141,12 @@ interface AppState {
   onboarded: boolean;
   completeOnboarding: () => void;
 
+  // Phase 87 — post-onboarding popup + auto-greeting
+  showPostOnboardingPopup: boolean;
+  setShowPostOnboardingPopup: (show: boolean) => void;
+  pendingAutoGreeting: string | null;
+  setPendingAutoGreeting: (msg: string | null) => void;
+
   // profile settings
   darkMode: boolean;
   notifications: boolean;
@@ -229,8 +235,20 @@ export const useApp = create<AppState>((set) => ({
   onboarded: false,
   completeOnboarding: () => {
     if (typeof window !== "undefined") localStorage.setItem(LS_KEY, "1");
-    set({ onboarded: true, screen: "home" });
+    // Phase 87 — after onboarding, show the "Create study set" popup
+    // instead of going straight to home. The popup will redirect to the
+    // AI Tutor with an auto-greeting after the study set is created.
+    set({ onboarded: true, screen: "home", showPostOnboardingPopup: true });
   },
+
+  // Phase 87 — post-onboarding popup state
+  showPostOnboardingPopup: false,
+  setShowPostOnboardingPopup: (show: boolean) => set({ showPostOnboardingPopup: show }),
+
+  // Phase 87 — auto-greeting message for the AI Tutor
+  // When set, the AI Tutor will auto-send this message on first load
+  pendingAutoGreeting: null as string | null,
+  setPendingAutoGreeting: (msg: string | null) => set({ pendingAutoGreeting: msg }),
 
   darkMode: false,
   notifications: true,

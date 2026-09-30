@@ -5,6 +5,7 @@ import { useApp } from "@/components/studybuddy/store";
 import { TopBar, DesktopTopBar } from "@/components/studybuddy/TopBar";
 import { BottomNav, Sidebar } from "@/components/studybuddy/BottomNav";
 import { CreateModal } from "@/components/studybuddy/screens/CreateModal";
+import { PostOnboardingPopup } from "@/components/studybuddy/screens/PostOnboardingPopup";
 import { Onboarding } from "@/components/studybuddy/screens/Onboarding";
 import { Search } from "@/components/studybuddy/screens/Search";
 import { Progress } from "@/components/studybuddy/screens/Progress";
@@ -315,6 +316,7 @@ export default function Page() {
         {screen === "dataLab" && <DataLabScreen />}
         {screen === "gameHub" && <GameHub />}
         <CreateModal />
+        <PostOnboardingPopup />
       </div>
     );
   }
@@ -345,6 +347,7 @@ export default function Page() {
       </div>
       <BottomNav />
       <CreateModal />
+      <PostOnboardingPopup />
     </div>
   );
 }

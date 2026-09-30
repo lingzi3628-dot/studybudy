@@ -106,7 +106,18 @@ type ConceptMapSpec = {
  * - Copy / retry buttons on AI messages
  */
 export function AITutorChat() {
-  const { setScreen, dataSaver, activeTopicId, openCreate } = useApp();
+  const { setScreen, dataSaver, activeTopicId, openCreate, pendingAutoGreeting, setPendingAutoGreeting } = useApp();
+
+  // Phase 87 — Auto-send the greeting message when the AI Tutor loads
+  // after onboarding (pendingAutoGreeting is set by PostOnboardingPopup)
+  useEffect(() => {
+    if (pendingAutoGreeting && !busy && messages.length === 0) {
+      const greeting = pendingAutoGreeting;
+      setPendingAutoGreeting(null);  // clear so it only fires once
+      // Small delay to let the component fully mount
+      setTimeout(() => send(greeting), 500);
+    }
+  }, [pendingAutoGreeting]); // eslint-disable-line react-hooks/exhaustive-deps
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversation, setActiveConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<ChatMsg[]>([]);
@@ -656,6 +667,17 @@ export function AITutorChat() {
     } finally {
       setBusy(false);
       setActivityStatus("Waiting for your tutor…");
+      // Phase 87 — Auto-track this study interaction (progressive tracking)
+      // Records study time + activity type + awards XP
+      const activity = q.toLowerCase().includes("quiz") ? "quiz"
+        : q.toLowerCase().includes("exam") ? "exam"
+        : q.toLowerCase().includes("draw") ? "drawing"
+        : "chat";
+      fetch("/api/tutor/track", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ durationSec: 30, activity, topic: q.slice(0, 100) }),
+      }).catch(() => {});
     }
   };
 
@@ -1576,6 +1598,8 @@ export function AITutorChat() {
 
         {/* Chat area */}
         <div className="flex-1 flex flex-col max-w-3xl mx-auto w-full">
+          {/* Phase 87 — Flowing topic cards (Explore projects as "ads") */}
+          <TopicCardsBar />
           {/* Messages */}
           <div
             ref={scrollRef}
@@ -3225,6 +3249,64 @@ function ProofBadges({ proof }: { proof: any }) {
       <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">
         Readability: {proof.readabilityScore}%
       </span>
+    </div>
+  );
+}
+
+// =====================================================================
+// TopicCardsBar — Phase 87
+// Horizontal scrolling strip of related Explore projects + topics,
+// shown at the top of the AI Tutor chat. Like "ads" for relevant content.
+// Clicking a card opens the project in a new tab or sends a question
+// to the AI about that topic.
+// =====================================================================
+function TopicCardsBar() {
+  const [projects, setProjects] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch("/api/explore");
+        if (r.ok) {
+          const d = await r.json();
+          setProjects((d.projects || []).slice(0, 8));
+        }
+      } catch {}
+      setLoading(false);
+    })();
+  }, []);
+
+  if (loading || projects.length === 0) return null;
+
+  return (
+    <div className="flex-shrink-0 border-b border-gray-200 bg-white px-4 py-2">
+      <div className="flex gap-2 overflow-x-auto no-scrollbar">
+        {projects.map((p) => (
+          <a
+            key={p.id}
+            href={p.projectUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex-shrink-0 w-40 rounded-xl border border-gray-200 bg-gradient-to-br from-indigo-50 to-violet-50 p-2.5 hover:border-indigo-300 hover:shadow-sm transition group"
+          >
+            <div className="flex items-center gap-1.5 mb-1">
+              <span className="text-base">
+                {p.isFeatured ? "⭐" : "🧭"}
+              </span>
+              <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-wide truncate">
+                {p.category || "Project"}
+              </p>
+            </div>
+            <p className="text-xs font-semibold text-gray-900 line-clamp-2 group-hover:text-indigo-700 transition">
+              {p.title}
+            </p>
+            <p className="text-[9px] text-gray-400 mt-1 truncate">
+              {p.subject} · {p.viewCount} views
+            </p>
+          </a>
+        ))}
+      </div>
     </div>
   );
 }
