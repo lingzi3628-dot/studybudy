@@ -17,7 +17,7 @@
  *   - Break timer logic (25 min study → 5 min break)
  */
 
-export type GradeLevel = "early_childhood" | "lower_primary" | "upper_primary" | "lower_secondary" | "upper_secondary";
+export type GradeLevel = "early_childhood" | "lower_primary" | "upper_primary" | "lower_secondary" | "upper_secondary" | "higher_education";
 
 export type TeachingProfile = {
   level: GradeLevel;
@@ -45,13 +45,16 @@ export function classifyGrade(gradeName: string): GradeLevel {
   if (/grade 4|grade 5|grade 6/.test(g)) {
     return "lower_primary";
   }
-  if (/grade 7|grade 8/.test(g)) {
+  if (/grade 7|grade 8|grade 9/.test(g)) {
     return "upper_primary";
   }
   if (/form 1|form 2/.test(g)) {
     return "lower_secondary";
   }
-  return "upper_secondary"; // Form 3-4, university, etc.
+  if (/higher education|university|college|tvet|adult/.test(g)) {
+    return "higher_education";
+  }
+  return "upper_secondary"; // Form 3-4 fallback
 }
 
 /**
@@ -181,6 +184,31 @@ TEACHING AN UPPER SECONDARY STUDENT (Form 3-4):
 - Provide detailed, comprehensive explanations.
 - Include past-paper style questions.
 - Be direct and exam-focused.`,
+        parentPrompts: [],
+      };
+
+    case "higher_education":
+      return {
+        level,
+        levelLabel: "Higher Education (University / College / TVET)",
+        maxSentenceLength: 30,
+        vocabularyLevel: "expert",
+        useAnalogies: true,
+        useParentAssist: false,
+        studySessionMin: 50,
+        breakMin: 10,
+        popUpQuizInterval: 30,
+        explanationDepth: "expert",
+        systemPromptSuffix: `
+TEACHING A HIGHER EDUCATION STUDENT (University / College / TVET):
+- Use professional, academic language appropriate for adult learners.
+- Do NOT simplify or use child-friendly language.
+- Focus on course-specific topics, not K-12 curriculum.
+- Provide university-level depth: include case studies, research, theory.
+- Encourage critical thinking and analysis.
+- Reference real-world applications in their field of study.
+- Do NOT mention KCSE, Form 1-4, or primary school — these are irrelevant.
+- If they ask "what can you teach", list topics from THEIR course/subject area.`,
         parentPrompts: [],
       };
   }

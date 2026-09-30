@@ -3344,66 +3344,26 @@ function TopicCardsBar() {
 }
 
 // =====================================================================
-// YouTubeVideoBar — Phase 88
-// Shows a relevant YouTube video for the user's course/grade at the top
-// of the chat. One video per day (cached in localStorage). Clicking
-// opens the video in an embedded player below the bar.
+// YouTubeVideoBar — Phase 88.2 (Netflix-style, dynamic, NOT hardcoded)
+// Fetches REAL YouTube videos via web search based on the user's course.
+// Shows multiple video cards in a horizontal scroll — like Netflix.
+// NO caching (fresh results each time). NO hardcoded video IDs.
+// Clicking a card opens an embedded YouTube player inline.
 // =====================================================================
 function YouTubeVideoBar() {
-  const [video, setVideo] = useState<{ id: string; title: string; channel: string } | null>(null);
-  const [playing, setPlaying] = useState(false);
+  const [videos, setVideos] = useState<Array<{ id: string; title: string; snippet: string; thumbnail: string }>>([]);
+  const [playing, setPlaying] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     (async () => {
       try {
-        // Check localStorage for today's cached video
-        const today = new Date().toISOString().slice(0, 10);
-        const cacheKey = `studybuddy_yt_${today}`;
-        const cached = localStorage.getItem(cacheKey);
-        if (cached) {
-          const parsed = JSON.parse(cached);
-          if (parsed?.id) { setVideo(parsed); setLoading(false); return; }
-        }
-
-        // Fetch user's track + course for a relevant search query
-        const meRes = await fetch("/api/auth/me");
-        let searchQuery = "educational video";
-        if (meRes.ok) {
-          const me = await meRes.json();
-          if (me.user?.course) searchQuery = `${me.user.course} tutorial`;
-          else if (me.user?.grade) searchQuery = `${me.user.grade} lesson`;
-          else if (me.user?.track) searchQuery = `${me.user.track} education`;
-        }
-
-        // Use the AI tutor's web search to find a YouTube video
-        const r = await fetch("/api/tutor/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            message: `Find me one good YouTube video about "${searchQuery}". Return ONLY the video URL, title, and channel name in JSON format: {"url":"...","title":"...","channel":"..."}`,
-            _videoSearch: true,
-          }),
-        });
-
+        // Fetch real video suggestions from the API (uses web search)
+        const r = await fetch("/api/tutor/video-suggestions");
         if (r.ok) {
           const d = await r.json();
-          const reply = d.reply || "";
-          // Extract YouTube URL from the reply
-          const ytMatch = reply.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
-          if (ytMatch) {
-            const videoId = ytMatch[1];
-            // Try to extract title
-            const titleMatch = reply.match(/"title"\s*:\s*"([^"]+)"/i);
-            const channelMatch = reply.match(/"channel"\s*:\s*"([^"]+)"/i);
-            const v = {
-              id: videoId,
-              title: titleMatch?.[1] || searchQuery,
-              channel: channelMatch?.[1] || "YouTube",
-            };
-            setVideo(v);
-            // Cache for today
-            localStorage.setItem(cacheKey, JSON.stringify(v));
+          if (d.videos && d.videos.length > 0) {
+            setVideos(d.videos.slice(0, 5));
           }
         }
       } catch {}
@@ -3411,32 +3371,50 @@ function YouTubeVideoBar() {
     })();
   }, []);
 
-  if (loading || !video) return null;
+  if (loading || videos.length === 0) return null;
 
   return (
     <div className="flex-shrink-0 border-b border-gray-200 bg-white px-4 py-2">
-      <div className="flex items-center gap-2">
-        <span className="text-lg flex-shrink-0">📺</span>
-        <div className="flex-1 min-w-0">
-          <p className="text-[10px] font-bold uppercase text-rose-600 tracking-wide">Video of the day</p>
-          <p className="text-xs font-semibold text-gray-900 truncate">{video.title}</p>
-          <p className="text-[10px] text-gray-400">{video.channel}</p>
-        </div>
-        <button
-          onClick={() => setPlaying(!playing)}
-          className="flex-shrink-0 px-3 h-8 rounded-full bg-rose-100 hover:bg-rose-200 text-rose-700 text-xs font-bold transition"
-        >
-          {playing ? "Hide" : "▶ Play"}
-        </button>
+      <div className="flex items-center gap-1.5 mb-2">
+        <span className="text-sm">📺</span>
+        <p className="text-[10px] font-bold uppercase text-rose-600 tracking-wide">Recommended Videos</p>
+      </div>
+      <div className="flex gap-2 overflow-x-auto no-scrollbar">
+        {videos.map((v) => (
+          <button
+            key={v.id}
+            onClick={() => setPlaying(playing === v.id ? null : v.id)}
+            className="flex-shrink-0 w-40 rounded-xl overflow-hidden border border-gray-200 hover:border-rose-300 hover:shadow-sm transition group bg-white text-left"
+          >
+            <div className="relative w-full h-24 bg-gray-100">
+              <img
+                src={v.thumbnail}
+                alt={v.title}
+                className="w-full h-full object-cover"
+                loading="lazy"
+                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+              />
+              <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
+                <span className="text-white text-2xl">▶</span>
+              </div>
+              {playing === v.id && (
+                <div className="absolute top-1 right-1 w-5 h-5 rounded-full bg-rose-500 text-white text-[10px] flex items-center justify-center">✓</div>
+              )}
+            </div>
+            <div className="p-1.5">
+              <p className="text-[10px] font-semibold text-gray-900 line-clamp-2 leading-tight">{v.title}</p>
+            </div>
+          </button>
+        ))}
       </div>
       {playing && (
         <div className="mt-2 rounded-xl overflow-hidden">
           <iframe
-            src={`https://www.youtube.com/embed/${video.id}?autoplay=1&rel=0`}
+            src={`https://www.youtube.com/embed/${playing}?autoplay=1&rel=0`}
             className="w-full"
-            style={{ height: "200px" }}
+            style={{ height: "220px" }}
             allow="autoplay; encrypted-media; fullscreen"
-            title={video.title}
+            title="YouTube video player"
           />
         </div>
       )}
