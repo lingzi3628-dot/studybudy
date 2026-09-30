@@ -51,6 +51,8 @@ export async function POST(req: NextRequest) {
   const track = (form.get("track") as string | null)?.toString().trim() || "k12";
   const gradeLevelRaw = (form.get("gradeLevel") as string | null)?.toString().trim();
   const gradeLevel = gradeLevelRaw === "" || gradeLevelRaw === "all" ? null : gradeLevelRaw;
+  const courseRaw = (form.get("course") as string | null)?.toString().trim();
+  const course = courseRaw === "" || courseRaw === "all" ? null : courseRaw;
   const subject = (form.get("subject") as string | null)?.toString().trim() || "General";
   const category = (form.get("category") as string | null)?.toString().trim() || "interactive";
   const tagsRaw = (form.get("tags") as string | null)?.toString().trim();
@@ -140,7 +142,7 @@ export async function POST(req: NextRequest) {
   // Two-step create: insert with placeholder URL, then update with real ID
   const project = await db.exploreProject.create({
     data: {
-      title, description, track, gradeLevel, subject, category, tags,
+      title, description, track, gradeLevel, course, subject, category, tags,
       files: filesMap,
       entryFile,
       projectUrl: "/api/explore/serve/PLACEHOLDER/" + entryFile,

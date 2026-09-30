@@ -64,6 +64,7 @@ export function Profile() {
   const [userGrade, setUserGrade] = useState("");
   // Phase 51 — education track (k12 | dev | data | ml | tvet | mixed)
   const [userTrack, setUserTrack] = useState("k12");
+  const [userCourse, setUserCourse] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -100,6 +101,10 @@ export function Profile() {
           // Phase 51 — read the user's track
           if (mounted && me.user?.track) {
             setUserTrack(me.user.track);
+          }
+          // Phase 83 — read the user's course (for university/college/tvet)
+          if (mounted && me.user?.course) {
+            setUserCourse(me.user.course);
           }
         }
       } catch (e) {
@@ -268,24 +273,13 @@ export function Profile() {
         <section className="mt-6">
           <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Preferences</h2>
           <div className="rounded-2xl bg-white border border-gray-200 shadow-sm divide-y divide-gray-100">
-            {/* Grade switcher — user can change grade anytime */}
-            <GradeSwitcher currentGrade={userGrade} />
-            {/* Phase 61 — Track switcher: opens the beautiful TrackSwitchModal */}
-            <button
-              onClick={() => setShowTrackModal(true)}
-              className="w-full p-4 flex items-center gap-3 hover:bg-gray-50 text-left"
-            >
-              <span className="w-9 h-9 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                <Sparkles className="w-4 h-4" />
-              </span>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-900">Education track</p>
-                <p className="text-xs text-gray-500">
-                  Current: {ALL_TRACKS.find(t => t.key === userTrack)?.emoji} {ALL_TRACKS.find(t => t.key === userTrack)?.label}
-                </p>
-              </div>
-              <ChevronRight className="w-4 h-4 text-gray-400" />
-            </button>
+            {/* Grade switcher — user can change grade anytime (K-12/secondary only).
+                University/college/tvet users see CourseSwitcher instead. */}
+            <GradeSwitcher currentGrade={userGrade} currentTrack={userTrack} currentCourse={userCourse} />
+            {/* NOTE: Education track can NOT be switched after registration.
+                K-12 students stay K-12; university students stay university.
+                This enforces the privacy: a Grade 9 student can't switch to
+                "Machine Learning" track and see university-level content. */}
             <div className="p-4 flex items-center gap-3">
               <span className="w-9 h-9 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center">
                 <Languages className="w-4 h-4" />
@@ -796,18 +790,32 @@ function BuddySelectorInline() {
 // When changed, the AI tutor + curriculum engine + exam generator all
 // switch to the new grade level automatically.
 // =====================================================================
-function GradeSwitcher({ currentGrade }: { currentGrade: string }) {
+function GradeSwitcher({ currentGrade, currentTrack, currentCourse }: { currentGrade: string; currentTrack: string; currentCourse?: string | null }) {
   const [grade, setGrade] = useState(currentGrade);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
-  const GRADE_OPTIONS = [
-    { group: "Pre-Primary", grades: ["PP1", "PP2"] },
-    { group: "Lower Primary", grades: ["Grade 1", "Grade 2", "Grade 3"] },
-    { group: "Upper Primary", grades: ["Grade 4", "Grade 5", "Grade 6"] },
-    { group: "Junior School (Grade 7-9)", grades: ["Grade 7", "Grade 8", "Grade 9"] },
-    { group: "Senior School (CBE / 8-4-4)", grades: ["Grade 10", "Grade 11", "Grade 12", "Grade 13", "Form 1", "Form 2", "Form 3", "Form 4"] },
-  ];
+  // Determine grade options based on track
+  // K-12: PP1..Grade 12
+  // Secondary: Form 1..4
+  // University/college/tvet: no grade (they pick a course instead)
+  const GRADE_OPTIONS = (() => {
+    if (currentTrack === "k12") {
+      return [
+        { group: "Pre-Primary", grades: ["PP1", "PP2"] },
+        { group: "Lower Primary", grades: ["Grade 1", "Grade 2", "Grade 3"] },
+        { group: "Upper Primary", grades: ["Grade 4", "Grade 5", "Grade 6"] },
+        { group: "Junior School (Grade 7-9)", grades: ["Grade 7", "Grade 8", "Grade 9"] },
+        { group: "Senior School (CBE / 8-4-4)", grades: ["Grade 10", "Grade 11", "Grade 12", "Form 1", "Form 2", "Form 3", "Form 4"] },
+      ];
+    }
+    if (currentTrack === "secondary") {
+      return [
+        { group: "Secondary (8-4-4)", grades: ["Form 1", "Form 2", "Form 3", "Form 4"] },
+      ];
+    }
+    return []; // university/college/tvet: no grade options
+  })();
 
   const changeGrade = async (newGrade: string) => {
     if (newGrade === grade || busy) return;
@@ -823,7 +831,6 @@ function GradeSwitcher({ currentGrade }: { currentGrade: string }) {
       setGrade(newGrade);
       setToast(`✓ Switched to ${newGrade} — AI + curriculum updated!`);
       setTimeout(() => setToast(null), 3000);
-      // Reload to pick up the new grade in all components
       setTimeout(() => window.location.reload(), 1500);
     } catch (e: any) {
       setToast(`✗ ${e?.message ?? "Failed"}`);
@@ -833,6 +840,11 @@ function GradeSwitcher({ currentGrade }: { currentGrade: string }) {
     }
   };
 
+  // For university/college/tvet users: show course switcher (with admin review) instead of grades
+  if (currentTrack === "university" || currentTrack === "college" || currentTrack === "tvet") {
+    return <CourseSwitcher currentTrack={currentTrack} currentCourse={currentCourse} />;
+  }
+
   return (
     <div className="p-4 flex items-center gap-3">
       <span className="w-9 h-9 rounded-full bg-violet-50 text-violet-600 flex items-center justify-center">
@@ -841,7 +853,7 @@ function GradeSwitcher({ currentGrade }: { currentGrade: string }) {
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium text-gray-900">Grade level</p>
         <p className="text-xs text-gray-500">
-          Switch grade anytime — AI, curriculum & exams adapt instantly
+          Switch grade anytime — AI, curriculum &amp; exams adapt instantly
         </p>
         {toast && <p className="text-[10px] mt-1 text-emerald-600 font-semibold">{toast}</p>}
       </div>
@@ -861,6 +873,163 @@ function GradeSwitcher({ currentGrade }: { currentGrade: string }) {
           ))}
         </select>
       </div>
+    </div>
+  );
+}
+
+// =====================================================================
+// CourseSwitcher — for university/college/tvet users
+// Lets them REQUEST a course change. Admin reviews + approves/rejects.
+// Until approved, the user stays on their current course.
+// This enforces the privacy: a Medicine student can't see ML resources
+// by switching courses themselves.
+// =====================================================================
+function CourseSwitcher({ currentTrack, currentCourse }: { currentTrack: string; currentCourse?: string | null }) {
+  const [course, setCourse] = useState(currentCourse || "");
+  const [search, setSearch] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const [showRequestForm, setShowRequestForm] = useState(false);
+  const [pendingRequest, setPendingRequest] = useState<any>(null);
+
+  // Load any existing pending request
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch("/api/user/course-switch");
+        if (r.ok) {
+          const d = await r.json();
+          const pending = (d.requests || []).find((req: any) => req.status === "pending");
+          if (pending) setPendingRequest(pending);
+        }
+      } catch {}
+    })();
+  }, []);
+
+  const TRACK_LABEL = currentTrack === "university" ? "University"
+                    : currentTrack === "college" ? "College"
+                    : "TVET";
+
+  // Use the catalog from lib/education/catalog (but importing it client-side
+  // would require a separate client-safe export. For simplicity, hardcode the
+  // fetch via an API or inline import.)
+  // We use dynamic import of the catalog since it's pure TS and works client-side.
+  const [availableCourses, setAvailableCourses] = useState<string[]>([]);
+  useEffect(() => {
+    import("@/lib/education/catalog").then(({ getCoursesForTrack }) => {
+      const courses = getCoursesForTrack(currentTrack);
+      setAvailableCourses(courses.map(c => c.name));
+    }).catch(() => {});
+  }, [currentTrack]);
+
+  const filteredCourses = search.trim()
+    ? availableCourses.filter(c => c.toLowerCase().includes(search.toLowerCase()))
+    : availableCourses;
+
+  const submitRequest = async () => {
+    if (!course || course === currentCourse) {
+      setToast("Select a different course first");
+      setTimeout(() => setToast(null), 3000);
+      return;
+    }
+    if (!confirm(`Request to switch to "${course}"? An admin will review your request.`)) return;
+    setBusy(true);
+    setToast(null);
+    try {
+      const r = await fetch("/api/user/course-switch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ toCourse: course }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Failed to submit request");
+      setPendingRequest(d.request);
+      setToast("✓ Request submitted — admin will review shortly.");
+      setShowRequestForm(false);
+      setTimeout(() => setToast(null), 4000);
+    } catch (e: any) {
+      setToast(`✗ ${e?.message ?? "Failed"}`);
+      setTimeout(() => setToast(null), 4000);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="p-4">
+      <div className="flex items-center gap-3 mb-3">
+        <span className="w-9 h-9 rounded-full bg-violet-50 text-violet-600 flex items-center justify-center">
+          <GraduationCap className="w-4 h-4" />
+        </span>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-gray-900">{TRACK_LABEL} Course</p>
+          <p className="text-xs text-gray-500">
+            Current: <span className="font-semibold text-gray-700">{currentCourse || "—"}</span>
+          </p>
+        </div>
+      </div>
+
+      {toast && (
+        <p className="text-xs mb-2 text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg p-2">{toast}</p>
+      )}
+
+      {pendingRequest && pendingRequest.status === "pending" ? (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs">
+          <p className="font-semibold text-amber-800">⏳ Request pending review</p>
+          <p className="text-amber-700 mt-1">
+            You requested to switch to <b>{pendingRequest.toCourse}</b> on{" "}
+            {new Date(pendingRequest.createdAt).toLocaleDateString()}.
+          </p>
+          <p className="text-amber-600 mt-1">An admin will review and approve/reject it. You&apos;ll be switched automatically when approved.</p>
+        </div>
+      ) : showRequestForm ? (
+        <div className="border border-gray-200 rounded-lg p-3 bg-gray-50">
+          <p className="text-xs text-gray-700 mb-2">Search and select a new course:</p>
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search courses..."
+            className="w-full h-9 rounded-lg border border-gray-200 px-3 text-sm outline-none focus:border-violet-400 mb-2"
+            autoFocus
+          />
+          <select
+            value={course}
+            onChange={(e) => setCourse(e.target.value)}
+            className="w-full h-10 rounded-lg border border-gray-200 px-2 text-sm outline-none focus:border-violet-400"
+            size={5}
+          >
+            {filteredCourses.slice(0, 50).map(c => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+          <div className="flex gap-2 mt-2">
+            <button
+              onClick={submitRequest}
+              disabled={busy || !course || course === currentCourse}
+              className="flex-1 h-9 rounded-lg bg-violet-600 hover:bg-violet-700 disabled:opacity-40 text-white text-xs font-semibold"
+            >
+              {busy ? "Submitting…" : "Submit Request"}
+            </button>
+            <button
+              onClick={() => setShowRequestForm(false)}
+              className="h-9 px-4 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs font-semibold"
+            >
+              Cancel
+            </button>
+          </div>
+          <p className="text-[10px] text-gray-500 mt-2">
+            🔒 Course changes require admin review to maintain academic integrity.
+          </p>
+        </div>
+      ) : (
+        <button
+          onClick={() => setShowRequestForm(true)}
+          className="w-full h-9 rounded-lg bg-violet-50 hover:bg-violet-100 text-violet-700 text-xs font-semibold border border-violet-200"
+        >
+          Request Course Change
+        </button>
+      )}
     </div>
   );
 }

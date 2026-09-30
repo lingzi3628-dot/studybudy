@@ -12,6 +12,7 @@ type Project = {
   description: string | null;
   track: string;
   gradeLevel: string | null;
+  course: string | null;
   subject: string;
   category: string;
   tags: string[];
@@ -74,6 +75,7 @@ export function ExploreTab() {
   const [description, setDescription] = useState("");
   const [track, setTrack] = useState("k12");
   const [gradeLevel, setGradeLevel] = useState("all");
+  const [course, setCourse] = useState("all");
   const [subject, setSubject] = useState("Mathematics");
   const [category, setCategory] = useState("interactive");
   const [tags, setTags] = useState("");
@@ -167,6 +169,7 @@ export function ExploreTab() {
       if (description) fd.append("description", description.trim());
       fd.append("track", track);
       fd.append("gradeLevel", gradeLevel);
+      fd.append("course", course);
       fd.append("subject", subject);
       fd.append("category", category);
       if (tags.trim()) fd.append("tags", tags.trim());
@@ -241,6 +244,16 @@ export function ExploreTab() {
 
   const currentTrack = TRACKS.find(t => t.id === track) || TRACKS[0];
   const currentSubjects = SUBJECTS[track] || [];
+  // Course options for university/college/tvet tracks
+  const [availableCourses, setAvailableCourses] = useState<string[]>([]);
+  useEffect(() => {
+    if (track === "university" || track === "college" || track === "tvet") {
+      import("@/lib/education/catalog").then(({ getCoursesForTrack }) => {
+        setAvailableCourses(getCoursesForTrack(track).map(c => c.name));
+      }).catch(() => setAvailableCourses([]));
+      setCourse("all");
+    }
+  }, [track]);
 
   return (
     <div className="space-y-4">
@@ -322,12 +335,22 @@ export function ExploreTab() {
           </div>
           <div>
             <label className="text-xs font-semibold text-gray-700 mb-1 block">Grade / Level</label>
-            <select value={gradeLevel} onChange={(e) => setGradeLevel(e.target.value)}
-              className="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm outline-none focus:border-indigo-400">
-              <option value="all">All levels (general)</option>
+            <select value={gradeLevel} onChange={(e) => setGradeLevel(e.target.value)} disabled={availableCourses.length > 0}
+              className="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm outline-none focus:border-indigo-400 disabled:bg-gray-100 disabled:opacity-50">
+              <option value="all">{availableCourses.length > 0 ? "N/A — pick a course instead" : "All levels (general)"}</option>
               {currentTrack.grades.map(g => <option key={g} value={g}>{g}</option>)}
             </select>
           </div>
+          {availableCourses.length > 0 && (
+            <div>
+              <label className="text-xs font-semibold text-gray-700 mb-1 block">Course</label>
+              <select value={course} onChange={(e) => setCourse(e.target.value)}
+                className="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm outline-none focus:border-indigo-400">
+                <option value="all">All courses (general for this track)</option>
+                {availableCourses.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+          )}
           <div>
             <label className="text-xs font-semibold text-gray-700 mb-1 block">Subject</label>
             <select value={subject} onChange={(e) => setSubject(e.target.value)}
@@ -436,6 +459,7 @@ export function ExploreTab() {
                   <div className="flex items-center gap-3 text-[10px] text-gray-400 mt-0.5 flex-wrap">
                     <span className="bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded font-medium">{p.track}</span>
                     {p.gradeLevel && <span>{p.gradeLevel}</span>}
+                    {p.course && <span className="bg-violet-50 text-violet-700 px-1.5 py-0.5 rounded font-medium">🎓 {p.course}</span>}
                     <span>{p.subject}</span>
                     <span className="bg-gray-100 px-1.5 py-0.5 rounded">{p.category}</span>
                     <span>{p.viewCount} views</span>

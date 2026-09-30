@@ -44,17 +44,35 @@ export async function GET(req: NextRequest) {
   const track = queryTrack || userTrack || "k12";
   const gradeLevel = queryGrade || userGrade;
 
+  // Get the user's course (for university/college/tvet filtering)
+  let userCourse: string | null = null;
+  try {
+    const user = await getCurrentUser();
+    if (user) userCourse = (user as any).course || null;
+  } catch {}
+
   // Build where clause
   const where: any = {
     isPublished: true,
     track,
   };
-  // Match either the exact grade OR null (general for track)
-  if (gradeLevel) {
-    where.OR = [{ gradeLevel }, { gradeLevel: null }];
-  } else {
-    where.gradeLevel = null;
+
+  if (track === "k12" || track === "secondary") {
+    // Match either the exact grade OR null (general for track)
+    if (gradeLevel) {
+      where.OR = [{ gradeLevel }, { gradeLevel: null }];
+    } else {
+      where.gradeLevel = null;
+    }
+  } else if (track === "university" || track === "college" || track === "tvet") {
+    // Filter by course: user's course OR null (general for track)
+    if (userCourse) {
+      where.OR = [{ course: userCourse }, { course: null }];
+    } else {
+      where.course = null;
+    }
   }
+
   if (subject && subject !== "All") where.subject = subject;
   if (category && category !== "All") where.category = category;
 

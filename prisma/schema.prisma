@@ -21,9 +21,17 @@ model User {
   encryptedApiKey   String?
   passwordHash      String?
   grade             String?
-  // Phase 51 — Education track: 'k12' | 'dev' | 'data' | 'ml' | 'tvet' | 'mixed'
+  // Phase 51 — Education track: 'k12' | 'secondary' | 'university' | 'college' | 'tvet' | 'dev'
   // Drives which Home screen the user sees + which buddy is default in AI Tutor.
+  // K-12 + secondary users can switch GRADES freely but NOT tracks.
+  // University/college/tvet users pick a COURSE on registration and can only
+  // request course changes (reviewed by admin).
   track             String?  @default("k12")
+  // Phase 83 — Specific course for university/college/tvet users
+  // (e.g. "Bachelor of Medicine", "Diploma in Business Management", "Electrical Installation")
+  // null for K-12/secondary users (they use grade + subject instead).
+  // Explore projects + admin resources can be targeted per-course.
+  course            String?
   subjects          String[]
   ambitions         String[]
   learningLanguage  String   @default("English")
@@ -116,6 +124,10 @@ model User {
   studySessions         StudySession[]
   // Phase 82 — admin-uploaded Explore projects (track+grade+subject-targeted)
   exploreProjects       ExploreProject[]
+  // Phase 83 — course switch requests (university/college/tvet users)
+  courseSwitchRequests  CourseSwitchRequest[]
+  // Phase 83 — admin-reviewed course switch requests (audit trail)
+  reviewedSwitchRequests CourseSwitchRequest[] @relation("AdminReviewer")
 
   // Relations for search settings are handled in SearchSettings model
 }
@@ -2281,10 +2293,13 @@ model ExploreProject {
   //   - track: k12 | secondary | university | college | tvet | dev
   //   - gradeLevel: e.g. "Grade 5", "Form 4", "Year 1", "CDACC Level 5" (null = all levels of track)
   //   - subject: e.g. "Mathematics", "Physics", "Electrical Installation"
+  //   - course: for university/college/tvet users — specific course name
+  //     (e.g. "Bachelor of Medicine", "Diploma in Business"). null = all courses.
   //   - category: demo | tutorial | interactive | game | quiz | reference | project
   track        String   @default("k12")
   gradeLevel   String?  // null = visible to all grades in this track
   subject      String
+  course       String?  // Phase 83 — null = all courses in this track; specific course name otherwise
   category     String   @default("interactive")
   tags         String[] @default([])
   // Project content:
@@ -2309,6 +2324,42 @@ model ExploreProject {
   @@index([track, gradeLevel])
   @@index([track, subject])
   @@index([track, gradeLevel, subject])
+  @@index([track, course])
+  @@index([track, course, subject])
   @@index([isPublished])
   @@index([isFeatured])
+}
+
+// ============================================================
+// Course Switch Request — Phase 83
+// University/college/TVET users can request a course change.
+// Admin reviews and approves/rejects. On approval, the user's `course`
+// field is auto-updated on their next sign-in (or immediately if online).
+//
+// K-12/secondary users don't use this — they can switch grades freely.
+// ============================================================
+
+model CourseSwitchRequest {
+  id           String   @id @default(uuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Current state when request was created
+  fromTrack    String
+  fromCourse   String?
+  // Requested new state
+  toTrack      String
+  toCourse     String
+  // Status: 'pending' | 'approved' | 'rejected'
+  status       String   @default("pending")
+  // Admin review
+  reviewedById String?
+  reviewedBy   User?    @relation("AdminReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt   DateTime?
+  adminNote    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([status, createdAt])
 }

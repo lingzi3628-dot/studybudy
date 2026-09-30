@@ -43,6 +43,7 @@ export async function GET() {
       role: true,
       grade: true,
       track: true,  // Phase 51
+      course: true, // Phase 83 — university/college/tvet users
       subjects: true,
       ambitions: true,
       learningLanguage: true,
