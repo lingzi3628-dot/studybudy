@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { useApp } from "../store";
 import { api, type Progress as ProgressData } from "../api";
+import { getCourseByName } from "@/lib/education/catalog";
 
 // Phase 51 — buddy metadata for the grid (mirrors src/lib/buddies/registry.ts but
 // kept inline to avoid pulling the server-side registry into the client bundle)
@@ -66,128 +67,163 @@ type CourseDashboard = {
   tagline: string;
   // Tool buttons to show (filtered subset of the existing quick tools)
   tools: ("tutor" | "documents" | "calendar" | "explore" | "notes" | "webBuilder" | "codeEditor" | "notebook" | "mlPlayground" | "sqlSandbox")[];
+  // The course's subjects (from the catalog) — shown as chips
+  subjects: string[];
+};
+
+// ============================================================
+// Phase 85.1 — Per-category dashboard config
+// Every course in the catalog has a `category` field. We map each
+// category to a dashboard config (emoji + tagline + relevant tools).
+// This covers ALL 110+ courses in the catalog automatically.
+// ============================================================
+
+const CATEGORY_DASHBOARDS: Record<string, { emoji: string; tagline: string; tools: CourseDashboard["tools"] }> = {
+  // University categories
+  "Health Sciences": {
+    emoji: "🩺",
+    tagline: "Clinical knowledge, anatomy, and case-based learning",
+    tools: ["tutor", "documents", "calendar", "explore", "notes"],
+  },
+  "Engineering": {
+    emoji: "⚙️",
+    tagline: "Engineering principles, calculations, and design",
+    tools: ["tutor", "documents", "calendar", "explore", "notes", "codeEditor", "notebook"],
+  },
+  "Computing": {
+    emoji: "💻",
+    tagline: "Code, build, and deploy software projects",
+    tools: ["tutor", "documents", "calendar", "explore", "codeEditor", "notebook", "webBuilder", "sqlSandbox"],
+  },
+  "Business": {
+    emoji: "💼",
+    tagline: "Business cases, financial models, and market analysis",
+    tools: ["tutor", "documents", "calendar", "explore", "notes", "notebook"],
+  },
+  "Law": {
+    emoji: "⚖️",
+    tagline: "Legal research, case studies, and statutory analysis",
+    tools: ["tutor", "documents", "calendar", "explore", "notes"],
+  },
+  "Education": {
+    emoji: "👩‍🏫",
+    tagline: "Lesson planning, pedagogy, and teaching practice",
+    tools: ["tutor", "documents", "calendar", "explore", "notes"],
+  },
+  "Sciences": {
+    emoji: "🔬",
+    tagline: "Scientific principles, lab work, and analysis",
+    tools: ["tutor", "documents", "calendar", "explore", "notes", "notebook"],
+  },
+  "Agriculture": {
+    emoji: "🌾",
+    tagline: "Crop science, animal husbandry, and agribusiness",
+    tools: ["tutor", "documents", "calendar", "explore", "notes"],
+  },
+  "Arts & Social Sciences": {
+    emoji: "🎨",
+    tagline: "Critical thinking, research, and analysis",
+    tools: ["tutor", "documents", "calendar", "explore", "notes"],
+  },
+  "Hospitality": {
+    emoji: "🍽️",
+    tagline: "Hospitality operations, service, and management",
+    tools: ["tutor", "documents", "calendar", "explore", "notes"],
+  },
+  "Architecture & Design": {
+    emoji: "🏛️",
+    tagline: "Design principles, drafting, and urban planning",
+    tools: ["tutor", "documents", "calendar", "explore", "notes"],
+  },
+  "Media": {
+    emoji: "📰",
+    tagline: "Reporting, editing, and media production",
+    tools: ["tutor", "documents", "calendar", "explore", "notes"],
+  },
+  // College categories (some overlap with university)
+  "Social Sciences": {
+    emoji: "🤝",
+    tagline: "Community development, counseling, and social welfare",
+    tools: ["tutor", "documents", "calendar", "explore", "notes"],
+  },
+  "Beauty & Cosmetology": {
+    emoji: "💄",
+    tagline: "Skincare, makeup, and salon management",
+    tools: ["tutor", "documents", "calendar", "explore", "notes"],
+  },
+  // TVET categories
+  "Engineering Trades": {
+    emoji: "🔧",
+    tagline: "Hands-on technical training and practical skills",
+    tools: ["tutor", "documents", "calendar", "explore", "notes"],
+  },
+  "Building & Construction": {
+    emoji: "🏗️",
+    tagline: "Building, finishing, and construction trades",
+    tools: ["tutor", "documents", "calendar", "explore", "notes"],
+  },
+  "Information & Communication Tech": {
+    emoji: "💻",
+    tagline: "ICT technician, networking, and computer repair",
+    tools: ["tutor", "documents", "calendar", "explore", "notes", "codeEditor"],
+  },
+  "Fashion & Beauty": {
+    emoji: "👗",
+    tagline: "Fashion design, garment making, and beauty therapy",
+    tools: ["tutor", "documents", "calendar", "explore", "notes"],
+  },
+  "Leather & Tannery": {
+    emoji: "👞",
+    tagline: "Leather technology and shoe making",
+    tools: ["tutor", "documents", "calendar", "explore", "notes"],
+  },
+  "Business Studies": {
+    emoji: "📊",
+    tagline: "Business, entrepreneurship, and office administration",
+    tools: ["tutor", "documents", "calendar", "explore", "notes"],
+  },
+};
+
+// Fallback per-track defaults (when course is null or category not found)
+const TRACK_DEFAULTS: Record<string, { emoji: string; tagline: string; tools: CourseDashboard["tools"] }> = {
+  university: { emoji: "🎓", tagline: "Your personalized learning workspace", tools: ["tutor", "documents", "calendar", "explore", "notes"] },
+  college:    { emoji: "🏛️", tagline: "Your personalized learning workspace", tools: ["tutor", "documents", "calendar", "explore", "notes"] },
+  tvet:       { emoji: "🔧", tagline: "Hands-on technical training and practical skills", tools: ["tutor", "documents", "calendar", "explore", "notes"] },
 };
 
 // Helper: return the dashboard config for a course, falling back to a sensible default
 function getCourseDashboard(course: string | null, track: string): CourseDashboard {
-  // Default for any university/college/tvet course
-  const defaultDashboard: CourseDashboard = {
-    emoji: "🎓",
-    tagline: "Your personalized learning workspace",
-    tools: ["tutor", "documents", "calendar", "explore", "notes"],
-  };
+  const defaultConfig = TRACK_DEFAULTS[track] || TRACK_DEFAULTS.university;
 
-  if (!course) return defaultDashboard;
+  if (!course) {
+    return { ...defaultConfig, subjects: [] };
+  }
 
+  // Look up the course in the catalog to get its category + subjects
+  const courseData = getCourseByName(course);
+  if (courseData) {
+    const categoryConfig = CATEGORY_DASHBOARDS[courseData.category];
+    if (categoryConfig) {
+      return {
+        emoji: categoryConfig.emoji,
+        tagline: categoryConfig.tagline,
+        tools: categoryConfig.tools,
+        subjects: courseData.subjects,
+      };
+    }
+  }
+
+  // Fallback: try substring matching on the course name (for courses not in catalog)
   const c = course.toLowerCase();
-
-  // Law
-  if (c.includes("law") || c.includes("llb")) {
-    return {
-      emoji: "⚖️",
-      tagline: "Legal research, case studies, and statutory analysis",
-      tools: ["tutor", "documents", "calendar", "explore", "notes"],
-    };
-  }
-  // Medicine / Health
-  if (c.includes("medicine") || c.includes("nursing") || c.includes("pharmacy") || c.includes("dental") || c.includes("clinical") || c.includes("public health") || c.includes("biomedical")) {
-    return {
-      emoji: "🩺",
-      tagline: "Clinical knowledge, anatomy, and case-based learning",
-      tools: ["tutor", "documents", "calendar", "explore", "notes"],
-    };
-  }
-  // Business / Commerce / Accounting / Economics
-  if (c.includes("business") || c.includes("commerce") || c.includes("accounting") || c.includes("economics") || c.includes("finance") || c.includes("marketing") || c.includes("hr") || c.includes("human resource") || c.includes("supply chain") || c.includes("actuarial") || c.includes("bba")) {
-    return {
-      emoji: "💼",
-      tagline: "Business cases, financial models, and market analysis",
-      tools: ["tutor", "documents", "calendar", "explore", "notes", "notebook"],
-    };
-  }
-  // Engineering
-  if (c.includes("engineering") || c.includes("civil") || c.includes("mechanical") || c.includes("electrical eng") || c.includes("mechatronic") || c.includes("chemical eng") || c.includes("aerospace") || c.includes("agricultural eng")) {
-    return {
-      emoji: "⚙️",
-      tagline: "Engineering principles, calculations, and design",
-      tools: ["tutor", "documents", "calendar", "explore", "notes", "codeEditor", "notebook"],
-    };
-  }
-  // Computing / CS / IT
-  if (c.includes("computer") || c.includes("software") || c.includes("information tech") || c.includes("data science") || c.includes("cyber") || c.includes("artificial intelligence") || c.includes("network eng")) {
-    return {
-      emoji: "💻",
-      tagline: "Code, build, and deploy software projects",
-      tools: ["tutor", "documents", "calendar", "explore", "codeEditor", "notebook", "webBuilder", "sqlSandbox"],
-    };
-  }
-  // Education
-  if (c.includes("education") || c.includes("b.ed") || c.includes("teaching")) {
-    return {
-      emoji: "👩‍🏫",
-      tagline: "Lesson planning, pedagogy, and teaching practice",
-      tools: ["tutor", "documents", "calendar", "explore", "notes"],
-    };
-  }
-  // Sciences (Math, Physics, Chemistry, Biology, Statistics, Environmental)
-  if (c.includes("science") || c.includes("mathematics") || c.includes("physics") || c.includes("chemistry") || c.includes("biology") || c.includes("statistics") || c.includes("environmental")) {
-    return {
-      emoji: "🔬",
-      tagline: "Scientific principles, lab work, and analysis",
-      tools: ["tutor", "documents", "calendar", "explore", "notes", "notebook"],
-    };
-  }
-  // Agriculture
-  if (c.includes("agricult") || c.includes("agribusiness") || c.includes("horticulture")) {
-    return {
-      emoji: "🌾",
-      tagline: "Crop science, animal husbandry, and agribusiness",
-      tools: ["tutor", "documents", "calendar", "explore", "notes"],
-    };
-  }
-  // Arts / Social Sciences
-  if (c.includes("arts") || c.includes("communication") || c.includes("psychology") || c.includes("sociology") || c.includes("political") || c.includes("social work")) {
-    return {
-      emoji: "🎨",
-      tagline: "Critical thinking, research, and analysis",
-      tools: ["tutor", "documents", "calendar", "explore", "notes"],
-    };
-  }
-  // Hospitality / Tourism
-  if (c.includes("hospitality") || c.includes("tourism") || c.includes("food")) {
-    return {
-      emoji: "🍽️",
-      tagline: "Hospitality operations, service, and management",
-      tools: ["tutor", "documents", "calendar", "explore", "notes"],
-    };
-  }
-  // Architecture / Design
-  if (c.includes("architect") || c.includes("interior design")) {
-    return {
-      emoji: "🏛️",
-      tagline: "Design principles, drafting, and urban planning",
-      tools: ["tutor", "documents", "calendar", "explore", "notes"],
-    };
-  }
-  // Media / Journalism
-  if (c.includes("journalism") || c.includes("media") || c.includes("film") || c.includes("broadcast")) {
-    return {
-      emoji: "📰",
-      tagline: "Reporting, editing, and media production",
-      tools: ["tutor", "documents", "calendar", "explore", "notes"],
-    };
+  for (const [catName, cfg] of Object.entries(CATEGORY_DASHBOARDS)) {
+    const catKey = catName.toLowerCase();
+    // Simple keyword match against category name keywords
+    if (c.includes(catKey.split(" ")[0]) || c.includes(catKey.split(" & ")[0])) {
+      return { ...cfg, subjects: courseData?.subjects || [] };
+    }
   }
 
-  // TVET-specific courses
-  if (track === "tvet") {
-    return {
-      emoji: "🔧",
-      tagline: "Hands-on technical training and practical skills",
-      tools: ["tutor", "documents", "calendar", "explore", "notes"],
-    };
-  }
-
-  return defaultDashboard;
+  return { ...defaultConfig, subjects: courseData?.subjects || [] };
 }
 
 // Quick tool definitions — used by both the dev-track grid and the course dashboard
@@ -382,6 +418,25 @@ export function HigherEdHome() {
               })}
             </div>
           </section>
+
+          {/* Course subjects chips — shows what the AI Tutor can help with */}
+          {courseDashboard.subjects.length > 0 && (
+            <section className="mt-6">
+              <h2 className="text-sm font-semibold text-gray-900 mb-2">Your subjects</h2>
+              <p className="text-xs text-gray-500 mb-3">The AI Tutor can help you with these topics in your course</p>
+              <div className="flex flex-wrap gap-2">
+                {courseDashboard.subjects.map((subject) => (
+                  <button
+                    key={subject}
+                    onClick={() => openTutorWithBuddy("study")}
+                    className="px-3 py-1.5 rounded-full bg-indigo-50 text-indigo-700 text-xs font-semibold hover:bg-indigo-100 transition"
+                  >
+                    {subject}
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
 
           {/* Recent projects */}
           {recentProjects.length > 0 && (
