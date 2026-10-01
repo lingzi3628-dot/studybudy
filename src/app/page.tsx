@@ -22,6 +22,13 @@ const LoadingFallback = () => (
   </div>
 );
 
+// Phase F0 — New dashboard (feature-flagged). Lazy-loaded so it doesn't
+// bloat the initial bundle when the flag is off.
+const NewHome = dynamic(() => import("@/components/studybuddy/screens/NewHome").then(m => ({ default: m.NewHome })), { loading: () => <LoadingFallback /> });
+// Feature flag: NEXT_PUBLIC_NEW_DASHBOARD="true" enables the new clear-starting-point
+// dashboard for K-12/secondary users. Default: off (PathDashboard renders).
+const USE_NEW_DASHBOARD = process.env.NEXT_PUBLIC_NEW_DASHBOARD === "true";
+
 const Onboarding = dynamic(() => import("@/components/studybuddy/screens/Onboarding").then(m => ({ default: m.Onboarding })), { loading: () => <LoadingFallback /> });
 const Search = dynamic(() => import("@/components/studybuddy/screens/Search").then(m => ({ default: m.Search })), { loading: () => <LoadingFallback /> });
 const Progress = dynamic(() => import("@/components/studybuddy/screens/Progress").then(m => ({ default: m.Progress })), { loading: () => <LoadingFallback /> });
@@ -352,7 +359,7 @@ export default function Page() {
               - University / College / TVET → HigherEdHome (course-aware dashboard)
               - Legacy "mixed" with a course set → HigherEdHome (treat as university)
               - Dev tracks (dev/data/ml/web/backend/server) + legacy "mixed" without course → TrackHome */}
-          {screen === "home" && (userTrack === "k12" || userTrack === "secondary") && <PathDashboard />}
+          {screen === "home" && (userTrack === "k12" || userTrack === "secondary") && (USE_NEW_DASHBOARD ? <NewHome /> : <PathDashboard />)}
           {screen === "home" && (userTrack === "university" || userTrack === "college" || userTrack === "tvet" || (userTrack === "mixed" && userCourse)) && <HigherEdHome />}
           {screen === "home" && userTrack !== "k12" && userTrack !== "secondary" && userTrack !== "university" && userTrack !== "college" && userTrack !== "tvet" && !(userTrack === "mixed" && userCourse) && <TrackHome track={userTrack} />}
           {screen === "search" && <Search />}

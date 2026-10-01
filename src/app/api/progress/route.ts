@@ -144,6 +144,14 @@ export async function GET() {
       subscriptionExpiry: user.subscriptionExpiry,
       tokenResetDate: user.tokenResetDate,
       hasApiKey: user.hasApiKey,
+      // Phase F0 — Dashboard redesign: return these so the new NewHome.tsx
+      // doesn't need a separate /api/auth/me call (eliminates 4 duplicate
+      // fetches per dashboard load). These fields already exist on AppUser
+      // from the Phase 88.6 fix to getCurrentUser().
+      grade: user.grade,
+      track: user.track,
+      course: user.course,
+      subjects: user.subjects,
     },
     xp,
     level,

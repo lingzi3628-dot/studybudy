@@ -19,11 +19,15 @@ export default defineConfig({
     },
   },
   test: {
+    // Phase F0 — component tests need the jsdom environment for DOM APIs.
+    // Pure-logic tests (in src/lib/) also work in jsdom — no downside.
+    environment: "jsdom",
     env: {
       // PrismaClient constructor validates the datasource URL format —
       // give it a syntactically valid postgres URL it will never connect to.
       DATABASE_URL: process.env.DATABASE_URL || "postgresql://test:test@localhost:5432/test",
       API_KEY_ENCRYPTION_SECRET: "0000000000000000000000000000000000000000000000000000000000000000",
     },
+    setupFiles: ["./vitest.setup.ts"],
   },
 });

@@ -40,7 +40,17 @@ export type StudySetSummary = {
 };
 
 export type Progress = {
-  user: { name: string | null; email: string | null; plan: "free" | "pro" };
+  user: {
+    name: string | null;
+    email: string | null;
+    plan: "free" | "pro";
+    // Phase F0 — Dashboard redesign: returned by /api/progress so the new
+    // NewHome.tsx doesn't need a separate /api/auth/me call.
+    grade?: string | null;
+    track?: string | null;
+    course?: string | null;
+    subjects?: string[];
+  };
   xp: number;
   level: number;
   streak: number;
