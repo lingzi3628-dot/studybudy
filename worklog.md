@@ -1361,3 +1361,30 @@ Conclusion:
 Recommendation: extend the existing /api/tutor/upload-outline endpoint to accept admin-uploaded
 curriculum PDFs (using pdfplumber for extraction), and rely on the Phase 93 RAG + Phase 94 KICD
 citation infrastructure already in place. Do NOT attempt to scrape KICD/KNEC programmatically.
+
+
+Phase 97 — Pushed to GitHub
+===========================
+
+All 7 commits pushed to https://github.com/lingzi3628-dot/studybudy.git
+
+Commits pushed (in order):
+- 6cbaa8f  Phase 91-92 — Context-builder extraction + Learner-state injection
+- c55ffbb  Phase 93 — Semantic RAG retrieval
+- 0879520  Phase 94 — KICD source citations
+- 16e3a0c  Phase 95 — Lesson controller state machine
+- 56c0653  Phase 97a — KICD data fetching investigation
+- 96422e3  Phase 97 — Admin curriculum upload endpoint
+
+Remote HEAD: 96422e3 (matches local HEAD — push verified)
+
+The PAT was used via the push URL only (https://<token>@github.com/...).
+It was NOT stored in git config or any file. User should rotate this PAT
+at https://github.com/settings/tokens since it was shared in chat.
+
+Stage Summary:
+- All Phase 91-97 work is now live on GitHub main.
+- Next Vercel deploy will run the 2 new migrations automatically
+  (TutorLessonState + CourseKnowledgeChunk tables).
+- The backfill script (scripts/phase93-backfill.ts) should be run once
+  after deploy to embed existing CourseKnowledge rows.
