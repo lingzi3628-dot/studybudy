@@ -199,18 +199,18 @@ export function TrackHome({ track }: { track: string }) {
     (async () => {
       setLoading(true);
       try {
-        const [meRes, progressRes, projectsRes] = await Promise.all([
-          fetch("/api/auth/me"),
+        // Phase F1 — dropped /api/auth/me call. userName is now returned by
+        // /api/progress (Phase F0 extension). Saves 1 fetch.
+        const [progressRes, projectsRes] = await Promise.all([
           api.getProgress().catch(() => null),
           fetch("/api/projects").catch(() => null),
         ]);
         if (!mounted) return;
-        if (meRes.ok) {
-          const me = await meRes.json();
-          if (me.user?.name) setUserName(me.user.name.split(" ")[0]);
-          else if (me.user?.email) setUserName(me.user.email.split("@")[0]);
+        if (progressRes) {
+          setProgress(progressRes);
+          if (progressRes.user?.name) setUserName(progressRes.user.name.split(" ")[0]);
+          else if (progressRes.user?.email) setUserName(progressRes.user.email.split("@")[0]);
         }
-        if (progressRes) setProgress(progressRes);
         if (projectsRes?.ok) {
           const d = await projectsRes.json();
           // Filter to this track's buddies

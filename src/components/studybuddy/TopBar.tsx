@@ -25,10 +25,12 @@ function TopBarInner({ mobile }: { mobile: boolean }) {
     let mounted = true;
     (async () => {
       try {
-        const [meRes, progRes, xpRes, balRes] = await Promise.all([
+        // Phase F1 — dropped /api/user/xp call. xp/level/streak are already
+        // returned by /api/progress (and were being fetched separately here).
+        // Saves 1 fetch per dashboard load.
+        const [meRes, progRes, balRes] = await Promise.all([
           fetch("/api/auth/me"),
           fetch("/api/progress"),
-          fetch("/api/user/xp"),
           fetch("/api/user/balances"),
         ]);
         if (meRes.ok) {
@@ -66,14 +68,9 @@ function TopBarInner({ mobile }: { mobile: boolean }) {
           if (mounted) {
             setStreak(d.streak ?? 0);
             if (typeof d.user?.tokenBalance === "number") setTokens(d.user.tokenBalance);
-          }
-        }
-        if (xpRes.ok) {
-          const d = await xpRes.json();
-          if (mounted) {
+            // Phase F1 — read xp + level from /api/progress (was from /api/user/xp)
             if (typeof d.xp === "number") setXp(d.xp);
             if (typeof d.level === "number") setLevel(d.level);
-            if (typeof d.streak === "number") setStreak(d.streak);
           }
         }
         if (balRes.ok) {

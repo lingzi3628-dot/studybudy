@@ -264,21 +264,21 @@ export function HigherEdHome() {
     (async () => {
       setLoading(true);
       try {
-        // Fetch user profile + progress + recent projects in parallel
-        const [meRes, progressRes, projectsRes] = await Promise.all([
-          fetch("/api/auth/me"),
+        // Phase F1 — dropped /api/auth/me call. track/course/name are now
+        // returned by /api/progress (Phase F0 extension). Saves 1 fetch.
+        const [progressRes, projectsRes] = await Promise.all([
           api.getProgress().catch(() => null),
           fetch("/api/projects").catch(() => null),
         ]);
         if (!mounted) return;
-        if (meRes.ok) {
-          const me = await meRes.json();
-          if (me.user?.track) setUserTrack(me.user.track);
-          if (me.user?.course) setUserCourse(me.user.course);
-          if (me.user?.name) setUserName(me.user.name.split(" ")[0]);
-          else if (me.user?.email) setUserName(me.user.email.split("@")[0]);
+        if (progressRes) {
+          setProgress(progressRes);
+          // Read user fields from /api/progress (returned since Phase F0)
+          if (progressRes.user?.track) setUserTrack(progressRes.user.track);
+          if (progressRes.user?.course) setUserCourse(progressRes.user.course);
+          if (progressRes.user?.name) setUserName(progressRes.user.name.split(" ")[0]);
+          else if (progressRes.user?.email) setUserName(progressRes.user.email.split("@")[0]);
         }
-        if (progressRes) setProgress(progressRes);
         if (projectsRes?.ok) {
           const d = await projectsRes.json();
           setRecentProjects((d.projects ?? []).slice(0, 4));
