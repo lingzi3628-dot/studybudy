@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { callAI } from "@/lib/ai";
 import { getTrack, getSubjectsForCourse } from "@/lib/education/catalog";
 import { parseFormData, extractTextFromFile } from "@/lib/upload-helpers";
+import { ingestCourseKnowledge } from "@/lib/tutor/rag";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -96,13 +97,26 @@ ${rawText.slice(0, 30_000)}`;
     },
   });
 
+  // Phase 93 — Chunk + embed the rawText for semantic retrieval.
+  // This runs AFTER the row is created (so the user gets an immediate response)
+  // and is awaited so the chunk count is accurate in the response.
+  // If ingestion fails, the row still exists + works via the Phase 84 fallback
+  // (last 5 by createdAt DESC).
+  let chunkCount = 0;
+  try {
+    chunkCount = await ingestCourseKnowledge(knowledge.id);
+  } catch (e: any) {
+    console.error("[upload-outline] RAG ingestion failed (non-fatal):", e?.message ?? String(e));
+  }
+
   return NextResponse.json({
     knowledge: {
       id: knowledge.id, title: knowledge.title, track, gradeLevel: grade,
       course, subject, sourceType, summary, topics,
       rawTextLength: rawText.length,
       topicCount: Array.isArray(topics) ? topics.length : 0,
+      chunkCount,  // Phase 93 — new field
     },
-    message: `✓ ${sourceType.charAt(0).toUpperCase() + sourceType.slice(1)} parsed and saved! The AI tutor will now use this knowledge.`,
+    message: `✓ ${sourceType.charAt(0).toUpperCase() + sourceType.slice(1)} parsed and saved!${chunkCount > 0 ? ` Embedded ${chunkCount} chunks for semantic search.` : ""} The AI tutor will now use this knowledge.`,
   });
 }

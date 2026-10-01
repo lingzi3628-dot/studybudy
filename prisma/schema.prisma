@@ -2409,9 +2409,54 @@ model CourseKnowledge {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  // Phase 93 — semantic RAG chunks (one-to-many). Lazily populated.
+  chunks       CourseKnowledgeChunk[]
+
   @@index([track, gradeLevel])
   @@index([track, course])
   @@index([track, course, subject])
   @@index([track, gradeLevel, subject])
   @@index([isVerified])
+}
+
+// =====================================================================
+// Phase 93 — Semantic RAG chunks for CourseKnowledge
+//
+// Each CourseKnowledge row is split into chunks (~1200 chars, 180 overlap,
+// reusing the same chunkText() algorithm from src/lib/rag-engine.ts).
+// Each chunk is embedded ONCE at upload time using TensorFlow.js Universal
+// Sentence Encoder (512-dim vectors) and stored as a Float[] column.
+//
+// At query time, the user's latest chat message is embedded, then cosine
+// similarity is computed in-memory against all chunks tagged with the
+// user's track + course OR grade. Top-K (default 4) chunks are returned
+// as the RETRIEVED KNOWLEDGE block in the system prompt.
+//
+// Storage: ~2KB per chunk (512 floats × 4 bytes × 2 chars per float in
+// JSON-encoded array). A 30-page outline produces ~60 chunks = ~120KB.
+// Acceptable for Postgres text columns at our scale.
+//
+// Migration safety: chunks are created lazily — existing CourseKnowledge
+// rows without chunks continue to work via the Phase 84 fallback (last 5
+// by createdAt DESC). A backfill script (/scripts/phase93-backfill.ts)
+// can embed existing rows on demand.
+// =====================================================================
+
+model CourseKnowledgeChunk {
+  id              String   @id @default(uuid())
+  courseKnowledgeId String                          // FK to CourseKnowledge
+  chunkIndex      Int                               // 0-based chunk order
+  chunkText       String  @db.Text                   // the chunk's text content
+  // Embedding stored as JSON array of numbers (512 floats for USE).
+  // null = not yet embedded (waiting for backfill or embedding failed)
+  embedding       Json?
+  embeddingModel  String?                            // "use-v1" (Universal Sentence Encoder)
+  embeddingDim    Int?                               // 512 for USE
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  courseKnowledge CourseKnowledge @relation(fields: [courseKnowledgeId], references: [id], onDelete: Cascade)
+
+  @@index([courseKnowledgeId])
+  @@index([courseKnowledgeId, chunkIndex])
 }

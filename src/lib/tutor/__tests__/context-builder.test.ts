@@ -73,11 +73,21 @@ vi.mock("../learner-state", () => ({
   isLearnerStateEnabled: vi.fn(() => true),
 }));
 
+// 6. Phase 93 — Mock ./rag so context-builder tests don't load TF.js.
+vi.mock("../rag", () => ({
+  getRetrievedKnowledgePromptBlock: vi.fn().mockResolvedValue({ text: "", retrievedChunks: [], usedFallback: false }),
+  isRagEnabled: vi.fn(() => true),
+  ingestCourseKnowledge: vi.fn().mockResolvedValue(0),
+  retrieveTopK: vi.fn().mockResolvedValue(null),
+  embedTexts: vi.fn().mockResolvedValue(null),
+}));
+
 // ---------------------------------------------------------------
 // Import the module under test AFTER mocks are registered.
 // ---------------------------------------------------------------
 import { buildTutorSystemPrompt } from "../context-builder";
 import { getLearnerStatePromptBlock } from "../learner-state";
+import { getRetrievedKnowledgePromptBlock } from "../rag";
 
 // ---------------------------------------------------------------
 // Helpers
@@ -549,5 +559,168 @@ describe("buildTutorSystemPrompt — Phase 92 learner-state injection", () => {
     });
     expect(systemContent).toContain("NEW LEARNER");
     expect(systemContent).toContain("Greet them warmly");
+  });
+});
+
+// ============================================================
+// Phase 93 — Semantic RAG integration tests
+// ============================================================
+
+describe("buildTutorSystemPrompt — Phase 93 semantic RAG", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Default: both learner-state and RAG return empty
+    vi.mocked(getLearnerStatePromptBlock).mockResolvedValue({ text: "", state: null });
+    vi.mocked(getRetrievedKnowledgePromptBlock).mockResolvedValue({ text: "", retrievedChunks: [], usedFallback: false });
+  });
+
+  it("does NOT call RAG when userMessage is empty", async () => {
+    await buildTutorSystemPrompt({
+      ...BASE_OPTS,
+      userMessage: "",
+      user: { id: "user-123", grade: "Grade 4", track: "k12", course: null },
+      buddy: STUB_BUDDY,
+    });
+    expect(getRetrievedKnowledgePromptBlock).not.toHaveBeenCalled();
+  });
+
+  it("does NOT call RAG when userMessage is too short (<3 chars)", async () => {
+    await buildTutorSystemPrompt({
+      ...BASE_OPTS,
+      userMessage: "hi",
+      user: { id: "user-123", grade: "Grade 4", track: "k12", course: null },
+      buddy: STUB_BUDDY,
+    });
+    expect(getRetrievedKnowledgePromptBlock).not.toHaveBeenCalled();
+  });
+
+  it("does NOT call RAG when skipRag=true", async () => {
+    await buildTutorSystemPrompt({
+      ...BASE_OPTS,
+      userMessage: "What is contract law?",
+      user: { id: "user-123", grade: null, track: "university", course: "Bachelor of Laws (LLB)" },
+      buddy: STUB_BUDDY,
+      skipRag: true,
+    });
+    expect(getRetrievedKnowledgePromptBlock).not.toHaveBeenCalled();
+  });
+
+  it("calls RAG with the user's message + track + course for higher-ed", async () => {
+    await buildTutorSystemPrompt({
+      ...BASE_OPTS,
+      userMessage: "What is consideration in contract law?",
+      user: { id: "user-123", grade: null, track: "university", course: "Bachelor of Laws (LLB)" },
+      buddy: STUB_BUDDY,
+    });
+    expect(getRetrievedKnowledgePromptBlock).toHaveBeenCalledWith({
+      userMessage: "What is consideration in contract law?",
+      track: "university",
+      course: "Bachelor of Laws (LLB)",
+      grade: null,
+    });
+  });
+
+  it("calls RAG with track + grade for K-12 students", async () => {
+    await buildTutorSystemPrompt({
+      ...BASE_OPTS,
+      userMessage: "What is photosynthesis?",
+      user: { id: "user-123", grade: "Grade 4", track: "k12", course: null },
+      buddy: STUB_BUDDY,
+    });
+    expect(getRetrievedKnowledgePromptBlock).toHaveBeenCalledWith({
+      userMessage: "What is photosynthesis?",
+      track: "k12",
+      course: null,
+      grade: "Grade 4",
+    });
+  });
+
+  it("emits RETRIEVED KNOWLEDGE block when RAG returns chunks", async () => {
+    vi.mocked(getRetrievedKnowledgePromptBlock).mockResolvedValue({
+      text: `\n\n=== RETRIEVED KNOWLEDGE (semantic RAG, top 2 chunks) ===\nThe following chunks are the most semantically relevant...\n\n[1] (similarity 78%) — "LLB Course Outline"\nSource: outline | Subject: Law\nConsideration in contract law refers to...\n\n=== END RETRIEVED KNOWLEDGE ===\n`,
+      retrievedChunks: [],
+      usedFallback: false,
+    });
+
+    const { systemContent } = await buildTutorSystemPrompt({
+      ...BASE_OPTS,
+      userMessage: "What is consideration?",
+      user: { id: "user-123", grade: null, track: "university", course: "Bachelor of Laws (LLB)" },
+      buddy: STUB_BUDDY,
+    });
+    expect(systemContent).toContain("=== RETRIEVED KNOWLEDGE");
+    expect(systemContent).toContain("Consideration in contract law refers to");
+    expect(systemContent).toContain("=== END RETRIEVED KNOWLEDGE ===");
+  });
+
+  it("does NOT emit RETRIEVED KNOWLEDGE block when RAG returns empty", async () => {
+    vi.mocked(getRetrievedKnowledgePromptBlock).mockResolvedValue({
+      text: "",
+      retrievedChunks: [],
+      usedFallback: false,
+    });
+
+    const { systemContent } = await buildTutorSystemPrompt({
+      ...BASE_OPTS,
+      userMessage: "What is photosynthesis?",
+      user: { id: "user-123", grade: "Grade 4", track: "k12", course: null },
+      buddy: STUB_BUDDY,
+    });
+    expect(systemContent).not.toContain("RETRIEVED KNOWLEDGE");
+  });
+
+  it("continues to work if RAG throws (Phase 92 byte-identical fallback)", async () => {
+    vi.mocked(getRetrievedKnowledgePromptBlock).mockRejectedValue(new Error("TF.js failed to load"));
+
+    const { systemContent } = await buildTutorSystemPrompt({
+      ...BASE_OPTS,
+      userMessage: "What is photosynthesis?",
+      user: { id: "user-123", grade: "Grade 4", track: "k12", course: null },
+      buddy: STUB_BUDDY,
+    });
+    expect(systemContent).not.toContain("RETRIEVED KNOWLEDGE");
+    expect(systemContent).toContain("PROACTIVE TEACHING MODE");
+  });
+
+  it("positions RETRIEVED KNOWLEDGE block right after courseKnowledgeContext", async () => {
+    vi.mocked(getRetrievedKnowledgePromptBlock).mockResolvedValue({
+      text: `\n\n=== RETRIEVED KNOWLEDGE (top 1) ===\nchunk text\n=== END RETRIEVED KNOWLEDGE ===\n`,
+      retrievedChunks: [],
+      usedFallback: false,
+    });
+
+    const { systemContent } = await buildTutorSystemPrompt({
+      ...BASE_OPTS,
+      userMessage: "test query",
+      user: { id: "user-123", grade: "Grade 4", track: "k12", course: null },
+      buddy: STUB_BUDDY,
+    });
+    const ragIdx = systemContent.indexOf("=== RETRIEVED KNOWLEDGE");
+    const proactiveIdx = systemContent.indexOf("PROACTIVE TEACHING MODE");
+    expect(ragIdx).toBeGreaterThan(-1);
+    expect(proactiveIdx).toBeGreaterThan(-1);
+    expect(ragIdx).toBeLessThan(proactiveIdx);
+  });
+
+  it("emits RETRIEVED KNOWLEDGE for non-study buddies too", async () => {
+    vi.mocked(getRetrievedKnowledgePromptBlock).mockResolvedValue({
+      text: `\n\n=== RETRIEVED KNOWLEDGE (top 1) ===\nchunk text\n=== END RETRIEVED KNOWLEDGE ===\n`,
+      retrievedChunks: [],
+      usedFallback: false,
+    });
+
+    const devBuddy: any = {
+      id: "dev",
+      buildSystemPrompt: vi.fn(() => "DEV BUDDY PROMPT"),
+    };
+
+    const { systemContent } = await buildTutorSystemPrompt({
+      ...BASE_OPTS,
+      userMessage: "test query",
+      user: { id: "user-123", grade: null, track: "university", course: "Computer Science" },
+      buddy: devBuddy,
+      buddyId: "dev",
+    });
+    expect(systemContent).toContain("=== RETRIEVED KNOWLEDGE");
   });
 });

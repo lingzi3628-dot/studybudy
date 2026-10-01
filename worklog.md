@@ -1162,3 +1162,68 @@ Safety:
 Stage Summary:
 - Phase 92 (learner-state injection) complete. The AI tutor is now learner-aware.
 - 94 tests passing across 4 tutor test files. Zero regressions.
+
+
+Phase 93 — Semantic RAG Retrieval Complete
+==========================================
+
+Files created:
+- src/lib/tutor/rag.ts (443 lines) — full RAG pipeline:
+  - embedTexts() — TF.js Universal Sentence Encoder (512-dim, lazy-loaded, cached)
+  - ingestCourseKnowledge() — chunks + embeds + stores CourseKnowledgeChunk rows
+  - retrieveTopK() — embeds query + cosine top-K over chunks tagged with user's track+course/grade
+  - formatRetrievedKnowledgeBlock() — formats chunks as system-prompt block
+  - getRetrievedKnowledgePromptBlock() — combined convenience helper
+  - isRagEnabled() — feature flag (TUTOR_RAG_ENABLED, default: enabled)
+- src/lib/tutor/__tests__/rag.test.ts (15 tests — feature flag + prompt formatter)
+- scripts/phase93-backfill.ts — backfill script for existing CourseKnowledge rows
+
+Files modified:
+- prisma/schema.prisma — added CourseKnowledgeChunk model (chunkText @db.Text + embedding Json? + embeddingModel + embeddingDim) + chunks[] relation on CourseKnowledge
+- src/app/api/tutor/upload-outline/route.ts — calls ingestCourseKnowledge() after creating the CourseKnowledge row; returns chunkCount in the response
+- src/lib/tutor/context-builder.ts — added skipRag opt + RAG block fetch + injection into both buddy branches (after courseKnowledgeContext)
+- src/lib/tutor/__tests__/context-builder.test.ts — added 10 Phase 93 integration tests (40 total)
+
+Embedding model:
+- TensorFlow.js Universal Sentence Encoder (USE), 512-dim, ~25MB
+- Same model the browser RAG uses (src/lib/rag-engine.ts)
+- Lazy-loaded once per process (~3-5s first call, cached afterwards)
+- Subsequent embeds: ~50-100ms per text
+- Verified to work in Node.js (CPU backend, no native deps needed)
+
+Storage:
+- Chunks stored as JSON in CourseKnowledgeChunk.chunkText (@db.Text)
+- Embeddings stored as JSON array in CourseKnowledgeChunk.embedding (Json?)
+- ~2KB per chunk (512 floats × 4 bytes × 2 chars per float in JSON)
+- A 30-page outline produces ~60 chunks = ~120KB. Acceptable at our scale.
+
+Safety mechanisms:
+- Feature flag: TUTOR_RAG_ENABLED=false instantly disables RAG without redeploy
+- Fail-safe try/catch: if TF.js fails to load or embedding fails, RAG is disabled for the process + falls back to Phase 92 behavior
+- Empty-result check: if no chunks exist for the user's track+course, the block is omitted (Phase 84 "last 5" still runs as fallback)
+- skipRag=true opt-out for tests + exam generation
+- Hard take: 500 cap on chunks per query (memory safety)
+- MIN_SIMILARITY_THRESHOLD=0.25 (chunks below this are considered irrelevant)
+- Two-step fetch (matchingKnowledge → chunks by ID) to avoid Prisma relation-filter/include typing issues
+
+Migration safety:
+- Chunks are created LAZILY — existing CourseKnowledge rows without chunks continue to work via Phase 84 fallback (last 5 by createdAt DESC)
+- Backfill script can embed existing rows on demand: npx tsx scripts/phase93-backfill.ts
+- No destructive migration — CourseKnowledgeChunk is a new table, no existing data touched
+
+Verification:
+- TypeScript: 0 new errors (13 pre-existing baseline from Phase 91, unchanged)
+- Tests: 119/119 pass across 5 tutor test files
+  - context-builder.test.ts: 40/40 (22 Phase 91 + 8 Phase 92 + 10 Phase 93)
+  - learner-state.test.ts: 29/29
+  - rag.test.ts: 15/15 (new)
+  - tutor-intents.test.ts: 20/20 (no regression)
+  - rag-engine.test.ts: 15/15 (no regression)
+
+What this changes for the AI Tutor:
+The AI now retrieves the most semantically relevant chunks from uploaded course materials BEFORE composing its reply. This is the single biggest improvement for higher-ed courses (Law, Medicine, Engineering) — previously they got "last 5 uploaded" which was often irrelevant. Now a Law student asking about "consideration in contract law" gets chunks that actually mention consideration, regardless of upload order.
+
+Stage Summary:
+- Phase 93 (semantic RAG retrieval) complete. The AI tutor is now knowledge-grounded.
+- 119 tests passing across 5 tutor test files. Zero regressions.
+- Next: Phase 94 (KICD source citations) — add official KICD URLs to curriculum entries.

@@ -38,6 +38,7 @@ import { buildCurriculumContextResolved } from "@/lib/curriculum-engine";
 import { getBuddy } from "@/lib/buddies/registry";
 import type { Buddy } from "@/lib/buddies/types";
 import { getLearnerStatePromptBlock } from "./learner-state";
+import { getRetrievedKnowledgePromptBlock } from "./rag";
 
 // ============================================================
 // Types
@@ -291,6 +292,8 @@ export interface BuildTutorSystemPromptOpts {
   /** Phase 92 — set true to skip the LEARNER STATE block even when enabled via env.
    *  Useful for tests + for routes that don't want personalization (e.g. exam generation). */
   skipLearnerState?: boolean;
+  /** Phase 93 — set true to skip semantic RAG retrieval (e.g. tests, exam generation). */
+  skipRag?: boolean;
 }
 
 export interface BuildTutorSystemPromptResult {
@@ -323,6 +326,7 @@ export async function buildTutorSystemPrompt(
     learningMode = "standard",
     clientPlatform = "web",
     skipLearnerState = false,
+    skipRag = false,
   } = opts;
   const completeContext = [searchContext, toolResults, studyContext].filter(Boolean).join("\n\n");
 
@@ -505,13 +509,49 @@ Only suggest this ONCE per conversation — don't nag.
     }
   }
 
+  // ------------------------------------------------------------------
+  // Phase 93 — Semantic RAG retrieval.
+  //
+  // Embeds the user's latest message + retrieves top-K chunks from
+  // CourseKnowledgeChunk rows tagged with the user's track + course/grade.
+  // Returns the most semantically relevant chunks as a RETRIEVED KNOWLEDGE
+  // block, which the AI uses as PRIMARY CONTEXT for answering.
+  //
+  // This REPLACES (not supplements) the Phase 84 "last 5 by createdAt" approach
+  // for higher-ed students — for K-12/secondary, both run (the Phase 84 fetch
+  // provides structured topics/summaries; RAG provides raw text chunks).
+  //
+  // Safety:
+  //   - Strictly additive: if the fetch fails or returns empty, the prompt is
+  //     byte-identical to Phase 92.
+  //   - Feature-flagged via TUTOR_RAG_ENABLED (default: enabled).
+  //   - skipRag=true bypasses entirely (used by tests + exam generation).
+  // ------------------------------------------------------------------
+  let retrievedKnowledgeBlock = "";
+  if (!skipRag && userMessage && userMessage.length >= 3) {
+    try {
+      const result = await getRetrievedKnowledgePromptBlock({
+        userMessage,
+        track,
+        course,
+        grade: user.grade,
+      });
+      retrievedKnowledgeBlock = result.text;
+    } catch (err: any) {
+      console.error("[context-builder] RAG retrieval failed:", err?.message ?? String(err));
+      // Fail silently — omit the block, prompt stays Phase 92-compatible.
+    }
+  }
+
   let systemContent: string;
   if (buddyId === "study") {
     // Phase 84 — system prompt now includes track context + course knowledge + upload prompt
     // Phase 92 — learnerStateBlock is injected AFTER completeContext but BEFORE the
     // data-saver + proactive-teaching rules. This positions the learner profile as
     // context the AI reads BEFORE deciding how to teach, not as a rule it must follow.
-    systemContent = `You are StudyBuddy, a friendly AI tutor for students of all levels (K-12 CBC, Secondary, University, College, TVET). ${teachingProfile.systemPromptSuffix}${trackContext}${uploadPrompt}${courseKnowledgeContext}${curriculumContext}${dbCurriculumContext}${completeContext}${learnerStateBlock}
+    // Phase 93 — retrievedKnowledgeBlock is injected right after courseKnowledgeContext,
+    // so semantic chunks appear alongside the structured knowledge base entry.
+    systemContent = `You are StudyBuddy, a friendly AI tutor for students of all levels (K-12 CBC, Secondary, University, College, TVET). ${teachingProfile.systemPromptSuffix}${trackContext}${uploadPrompt}${courseKnowledgeContext}${retrievedKnowledgeBlock}${curriculumContext}${dbCurriculumContext}${completeContext}${learnerStateBlock}
 ${dataSaver ? `\nDATA SAVER MODE is ON. Keep your reply concise — target 1-2 short paragraphs (max ~150 words). Skip verbose examples and unnecessary elaboration. Lead with the direct answer; only add explanation if the user asks for it.\n` : ``}
 
 ${STUDY_PROMPT_GRAPH_RULES}`;
@@ -532,7 +572,8 @@ ${STUDY_PROMPT_GRAPH_RULES}`;
     });
     // Phase 84 — append track + course + knowledge context to all buddies (not just "study")
     // Phase 92 — also append the learner-state block so non-study buddies personalize too
-    systemContent += `\n${trackContext}${uploadPrompt}${courseKnowledgeContext}${learnerStateBlock}`;
+    // Phase 93 — also append retrieved-knowledge block (RAG chunks)
+    systemContent += `\n${trackContext}${uploadPrompt}${courseKnowledgeContext}${retrievedKnowledgeBlock}${learnerStateBlock}`;
   }
 
   if (toolResults) {
