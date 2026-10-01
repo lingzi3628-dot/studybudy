@@ -65,10 +65,19 @@ vi.mock("@/lib/buddies/registry", () => ({
   DEFAULT_BUDDY_ID: "study",
 }));
 
+// 5. Phase 92 — Mock ./learner-state so context-builder tests don't hit DB.
+//    We expose getLearnerStatePromptBlock as a spy so individual tests can
+//    override its return value via mockResolvedValueOnce(...).
+vi.mock("../learner-state", () => ({
+  getLearnerStatePromptBlock: vi.fn().mockResolvedValue({ text: "", state: null }),
+  isLearnerStateEnabled: vi.fn(() => true),
+}));
+
 // ---------------------------------------------------------------
 // Import the module under test AFTER mocks are registered.
 // ---------------------------------------------------------------
 import { buildTutorSystemPrompt } from "../context-builder";
+import { getLearnerStatePromptBlock } from "../learner-state";
 
 // ---------------------------------------------------------------
 // Helpers
@@ -409,5 +418,136 @@ describe("buildTutorSystemPrompt — Phase 91 byte-identical contract", () => {
     expect(systemContent).toContain("examgen");
     expect(systemContent).toContain("quiz");
     expect(systemContent).toContain("draw_task");
+  });
+});
+
+// ============================================================
+// Phase 92 — Learner-state injection integration tests
+// ============================================================
+
+describe("buildTutorSystemPrompt — Phase 92 learner-state injection", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Default: learner-state returns empty (Phase 91 behavior)
+    vi.mocked(getLearnerStatePromptBlock).mockResolvedValue({ text: "", state: null });
+  });
+
+  it("does NOT emit LEARNER STATE block when user.id is missing (Phase 91 compat)", async () => {
+    const { systemContent } = await buildTutorSystemPrompt({
+      ...BASE_OPTS,
+      user: { grade: "Grade 4", track: "k12", course: null }, // no id
+      buddy: STUB_BUDDY,
+    });
+    expect(systemContent).not.toContain("LEARNER STATE");
+    expect(getLearnerStatePromptBlock).not.toHaveBeenCalled();
+  });
+
+  it("does NOT emit LEARNER STATE block when skipLearnerState=true", async () => {
+    const { systemContent } = await buildTutorSystemPrompt({
+      ...BASE_OPTS,
+      user: { id: "user-123", grade: "Grade 4", track: "k12", course: null },
+      buddy: STUB_BUDDY,
+      skipLearnerState: true,
+    });
+    expect(systemContent).not.toContain("LEARNER STATE");
+    expect(getLearnerStatePromptBlock).not.toHaveBeenCalled();
+  });
+
+  it("does NOT emit LEARNER STATE block when learner-state returns empty text", async () => {
+    vi.mocked(getLearnerStatePromptBlock).mockResolvedValue({ text: "", state: null });
+
+    const { systemContent } = await buildTutorSystemPrompt({
+      ...BASE_OPTS,
+      user: { id: "user-123", grade: "Grade 4", track: "k12", course: null },
+      buddy: STUB_BUDDY,
+    });
+    expect(getLearnerStatePromptBlock).toHaveBeenCalledWith("user-123");
+    expect(systemContent).not.toContain("LEARNER STATE");
+  });
+
+  it("emits LEARNER STATE block when learner-state returns text", async () => {
+    vi.mocked(getLearnerStatePromptBlock).mockResolvedValue({
+      text: `\n\n=== LEARNER STATE ===\nStreak: 7 days | Level: 5 (240 XP)\nWeakest topics:\n  • Mathematics → Fractions — mastery 35%\n=== END LEARNER STATE ===\n`,
+      state: null,
+    });
+
+    const { systemContent } = await buildTutorSystemPrompt({
+      ...BASE_OPTS,
+      user: { id: "user-123", grade: "Grade 4", track: "k12", course: null },
+      buddy: STUB_BUDDY,
+    });
+    expect(getLearnerStatePromptBlock).toHaveBeenCalledWith("user-123");
+    expect(systemContent).toContain("=== LEARNER STATE ===");
+    expect(systemContent).toContain("Streak: 7 days");
+    expect(systemContent).toContain("Mathematics → Fractions");
+    expect(systemContent).toContain("=== END LEARNER STATE ===");
+  });
+
+  it("positions LEARNER STATE BEFORE the proactive teaching rules", async () => {
+    vi.mocked(getLearnerStatePromptBlock).mockResolvedValue({
+      text: `\n\n=== LEARNER STATE ===\nStreak: 1 day\n=== END LEARNER STATE ===\n`,
+      state: null,
+    });
+
+    const { systemContent } = await buildTutorSystemPrompt({
+      ...BASE_OPTS,
+      user: { id: "user-123", grade: "Grade 4", track: "k12", course: null },
+      buddy: STUB_BUDDY,
+    });
+    const learnerIdx = systemContent.indexOf("=== LEARNER STATE ===");
+    const proactiveIdx = systemContent.indexOf("PROACTIVE TEACHING MODE");
+    expect(learnerIdx).toBeGreaterThan(-1);
+    expect(proactiveIdx).toBeGreaterThan(-1);
+    expect(learnerIdx).toBeLessThan(proactiveIdx);
+  });
+
+  it("emits LEARNER STATE for non-study buddies too (after trackContext)", async () => {
+    vi.mocked(getLearnerStatePromptBlock).mockResolvedValue({
+      text: `\n\n=== LEARNER STATE ===\nStreak: 3 days\n=== END LEARNER STATE ===\n`,
+      state: null,
+    });
+
+    const devBuddy: any = {
+      id: "dev",
+      buildSystemPrompt: vi.fn(() => "DEV BUDDY PROMPT BODY"),
+    };
+
+    const { systemContent } = await buildTutorSystemPrompt({
+      ...BASE_OPTS,
+      user: { id: "user-123", grade: "Grade 4", track: "k12", course: null },
+      buddy: devBuddy,
+      buddyId: "dev",
+    });
+    expect(systemContent).toContain("=== LEARNER STATE ===");
+    expect(systemContent).toContain("Streak: 3 days");
+  });
+
+  it("continues to work if learner-state throws (Phase 91 byte-identical fallback)", async () => {
+    vi.mocked(getLearnerStatePromptBlock).mockRejectedValue(new Error("network down"));
+
+    const { systemContent } = await buildTutorSystemPrompt({
+      ...BASE_OPTS,
+      user: { id: "user-123", grade: "Grade 4", track: "k12", course: null },
+      buddy: STUB_BUDDY,
+    });
+    // Block is omitted on error — no regression to the rest of the prompt
+    expect(systemContent).not.toContain("LEARNER STATE");
+    expect(systemContent).toContain("PROACTIVE TEACHING MODE");
+    expect(systemContent).toContain("K-12 — Grade 4");
+  });
+
+  it("emits the NEW LEARNER block for a brand-new student", async () => {
+    vi.mocked(getLearnerStatePromptBlock).mockResolvedValue({
+      text: `\n\n=== LEARNER STATE ===\nThis is a NEW LEARNER with no quiz history yet. Greet them warmly and suggest\na starting topic from their curriculum. Do NOT assume prior knowledge.\n=== END LEARNER STATE ===\n`,
+      state: null,
+    });
+
+    const { systemContent } = await buildTutorSystemPrompt({
+      ...BASE_OPTS,
+      user: { id: "new-user", grade: "Grade 4", track: "k12", course: null },
+      buddy: STUB_BUDDY,
+    });
+    expect(systemContent).toContain("NEW LEARNER");
+    expect(systemContent).toContain("Greet them warmly");
   });
 });

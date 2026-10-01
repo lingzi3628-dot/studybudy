@@ -1115,3 +1115,50 @@ Stage Summary:
 - Phase 91 (context-builder extraction) is complete and behaviorally byte-identical to the pre-Phase-91 implementation.
 - The AI tutor's prompt-builder is now a small, well-tested module that future phases (92: learner-state, 93: RAG, 95: lesson controller) can target safely.
 - 22 unit tests pin down the 6 critical branches — any future regression will be caught before merge.
+
+
+Phase 92 — Learner-State Injection Complete
+==========================================
+
+Files created:
+- src/lib/tutor/learner-state.ts (327 lines) — getLearnerState() + formatLearnerStateBlock() + getLearnerStatePromptBlock()
+  Reads from existing tables (no migrations):
+    - TopicMastery (top 3 weakest + 3 strongest, filtered + sorted + sliced)
+    - UserXp (streak, level, XP)
+    - StudyRoomState (active study room topic)
+  Feature flag: TUTOR_LEARNER_STATE_ENABLED (default: enabled)
+- src/lib/tutor/__tests__/learner-state.test.ts (29 tests)
+
+Files modified:
+- src/lib/tutor/context-builder.ts (+30 lines):
+  - Added `user.id?` and `skipLearnerState?` to BuildTutorSystemPromptOpts
+  - Imported getLearnerStatePromptBlock
+  - After dbCurriculumContext, fetches the learner state block (try/catch — fail-safe to "")
+  - Injects ${learnerStateBlock} into BOTH the "study" branch and non-study branch
+- src/lib/tutor/__tests__/context-builder.test.ts (+8 integration tests, 30 total)
+
+Verification:
+- TypeScript: 0 new errors (still 13 pre-existing baseline from Phase 91)
+- Tests:
+    learner-state.test.ts:           29/29 pass
+    context-builder.test.ts:          30/30 pass (22 original + 8 new Phase 92)
+    tutor-intents.test.ts:            20/20 pass (no regression)
+    rag-engine.test.ts:               15/15 pass (no regression)
+    Total:                            94/94 pass
+
+What this changes for the AI Tutor:
+The AI now sees the learner's state BEFORE composing its reply:
+  - Streak + level + XP (motivation + progression context)
+  - Active study-room topic (so it knows what they're studying RIGHT NOW)
+  - Top 3 weakest topics (so it can review/quiz them)
+  - Top 3 strongest topics (so it can build bridges/analogies)
+  - "NEW LEARNER" guidance for brand-new students (greet + suggest starting topic)
+
+Safety:
+- Strictly additive — if the fetch fails or returns empty, the prompt is byte-identical to Phase 91
+- Feature-flagged via env (instant rollback without redeploy)
+- skipLearnerState=true opt-out for routes that don't want personalization
+
+Stage Summary:
+- Phase 92 (learner-state injection) complete. The AI tutor is now learner-aware.
+- 94 tests passing across 4 tutor test files. Zero regressions.

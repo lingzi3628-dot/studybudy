@@ -37,6 +37,7 @@ import { buildTeachingProfile } from "@/lib/aware-engine";
 import { buildCurriculumContextResolved } from "@/lib/curriculum-engine";
 import { getBuddy } from "@/lib/buddies/registry";
 import type { Buddy } from "@/lib/buddies/types";
+import { getLearnerStatePromptBlock } from "./learner-state";
 
 // ============================================================
 // Types
@@ -268,6 +269,8 @@ const LEARNING_MODE_INSTRUCTIONS: Record<TutorLearningMode, string> = {
 
 export interface BuildTutorSystemPromptOpts {
   user: {
+    /** Phase 92 — used to fetch learner state (mastery, streak, active room). Optional for backward compat. */
+    id?: string;
     grade?: string | null;
     track?: string | null;
     course?: string | null;
@@ -285,6 +288,9 @@ export interface BuildTutorSystemPromptOpts {
   studyContext?: string;
   learningMode?: TutorLearningMode;
   clientPlatform?: "mobile" | "web";
+  /** Phase 92 — set true to skip the LEARNER STATE block even when enabled via env.
+   *  Useful for tests + for routes that don't want personalization (e.g. exam generation). */
+  skipLearnerState?: boolean;
 }
 
 export interface BuildTutorSystemPromptResult {
@@ -316,6 +322,7 @@ export async function buildTutorSystemPrompt(
     studyContext = "",
     learningMode = "standard",
     clientPlatform = "web",
+    skipLearnerState = false,
   } = opts;
   const completeContext = [searchContext, toolResults, studyContext].filter(Boolean).join("\n\n");
 
@@ -473,10 +480,38 @@ Only suggest this ONCE per conversation — don't nag.
     }
   } catch {}
 
+  // ------------------------------------------------------------------
+  // Phase 92 — Learner state injection (read-only enrichment).
+  //
+  // Fetches the learner's mastery levels, streak, level, and active study room
+  // topic, then formats them as a LEARNER STATE: block in the system prompt.
+  // This lets the AI personalize its teaching instead of treating every turn
+  // as if the learner were starting from scratch.
+  //
+  // Safety:
+  //   - Strictly additive: if the fetch fails or returns empty, the prompt is
+  //     byte-identical to Phase 91.
+  //   - Feature-flagged via TUTOR_LEARNER_STATE_ENABLED (default: enabled).
+  //   - skipLearnerState=true (used by tests + exam generation) bypasses entirely.
+  // ------------------------------------------------------------------
+  let learnerStateBlock = "";
+  if (!skipLearnerState && user.id) {
+    try {
+      const result = await getLearnerStatePromptBlock(user.id);
+      learnerStateBlock = result.text;
+    } catch (err: any) {
+      console.error("[context-builder] learner-state fetch failed:", err?.message ?? String(err));
+      // Fail silently — omit the block, prompt stays Phase 91-compatible.
+    }
+  }
+
   let systemContent: string;
   if (buddyId === "study") {
     // Phase 84 — system prompt now includes track context + course knowledge + upload prompt
-    systemContent = `You are StudyBuddy, a friendly AI tutor for students of all levels (K-12 CBC, Secondary, University, College, TVET). ${teachingProfile.systemPromptSuffix}${trackContext}${uploadPrompt}${courseKnowledgeContext}${curriculumContext}${dbCurriculumContext}${completeContext}
+    // Phase 92 — learnerStateBlock is injected AFTER completeContext but BEFORE the
+    // data-saver + proactive-teaching rules. This positions the learner profile as
+    // context the AI reads BEFORE deciding how to teach, not as a rule it must follow.
+    systemContent = `You are StudyBuddy, a friendly AI tutor for students of all levels (K-12 CBC, Secondary, University, College, TVET). ${teachingProfile.systemPromptSuffix}${trackContext}${uploadPrompt}${courseKnowledgeContext}${curriculumContext}${dbCurriculumContext}${completeContext}${learnerStateBlock}
 ${dataSaver ? `\nDATA SAVER MODE is ON. Keep your reply concise — target 1-2 short paragraphs (max ~150 words). Skip verbose examples and unnecessary elaboration. Lead with the direct answer; only add explanation if the user asks for it.\n` : ``}
 
 ${STUDY_PROMPT_GRAPH_RULES}`;
@@ -496,7 +531,8 @@ ${STUDY_PROMPT_GRAPH_RULES}`;
       gradeBand: undefined,
     });
     // Phase 84 — append track + course + knowledge context to all buddies (not just "study")
-    systemContent += `\n${trackContext}${uploadPrompt}${courseKnowledgeContext}`;
+    // Phase 92 — also append the learner-state block so non-study buddies personalize too
+    systemContent += `\n${trackContext}${uploadPrompt}${courseKnowledgeContext}${learnerStateBlock}`;
   }
 
   if (toolResults) {
