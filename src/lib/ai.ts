@@ -171,6 +171,11 @@ export async function callAI(
   const userId = ctx?.userId ?? "system";
   const route = ctx?.route;
   let transientlyFailedProviderId: string | undefined;
+  // Phase 98b — when the user's selected Study Buddy is not connected to an
+  // API, we fall back to the free GLM platform path instead of throwing. This
+  // note is prepended to the GLM response so the user understands why they
+  // got a generic reply instead of their selected buddy's persona.
+  let disconnectedBuddyNote = "";
 
   // 1) BYOK
   if (userApiKey && userApiKey.trim()) {
@@ -228,13 +233,15 @@ export async function callAI(
         });
 
         if (mapping && !mapping.providerId) {
-          // The buddy exists but is NOT connected to any API.
-          // Don't fall through to platform AI — tell the user to connect it.
-          throw new Error(
-            `🥲 ${mapping.displayName} ${mapping.emoji} is not connected to an API yet. ` +
-            `Ask an admin to connect it in the AI Studio (Admin → AI Providers), ` +
-            `or switch to a different Study Buddy in the Profile menu.`
-          );
+          // Phase 98b — The buddy exists but is NOT connected to any API.
+          // Don't break the chat — fall back to the free GLM platform path
+          // and prepend a friendly note from the buddy explaining it's busy.
+          // The user still gets a useful answer; they just understand why it's
+          // not in their selected buddy's voice.
+          console.log(`[ai] Buddy "${mapping.displayName}" is not connected — falling back to GLM with a note`);
+          disconnectedBuddyNote =
+            `⚠️ _${mapping.displayName} ${mapping.emoji} is currently on peak and can't reply right now. Here's a response from Study Buddy Free:_\n\n`;
+          // Fall through to admin providers + GLM platform (do NOT throw)
         }
 
         if (mapping?.providerId) {
@@ -338,7 +345,7 @@ export async function callAI(
   try {
     const r = await callWithProviders(messages, { userId, route, excludeProviderId: transientlyFailedProviderId });
     if (r.content) {
-      return r.content;
+      return disconnectedBuddyNote + r.content;
     }
   } catch (e: any) {
     console.warn("Admin provider call failed:", e?.message ?? e);
@@ -346,7 +353,7 @@ export async function callAI(
 
   // 3) Platform fallback
   const content = await callPlatformAI(messages, { userId, route, temperature: ctx?.temperature, maxTokens: ctx?.maxTokens });
-  return content;
+  return disconnectedBuddyNote + content;
 }
 
 function isTransientProviderFailure(value: unknown): boolean {
