@@ -26,6 +26,8 @@ import {
   ChevronLeft,
 } from "lucide-react";
 
+import { Stats, Book } from "./shared";
+
 type Grade = {
   id: string;
   name: string;
