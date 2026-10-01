@@ -42,7 +42,15 @@ export type AppUser = {
 /**
  * Returns the current user from the user_token JWT cookie.
  * Throws 401 "Authentication required" if not authenticated.
+ *
+ * Phase 90.1 — Performance optimization:
+ * - Only writes `lastActive` once per 60 seconds per user (was every API call)
+ * - Uses an in-memory Map to track the last write time per user ID
+ * - Saves 1 DB write per request when user was active within the last minute
  */
+const lastActiveCache = new Map<string, number>(); // userId → timestamp
+const LAST_ACTIVE_TTL = 60_000; // 60 seconds
+
 export async function getCurrentUser(): Promise<AppUser> {
   const cookieStore = await cookies();
   const userToken = cookieStore.get(getUserCookieName())?.value;
@@ -53,10 +61,16 @@ export async function getCurrentUser(): Promise<AppUser> {
       where: { id: userPayload.userId },
     });
     if (user && !user.banned) {
-      await db.user.update({
-        where: { id: user.id },
-        data: { lastActive: new Date() },
-      }).catch(() => {});
+      // Phase 90.1 — Only update lastActive once per minute per user
+      const now = Date.now();
+      const lastWrite = lastActiveCache.get(user.id) || 0;
+      if (now - lastWrite > LAST_ACTIVE_TTL) {
+        lastActiveCache.set(user.id, now);
+        db.user.update({
+          where: { id: user.id },
+          data: { lastActive: new Date() },
+        }).catch(() => {}); // fire-and-forget — don't block the response
+      }
       return toAppUser(user);
     }
   }
