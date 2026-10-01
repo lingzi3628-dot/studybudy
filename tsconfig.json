@@ -37,6 +37,13 @@
     ".next/dev/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "mobile/**",
+    "examples/**",
+    "skills/**",
+    "scripts/**",
+    "tests/**",
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx"
   ]
 }

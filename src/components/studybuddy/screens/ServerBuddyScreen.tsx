@@ -1,4 +1,5 @@
 "use client";
+import type { ReactElement } from "react";
 
 /**
  * ServerBuddyScreen — Phase 58
@@ -192,7 +193,7 @@ export function ServerBuddyScreen() {
           ["terminal", "Terminal", <TerminalIcon key="t" className="w-3.5 h-3.5" />],
           ["nginx", "Nginx", <Globe key="n" className="w-3.5 h-3.5" />],
           ["deploy", "Deploy", <Rocket key="d" className="w-3.5 h-3.5" />],
-        ] as [Tab, string, JSX.Element][]).map(([id, label, icon]) => (
+        ] as [Tab, string, ReactElement][]).map(([id, label, icon]) => (
           <button
             key={id}
             onClick={() => (id === "nginx" ? openNginxTab() : setTab(id))}

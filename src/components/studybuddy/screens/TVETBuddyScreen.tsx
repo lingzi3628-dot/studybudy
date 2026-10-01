@@ -1,4 +1,5 @@
 "use client";
+import type { ReactElement } from "react";
 
 /**
  * TVETBuddyScreen — Phase 59
@@ -82,7 +83,7 @@ export function TVETBuddyScreen() {
           ["network", "Network", <Network key="n" className="w-3.5 h-3.5" />],
           ["plc", "PLC Ladder", <ListTree key="p" className="w-3.5 h-3.5" />],
           ["checklists", "Checklists", <CheckSquare key="k" className="w-3.5 h-3.5" />],
-        ] as [Tab, string, JSX.Element][]).map(([id, label, icon]) => (
+        ] as [Tab, string, ReactElement][]).map(([id, label, icon]) => (
           <button
             key={id}
             onClick={() => setTab(id)}

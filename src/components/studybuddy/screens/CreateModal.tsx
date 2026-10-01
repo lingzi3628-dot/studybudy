@@ -490,7 +490,7 @@ export function CreateModal() {
           generate: false,
         });
         setSavedSetId(result.studySet.id);
-        setSavedTopicId(result.room?.topicId ?? result.studySet.topicId ?? activeTopicId ?? null);
+        setSavedTopicId(result.room?.topicId ?? (result.studySet as any).topicId ?? activeTopicId ?? null);
         setStep("success");
       } catch (e: any) {
         setError(e?.message ?? "Could not save this study room.");

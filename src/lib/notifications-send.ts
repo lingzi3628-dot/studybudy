@@ -20,8 +20,8 @@
 import nodemailer from "nodemailer";
 import { db } from "./db";
 
-let _transporter: nodemailer.Transporter | null = null;
-function getTransporter(): nodemailer.Transporter | null {
+let _transporter: import("nodemailer").Transporter | null = null;
+function getTransporter(): import("nodemailer").Transporter | null {
   if (_transporter !== null) return _transporter;
   const host = process.env.SMTP_HOST;
   if (!host) return null;

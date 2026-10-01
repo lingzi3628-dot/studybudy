@@ -19,9 +19,9 @@
  */
 import nodemailer from "nodemailer";
 
-let transporter: nodemailer.Transporter | null = null;
+let transporter: import("nodemailer").Transporter | null = null;
 
-function getTransporter(): nodemailer.Transporter | null {
+function getTransporter(): import("nodemailer").Transporter | null {
   if (transporter) return transporter;
 
   const host = process.env.SMTP_HOST || "smtp.gmail.com";

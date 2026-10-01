@@ -6,10 +6,10 @@ const nextConfig: NextConfig = {
   // with Next 16 + Turbopack enabling it breaks the build during onBuildComplete
   // with `ENOENT .next/next-server.js.nft.json`.
   output: process.env.VERCEL ? undefined : "standalone",
-  typescript: {
-    ignoreBuildErrors: true,
-  },
-  reactStrictMode: false,
+  // Phase 89 — REMOVED typescript.ignoreBuildErrors: true
+  // Was hiding 121 TS errors including the AdminSession type bug that crashed
+  // 25 admin routes. Now all type errors are caught at build time.
+  reactStrictMode: true,  // Phase 89 — re-enabled (was false)
   // Phase 88 — increase body size limit for file uploads (game zips, explore
   // projects, course outlines, AI tutor images). Vercel's default is 4.5MB
   // which causes 413 errors on larger files.

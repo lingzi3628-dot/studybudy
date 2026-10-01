@@ -50,7 +50,7 @@ export async function GET(
     });
 
     const safeTitle = studySet.title.replace(/[^a-z0-9]+/gi, "-").toLowerCase().slice(0, 40);
-    return new NextResponse(pdfBytes, {
+    return new NextResponse(new Uint8Array(pdfBytes) as any, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",

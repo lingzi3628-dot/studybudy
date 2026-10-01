@@ -155,8 +155,8 @@ export async function POST(req: NextRequest) {
           title: title || "Untitled material",
           sourceType,
           sourceText: sourceText.slice(0, 30_000),
-          subject,
-          topic,
+          subject: subject ?? null,
+          topic: topic ?? null,
           topicId: roomTopicId,
         },
       });
@@ -172,8 +172,8 @@ export async function POST(req: NextRequest) {
         title,
         sourceType,
         sourceText: sourceText.slice(0, 30_000),
-        subject,
-        topic,
+        subject: subject ?? null,
+          topic: topic ?? null,
       },
     });
   }
@@ -192,10 +192,10 @@ export async function POST(req: NextRequest) {
       options: c.options ?? null,
       correctIndex: c.correctIndex ?? null,
       explanation: c.explanation ?? null,
-      subject,
-      topic,
+      subject: subject ?? null,
+          topic: topic ?? null,
     }));
-    await db.card.createMany({ data: rows });
+    await db.card.createMany({ data: rows as any });
   } else if (generate && sourceText.trim()) {
     // rate limit
     const rl = checkRateLimit(user.id, user.plan);
@@ -293,8 +293,8 @@ export async function POST(req: NextRequest) {
           options: null,
           correctIndex: null,
           explanation: null,
-          subject,
-          topic,
+          subject: subject ?? null,
+          topic: topic ?? null,
         });
       }
       for (const m of mcqs) {
@@ -303,16 +303,16 @@ export async function POST(req: NextRequest) {
           cardType: "mcq",
           front: null,
           back: null,
-          question: m.question,
-          options: m.options,
-          correctIndex: m.correct_index,
-          explanation: m.explanation,
-          subject,
-          topic,
+          question: m.question ?? null,
+          options: m.options ?? null,
+          correctIndex: m.correct_index ?? null,
+          explanation: m.explanation ?? null,
+          subject: subject ?? null,
+          topic: topic ?? null,
         });
       }
       if (rows.length) {
-        await db.card.createMany({ data: rows });
+        await db.card.createMany({ data: rows as any });
       }
     } catch (e: any) {
       // refund rate limit bucket on AI failure

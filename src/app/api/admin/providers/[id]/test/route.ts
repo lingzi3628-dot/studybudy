@@ -17,7 +17,7 @@ export async function POST(req: NextRequest, { params }: Params) {
   const admin = await requireAdminJwt();
   const { id } = await params;
 
-  const rl = checkRateLimit(admin.adminId, admin.plan);
+  const rl = checkRateLimit(admin.adminId, admin.plan as any);
   if (!rl.allowed) {
     return NextResponse.json(
       { error: "Daily test limit reached", limit: rl.limit, resetAt: rl.resetAt },

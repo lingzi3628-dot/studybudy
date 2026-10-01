@@ -22,6 +22,11 @@ export type AdminSession = {
   adminId: string;
   adminEmail: string;
   name: string | null;
+  // Phase 89 — backward-compatible aliases so existing call sites using
+  // session.id / session.email / session.adminId / session.adminEmail all work
+  id: string;
+  email: string;
+  plan?: string;  // some routes check session.plan — not used but avoids TS error
 };
 
 /**
@@ -60,6 +65,8 @@ export async function requireAdminJwt(): Promise<AdminSession> {
     adminId: admin.id,
     adminEmail: admin.email,
     name: admin.name,
+    id: admin.id,        // Phase 89 — backward-compatible alias
+    email: admin.email,  // Phase 89 — backward-compatible alias
   };
 }
 
@@ -84,23 +91,20 @@ export async function getOptionalAdminSession(): Promise<AdminSession | null> {
  * admin email in the details JSON instead.
  */
 export async function logAdminActionViaJwt(
-  admin: AdminSession,
+  admin: AdminSession | string,
   action: string,
   details?: Record<string, unknown>
 ): Promise<void> {
   try {
+    const adminEmail = typeof admin === "string" ? admin : admin.adminEmail;
     await db.adminLog.create({
       data: {
-        // adminUserId is FK to users.id; we don't have a User row for admins
-        // anymore (they're in admin_users). Store null and include admin
-        // email in details for traceability.
         adminUserId: null,
         action,
-        details: { adminEmail: admin.adminEmail, ...(details ?? {}) } as any,
+        details: { adminEmail, ...(details ?? {}) } as any,
       },
     });
   } catch (e) {
-    // best-effort
     console.warn("Failed to log admin action", e);
   }
 }

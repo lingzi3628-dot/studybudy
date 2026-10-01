@@ -64,9 +64,9 @@ export async function POST(req: NextRequest) {
       const tx = await db.paymentTransaction.create({
         data: {
           userId: user.id,
-          planId: plan.id,
-          amount: plan.price,
-          currency: plan.currency,
+          planId: plan!.id,
+          amount: plan!.price,
+          currency: plan!.currency,
           paymentMethod,
           status: "pending",
         },
@@ -76,7 +76,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       transactionId: txId,
-      plan: { name: plan.name, price: plan.price, currency: plan.currency },
+      plan: { name: plan!.name, price: plan!.price, currency: plan!.currency },
       paymentMethod: paymentMethod,
       label: ps.label,
       instructions: ps.instructions,

@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
       subscriptionExpiry: expiry,
       tokenResetDate: nextReset,
       activationKey: keyStr,
-      currentModel: plan.features?.model ?? "study_buddy_free",
+      currentModel: (plan.features as any)?.model ?? "study_buddy_free",
     },
   });
 

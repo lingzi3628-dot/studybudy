@@ -41,7 +41,7 @@ export async function GET(
   }
 
   // Lazy-load archiver so it never sits in the serverless cold-start path.
-  const archiver = (await import("archiver")).default;
+  const archiver: any = await import("archiver");
 
   const safeTitle =
     project.title

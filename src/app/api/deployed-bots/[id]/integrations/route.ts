@@ -186,7 +186,7 @@ export async function POST(
  */
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: Promise<{ id: string; platform: string }> }
+  { params }: { params: Promise<any> }
 ) {
   const user = await getCurrentUser();
   const { id, platform } = await params;

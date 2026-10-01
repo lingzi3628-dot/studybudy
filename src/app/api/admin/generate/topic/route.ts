@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
   const numMCQs = Math.max(0, Math.min(12, Number(body.numMCQs ?? 5)));
   const text = (body.text ?? "").toString().trim();
 
-  const rl = checkRateLimit(admin.id, admin.plan);
+  const rl = checkRateLimit(admin.id, admin.plan as any);
   if (!rl.allowed) {
     return NextResponse.json({ error: "Daily AI limit reached", limit: rl.limit, resetAt: rl.resetAt }, { status: 429 });
   }

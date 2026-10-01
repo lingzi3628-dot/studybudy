@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
         explanation: c.explanation ?? null,
         subject,
         topic,
-      })),
+      })) as any,
     });
   }
 

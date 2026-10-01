@@ -83,7 +83,7 @@ export async function POST(req: NextRequest) {
 
     try {
       await logAdminActionViaJwt(
-        { adminId: admin.id, adminEmail: admin.email, name: admin.name },
+        { adminId: admin.id, adminEmail: admin.email, name: admin.name, id: admin.id, email: admin.email },
         "admin.login",
         { email: admin.email }
       );

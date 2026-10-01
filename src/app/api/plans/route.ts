@@ -28,7 +28,7 @@ export async function GET() {
     return NextResponse.json({ plans: FALLBACK_PLANS });
   } catch (e) {
     // DB not synced or table missing — return hardcoded plans
-    console.warn("/api/plans DB query failed, using fallback:", e?.message);
+    console.warn("/api/plans DB query failed, using fallback:", (e as any)?.message);
     return NextResponse.json({ plans: FALLBACK_PLANS });
   }
 }

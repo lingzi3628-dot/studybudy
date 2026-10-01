@@ -26,7 +26,7 @@ export async function GET() {
     }
     return NextResponse.json({ settings: FALLBACK_SETTINGS });
   } catch (e) {
-    console.warn("payment-settings DB failed, using fallback:", e?.message);
+    console.warn("payment-settings DB failed, using fallback:", (e as any)?.message);
     return NextResponse.json({ settings: FALLBACK_SETTINGS });
   }
 }

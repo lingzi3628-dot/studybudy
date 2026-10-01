@@ -44,7 +44,7 @@ export async function GET(
   const bytes = generateTSVBytes(ankiCards);
   const safeTitle = studySet.title.replace(/[^a-z0-9]+/gi, "-").toLowerCase().slice(0, 40);
 
-  return new NextResponse(bytes, {
+  return new NextResponse(new Uint8Array(bytes) as any, {
     status: 200,
     headers: {
       "Content-Type": "text/tab-separated-values; charset=utf-8",

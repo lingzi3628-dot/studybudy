@@ -120,16 +120,21 @@ export async function POST(req: NextRequest) {
         console.error("[upload-document] DOC conversion failed:", docErr?.message);
       }
     } else if (ext === "xlsx" || ext === "xls") {
-      // Use xlsx npm package to extract all sheets
+      // Phase 89 — Use exceljs (replaces vulnerable xlsx package)
       try {
-        const XLSX = (await import("xlsx")).default;
-        const workbook = XLSX.read(buffer, { type: "buffer" });
+        const ExcelJS = (await import("exceljs")).default;
+        const workbook = new ExcelJS.Workbook();
+        await workbook.xlsx.load(buffer as any);
         const sheets: string[] = [];
-        for (const sheetName of workbook.SheetNames) {
-          const sheet = workbook.Sheets[sheetName];
-          const csv = XLSX.utils.sheet_to_csv(sheet);
-          sheets.push(`=== Sheet: ${sheetName} ===\n${csv}`);
-        }
+        workbook.eachSheet((sheet: any) => {
+          const rows: string[] = [];
+          sheet.eachRow((row: any) => {
+            const vals = row.values as any[];
+            const cells = vals.slice(1).map((v: any) => v instanceof Object ? (v.text || v.result || JSON.stringify(v)) : String(v ?? ""));
+            rows.push(cells.join("\t"));
+          });
+          sheets.push(`=== Sheet: ${sheet.name} ===\n${rows.join("\n")}`);
+        });
         extractedText = sheets.join("\n\n").trim();
       } catch (xlsxErr: any) {
         console.error("[upload-document] xlsx parsing failed:", xlsxErr?.message);

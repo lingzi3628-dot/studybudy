@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
   const text = (body.text ?? "").toString().trim();
   if (!text) return NextResponse.json({ error: "Missing text" }, { status: 400 });
 
-  const rl = checkRateLimit(admin.id, admin.plan);
+  const rl = checkRateLimit(admin.id, admin.plan as any);
   if (!rl.allowed) {
     return NextResponse.json({ error: "Daily AI limit reached", limit: rl.limit, resetAt: rl.resetAt }, { status: 429 });
   }
