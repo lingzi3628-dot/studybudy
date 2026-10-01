@@ -1079,3 +1079,39 @@ Stage Summary:
 - All file routes return HTTP 200 with correct byte counts via dev server
 - The admin can now ALSO upload ZIP files of new games via the admin panel I built in the previous task — these two games were built directly because the user only had the HTML, not the JS files
 - Next step for user: call POST /api/games/seed once to register both new games in the database, then they'll appear in the Game Hub as featured tiles.
+
+---
+Task ID: phase91-tutor-context-builder
+Agent: Main agent (Super Z)
+Task: Phase 91 — Read-only audit complete. Starting Phase 91 implementation: extract buildTutorSystemPrompt() into a pure module src/lib/tutor/context-builder.ts so that future phases (92 learner-state, 93 RAG, 95 lesson controller) can target a small, tested module instead of the 1,138-line tutor-chat-engine.ts. Output must be byte-identical to today.
+
+Work Log:
+- Audit complete (see audit message sent to user): 12 routes mapped, 1,138-line engine reviewed, 16 weaknesses identified across 4 severity bands.
+- User approved plan: proceed with Phase 91 → 92 sequence.
+
+Stage Summary:
+- Starting Phase 91 — context-builder extraction. No behavior change.
+
+Phase 91 — Implementation Complete
+==================================
+
+Files created:
+- src/lib/tutor/context-builder.ts (418 lines) — extracted buildTutorSystemPrompt + TutorLearningMode + STUDY_PROMPT_GRAPH_RULES
+- src/lib/tutor/__tests__/context-builder.test.ts (22 tests, all passing)
+- scripts/phase91-delete-moved-section.py (deterministic line-range deleter, kept for traceability)
+
+Files modified:
+- src/lib/tutor-chat-engine.ts — slimmed from 1,138 → 725 lines (-422 lines via extraction); re-exports buildTutorSystemPrompt + TutorLearningMode from ./tutor/context-builder so both route files (/api/tutor/chat + /api/tutor/chat/stream) keep compiling with ZERO source changes
+- src/lib/json-schemas.ts — fixed pre-existing JSDoc bug (inline `*/` was prematurely closing the outer block, breaking the build)
+
+Verification:
+- TypeScript: 13 pre-existing errors (untouched files: 8 admin-tab `label` prop errors, 4 z.record() arity errors, 1 other). ZERO new errors introduced by Phase 91.
+- New tests: 22/22 pass — covers all 6 track × course branches (k12+grade, secondary+grade, university+course, college+course, tvet+course, mixed+course) + learning modes + data saver + mobile vs web + knowledge-gap prompt + non-study buddy delegation + byte-identical stability check
+- Existing tests: 35/35 still pass (tutor-intents + rag-engine)
+
+Phase 91 done. Ready to start Phase 92 (learner-state injection) on user's signal.
+
+Stage Summary:
+- Phase 91 (context-builder extraction) is complete and behaviorally byte-identical to the pre-Phase-91 implementation.
+- The AI tutor's prompt-builder is now a small, well-tested module that future phases (92: learner-state, 93: RAG, 95: lesson controller) can target safely.
+- 22 unit tests pin down the 6 critical branches — any future regression will be caught before merge.

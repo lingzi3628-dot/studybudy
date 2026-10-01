@@ -5,7 +5,7 @@
  * Usage:
  *   import { GameFilesSchema, ExploreFilesSchema } from "@/lib/json-schemas";
  *   const parsed = GameFilesSchema.safeParse(game.files);
- *   if (!parsed.success) { /* handle invalid data */ }
+ *   if (!parsed.success) { / handle invalid data / }
  *   // parsed.data is typed as Record<string, string>
  */
 
