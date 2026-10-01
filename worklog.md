@@ -1388,3 +1388,61 @@ Stage Summary:
   (TutorLessonState + CourseKnowledgeChunk tables).
 - The backfill script (scripts/phase93-backfill.ts) should be run once
   after deploy to embed existing CourseKnowledge rows.
+
+
+Phase F4 — Bundle investigation complete
+========================================
+
+5.8 MB chunk identified: @mlc-ai/web-llm (browser-side LLM runner via WebGPU)
+
+FINDINGS:
+- Chunk file: .next/static/chunks/0q8xntgdx7dzd.js (5.8 MB)
+- Library: @mlc-ai/web-llm v0.2.84
+- Contains: CreateMLCEngine, WebWorkerMLCEngine, ServiceWorkerMLCEngine,
+  hasModelInCache, deleteModelInCache, modelLibURLPrefix, prebuiltAppConfig
+- Source: src/lib/webllm-engine.ts (277 lines)
+- Importer: src/components/studybuddy/screens/ChatbotPlayground.tsx (4,041 lines)
+- Used for: running LLMs locally in the browser (SmolLM2, Qwen2, Phi-3.5)
+
+CRITICAL FINDING — does NOT load on the dashboard:
+- webllm-engine.ts uses dynamic import (await import("@mlc-ai/web-llm") at line 97)
+- ChatbotPlayground.tsx uses dynamic import (await import("@/lib/webllm-engine") at lines 1382, 1773, 1797)
+- ChatbotPlayground.tsx is itself lazy-loaded via next/dynamic in page.tsx
+- The 5.8 MB chunk is ONLY downloaded when the user opens ChatbotPlayground
+  AND clicks "Load local model"
+- Dashboard users (Home, HigherEdHome, TrackHome) NEVER download this chunk
+
+Top 5 chunks identified:
+1. 5.8 MB — @mlc-ai/web-llm (ChatbotPlayground only — NOT on dashboard)
+2. 803 KB — TensorFlow.js (MLPlayground + RAG engine — NOT on dashboard)
+3. 618 KB — natural-sort / date parsing utility (likely shared — investigate)
+4. 586 KB — CodeMirror / highlight.js (CodeEditor/DevBuddy — NOT on dashboard)
+5. 405 KB — AITutorChat screen (includes KaTeX + GraphRenderers — NOT on dashboard since lazy-loaded)
+
+CONCLUSION:
+The dashboard is already well-optimized. All heavy dependencies are behind
+dynamic imports + lazy-loaded screens. The 5.8 MB chunk is NOT a dashboard
+problem — it only loads when a user explicitly opens the ChatbotPlayground
+and loads a local model.
+
+No code changes needed. The bundle architecture is already correct.
+
+
+Phase F4 — Pushed 9a8521b (bundle analyzer + investigation)
+============================================================
+
+All frontend work that doesn't conflict with the pending tutor advice is done:
+
+COMPLETED:
+  F0 — New K-12 dashboard (NewHome.tsx) — shipped
+  F1 — Eliminated 3 duplicate API calls per dashboard load — shipped
+  F2 — New dashboards for ALL tracks (NewHigherEdHome, NewTrackHome) — shipped
+  F4 — Bundle investigation (5.8MB chunk = web-llm, NOT on dashboard) — shipped
+
+PENDING (awaiting other AI's advice on tutor decomposition):
+  F5 — Decompose AITutorChat.tsx (3,412 lines) + GraphRenderers.tsx (3,360 lines)
+
+DEFERRED (advisor warned against):
+  F3 — Hybrid URL routing (do not do this + tutor refactor in same patch)
+
+Next step: wait for the other AI's advice on the tutor, then implement F5.
