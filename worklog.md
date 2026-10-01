@@ -1316,3 +1316,48 @@ Files modified:
 - src/lib/json-schemas.ts (fix: JSDoc bug that broke the build)
 
 Testing guide: download/AI_TUTOR_TESTING_GUIDE.md
+
+
+Phase 97a — KICD/KNEC data fetching investigation
+=================================================
+
+Tested the proposed data fetching guide. Findings:
+
+URL Reachability (20 URLs probed):
+- 4 reachable: KICD homepage, KICD /downloads, TVETA, Elimu.io
+- 12 return 404 (all the guessed deep-link URLs like /downloads/grade-1-curriculum-design)
+- KNEC: SSL certificate verification failures
+- Ministry of Education: connection refused
+- CUE: SSL certificate verification failures
+- CDACC, KBDC, SchoolPlus Kenya: DNS resolution failures (domains don't resolve)
+
+KICD site structure discovered:
+- Real URL pattern: /cbc-materials/curriculum-designs/grade-{N}-designs/
+- Each grade page lists ~15 subjects (Agriculture, English, Mathematics, etc.)
+- PDFs are embedded as Google Drive iframes: <iframe src="https://drive.google.com/file/d/{ID}/preview">
+- Crawler successfully extracts all Google Drive file IDs (15 per grade × 11 grades = ~165 PDFs identified)
+
+Download blocker:
+- Google Drive returns: "Sorry, the owner hasn't given you permission to download this file.
+  Only the owner and editors can download this file."
+- KICD has set all curriculum design PDFs to "view only" — downloads are explicitly disabled
+- This is a deliberate KICD-side restriction, not a technical issue we can work around
+
+Hardcoded curriculum coverage check:
+- src/lib/curriculum-engine.ts already covers: PP1, PP2, Grade 1-9, Form 1-4
+- Grade 10-13 are aliased to Form 1-4 via GRADE_ALIASES (so content IS there, just under Form names)
+- Missing: Grade 10-12 senior school pathway designs (STEM, Social Sciences, Arts & Sports) — these
+  are NEW CBC designs that haven't fully replaced the 8-4-4 system yet
+
+Conclusion:
+- The proposed scraping approach CANNOT work — KICD has locked downloads, KNEC has SSL issues,
+  and most other sites are unreachable from this environment
+- The Phase 93 RAG infrastructure already handles the use case: admins upload PDFs they can
+  manually obtain (via browser print-to-PDF or official KICD distribution), and the system
+  chunks + embeds them automatically
+- The pdfplumber parsing logic from the user's script IS reusable — we can integrate it into
+  the upload pipeline as a server-side extractor
+
+Recommendation: extend the existing /api/tutor/upload-outline endpoint to accept admin-uploaded
+curriculum PDFs (using pdfplumber for extraction), and rely on the Phase 93 RAG + Phase 94 KICD
+citation infrastructure already in place. Do NOT attempt to scrape KICD/KNEC programmatically.

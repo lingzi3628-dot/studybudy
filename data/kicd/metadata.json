@@ -1,0 +1,246 @@
+{
+  "source": "KICD curriculum designs (https://kicd.ac.ke/cbc-materials/curriculum-designs/)",
+  "fetched_at": "2026-10-01T11:08:18+0000",
+  "grades": {
+    "PP1": {
+      "source_url": "https://kicd.ac.ke/cbc-materials/curriculum-designs/pp1-designs/",
+      "subjects": []
+    },
+    "PP2": {
+      "source_url": "https://kicd.ac.ke/cbc-materials/curriculum-designs/pp2-designs/",
+      "subjects": []
+    },
+    "Grade 1": {
+      "source_url": "https://kicd.ac.ke/cbc-materials/curriculum-designs/grade-one-designs/",
+      "subjects": []
+    },
+    "Grade 2": {
+      "source_url": "https://kicd.ac.ke/cbc-materials/curriculum-designs/grade-two-designs/",
+      "subjects": []
+    },
+    "Grade 3": {
+      "source_url": "https://kicd.ac.ke/cbc-materials/curriculum-designs/grade-three-designs/",
+      "subjects": []
+    },
+    "Grade 4": {
+      "source_url": "https://kicd.ac.ke/cbc-materials/curriculum-designs/grade-four-designs/",
+      "subjects": [
+        {
+          "subject": "Agriculture",
+          "drive_file_id": "1xfUKusjuRlNi22arhYCWy3IS_obPhcvL",
+          "drive_url": "https://drive.google.com/file/d/1xfUKusjuRlNi22arhYCWy3IS_obPhcvL/view",
+          "local_path": null,
+          "downloaded": false
+        },
+        {
+          "subject": "Arabic",
+          "drive_file_id": "1rYeB-zhF68YnNBlozbm9qhwPnPI_i0UF",
+          "drive_url": "https://drive.google.com/file/d/1rYeB-zhF68YnNBlozbm9qhwPnPI_i0UF/view",
+          "local_path": null,
+          "downloaded": false
+        },
+        {
+          "subject": "Creative Arts",
+          "drive_file_id": "1NhyGe8EsZLgubbxwEvva-sNUPxDHR8r1",
+          "drive_url": "https://drive.google.com/file/d/1NhyGe8EsZLgubbxwEvva-sNUPxDHR8r1/view",
+          "local_path": null,
+          "downloaded": false
+        },
+        {
+          "subject": "CRE",
+          "drive_file_id": "1vW3aipLZDPSkl2z29W7RbBEEUrCdEbt7",
+          "drive_url": "https://drive.google.com/file/d/1vW3aipLZDPSkl2z29W7RbBEEUrCdEbt7/view",
+          "local_path": null,
+          "downloaded": false
+        },
+        {
+          "subject": "English",
+          "drive_file_id": "1o3j3bJwiqJyerdZIFPDJaSprYdTp3Eu1",
+          "drive_url": "https://drive.google.com/file/d/1o3j3bJwiqJyerdZIFPDJaSprYdTp3Eu1/view",
+          "local_path": null,
+          "downloaded": false
+        },
+        {
+          "subject": "French",
+          "drive_file_id": "18qVRdnMqrdBkf6eGuIDdxHfoAwydu-wv",
+          "drive_url": "https://drive.google.com/file/d/18qVRdnMqrdBkf6eGuIDdxHfoAwydu-wv/view",
+          "local_path": null,
+          "downloaded": false
+        },
+        {
+          "subject": "German",
+          "drive_file_id": "1YtlkH6n9skVQqt1g15twi54mx8ZUGlDV",
+          "drive_url": "https://drive.google.com/file/d/1YtlkH6n9skVQqt1g15twi54mx8ZUGlDV/view",
+          "local_path": null,
+          "downloaded": false
+        },
+        {
+          "subject": "HRE",
+          "drive_file_id": "15TMyiOpDL71sr6ZLCn-M-w30XHksCdTy",
+          "drive_url": "https://drive.google.com/file/d/15TMyiOpDL71sr6ZLCn-M-w30XHksCdTy/view",
+          "local_path": null,
+          "downloaded": false
+        },
+        {
+          "subject": "Indigenous Language",
+          "drive_file_id": "1687tUM9DvYbjUIryPMDU2Ve4cF--otB6",
+          "drive_url": "https://drive.google.com/file/d/1687tUM9DvYbjUIryPMDU2Ve4cF--otB6/view",
+          "local_path": null,
+          "downloaded": false
+        },
+        {
+          "subject": "IRE",
+          "drive_file_id": "1ifDV-yVjmntZvnU-7WPLxLLDuborohUh",
+          "drive_url": "https://drive.google.com/file/d/1ifDV-yVjmntZvnU-7WPLxLLDuborohUh/view",
+          "local_path": null,
+          "downloaded": false
+        },
+        {
+          "subject": "Kiswahili",
+          "drive_file_id": "1MO1ddc7tFvcpKYy7Trr4VBhllBmwKntW",
+          "drive_url": "https://drive.google.com/file/d/1MO1ddc7tFvcpKYy7Trr4VBhllBmwKntW/view",
+          "local_path": null,
+          "downloaded": false
+        },
+        {
+          "subject": "Mandarin",
+          "drive_file_id": "1zOfFS4neSdP_8LguOc1FaGPc5DUy80Oj",
+          "drive_url": "https://drive.google.com/file/d/1zOfFS4neSdP_8LguOc1FaGPc5DUy80Oj/view",
+          "local_path": null,
+          "downloaded": false
+        },
+        {
+          "subject": "Mathematics",
+          "drive_file_id": "1o5tDq16yC0Jj1h6zb9mo3dsxtjqXUk4G",
+          "drive_url": "https://drive.google.com/file/d/1o5tDq16yC0Jj1h6zb9mo3dsxtjqXUk4G/view",
+          "local_path": null,
+          "downloaded": false
+        },
+        {
+          "subject": "Science and Technology",
+          "drive_file_id": "1jbAvVAWmif-toAfPShQm9UujN7bZ0luX",
+          "drive_url": "https://drive.google.com/file/d/1jbAvVAWmif-toAfPShQm9UujN7bZ0luX/view",
+          "local_path": null,
+          "downloaded": false
+        },
+        {
+          "subject": "Social Studies",
+          "drive_file_id": "1I81sEkJJz7zj2rp4thpUN3MOlHPK5-mG",
+          "drive_url": "https://drive.google.com/file/d/1I81sEkJJz7zj2rp4thpUN3MOlHPK5-mG/view",
+          "local_path": null,
+          "downloaded": false
+        }
+      ]
+    },
+    "Grade 5": {
+      "source_url": "https://kicd.ac.ke/cbc-materials/curriculum-designs/grade-five-designs/",
+      "subjects": [
+        {
+          "subject": "Agriculture",
+          "drive_file_id": "1jlMN272UeRa-FbyB5es488O5jI9llekn",
+          "drive_url": "https://drive.google.com/file/d/1jlMN272UeRa-FbyB5es488O5jI9llekn/view",
+          "local_path": null,
+          "downloaded": false
+        },
+        {
+          "subject": "Arabic",
+          "drive_file_id": "12KOvt5WY9acj1wMbNox_dGYIKLY1eg-G",
+          "drive_url": "https://drive.google.com/file/d/12KOvt5WY9acj1wMbNox_dGYIKLY1eg-G/view",
+          "local_path": null,
+          "downloaded": false
+        },
+        {
+          "subject": "Creative Arts",
+          "drive_file_id": "1euaxMgHyMqSm4qVSzOeJ_-9LXYgj6jyS",
+          "drive_url": "https://drive.google.com/file/d/1euaxMgHyMqSm4qVSzOeJ_-9LXYgj6jyS/view",
+          "local_path": null,
+          "downloaded": false
+        },
+        {
+          "subject": "CRE",
+          "drive_file_id": "1unhtcU1tzdsPceoadKCovjFIkPTF1wP4",
+          "drive_url": "https://drive.google.com/file/d/1unhtcU1tzdsPceoadKCovjFIkPTF1wP4/view",
+          "local_path": null,
+          "downloaded": false
+        },
+        {
+          "subject": "English",
+          "drive_file_id": "1ctDo-PB4W6AKbKV0Lb-1OobOC2-L3_e_",
+          "drive_url": "https://drive.google.com/file/d/1ctDo-PB4W6AKbKV0Lb-1OobOC2-L3_e_/view",
+          "local_path": null,
+          "downloaded": false
+        },
+        {
+          "subject": "French",
+          "drive_file_id": "1nM2fBafwuozVi1LsceBT54HIcya9KEuP",
+          "drive_url": "https://drive.google.com/file/d/1nM2fBafwuozVi1LsceBT54HIcya9KEuP/view",
+          "local_path": null,
+          "downloaded": false
+        },
+        {
+          "subject": "German",
+          "drive_file_id": "1w0-eB6lY90dYvmfn-g5dAK2vGvghkGeC",
+          "drive_url": "https://drive.google.com/file/d/1w0-eB6lY90dYvmfn-g5dAK2vGvghkGeC/view",
+          "local_path": null,
+          "downloaded": false
+        },
+        {
+          "subject": "HRE",
+          "drive_file_id": "1O7MWGBaA5Iwl5HKmKrEw6XmI-qzFgU1c",
+          "drive_url": "https://drive.google.com/file/d/1O7MWGBaA5Iwl5HKmKrEw6XmI-qzFgU1c/view",
+          "local_path": null,
+          "downloaded": false
+        },
+        {
+          "subject": "Indigenous Language",
+          "drive_file_id": "1PGfkAZOvmQxvE76gxDRReZDl5YFMfcXr",
+          "drive_url": "https://drive.google.com/file/d/1PGfkAZOvmQxvE76gxDRReZDl5YFMfcXr/view",
+          "local_path": null,
+          "downloaded": false
+        },
+        {
+          "subject": "IRE",
+          "drive_file_id": "10RolK-hE8ylrhuNbq3fN6ZnPlgNM_VuB",
+          "drive_url": "https://drive.google.com/file/d/10RolK-hE8ylrhuNbq3fN6ZnPlgNM_VuB/view",
+          "local_path": null,
+          "downloaded": false
+        },
+        {
+          "subject": "Kiswahili",
+          "drive_file_id": "1aGnwbMdfKkwTBtVOcliEiyge6qAHpHhd",
+          "drive_url": "https://drive.google.com/file/d/1aGnwbMdfKkwTBtVOcliEiyge6qAHpHhd/view",
+          "local_path": null,
+          "downloaded": false
+        },
+        {
+          "subject": "Mandarin",
+          "drive_file_id": "1tpuL_OmDaPJ-54-hRqb8OLLMdZ1jV_4q",
+          "drive_url": "https://drive.google.com/file/d/1tpuL_OmDaPJ-54-hRqb8OLLMdZ1jV_4q/view",
+          "local_path": null,
+          "downloaded": false
+        },
+        {
+          "subject": "Mathematics",
+          "drive_file_id": "1ShOUex4qEQosDCvkKdaXIRvteOILPHTP",
+          "drive_url": "https://drive.google.com/file/d/1ShOUex4qEQosDCvkKdaXIRvteOILPHTP/view",
+          "local_path": null,
+          "downloaded": false
+        },
+        {
+          "subject": "Science and Technology",
+          "drive_file_id": "1CituzlfluxqVvjExx7xHiV_j_ZDXwpja",
+          "drive_url": "https://drive.google.com/file/d/1CituzlfluxqVvjExx7xHiV_j_ZDXwpja/view",
+          "local_path": null,
+          "downloaded": false
+        },
+        {
+          "subject": "Social Studies",
+          "drive_file_id": "1uOCVkljUKcfMkRs1gwAbDZMj_p9cjbut",
+          "drive_url": "https://drive.google.com/file/d/1uOCVkljUKcfMkRs1gwAbDZMj_p9cjbut/view",
+          "local_path": null,
+          "downloaded": false
+        }
+      ]
+    }
+  }
+}
