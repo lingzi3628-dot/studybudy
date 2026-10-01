@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { verifyCsrf } from "@/lib/csrf";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 
@@ -12,6 +13,8 @@ export const runtime = "nodejs";
  * If already onboarded, returns 400.
  */
 export async function POST(req: NextRequest) {
+  const csrfError = verifyCsrf(req);
+  if (csrfError) return csrfError;
   const user = await getCurrentUser();
   const body = await req.json().catch(() => ({}));
 

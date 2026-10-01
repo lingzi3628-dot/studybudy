@@ -123,6 +123,17 @@ export async function POST(req: NextRequest) {
       path: "/",
     });
 
+    // Phase 90.2 — Set CSRF token cookie (non-httpOnly so client JS can read it)
+    const { generateCsrfToken, getCsrfCookieName } = await import("@/lib/csrf");
+    const csrfToken = generateCsrfToken();
+    res.cookies.set(getCsrfCookieName(), csrfToken, {
+      httpOnly: false,  // client needs to read this
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: getUserCookieMaxAge(),
+      path: "/",
+    });
+
     return res;
   } catch (e: any) {
     console.error("login error:", e?.message, e?.code);

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { verifyCsrf } from "@/lib/csrf";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 
@@ -57,6 +58,8 @@ export async function GET() {
  * Use POST /api/user/onboarding to complete onboarding.
  */
 export async function PUT(req: NextRequest) {
+  const csrfError = verifyCsrf(req);
+  if (csrfError) return csrfError;
   const user = await getCurrentUser();
   const body = await req.json().catch(() => ({}));
 

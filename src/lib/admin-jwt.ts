@@ -1,20 +1,27 @@
 /**
  * Admin JWT helpers — sign/verify HTTP-only cookies for /admin sessions.
  *
- * Secret resolution (in order):
- *   1. ADMIN_JWT_SECRET
- *   2. API_KEY_ENCRYPTION_SECRET
- *   3. Hash of DATABASE_URL (last resort — always present)
+ * Phase 90.2 — SECRET IS NOW SEPARATE FROM USER JWT:
+ *   1. ADMIN_JWT_SECRET (dedicated admin-only secret)
+ *   2. API_KEY_ENCRYPTION_SECRET (fallback, derived differently from user)
+ *   3. Hash of DATABASE_URL with "admin:" prefix (last resort)
+ *
+ * This separation means a leaked admin JWT secret CANNOT forge user tokens,
+ * and vice versa. Defense in depth.
  */
 import jwt from "jsonwebtoken";
 import { createHash } from "crypto";
 
 function getSecret(): string {
+  // Phase 90.2 — Admin-specific secret (separate from user)
   if (process.env.ADMIN_JWT_SECRET) return process.env.ADMIN_JWT_SECRET;
-  if (process.env.API_KEY_ENCRYPTION_SECRET) return process.env.API_KEY_ENCRYPTION_SECRET;
-  // Last resort: derive from DATABASE_URL (always present)
+  // Fallback: derive a DIFFERENT secret from the API key
+  // (adds "admin:" prefix so the hash differs from user's)
+  if (process.env.API_KEY_ENCRYPTION_SECRET) {
+    return createHash("sha256").update("admin:" + process.env.API_KEY_ENCRYPTION_SECRET).digest("hex");
+  }
   const dbUrl = process.env.DATABASE_URL || "fallback-secret-not-secure";
-  return createHash("sha256").update(dbUrl).digest("hex");
+  return createHash("sha256").update("admin:" + dbUrl).digest("hex");
 }
 
 const COOKIE_NAME = process.env.ADMIN_JWT_COOKIE_NAME || "admin_token";

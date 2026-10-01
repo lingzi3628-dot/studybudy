@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { verifyCsrf } from "@/lib/csrf";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 
@@ -17,6 +18,8 @@ const FALLBACK_SETTINGS: Record<string, any> = {
  * Body: { planId, paymentMethod }
  */
 export async function POST(req: NextRequest) {
+  const csrfError = verifyCsrf(req);
+  if (csrfError) return csrfError;
   try {
     const user = await getCurrentUser();
     const body = await req.json().catch(() => ({}));

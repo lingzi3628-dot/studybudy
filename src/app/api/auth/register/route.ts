@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { verifyCsrf } from "@/lib/csrf";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { signUserToken, getUserCookieName, getUserCookieMaxAge } from "@/lib/user-jwt";
@@ -21,6 +22,8 @@ import { checkAuthRateLimit, getClientIp } from "@/lib/auth-rate-limit";
  * constraint violations, and other DB errors gracefully.
  */
 export async function POST(req: NextRequest) {
+  const csrfError = verifyCsrf(req);
+  if (csrfError) return csrfError;
   let body: any;
   try {
     body = await req.json();
