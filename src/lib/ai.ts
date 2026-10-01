@@ -344,100 +344,9 @@ export async function callAI(
     console.warn("Admin provider call failed:", e?.message ?? e);
   }
 
-  // 3) Platform fallback (GLM via z-ai-web-dev-sdk)
-  let platformError: Error | null = null;
-  try {
-    const content = await callPlatformAI(messages, { userId, route, temperature: ctx?.temperature, maxTokens: ctx?.maxTokens });
-    return content;
-  } catch (e: any) {
-    platformError = e;
-    console.warn("[ai] Platform GLM failed:", e?.message ?? String(e));
-  }
-
-  // 4) FINAL FALLBACK — OpenRouter
-  // When GLM fails (rate limit, empty response, network error), try any
-  // admin-configured OpenRouter provider as a last resort. This is purely
-  // additive — if no OpenRouter provider is configured, we re-throw the
-  // original GLM error so callers see the same behavior as before.
-  try {
-    const openRouterContent = await callOpenRouterFallback(messages, { userId, route });
-    if (openRouterContent) return openRouterContent;
-  } catch (e: any) {
-    console.warn("[ai] OpenRouter fallback also failed:", e?.message ?? String(e));
-  }
-
-  // All paths failed — throw the original GLM error (preserves the existing
-  // error message contract that callers depend on)
-  throw platformError ?? new Error("All AI providers failed (GLM + OpenRouter fallback)");
-}
-
-/**
- * Phase 98 — OpenRouter final fallback.
- *
- * When the GLM platform path fails (rate limit, empty response, network error),
- * this function is called as a last resort. It loads any admin-configured
- * OpenRouter providers (providerType="openrouter") and tries them in priority
- * order, using the existing callProvider() helper from ai-providers.ts.
- *
- * Returns the first successful content. Throws if all OpenRouter providers
- * fail or none are configured.
- *
- * SETUP: Admin adds an OpenRouter provider in the AI Studio (Admin → AI
- * Providers) with:
- *   - providerType: "openrouter"
- *   - baseUrl: "https://openrouter.ai/api/v1"
- *   - model: e.g. "openai/gpt-4o-mini" or "meta-llama/llama-3.1-70b-instruct"
- *   - apiKey: their OpenRouter API key (from https://openrouter.ai/keys)
- *   - priority: HIGH (e.g. 1) so it's tried first in the admin chain too
- *
- * Once configured, this fallback activates automatically when GLM fails.
- */
-async function callOpenRouterFallback(
-  messages: ChatMessage[],
-  ctx: { userId: string; route?: string },
-): Promise<string> {
-  const { db } = await import("./db");
-  const { callProvider, logAiCall } = await import("./ai-providers");
-
-  // Load all enabled OpenRouter providers, ordered by priority
-  const providers = await db.aiProvider.findMany({
-    where: {
-      enabled: true,
-      providerType: "openrouter",
-      apiKeyEncrypted: { not: null },
-    },
-    orderBy: [{ priority: "asc" }, { isDefault: "desc" }, { createdAt: "asc" }],
-  }).catch(() => []);
-
-  if (providers.length === 0) {
-    // No OpenRouter provider configured — can't fall back
-    console.log("[ai] OpenRouter fallback skipped — no openrouter provider configured");
-    throw new Error("No OpenRouter provider configured");
-  }
-
-  console.log(`[ai] OpenRouter fallback: trying ${providers.length} provider(s)`);
-
-  let lastError: Error | null = null;
-  for (const providerRow of providers) {
-    try {
-      const result = await callProvider(providerRow as any, messages, { userId: ctx.userId, route: ctx.route });
-      await logAiCall(ctx.userId, result, ctx.route);
-
-      if (result.status === "success" && result.content) {
-        console.log(`[ai] OpenRouter fallback succeeded via "${providerRow.name}" (model: ${providerRow.model})`);
-        return result.content;
-      }
-
-      // Log the failure + try the next provider
-      console.warn(`[ai] OpenRouter provider "${providerRow.name}" failed: ${result.errorMessage ?? "empty response"}`);
-      lastError = new Error(result.errorMessage ?? "OpenRouter returned empty response");
-    } catch (e: any) {
-      console.warn(`[ai] OpenRouter provider "${providerRow.name}" threw: ${e?.message ?? String(e)}`);
-      lastError = e;
-    }
-  }
-
-  throw lastError ?? new Error("All OpenRouter providers failed");
+  // 3) Platform fallback
+  const content = await callPlatformAI(messages, { userId, route, temperature: ctx?.temperature, maxTokens: ctx?.maxTokens });
+  return content;
 }
 
 function isTransientProviderFailure(value: unknown): boolean {
@@ -625,15 +534,8 @@ export async function* streamAI(
     try {
       content = await callPlatformAI(messages, { userId, route, temperature: ctx?.temperature });
     } catch (e2: any) {
-      // Phase 98 — Final fallback: try OpenRouter (admin-configured)
-      console.warn("Platform GLM also failed in stream, trying OpenRouter fallback:", e2?.message);
-      try {
-        content = await callOpenRouterFallback(messages, { userId, route });
-      } catch (e3: any) {
-        // Last resort: return a friendly error message instead of throwing
-        console.warn("OpenRouter fallback also failed in stream:", e3?.message);
-        content = `⚠️ I'm having trouble connecting right now. This might be due to rate limits on the AI provider. Please try again in a moment, or switch to "Study Buddy Free" model (no rate limits).`;
-      }
+      // Last resort: return a friendly error message instead of throwing
+      content = `⚠️ I'm having trouble connecting right now. This might be due to rate limits on the AI provider. Please try again in a moment, or switch to "Study Buddy Free" model (no rate limits).`;
     }
   }
   if (content) yield content;
