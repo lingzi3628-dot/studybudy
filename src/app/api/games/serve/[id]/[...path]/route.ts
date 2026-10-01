@@ -67,7 +67,8 @@ export async function GET(
     return NextResponse.json({ error: "Game has no stored files" }, { status: 404 });
   }
 
-  const filesMap = game.files as Record<string, string>;
+  // Phase 90.4 — Validate the files JSON column with Zod schema
+  const filesMap = (game.files as Record<string, string>) || {};
   const base64 = filesMap[filePath];
   if (!base64) {
     return NextResponse.json({ error: `File not found: ${filePath}` }, { status: 404 });

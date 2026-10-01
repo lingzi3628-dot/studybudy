@@ -64,7 +64,8 @@ export async function GET(
     return NextResponse.json({ error: "Project has no stored files" }, { status: 404 });
   }
 
-  const filesMap = project.files as Record<string, string>;
+  // Phase 90.4 — Safe cast with fallback
+  const filesMap = (project.files as Record<string, string>) || {};
   const base64 = filesMap[filePath];
   if (!base64) {
     return NextResponse.json({ error: `File not found: ${filePath}` }, { status: 404 });
