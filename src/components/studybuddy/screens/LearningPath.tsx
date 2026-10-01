@@ -83,7 +83,11 @@ const DIFFICULTY_COLORS: Record<string, string> = {
 };
 
 export function LearningPathScreen() {
-  const { setScreen, activeTopicId, setActiveTopicId, setActiveConceptMapId, setActiveStudySetId } = useApp() as any;
+  const setScreen = useApp((s) => s.setScreen);
+const activeTopicId = useApp((s) => s.activeTopicId);
+const setActiveTopicId = useApp((s) => s.setActiveTopicId);
+const setActiveConceptMapId = useApp((s) => s.setActiveConceptMapId);
+const setActiveStudySetId = useApp((s) => s.setActiveStudySetId);
   const [view, setView] = useState<View>("list");
   const [paths, setPaths] = useState<Path[]>([]);
   const [templates, setTemplates] = useState<Path[]>([]);

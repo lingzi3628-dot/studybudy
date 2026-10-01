@@ -37,7 +37,11 @@ type ConceptMapData = {
 type Mode = "view" | "edit";
 
 export function ConceptMapScreen() {
-  const { setScreen, activeConceptMapId, setActiveConceptMapId, activeTopicId, setActiveTopicId } = useApp() as any;
+  const setScreen = useApp((s) => s.setScreen);
+const activeConceptMapId = useApp((s) => s.activeConceptMapId);
+const setActiveConceptMapId = useApp((s) => s.setActiveConceptMapId);
+const activeTopicId = useApp((s) => s.activeTopicId);
+const setActiveTopicId = useApp((s) => s.setActiveTopicId);
   const mapId = activeConceptMapId as string | null;
 
   const [map, setMap] = useState<ConceptMapData | null>(null);

@@ -77,7 +77,10 @@ function greeting(): string {
 }
 
 export function Home() {
-  const { setScreen, openCreate, setActiveStudySetId, setActiveTopicId } = useApp();
+  const setScreen = useApp((s) => s.setScreen);
+const openCreate = useApp((s) => s.openCreate);
+const setActiveStudySetId = useApp((s) => s.setActiveStudySetId);
+const setActiveTopicId = useApp((s) => s.setActiveTopicId);
   const { t } = useI18n();
   const [progress, setProgress] = useState<ProgressData | null>(null);
   const [sets, setSets] = useState<StudySetSummary[]>([]);

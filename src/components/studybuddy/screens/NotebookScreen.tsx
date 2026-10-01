@@ -103,7 +103,11 @@ function uuid(): string {
 }
 
 export function NotebookScreen() {
-  const { setScreen, activeProjectId, setActiveProjectId, notebookBridgeCell, setNotebookBridgeCell } = useApp() as any;
+  const setScreen = useApp((s) => s.setScreen);
+const activeProjectId = useApp((s) => s.activeProjectId);
+const setActiveProjectId = useApp((s) => s.setActiveProjectId);
+const notebookBridgeCell = useApp((s) => s.notebookBridgeCell);
+const setNotebookBridgeCell = useApp((s) => s.setNotebookBridgeCell);
   const [notebook, setNotebook] = useState<Notebook>(STARTER_NOTEBOOK);
   const [title, setTitle] = useState("Untitled notebook");
   const [projectId, setProjectId] = useState<string | null>(activeProjectId);
@@ -795,7 +799,8 @@ function renderMarkdown(source: string): string {
  * playground consumes it on mount and opens the CSV configuration flow.
  */
 function TrainInPlaygroundButton({ output }: { output: Extract<CellOutput, { type: "table" }> }) {
-  const { setScreen, setMlBridgeCsv } = useApp() as any;
+  const setScreen = useApp((s) => s.setScreen);
+const setMlBridgeCsv = useApp((s) => s.setMlBridgeCsv);
   return (
     <button
       onClick={() => {

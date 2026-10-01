@@ -50,7 +50,10 @@ const SYNONYMS: Record<string, string[]> = {
 };
 
 export function DataLabScreen() {
-  const { setScreen, chatbotTrainingData, setChatbotTrainingData, addChatbotTrainingPairs } = useApp() as any;
+  const setScreen = useApp((s) => s.setScreen);
+const chatbotTrainingData = useApp((s) => s.chatbotTrainingData);
+const setChatbotTrainingData = useApp((s) => s.setChatbotTrainingData);
+const addChatbotTrainingPairs = useApp((s) => s.addChatbotTrainingPairs);
   const [activeTab, setActiveTab] = useState<TabType>("dump");
   // Phase 64 — Use shared store data (synced with ChatbotPlayground + localStorage)
   const [pairs, setPairs] = useState<TrainingPair[]>(() => {

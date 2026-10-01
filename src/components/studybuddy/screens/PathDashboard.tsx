@@ -24,7 +24,10 @@ type PathNode = {
  * "Start" button on the current node.
  */
 export function PathDashboard() {
-  const { setScreen, setActiveTopicId, setActiveConceptMapId, setActiveStudySetId } = useApp();
+  const setScreen = useApp((s) => s.setScreen);
+const setActiveTopicId = useApp((s) => s.setActiveTopicId);
+const setActiveConceptMapId = useApp((s) => s.setActiveConceptMapId);
+const setActiveStudySetId = useApp((s) => s.setActiveStudySetId);
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -289,7 +292,8 @@ export function PathDashboard() {
 // (e.g. a Grade 5 user when only Grade 1 is ready).
 
 function CurriculumSubjectsBanner() {
-  const { setScreen, setActiveCurriculumSubjectId } = useApp();
+  const setScreen = useApp((s) => s.setScreen);
+const setActiveCurriculumSubjectId = useApp((s) => s.setActiveCurriculumSubjectId);
   const [subjects, setSubjects] = useState<Array<{
     id: string;
     name: string;
@@ -428,7 +432,9 @@ function CurriculumSubjectsBanner() {
 // ---------------------------------------------------------------------
 
 function ResumeSessionBanner() {
-  const { setScreen, setActiveCurriculumSubjectId, setActiveCurriculumTopicId } = useApp();
+  const setScreen = useApp((s) => s.setScreen);
+const setActiveCurriculumSubjectId = useApp((s) => s.setActiveCurriculumSubjectId);
+const setActiveCurriculumTopicId = useApp((s) => s.setActiveCurriculumTopicId);
   const [session, setSession] = useState<any>(null);
   const [resumeText, setResumeText] = useState<string | null>(null);
 

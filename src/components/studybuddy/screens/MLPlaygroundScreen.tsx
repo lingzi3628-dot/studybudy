@@ -109,7 +109,12 @@ function downloadText(filename: string, content: string, mime = "text/plain") {
 }
 
 export function MLPlaygroundScreen() {
-  const { setScreen, activeProjectId, setActiveProjectId, mlBridgeCsv, setMlBridgeCsv, setNotebookBridgeCell } = useApp() as any;
+  const setScreen = useApp((s) => s.setScreen);
+const activeProjectId = useApp((s) => s.activeProjectId);
+const setActiveProjectId = useApp((s) => s.setActiveProjectId);
+const mlBridgeCsv = useApp((s) => s.mlBridgeCsv);
+const setMlBridgeCsv = useApp((s) => s.setMlBridgeCsv);
+const setNotebookBridgeCell = useApp((s) => s.setNotebookBridgeCell);
   const [selectedDemoId, setSelectedDemoId] = useState<string>("xor");
   const [modelSpec, setModelSpec] = useState<ModelSpec>(DEMOS[0].modelSpec);
   const [trainingState, setTrainingState] = useState<TrainingState>("idle");

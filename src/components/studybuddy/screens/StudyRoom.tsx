@@ -80,7 +80,11 @@ const COLLAPSE_KEYS = ["intro", "concepts", "examples", "formulas", "summary"] a
 type CollapseKey = (typeof COLLAPSE_KEYS)[number];
 
 export function StudyRoom() {
-  const { activeTopicId, setScreen, setActiveTopicId, setActiveConceptMapId, openCreate } = useApp();
+  const activeTopicId = useApp((s) => s.activeTopicId);
+const setScreen = useApp((s) => s.setScreen);
+const setActiveTopicId = useApp((s) => s.setActiveTopicId);
+const setActiveConceptMapId = useApp((s) => s.setActiveConceptMapId);
+const openCreate = useApp((s) => s.openCreate);
 
   const [topicData, setTopicData] = useState<TopicDetail | null>(null);
   const [lesson, setLesson] = useState<Lesson | null>(null);

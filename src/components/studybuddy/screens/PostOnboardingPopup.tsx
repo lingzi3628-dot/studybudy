@@ -16,7 +16,10 @@ import { Sparkles, BookOpen, ChevronRight, Loader2, GraduationCap } from "lucide
  * auto-sends it on first load.
  */
 export function PostOnboardingPopup() {
-  const { showPostOnboardingPopup, setShowPostOnboardingPopup, setScreen, setPendingAutoGreeting } = useApp();
+  const showPostOnboardingPopup = useApp((s) => s.showPostOnboardingPopup);
+const setShowPostOnboardingPopup = useApp((s) => s.setShowPostOnboardingPopup);
+const setScreen = useApp((s) => s.setScreen);
+const setPendingAutoGreeting = useApp((s) => s.setPendingAutoGreeting);
   const [userName, setUserName] = useState("");
   const [studySetName, setStudySetName] = useState("");
   const [creating, setCreating] = useState(false);
