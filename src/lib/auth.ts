@@ -17,6 +17,8 @@ export type AppUser = {
   name: string | null;
   plan: "free" | "pro";
   grade: string | null;
+  track: string | null;      // Phase 88.6 — CRITICAL: was missing, caused ALL higher-ed AI Tutor bugs
+  course: string | null;     // Phase 88.6 — CRITICAL: was missing, caused ALL higher-ed AI Tutor bugs
   subjects: string[];
   ambitions: string[];
   learningLanguage: string;
@@ -73,6 +75,8 @@ function toAppUser(u: any): AppUser {
     name: u.name,
     plan: u.plan === "pro" ? "pro" : "free",
     grade: u.grade,
+    track: u.track ?? "k12",       // Phase 88.6 — CRITICAL: was missing
+    course: u.course ?? null,      // Phase 88.6 — CRITICAL: was missing
     subjects: u.subjects,
     ambitions: u.ambitions,
     learningLanguage: u.learningLanguage,
