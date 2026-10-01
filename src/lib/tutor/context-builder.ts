@@ -39,6 +39,7 @@ import { getBuddy } from "@/lib/buddies/registry";
 import type { Buddy } from "@/lib/buddies/types";
 import { getLearnerStatePromptBlock } from "./learner-state";
 import { getRetrievedKnowledgePromptBlock } from "./rag";
+import { getLessonStatePromptBlock } from "./lesson-controller";
 
 // ============================================================
 // Types
@@ -294,6 +295,10 @@ export interface BuildTutorSystemPromptOpts {
   skipLearnerState?: boolean;
   /** Phase 93 — set true to skip semantic RAG retrieval (e.g. tests, exam generation). */
   skipRag?: boolean;
+  /** Phase 95 — the conversation ID (used to look up the active lesson state). */
+  conversationId?: string | null;
+  /** Phase 95 — set true to skip the LESSON STATE block (e.g. tests, exam generation). */
+  skipLessonState?: boolean;
 }
 
 export interface BuildTutorSystemPromptResult {
@@ -327,6 +332,8 @@ export async function buildTutorSystemPrompt(
     clientPlatform = "web",
     skipLearnerState = false,
     skipRag = false,
+    conversationId = null,
+    skipLessonState = false,
   } = opts;
   const completeContext = [searchContext, toolResults, studyContext].filter(Boolean).join("\n\n");
 
@@ -543,6 +550,30 @@ Only suggest this ONCE per conversation — don't nag.
     }
   }
 
+  // ------------------------------------------------------------------
+  // Phase 95 — Lesson controller state machine.
+  //
+  // Looks up the active lesson for this conversation (if any). When a
+  // lesson is active, the AI gets explicit guidance on what stage of
+  // teaching it's in (introduce → explain → check → advance) and is told
+  // not to switch topics mid-lesson.
+  //
+  // Safety:
+  //   - Strictly additive: if no lesson exists, the block is omitted.
+  //   - Feature-flagged via TUTOR_LESSON_CONTROLLER_ENABLED (default: enabled).
+  //   - skipLessonState=true bypasses entirely (tests, exam generation).
+  // ------------------------------------------------------------------
+  let lessonStateBlock = "";
+  if (!skipLessonState && conversationId && user.id) {
+    try {
+      const result = await getLessonStatePromptBlock(conversationId, user.id);
+      lessonStateBlock = result.text;
+    } catch (err: any) {
+      console.error("[context-builder] lesson-state fetch failed:", err?.message ?? String(err));
+      // Fail silently — omit the block, prompt stays Phase 94-compatible.
+    }
+  }
+
   let systemContent: string;
   if (buddyId === "study") {
     // Phase 84 — system prompt now includes track context + course knowledge + upload prompt
@@ -551,7 +582,9 @@ Only suggest this ONCE per conversation — don't nag.
     // context the AI reads BEFORE deciding how to teach, not as a rule it must follow.
     // Phase 93 — retrievedKnowledgeBlock is injected right after courseKnowledgeContext,
     // so semantic chunks appear alongside the structured knowledge base entry.
-    systemContent = `You are StudyBuddy, a friendly AI tutor for students of all levels (K-12 CBC, Secondary, University, College, TVET). ${teachingProfile.systemPromptSuffix}${trackContext}${uploadPrompt}${courseKnowledgeContext}${retrievedKnowledgeBlock}${curriculumContext}${dbCurriculumContext}${completeContext}${learnerStateBlock}
+    // Phase 95 — lessonStateBlock is injected after learnerStateBlock, so the lesson
+    // guidance appears after the learner profile, right before the proactive teaching rules.
+    systemContent = `You are StudyBuddy, a friendly AI tutor for students of all levels (K-12 CBC, Secondary, University, College, TVET). ${teachingProfile.systemPromptSuffix}${trackContext}${uploadPrompt}${courseKnowledgeContext}${retrievedKnowledgeBlock}${curriculumContext}${dbCurriculumContext}${completeContext}${learnerStateBlock}${lessonStateBlock}
 ${dataSaver ? `\nDATA SAVER MODE is ON. Keep your reply concise — target 1-2 short paragraphs (max ~150 words). Skip verbose examples and unnecessary elaboration. Lead with the direct answer; only add explanation if the user asks for it.\n` : ``}
 
 ${STUDY_PROMPT_GRAPH_RULES}`;
@@ -573,7 +606,8 @@ ${STUDY_PROMPT_GRAPH_RULES}`;
     // Phase 84 — append track + course + knowledge context to all buddies (not just "study")
     // Phase 92 — also append the learner-state block so non-study buddies personalize too
     // Phase 93 — also append retrieved-knowledge block (RAG chunks)
-    systemContent += `\n${trackContext}${uploadPrompt}${courseKnowledgeContext}${retrievedKnowledgeBlock}${learnerStateBlock}`;
+    // Phase 95 — also append lesson-state block
+    systemContent += `\n${trackContext}${uploadPrompt}${courseKnowledgeContext}${retrievedKnowledgeBlock}${learnerStateBlock}${lessonStateBlock}`;
   }
 
   if (toolResults) {

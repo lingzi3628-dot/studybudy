@@ -223,6 +223,7 @@ export async function POST(req: NextRequest) {
             studyContext,
             learningMode,
             clientPlatform,
+            conversationId: conversation!.id,  // Phase 95 — for lesson state lookup
           });
           const aiMessages: AIMessage[] = [
             { role: "system", content: systemContent },

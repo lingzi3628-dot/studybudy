@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { advanceLessonState } from "@/lib/tutor/lesson-controller";
 
 export const runtime = "nodejs";
 
@@ -30,6 +31,8 @@ export async function POST(req: NextRequest) {
     topic?: string;
     quizScore?: number;
     quizTotal?: number;
+    /** Phase 95 — conversation ID, used to advance the lesson state machine when a quiz is passed. */
+    conversationId?: string;
   };
 
   const durationSec = Math.min(300, Math.max(5, Number(body.durationSec) || 30));
@@ -37,6 +40,7 @@ export async function POST(req: NextRequest) {
   const topic = body.topic || null;
   const quizScore = body.quizScore !== undefined ? Number(body.quizScore) : null;
   const quizTotal = body.quizTotal !== undefined ? Number(body.quizTotal) : null;
+  const conversationId = body.conversationId || null;
 
   try {
     // Find or create today's active study session
@@ -134,6 +138,29 @@ export async function POST(req: NextRequest) {
         },
       });
     } catch {}
+
+    // Phase 95 — Advance the lesson state machine when a quiz is passed.
+    // A "pass" is defined as >=60% correct (configurable — see PASS_THRESHOLD).
+    // This is a no-op if no lesson is active for this conversation.
+    const PASS_THRESHOLD = 0.6;
+    if (
+      conversationId &&
+      activity === "quiz" &&
+      quizScore !== null &&
+      quizTotal !== null &&
+      quizTotal > 0 &&
+      (quizScore / quizTotal) >= PASS_THRESHOLD
+    ) {
+      try {
+        const advanced = await advanceLessonState(conversationId, user.id);
+        if (advanced) {
+          console.log(`[tutor/track] lesson advanced: ${advanced.currentTopic} → ${advanced.currentStage}`);
+        }
+      } catch (e: any) {
+        // Non-fatal — lesson state is best-effort
+        console.error("[tutor/track] advanceLessonState failed:", e?.message ?? String(e));
+      }
+    }
 
     return NextResponse.json({
       ok: true,

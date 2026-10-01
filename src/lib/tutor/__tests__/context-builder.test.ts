@@ -82,12 +82,23 @@ vi.mock("../rag", () => ({
   embedTexts: vi.fn().mockResolvedValue(null),
 }));
 
+// 7. Phase 95 — Mock ./lesson-controller so context-builder tests don't hit DB.
+vi.mock("../lesson-controller", () => ({
+  getLessonStatePromptBlock: vi.fn().mockResolvedValue({ text: "", state: null }),
+  isLessonControllerEnabled: vi.fn(() => true),
+  getLessonState: vi.fn().mockResolvedValue(null),
+  startLesson: vi.fn().mockResolvedValue(null),
+  advanceLessonState: vi.fn().mockResolvedValue(null),
+  endLesson: vi.fn().mockResolvedValue(undefined),
+}));
+
 // ---------------------------------------------------------------
 // Import the module under test AFTER mocks are registered.
 // ---------------------------------------------------------------
 import { buildTutorSystemPrompt } from "../context-builder";
 import { getLearnerStatePromptBlock } from "../learner-state";
 import { getRetrievedKnowledgePromptBlock } from "../rag";
+import { getLessonStatePromptBlock } from "../lesson-controller";
 
 // ---------------------------------------------------------------
 // Helpers
@@ -722,5 +733,146 @@ describe("buildTutorSystemPrompt — Phase 93 semantic RAG", () => {
       buddyId: "dev",
     });
     expect(systemContent).toContain("=== RETRIEVED KNOWLEDGE");
+  });
+});
+
+// ============================================================
+// Phase 95 — Lesson controller integration tests
+// ============================================================
+
+describe("buildTutorSystemPrompt — Phase 95 lesson controller", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Default: all enrichment blocks return empty
+    vi.mocked(getLearnerStatePromptBlock).mockResolvedValue({ text: "", state: null });
+    vi.mocked(getRetrievedKnowledgePromptBlock).mockResolvedValue({ text: "", retrievedChunks: [], usedFallback: false });
+    vi.mocked(getLessonStatePromptBlock).mockResolvedValue({ text: "", state: null });
+  });
+
+  it("does NOT call lesson-controller when conversationId is missing", async () => {
+    await buildTutorSystemPrompt({
+      ...BASE_OPTS,
+      userMessage: "test",
+      user: { id: "user-123", grade: "Grade 4", track: "k12", course: null },
+      buddy: STUB_BUDDY,
+      // no conversationId
+    });
+    expect(getLessonStatePromptBlock).not.toHaveBeenCalled();
+  });
+
+  it("does NOT call lesson-controller when skipLessonState=true", async () => {
+    await buildTutorSystemPrompt({
+      ...BASE_OPTS,
+      userMessage: "test",
+      user: { id: "user-123", grade: "Grade 4", track: "k12", course: null },
+      buddy: STUB_BUDDY,
+      conversationId: "conv-1",
+      skipLessonState: true,
+    });
+    expect(getLessonStatePromptBlock).not.toHaveBeenCalled();
+  });
+
+  it("calls lesson-controller with conversationId + userId", async () => {
+    await buildTutorSystemPrompt({
+      ...BASE_OPTS,
+      userMessage: "test",
+      user: { id: "user-123", grade: "Grade 4", track: "k12", course: null },
+      buddy: STUB_BUDDY,
+      conversationId: "conv-1",
+    });
+    expect(getLessonStatePromptBlock).toHaveBeenCalledWith("conv-1", "user-123");
+  });
+
+  it("emits LESSON STATE block when lesson is active", async () => {
+    vi.mocked(getLessonStatePromptBlock).mockResolvedValue({
+      text: `\n\n=== LESSON STATE ===\nActive lesson: "Fractions" (stage: EXPLAIN)\n\nSTAGE GUIDANCE — EXPLAIN:\nTeach the concept in 2-3 short paragraphs.\n=== END LESSON STATE ===\n`,
+      state: null,
+    });
+
+    const { systemContent } = await buildTutorSystemPrompt({
+      ...BASE_OPTS,
+      userMessage: "test",
+      user: { id: "user-123", grade: "Grade 4", track: "k12", course: null },
+      buddy: STUB_BUDDY,
+      conversationId: "conv-1",
+    });
+    expect(systemContent).toContain("=== LESSON STATE ===");
+    expect(systemContent).toContain("Fractions");
+    expect(systemContent).toContain("stage: EXPLAIN");
+    expect(systemContent).toContain("=== END LESSON STATE ===");
+  });
+
+  it("does NOT emit LESSON STATE block when no lesson is active", async () => {
+    vi.mocked(getLessonStatePromptBlock).mockResolvedValue({ text: "", state: null });
+
+    const { systemContent } = await buildTutorSystemPrompt({
+      ...BASE_OPTS,
+      userMessage: "test",
+      user: { id: "user-123", grade: "Grade 4", track: "k12", course: null },
+      buddy: STUB_BUDDY,
+      conversationId: "conv-1",
+    });
+    expect(systemContent).not.toContain("LESSON STATE");
+  });
+
+  it("continues to work if lesson-controller throws (Phase 94 byte-identical fallback)", async () => {
+    vi.mocked(getLessonStatePromptBlock).mockRejectedValue(new Error("DB down"));
+
+    const { systemContent } = await buildTutorSystemPrompt({
+      ...BASE_OPTS,
+      userMessage: "test",
+      user: { id: "user-123", grade: "Grade 4", track: "k12", course: null },
+      buddy: STUB_BUDDY,
+      conversationId: "conv-1",
+    });
+    expect(systemContent).not.toContain("LESSON STATE");
+    expect(systemContent).toContain("PROACTIVE TEACHING MODE");
+  });
+
+  it("positions LESSON STATE block AFTER learner state, BEFORE proactive teaching rules", async () => {
+    vi.mocked(getLearnerStatePromptBlock).mockResolvedValue({
+      text: `\n\n=== LEARNER STATE ===\nStreak: 1 day\n=== END LEARNER STATE ===\n`,
+      state: null,
+    });
+    vi.mocked(getLessonStatePromptBlock).mockResolvedValue({
+      text: `\n\n=== LESSON STATE ===\nActive lesson: "Fractions"\n=== END LESSON STATE ===\n`,
+      state: null,
+    });
+
+    const { systemContent } = await buildTutorSystemPrompt({
+      ...BASE_OPTS,
+      userMessage: "test",
+      user: { id: "user-123", grade: "Grade 4", track: "k12", course: null },
+      buddy: STUB_BUDDY,
+      conversationId: "conv-1",
+    });
+    const learnerIdx = systemContent.indexOf("=== LEARNER STATE ===");
+    const lessonIdx = systemContent.indexOf("=== LESSON STATE ===");
+    const proactiveIdx = systemContent.indexOf("PROACTIVE TEACHING MODE");
+    expect(learnerIdx).toBeGreaterThan(-1);
+    expect(lessonIdx).toBeGreaterThan(learnerIdx);
+    expect(proactiveIdx).toBeGreaterThan(lessonIdx);
+  });
+
+  it("emits LESSON STATE for non-study buddies too", async () => {
+    vi.mocked(getLessonStatePromptBlock).mockResolvedValue({
+      text: `\n\n=== LESSON STATE ===\nActive lesson: "Fractions"\n=== END LESSON STATE ===\n`,
+      state: null,
+    });
+
+    const devBuddy: any = {
+      id: "dev",
+      buildSystemPrompt: vi.fn(() => "DEV BUDDY PROMPT"),
+    };
+
+    const { systemContent } = await buildTutorSystemPrompt({
+      ...BASE_OPTS,
+      userMessage: "test",
+      user: { id: "user-123", grade: null, track: "university", course: "Computer Science" },
+      buddy: devBuddy,
+      buddyId: "dev",
+      conversationId: "conv-1",
+    });
+    expect(systemContent).toContain("=== LESSON STATE ===");
   });
 });

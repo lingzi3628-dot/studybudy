@@ -130,6 +130,8 @@ model User {
   reviewedSwitchRequests CourseSwitchRequest[] @relation("AdminReviewer")
   // Phase 84 — course knowledge entries uploaded by this user
   uploadedKnowledge      CourseKnowledge[]
+  // Phase 95 — tutor lesson states (one active lesson per conversation)
+  tutorLessonStates      TutorLessonState[]
 
   // Relations for search settings are handled in SearchSettings model
 }
@@ -1928,6 +1930,7 @@ model ChatConversation {
   updatedAt   DateTime @default(now()) @updatedAt
 
   messages    ChatMessage[]
+  lessonStates TutorLessonState[]  // Phase 95 — one-to-many (cascade-delete with conversation)
   
   @@index([userId])
   @@index([updatedAt])
@@ -1946,6 +1949,44 @@ model ChatMessage {
   conversation    ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@index([conversationId])
+  @@index([userId])
+}
+
+// =====================================================================
+// Phase 95 — Tutor Lesson Controller (state machine)
+//
+// Replaces the "improvise a lesson each turn" approach with a small
+// state machine that tracks where the learner is in a structured lesson.
+//
+// Stages:
+//   introduce → explain → check → advance
+//
+// A TutorLessonState row represents an ACTIVE lesson for a conversation.
+//   - Created when the AI starts teaching a new topic
+//   - Updated as the lesson progresses
+//   - Deleted when the lesson is completed or the conversation is deleted
+//
+// Safety:
+//   - If no TutorLessonState exists for a conversation, behavior is
+//     identical to Phase 94 (free-form chat — no lesson active).
+//   - advanceLessonState() is called from postProcessReply() when a quiz
+//     block is answered correctly, but it's a no-op if no lesson is active.
+// =====================================================================
+
+model TutorLessonState {
+  id              String   @id @default(uuid())
+  conversationId  String                          // FK to ChatConversation
+  userId          String
+  currentTopic    String                          // e.g. "Fractions"
+  currentStage    String   @default("introduce")  // 'introduce' | 'explain' | 'check' | 'advance'
+  stageUpdatedAt  DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  conversation    ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId])  // one active lesson per conversation
   @@index([userId])
 }
 

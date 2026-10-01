@@ -44,7 +44,53 @@ export type CurriculumGrade = {
   name: string;
   level: "pre-primary" | "lower-primary" | "upper-primary" | "junior-school" | "senior-school";
   subjects: CurriculumSubject[];
+  /**
+   * Phase 94 — Official KICD source URL for this grade's curriculum design.
+   * If unset, getCurriculumSourceUrl() falls back to the KICD materials index.
+   */
+  sourceUrl?: string;
 };
+
+// ============================================================
+// Phase 94 — KICD source citation helpers
+//
+// KICD (Kenya Institute of Curriculum Development) publishes the official
+// CBC curriculum designs at https://kicd.ac.ke/cbc-materials/. Each grade
+// has its own design document. We map grade names to their KICD URLs so
+// the AI tutor can cite the source inline when teaching curriculum topics.
+// ============================================================
+
+export const KICD_BASE_URL = "https://kicd.ac.ke/cbc-materials/";
+
+/**
+ * Map a grade name to its KICD curriculum design URL.
+ *
+ * KICD's URL structure (as of 2024):
+ *   - Pre-Primary:  https://kicd.ac.ke/cbc-materials/pre-primary/
+ *   - Grade 1-9:    https://kicd.ac.ke/cbc-materials/grade-N/
+ *   - Form 1-4:     https://kicd.ac.ke/cbc-materials/senior-school/
+ *
+ * If we don't have a specific URL, fall back to the index page.
+ */
+export function getCurriculumSourceUrl(gradeName: string): string {
+  const g = gradeName.toLowerCase().trim();
+  // Pre-primary
+  if (g === "pp1" || g === "pre-primary 1") return KICD_BASE_URL + "pre-primary/";
+  if (g === "pp2" || g === "pre-primary 2") return KICD_BASE_URL + "pre-primary/";
+  // Grades 1-9 (CBC)
+  const gradeMatch = g.match(/^grade\s*(\d)$/);
+  if (gradeMatch) {
+    const n = parseInt(gradeMatch[1]);
+    if (n >= 1 && n <= 9) return KICD_BASE_URL + `grade-${n}/`;
+  }
+  // Forms 1-4 (8-4-4 / senior school)
+  const formMatch = g.match(/^form\s*(\d)$/);
+  if (formMatch) {
+    return KICD_BASE_URL + "senior-school/";
+  }
+  // Default: KICD materials index
+  return KICD_BASE_URL;
+}
 
 // =====================================================================
 // FULL CBC CURRICULUM — Grades 1-12 + PP1/PP2
@@ -746,14 +792,23 @@ export function isWithinCurriculum(grade: string, subject: string, topic: string
  * This grounds the AI within the student's curriculum — the AI should
  * NEVER go outside the curriculum topics for the student's grade level.
  *
+ * Phase 94 — now emits the official KICD source URL next to the grade
+ * header, so the AI can cite KICD inline when teaching curriculum topics.
+ *
  * Returns a system prompt suffix that includes:
  *   - The student's grade level
+ *   - The KICD source URL for this grade
  *   - All subjects and topics for that grade
  *   - An instruction to stay within the curriculum
+ *   - An instruction to cite the KICD source inline
  */
 export function buildCurriculumContext(grade: string): string {
   const curriculum = getCurriculumForGrade(grade);
   if (!curriculum) return "";
+
+  // Phase 94 — resolve the KICD source URL (prefer curriculum.sourceUrl,
+  // fall back to getCurriculumSourceUrl() helper)
+  const sourceUrl = curriculum.sourceUrl ?? getCurriculumSourceUrl(curriculum.name);
 
   const subjectLines: string[] = [];
   for (const subject of curriculum.subjects) {
@@ -764,6 +819,7 @@ export function buildCurriculumContext(grade: string): string {
   }
 
   return `\n\nCURRICULUM GROUNDING — Kenya CBC (${curriculum.name}):
+Source: ${sourceUrl}
 The student is in ${curriculum.name} (${curriculum.level}). You MUST stay within the curriculum topics listed below. If a student asks about something outside the curriculum, politely redirect them to the relevant curriculum topic.
 
 SUBJECTS AND TOPICS FOR ${curriculum.name}:
@@ -774,7 +830,13 @@ RULES:
 - If a student asks about an advanced topic, say "That's a great question, but it's covered in a higher grade. Let me help you with [related curriculum topic] instead."
 - If a student asks about a lower-grade topic, briefly review it and connect it to their current curriculum
 - Use age-appropriate language for ${curriculum.level} students
-- Reference specific learning outcomes from the curriculum when teaching`;
+- Reference specific learning outcomes from the curriculum when teaching
+
+CITATION RULE (Phase 94):
+- When you teach a topic that is part of this curriculum, cite the KICD source inline as a Markdown link.
+- Example: "According to the [KICD ${curriculum.name} curriculum design](${sourceUrl}), [topic explanation]..."
+- Cite at most ONCE per reply — don't repeat the link for every sentence.
+- If you teach a topic NOT in the curriculum (general knowledge, beyond scope), do NOT cite KICD.`;
 
 }
 

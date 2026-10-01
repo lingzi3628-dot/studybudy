@@ -156,11 +156,23 @@ export async function POST(req: NextRequest) {
   // 2) Make the AI call
   try {
     const reply = await callAI(messagesForAI, apiKey, { userId: user.id, route: "/api/tutor" });
+    // Phase 96 — Deprecation notice.
+    // This legacy route is kept for backward compat with older clients (AITutor.tsx).
+    // New clients should use /api/tutor/chat (persistent conversations,
+    // track+course awareness, learner state, RAG, lesson controller).
+    // This route will be removed in a future release.
     return NextResponse.json({
       reply,
       role: "assistant" as const,
       remaining: deduct.remaining,
       tokenBalance: deduct.newBalance,
+      deprecationWarning: "This endpoint (/api/tutor) is deprecated. Use /api/tutor/chat instead for persistent conversations, track+course awareness, learner state, and semantic RAG.",
+    }, {
+      headers: {
+        "Deprecation": "true",
+        "Link": '</api/tutor/chat>; rel="successor-version"',
+        "Sunset": "Sat, 31 Jan 2026 00:00:00 GMT",
+      },
     });
   } catch (e: any) {
     // Refund rate-limit + tokens on failure

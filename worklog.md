@@ -1227,3 +1227,92 @@ Stage Summary:
 - Phase 93 (semantic RAG retrieval) complete. The AI tutor is now knowledge-grounded.
 - 119 tests passing across 5 tutor test files. Zero regressions.
 - Next: Phase 94 (KICD source citations) — add official KICD URLs to curriculum entries.
+
+
+Phase 94 + 95 + 96 — Complete
+=============================
+
+Phase 94 — KICD source citations (16 tests):
+- Added sourceUrl? field to CurriculumGrade type
+- Added KICD_BASE_URL constant + getCurriculumSourceUrl() helper
+- Updated buildCurriculumContext() to emit "Source: <url>" + CITATION RULE block
+- AI now cites KICD inline as a Markdown link when teaching curriculum topics
+
+Phase 95 — Lesson controller state machine (27 + 8 integration tests):
+- Added TutorLessonState model to Prisma schema (one active lesson per conversation)
+- Created src/lib/tutor/lesson-controller.ts (332 lines):
+  - getLessonState() — looks up active lesson
+  - startLesson() — creates/updates lesson state
+  - advanceLessonState() — introduce → explain → check → advance → complete
+  - endLesson() — deletes the lesson state row
+  - formatLessonStateBlock() — formats as system-prompt block with stage guidance
+- Wired into context-builder.ts (behind TUTOR_LESSON_CONTROLLER_ENABLED flag)
+- Wired advanceLessonState() into /api/tutor/track (advances when quiz passed >=60%)
+- Updated both chat routes to pass conversationId to buildTutorSystemPrompt()
+- Stages: introduce (hook) → explain (teach) → check (quiz) → advance (celebrate + next)
+
+Phase 96 — Deprecate legacy /api/tutor route:
+- Added Deprecation, Link (rel="successor-version"), and Sunset headers
+- Added deprecationWarning field to JSON response
+- Sunset date: 2026-01-31 (gives clients ~3 months to migrate)
+
+Verification:
+- TypeScript: 0 new errors (13 pre-existing baseline, unchanged)
+- Tests: 170/170 pass across 7 test files:
+  - context-builder.test.ts: 48 tests (22 P91 + 8 P92 + 10 P93 + 8 P95)
+  - learner-state.test.ts: 29 tests
+  - rag.test.ts: 15 tests
+  - curriculum-engine.test.ts: 16 tests (new — P94)
+  - lesson-controller.test.ts: 27 tests (new — P95)
+  - tutor-intents.test.ts: 20 tests (no regression)
+  - rag-engine.test.ts: 15 tests (no regression)
+
+Stage Summary:
+- Phase 94 (KICD citations) + Phase 95 (lesson controller) + Phase 96 (deprecation) complete.
+- 170 tests passing across 7 tutor test files. Zero regressions.
+- The AI tutor is now: learner-aware (P92), knowledge-grounded (P93), source-cited (P94), lesson-structured (P95), and the legacy route is deprecated (P96).
+
+
+Final Summary — Phases 91-96 Complete
+=====================================
+
+All 6 phases of the AI tutor backend audit + improvement cycle are done:
+
+Phase 91 — Context-builder extraction (22 tests)
+Phase 92 — Learner-state injection (37 tests)
+Phase 93 — Semantic RAG retrieval (25 tests)
+Phase 94 — KICD source citations (16 tests)
+Phase 95 — Lesson controller state machine (35 tests)
+Phase 96 — Legacy route deprecation (headers + warning)
+
+Total: 170 tests passing, 0 regressions, 0 new TypeScript errors.
+
+New files created:
+- src/lib/tutor/context-builder.ts
+- src/lib/tutor/learner-state.ts
+- src/lib/tutor/rag.ts
+- src/lib/tutor/lesson-controller.ts
+- src/lib/tutor/__tests__/context-builder.test.ts
+- src/lib/tutor/__tests__/learner-state.test.ts
+- src/lib/tutor/__tests__/rag.test.ts
+- src/lib/tutor/__tests__/curriculum-engine.test.ts
+- src/lib/tutor/__tests__/lesson-controller.test.ts
+- scripts/phase91-delete-moved-section.py
+- scripts/phase93-backfill.ts
+- prisma/migrations/20261001090000_tutor_lesson_state/migration.sql
+- prisma/migrations/20261001100000_course_knowledge_chunk/migration.sql
+- download/AI_TUTOR_TESTING_GUIDE.md
+
+Files modified:
+- src/lib/tutor-chat-engine.ts (slimmed from 1138 → 725 lines)
+- src/lib/tutor/context-builder.ts (additive: learner-state + RAG + lesson-state blocks)
+- src/lib/curriculum-engine.ts (additive: KICD source URLs + citation rules)
+- src/app/api/tutor/upload-outline/route.ts (additive: chunk + embed on upload)
+- src/app/api/tutor/chat/route.ts (additive: pass conversationId)
+- src/app/api/tutor/chat/stream/route.ts (additive: pass conversationId)
+- src/app/api/tutor/track/route.ts (additive: advanceLessonState on quiz pass)
+- src/app/api/tutor/route.ts (additive: deprecation headers + warning)
+- prisma/schema.prisma (additive: 2 new models + 2 relations)
+- src/lib/json-schemas.ts (fix: JSDoc bug that broke the build)
+
+Testing guide: download/AI_TUTOR_TESTING_GUIDE.md
