@@ -6,6 +6,7 @@ import { TopBar, DesktopTopBar } from "@/components/studybuddy/TopBar";
 import { BottomNav, Sidebar } from "@/components/studybuddy/BottomNav";
 import { CreateModal } from "@/components/studybuddy/screens/CreateModal";
 import { PostOnboardingPopup } from "@/components/studybuddy/screens/PostOnboardingPopup";
+import { SentryErrorBoundary } from "@/components/SentryErrorBoundary";
 import { Onboarding } from "@/components/studybuddy/screens/Onboarding";
 import { Search } from "@/components/studybuddy/screens/Search";
 import { Progress } from "@/components/studybuddy/screens/Progress";
@@ -268,6 +269,7 @@ export default function Page() {
 
   if (immersive.includes(screen)) {
     return (
+      <SentryErrorBoundary>
       <div className="min-h-screen bg-gray-50 text-gray-900">
         {screen === "flashcards" && <Flashcards />}
         {screen === "quiz" && <Quiz />}
@@ -318,11 +320,13 @@ export default function Page() {
         <CreateModal />
         <PostOnboardingPopup />
       </div>
+      </SentryErrorBoundary>
     );
   }
 
   // Tabbed screens — sidebar on desktop, top bar + bottom nav on mobile
   return (
+    <SentryErrorBoundary>
     <div className="min-h-screen bg-gray-50 text-gray-900">
       <OfflineBanner />
       <Sidebar />
@@ -349,5 +353,6 @@ export default function Page() {
       <CreateModal />
       <PostOnboardingPopup />
     </div>
+    </SentryErrorBoundary>
   );
 }
