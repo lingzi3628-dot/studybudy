@@ -1598,10 +1598,8 @@ export function AITutorChat() {
 
         {/* Chat area */}
         <div className="flex-1 flex flex-col max-w-3xl mx-auto w-full">
-          {/* Phase 87 — Flowing topic cards (Explore projects as "ads") */}
+          {/* Phase 88.4 — Netflix-style animated topic cards (projects as "ads") */}
           <TopicCardsBar />
-          {/* Phase 88 — YouTube video of the day (flowing on top) */}
-          <YouTubeVideoBar />
           {/* Messages */}
           <div
             ref={scrollRef}
@@ -3286,15 +3284,16 @@ function ProofBadges({ proof }: { proof: any }) {
 }
 
 // =====================================================================
-// TopicCardsBar — Phase 87
-// Horizontal scrolling strip of related Explore projects + topics,
-// shown at the top of the AI Tutor chat. Like "ads" for relevant content.
-// Clicking a card opens the project in a new tab or sends a question
-// to the AI about that topic.
+// TopicCardsBar — Phase 88.4 (Netflix-style animated sliding cards)
+// Explore projects slide in from the right, pause, then slide out.
+// Like Netflix autoplay trailers. NO hardcoded content — all dynamic
+// from /api/explore (filtered by user's track+course).
 // =====================================================================
 function TopicCardsBar() {
   const [projects, setProjects] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [paused, setPaused] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -3302,122 +3301,99 @@ function TopicCardsBar() {
         const r = await fetch("/api/explore");
         if (r.ok) {
           const d = await r.json();
-          setProjects((d.projects || []).slice(0, 8));
+          setProjects((d.projects || []).slice(0, 10));
         }
       } catch {}
       setLoading(false);
     })();
   }, []);
 
+  // Phase 88.4 — Netflix-style auto-scroll animation
+  // Cards slide slowly from right to left. Pauses on hover.
+  useEffect(() => {
+    if (paused || projects.length === 0) return;
+    const scrollContainer = scrollRef.current;
+    if (!scrollContainer) return;
+
+    let raf: number;
+    let lastTime = performance.now();
+
+    const animate = (now: number) => {
+      const dt = now - lastTime;
+      lastTime = now;
+      // Scroll speed: 30px per second
+      scrollContainer.scrollLeft += (dt / 1000) * 30;
+      // If we've scrolled past the end, loop back to start
+      if (scrollContainer.scrollLeft >= scrollContainer.scrollWidth - scrollContainer.clientWidth - 1) {
+        scrollContainer.scrollLeft = 0;
+      }
+      raf = requestAnimationFrame(animate);
+    };
+    raf = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(raf);
+  }, [paused, projects]);
+
   if (loading || projects.length === 0) return null;
 
   return (
-    <div className="flex-shrink-0 border-b border-gray-200 bg-white px-4 py-2">
-      <div className="flex gap-2 overflow-x-auto no-scrollbar">
+    <div
+      className="flex-shrink-0 border-b border-gray-200 bg-gradient-to-r from-indigo-50 via-white to-violet-50 py-2 overflow-hidden"
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+    >
+      <div className="flex items-center gap-1.5 px-4 mb-1.5">
+        <span className="text-sm">🧭</span>
+        <p className="text-[10px] font-bold uppercase text-indigo-600 tracking-wide">Explore Projects</p>
+        <span className="text-[9px] text-gray-400 ml-1">Hover to pause</span>
+      </div>
+      <div
+        ref={scrollRef}
+        className="flex gap-2 overflow-x-auto no-scrollbar px-4"
+        style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+      >
         {projects.map((p) => (
           <a
             key={p.id}
             href={p.projectUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex-shrink-0 w-40 rounded-xl border border-gray-200 bg-gradient-to-br from-indigo-50 to-violet-50 p-2.5 hover:border-indigo-300 hover:shadow-sm transition group"
+            className="flex-shrink-0 w-44 rounded-xl overflow-hidden border border-gray-200 bg-white hover:border-indigo-400 hover:shadow-md transition group"
           >
-            <div className="flex items-center gap-1.5 mb-1">
-              <span className="text-base">
-                {p.isFeatured ? "⭐" : "🧭"}
-              </span>
+            {p.thumbnailUrl ? (
+              <div className="relative w-full h-20 overflow-hidden">
+                <img
+                  src={p.thumbnailUrl}
+                  alt={p.title}
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                  loading="lazy"
+                  onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
+                {p.isFeatured && (
+                  <span className="absolute top-1 left-1 text-[8px] font-bold bg-amber-400 text-amber-900 px-1.5 py-0.5 rounded-full">
+                    ⭐ FEATURED
+                  </span>
+                )}
+              </div>
+            ) : (
+              <div className="w-full h-20 bg-gradient-to-br from-indigo-100 to-violet-100 flex items-center justify-center">
+                <span className="text-2xl opacity-40">🧭</span>
+              </div>
+            )}
+            <div className="p-2">
               <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-wide truncate">
                 {p.category || "Project"}
               </p>
+              <p className="text-xs font-semibold text-gray-900 line-clamp-2 leading-tight mt-0.5">
+                {p.title}
+              </p>
+              <p className="text-[9px] text-gray-400 mt-1 truncate">
+                {p.subject} · {p.viewCount} views
+              </p>
             </div>
-            <p className="text-xs font-semibold text-gray-900 line-clamp-2 group-hover:text-indigo-700 transition">
-              {p.title}
-            </p>
-            <p className="text-[9px] text-gray-400 mt-1 truncate">
-              {p.subject} · {p.viewCount} views
-            </p>
           </a>
         ))}
       </div>
-    </div>
-  );
-}
-
-// =====================================================================
-// YouTubeVideoBar — Phase 88.2 (Netflix-style, dynamic, NOT hardcoded)
-// Fetches REAL YouTube videos via web search based on the user's course.
-// Shows multiple video cards in a horizontal scroll — like Netflix.
-// NO caching (fresh results each time). NO hardcoded video IDs.
-// Clicking a card opens an embedded YouTube player inline.
-// =====================================================================
-function YouTubeVideoBar() {
-  const [videos, setVideos] = useState<Array<{ id: string; title: string; snippet: string; thumbnail: string }>>([]);
-  const [playing, setPlaying] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        // Fetch real video suggestions from the API (uses web search)
-        const r = await fetch("/api/tutor/video-suggestions");
-        if (r.ok) {
-          const d = await r.json();
-          if (d.videos && d.videos.length > 0) {
-            setVideos(d.videos.slice(0, 5));
-          }
-        }
-      } catch {}
-      setLoading(false);
-    })();
-  }, []);
-
-  if (loading || videos.length === 0) return null;
-
-  return (
-    <div className="flex-shrink-0 border-b border-gray-200 bg-white px-4 py-2">
-      <div className="flex items-center gap-1.5 mb-2">
-        <span className="text-sm">📺</span>
-        <p className="text-[10px] font-bold uppercase text-rose-600 tracking-wide">Recommended Videos</p>
-      </div>
-      <div className="flex gap-2 overflow-x-auto no-scrollbar">
-        {videos.map((v) => (
-          <button
-            key={v.id}
-            onClick={() => setPlaying(playing === v.id ? null : v.id)}
-            className="flex-shrink-0 w-40 rounded-xl overflow-hidden border border-gray-200 hover:border-rose-300 hover:shadow-sm transition group bg-white text-left"
-          >
-            <div className="relative w-full h-24 bg-gray-100">
-              <img
-                src={v.thumbnail}
-                alt={v.title}
-                className="w-full h-full object-cover"
-                loading="lazy"
-                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-              />
-              <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
-                <span className="text-white text-2xl">▶</span>
-              </div>
-              {playing === v.id && (
-                <div className="absolute top-1 right-1 w-5 h-5 rounded-full bg-rose-500 text-white text-[10px] flex items-center justify-center">✓</div>
-              )}
-            </div>
-            <div className="p-1.5">
-              <p className="text-[10px] font-semibold text-gray-900 line-clamp-2 leading-tight">{v.title}</p>
-            </div>
-          </button>
-        ))}
-      </div>
-      {playing && (
-        <div className="mt-2 rounded-xl overflow-hidden">
-          <iframe
-            src={`https://www.youtube.com/embed/${playing}?autoplay=1&rel=0`}
-            className="w-full"
-            style={{ height: "220px" }}
-            allow="autoplay; encrypted-media; fullscreen"
-            title="YouTube video player"
-          />
-        </div>
-      )}
     </div>
   );
 }

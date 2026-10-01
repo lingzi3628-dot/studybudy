@@ -62,12 +62,17 @@ export async function GET() {
     },
   });
 
-  // XP: 10 per correct, 5 per attempt
-  const [totalAttempts, correctAttempts] = await Promise.all([
+  // XP: 10 per correct, 5 per attempt (from flashcard attempts)
+  // PLUS XP from AI Tutor chat (stored in UserXp table)
+  // Phase 88.4 — merge both sources so AI Tutor progress shows on the Progress screen
+  const [totalAttempts, correctAttempts, userXpRecord] = await Promise.all([
     db.attempt.count({ where: { userId: user.id } }),
     db.attempt.count({ where: { userId: user.id, isCorrect: true } }),
+    db.userXp.findUnique({ where: { userId: user.id } }),
   ]);
-  const xp = correctAttempts * 10 + totalAttempts * 5;
+  const flashcardXp = correctAttempts * 10 + totalAttempts * 5;
+  const aiTutorXp = userXpRecord?.xpAmount || 0;
+  const xp = flashcardXp + aiTutorXp;
   const level = Math.floor(xp / 200) + 1;
 
   // streak: consecutive days with at least one attempt, ending today or yesterday
@@ -97,6 +102,9 @@ export async function GET() {
       }
     }
   }
+  // Phase 88.4 — use the HIGHER streak (flashcard vs AI Tutor)
+  const aiTutorStreak = userXpRecord?.streakDays || 0;
+  streak = Math.max(streak, aiTutorStreak);
 
   // badges: derived from activity
   const badges: { label: string; icon: string; earned: boolean }[] = [
