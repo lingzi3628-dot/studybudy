@@ -47,12 +47,9 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      # Advisory for now — next.config.ts sets ignoreBuildErrors: true,
-      # so the build itself doesn't gate on types. Flip to blocking once
-      # the codebase is type-clean.
-      - name: Typecheck (advisory)
+      # Phase 89 — typecheck is now blocking (0 errors as of Phase 89)
+      - name: Typecheck
         run: npx tsc --noEmit
-        continue-on-error: true
 
       # Phase 53 — CI now replays the migration history instead of blind
       # `db push`. This validates that prisma/migrations can build the

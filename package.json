@@ -10,11 +10,11 @@
     "postinstall": "prisma generate",
     "start": "NODE_ENV=production bun .next/standalone/server.js 2>&1 | tee server.log",
     "lint": "eslint .",
-    "db:push": "prisma db push",
     "db:deploy": "prisma migrate deploy",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "db:reset": "prisma migrate reset"
+    "db:reset": "prisma migrate reset",
+    "db:check": "prisma migrate diff --from-schema-datasource prisma/schema.prisma --to-schema-datamodel prisma/schema.prisma --exit-code"
   },
   "dependencies": {
     "@codemirror/lang-javascript": "^6.2.5",
@@ -66,6 +66,7 @@
     "@tensorflow/tfjs": "^4.22.0",
     "@tensorflow/tfjs-layers": "^4.22.0",
     "@types/archiver": "^8.0.0",
+    "@vercel/blob": "^2.8.0",
     "archiver": "^8.0.0",
     "bcryptjs": "^3.0.3",
     "canvas-confetti": "^1.9.4",
