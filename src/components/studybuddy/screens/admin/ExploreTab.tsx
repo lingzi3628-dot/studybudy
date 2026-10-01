@@ -144,8 +144,8 @@ export function ExploreTab() {
       setError("Please select a .zip file");
       return;
     }
-    if (f.size > 6 * 1024 * 1024) {
-      setError("File too large (max 6MB)");
+    if (f.size > 4 * 1024 * 1024) {
+      setError("File too large (max 4MB — Vercel body limit is 4.5MB)");
       return;
     }
     setError(null);
@@ -178,8 +178,13 @@ export function ExploreTab() {
       if (tags.trim()) fd.append("tags", tags.trim());
       fd.append("isFeatured", String(isFeatured));
       if (entryFile.trim()) fd.append("entryFile", entryFile.trim());
-      // Phase 88 — attach custom thumbnail/wallpaper image
-      if (thumbnail) fd.append("thumbnail", thumbnail);
+      // Phase 88.5 — compress thumbnail client-side before sending.
+      // Vercel's body limit is 4.5MB. ZIP (2.79MB) + raw thumbnail (could be 3MB+)
+      // exceeds the limit → 413 error. We resize to 512x512 + JPEG 0.7 → ~50KB.
+      if (thumbnail) {
+        const compressedThumb = await compressImage(thumbnail, 512, 0.7);
+        fd.append("thumbnail", compressedThumb, thumbnail.name);
+      }
 
       const xhr = new XMLHttpRequest();
       xhr.open("POST", "/api/admin/explore/upload");
@@ -311,7 +316,7 @@ export function ExploreTab() {
             <div className="flex flex-col items-center gap-2">
               <UploadCloud className="w-10 h-10 text-gray-300" />
               <p className="text-sm font-semibold text-gray-700">Drop your project ZIP here</p>
-              <p className="text-xs text-gray-500">or click to browse — max 6MB</p>
+              <p className="text-xs text-gray-500">or click to browse — max 4MB</p>
             </div>
           )}
         </div>
@@ -411,7 +416,7 @@ export function ExploreTab() {
                 onChange={(e) => {
                   const f = e.target.files?.[0];
                   if (!f) return;
-                  if (f.size > 4 * 1024 * 1024) { setError("Thumbnail too large (max 6MB)"); return; }
+                  if (f.size > 4 * 1024 * 1024) { setError("Thumbnail too large (max 4MB)"); return; }
                   setThumbnail(f);
                   const reader = new FileReader();
                   reader.onload = () => setThumbnailPreview(reader.result as string);
@@ -558,4 +563,47 @@ export function ExploreTab() {
       </div>
     </div>
   );
+}
+
+// Phase 88.5 — Client-side image compression
+// Resizes + compresses an image File to fit within Vercel's 4.5MB body limit.
+// Returns a new File object (smaller).
+async function compressImage(file: File, maxDim: number, quality: number): Promise<File> {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height / width) * maxDim);
+            width = maxDim;
+          } else {
+            width = Math.round((width / height) * maxDim);
+            height = maxDim;
+          }
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) { resolve(file); return; }
+        ctx.drawImage(img, 0, 0, width, height);
+        canvas.toBlob(
+          (blob) => {
+            if (blob) {
+              resolve(new File([blob], file.name, { type: "image/jpeg" }));
+            } else {
+              resolve(file);
+            }
+          },
+          "image/jpeg",
+          quality
+        );
+      };
+      img.src = reader.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
 }
