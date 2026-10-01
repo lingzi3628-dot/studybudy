@@ -1,33 +1,42 @@
 "use client";
 
 /**
- * NewHome — Phase F0/F2 (Dashboard redesign)
+ * NewTrackHome — Phase F2
  *
- * Clear starting point for learning — not a menu of everything StudyBuddy can do.
- * K-12 + Secondary only. Uses shared dashboard primitives from dashboard-primitives.tsx.
+ * Clear-starting-point dashboard for dev tracks (dev/data/ml/aiapp/web/
+ * backend/server/tvet/mixed).
  *
- * Three questions this dashboard answers:
- *   1. What am I learning?       → Greeting + grade/track + subjects chips
- *   2. Where should I continue?  → "Continue Learning" primary card (last topic or "Choose a subject")
- *   3. How am I progressing?     → Cards due + weak topics summary + study materials
+ * Uses the same layout primitives as NewHome + NewHigherEdHome.
+ * The difference: dev tracks show recent PROJECTS instead of study sets,
+ * and track-specific quick actions are accessible via the Create modal.
  *
  * Feature-flagged: NEXT_PUBLIC_NEW_DASHBOARD=true
+ * Falls back to TrackHome.tsx when flag is off.
  */
 
 import { useEffect, useState, useCallback } from "react";
 import { useApp } from "../store";
-import { api, type Progress as ProgressData, type StudySetSummary } from "../api";
+import { api, type Progress as ProgressData } from "../api";
 import { useI18n } from "@/lib/useI18n";
 import {
   DashboardSkeleton,
   DashboardError,
   DashboardHeader,
   ContinueLearningCard,
-  SubjectChips,
   ProgressSummary,
-  StudyMaterialsList,
+  ProjectsList,
   NewUserNudge,
 } from "./dashboard-primitives";
+
+type ProjectSummary = {
+  id: string;
+  buddyId: string;
+  title: string;
+  description: string | null;
+  updatedAt: string;
+  fileCount: number;
+  entryFile: string | null;
+};
 
 function greeting(): string {
   const h = new Date().getHours();
@@ -36,14 +45,26 @@ function greeting(): string {
   return "evening";
 }
 
-export function NewHome() {
+const TRACK_LABELS: Record<string, { label: string; emoji: string }> = {
+  dev: { label: "Coding", emoji: "💻" },
+  data: { label: "Data Science", emoji: "📊" },
+  ml: { label: "Machine Learning", emoji: "🧠" },
+  aiapp: { label: "AI App Dev", emoji: "🤖" },
+  web: { label: "Web Dev", emoji: "🌐" },
+  backend: { label: "Backend", emoji: "⚙️" },
+  server: { label: "DevOps", emoji: "🖥️" },
+  tvet: { label: "TVET", emoji: "🔧" },
+  mixed: { label: "All Tools", emoji: "🎯" },
+};
+
+export function NewTrackHome({ track }: { track: string }) {
   const setScreen = useApp((state) => state.setScreen);
-  const setActiveStudySetId = useApp((state) => state.setActiveStudySetId);
+  const setActiveProjectId = useApp((state) => state.setActiveProjectId);
   const openCreate = useApp((state) => state.openCreate);
   const { t } = useI18n();
 
   const [progress, setProgress] = useState<ProgressData | null>(null);
-  const [sets, setSets] = useState<StudySetSummary[]>([]);
+  const [recentProjects, setRecentProjects] = useState<ProjectSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
@@ -51,14 +72,17 @@ export function NewHome() {
     setLoading(true);
     setError(false);
     try {
-      const [p, s] = await Promise.all([
+      const [p, projectsRes] = await Promise.all([
         api.getProgress(),
-        api.listStudySets(),
+        fetch("/api/projects").catch(() => null),
       ]);
       setProgress(p);
-      setSets(s.sets);
+      if (projectsRes?.ok) {
+        const d = await projectsRes.json();
+        setRecentProjects((d.projects ?? []).slice(0, 4));
+      }
     } catch (e) {
-      console.warn("NewHome fetch failed", e);
+      console.warn("NewTrackHome fetch failed", e);
       setError(true);
     } finally {
       setLoading(false);
@@ -76,15 +100,13 @@ export function NewHome() {
 
   // ---- Derived data ----
   const name = progress?.user.name?.split(" ")[0] ?? progress?.user.email?.split("@")[0] ?? "there";
-  const grade = progress?.user.grade ?? "Grade 1";
-  const track = progress?.user.track ?? "k12";
-  const trackLabel = track === "secondary" ? "8-4-4" : "CBC";
   const streak = progress?.streak ?? 0;
   const dueCount = progress?.dueCount ?? 0;
   const weakAreas = progress?.weakAreas ?? [];
-  const subjects = progress?.user.subjects ?? [];
 
-  // "Continue Learning" — most recently studied topic from mastery
+  const trackMeta = TRACK_LABELS[track] ?? TRACK_LABELS.mixed;
+
+  // "Continue Learning" — find the most recently studied topic
   const lastTopic = (() => {
     for (const subj of progress?.mastery ?? []) {
       for (const topic of subj.topics) {
@@ -103,28 +125,27 @@ export function NewHome() {
   return (
     <div className="md:px-8 md:py-6">
       <div className="max-w-md mx-auto px-4 pt-4 pb-28 md:max-w-5xl md:px-0 md:pb-8">
+        {/* Greeting */}
         <DashboardHeader
           greetingText={t(`dash.greeting.${greeting()}`)}
           name={name}
-          badgeLabel={`${grade} · ${trackLabel}`}
+          badgeLabel={`${trackMeta.emoji} ${trackMeta.label}`}
           streak={streak}
         />
 
+        {/* Continue Learning */}
         <ContinueLearningCard
           lastTopic={lastTopic?.topic ?? null}
           lastSubject={lastTopic?.subject ?? null}
           masteryPct={lastTopic ? Math.round(lastTopic.mastery * 100) : null}
           onContinue={() => setScreen("tutor")}
+          emptyStateLabel="Start a project"
+          emptyStateSubtext="Open the code editor, create a study set, or ask the AI tutor for help."
+          continueLabel="Continue with AI tutor"
+          emptyCtaLabel="Ask AI tutor"
         />
 
-        {subjects.length > 0 && (
-          <SubjectChips
-            subjects={subjects}
-            onChipClick={() => setScreen("curriculumSubject" as any)}
-            onViewAll={() => setScreen("search")}
-          />
-        )}
-
+        {/* Practice and progress */}
         <ProgressSummary
           dueCount={dueCount}
           weakTopicsCount={weakAreas.length}
@@ -132,27 +153,29 @@ export function NewHome() {
           onViewProgress={() => setScreen("progress")}
         />
 
-        {sets.length > 0 && (
-          <StudyMaterialsList
-            items={sets.map((s) => ({
-              id: s.id,
-              title: s.title,
-              subtitle: `${s.subject ?? "General"} · ${s.cardCount} cards`,
+        {/* Recent projects */}
+        {recentProjects.length > 0 && (
+          <ProjectsList
+            projects={recentProjects.map((p) => ({
+              id: p.id,
+              title: p.title,
+              subtitle: `${p.fileCount} file${p.fileCount !== 1 ? "s" : ""} · ${new Date(p.updatedAt).toLocaleDateString()}`,
             }))}
             onItemClick={(id) => {
-              setActiveStudySetId(id);
-              setScreen("flashcards");
+              setActiveProjectId(id);
+              setScreen("projects");
             }}
-            onViewAll={() => setScreen("flashcards")}
+            onViewAll={() => setScreen("projects")}
           />
         )}
 
-        {sets.length === 0 && !lastTopic && (
+        {/* New user nudge (no projects + no mastery) */}
+        {recentProjects.length === 0 && !lastTopic && (
           <NewUserNudge
             title="Get started"
-            body="Create your first study set or ask the AI tutor a question to begin learning."
-            primaryCtaLabel="Create study set"
-            onPrimaryCta={() => openCreate("flashcards")}
+            body="Create your first project, or ask the AI tutor anything you'd like to learn."
+            primaryCtaLabel="Create project"
+            onPrimaryCta={() => openCreate()}
             secondaryCtaLabel="Ask AI tutor"
             onSecondaryCta={() => setScreen("tutor")}
           />

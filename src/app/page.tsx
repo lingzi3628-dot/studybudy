@@ -25,8 +25,11 @@ const LoadingFallback = () => (
 // Phase F0 — New dashboard (feature-flagged). Lazy-loaded so it doesn't
 // bloat the initial bundle when the flag is off.
 const NewHome = dynamic(() => import("@/components/studybuddy/screens/NewHome").then(m => ({ default: m.NewHome })), { loading: () => <LoadingFallback /> });
+// Phase F2 — New dashboards for higher-ed + dev tracks (same feature flag)
+const NewHigherEdHome = dynamic(() => import("@/components/studybuddy/screens/NewHigherEdHome").then(m => ({ default: m.NewHigherEdHome })), { loading: () => <LoadingFallback /> });
+const NewTrackHome = dynamic(() => import("@/components/studybuddy/screens/NewTrackHome").then(m => ({ default: m.NewTrackHome })), { loading: () => <LoadingFallback /> });
 // Feature flag: NEXT_PUBLIC_NEW_DASHBOARD="true" enables the new clear-starting-point
-// dashboard for K-12/secondary users. Default: off (PathDashboard renders).
+// dashboard for ALL tracks. Default: off (old dashboards render).
 const USE_NEW_DASHBOARD = process.env.NEXT_PUBLIC_NEW_DASHBOARD === "true";
 
 const Onboarding = dynamic(() => import("@/components/studybuddy/screens/Onboarding").then(m => ({ default: m.Onboarding })), { loading: () => <LoadingFallback /> });
@@ -360,8 +363,8 @@ export default function Page() {
               - Legacy "mixed" with a course set → HigherEdHome (treat as university)
               - Dev tracks (dev/data/ml/web/backend/server) + legacy "mixed" without course → TrackHome */}
           {screen === "home" && (userTrack === "k12" || userTrack === "secondary") && (USE_NEW_DASHBOARD ? <NewHome /> : <PathDashboard />)}
-          {screen === "home" && (userTrack === "university" || userTrack === "college" || userTrack === "tvet" || (userTrack === "mixed" && userCourse)) && <HigherEdHome />}
-          {screen === "home" && userTrack !== "k12" && userTrack !== "secondary" && userTrack !== "university" && userTrack !== "college" && userTrack !== "tvet" && !(userTrack === "mixed" && userCourse) && <TrackHome track={userTrack} />}
+          {screen === "home" && (userTrack === "university" || userTrack === "college" || userTrack === "tvet" || (userTrack === "mixed" && userCourse)) && (USE_NEW_DASHBOARD ? <NewHigherEdHome /> : <HigherEdHome />)}
+          {screen === "home" && userTrack !== "k12" && userTrack !== "secondary" && userTrack !== "university" && userTrack !== "college" && userTrack !== "tvet" && !(userTrack === "mixed" && userCourse) && (USE_NEW_DASHBOARD ? <NewTrackHome track={userTrack} /> : <TrackHome track={userTrack} />)}
           {screen === "search" && <Search />}
           {screen === "progress" && <Progress />}
           {screen === "profile" && <Profile />}
