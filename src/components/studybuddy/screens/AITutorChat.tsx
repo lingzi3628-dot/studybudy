@@ -2718,6 +2718,19 @@ function QuizRenderer({ quiz }: { quiz: any }) {
   const handleSubmit = () => {
     if (!allAnswered) return;
     setSubmitted(true);
+    // Phase 88.6 — Track quiz score for progress
+    const s = questions.reduce((acc: number, q: any) => acc + (answers[q.id] === q.correctIndex ? 1 : 0), 0);
+    fetch("/api/tutor/track", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        durationSec: 60,
+        activity: "quiz",
+        quizScore: s,
+        quizTotal: totalQ,
+        topic: quiz.title || "Quiz",
+      }),
+    }).catch(() => {});
   };
 
   const handleReset = () => {

@@ -28,11 +28,15 @@ export async function POST(req: NextRequest) {
     durationSec?: number;
     activity?: string;
     topic?: string;
+    quizScore?: number;
+    quizTotal?: number;
   };
 
   const durationSec = Math.min(300, Math.max(5, Number(body.durationSec) || 30));
   const activity = body.activity || "chat";
   const topic = body.topic || null;
+  const quizScore = body.quizScore !== undefined ? Number(body.quizScore) : null;
+  const quizTotal = body.quizTotal !== undefined ? Number(body.quizTotal) : null;
 
   try {
     // Find or create today's active study session
@@ -81,7 +85,11 @@ export async function POST(req: NextRequest) {
     }
 
     // Also update user's XP (5 XP per interaction, 10 for quiz, 15 for exam)
-    const xpGain = activity === "exam" ? 15 : activity === "quiz" ? 10 : 5;
+    // Phase 88.6 — bonus XP for quiz performance: +2 XP per correct answer
+    let xpGain = activity === "exam" ? 15 : activity === "quiz" ? 10 : activity === "drawing" ? 5 : 5;
+    if (quizScore !== null && quizTotal !== null && quizTotal > 0) {
+      xpGain += Math.round((quizScore / quizTotal) * 10); // up to +10 bonus for perfect quiz
+    }
     await db.user.update({
       where: { id: user.id },
       data: { lastActive: new Date() },

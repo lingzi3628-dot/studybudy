@@ -52,9 +52,11 @@ export function PostOnboardingPopup() {
     } finally {
       setCreating(false);
       // Set the auto-greeting + redirect to AI Tutor
+      // Phase 88.6 — Make the greeting PROACTIVE: the AI should propose a topic
+      // instead of asking "where can we start?" (which makes the student decide)
       const greeting = userName
-        ? `Hello ${userName}! 👋 Welcome to StudyBuddy. Where can we start today?`
-        : "Hello! 👋 Welcome to StudyBuddy. Where can we start today?";
+        ? `Hi ${userName}! 👋 Welcome to StudyBuddy. I'm your AI tutor and I'll be guiding your learning journey. Let's get started! Based on your course, I'd like to teach you about the first key concept. Ready?`
+        : `Hi! 👋 Welcome to StudyBuddy. I'm your AI tutor and I'll be guiding your learning journey. Let's get started! I'll teach you the first key concept from your course. Ready?`;
       setPendingAutoGreeting(greeting);
       setShowPostOnboardingPopup(false);
       setScreen("tutor");
@@ -63,8 +65,8 @@ export function PostOnboardingPopup() {
 
   const handleSkip = () => {
     const greeting = userName
-      ? `Hello ${userName}! 👋 Welcome to StudyBuddy. Where can we start today?`
-      : "Hello! 👋 Welcome to StudyBuddy. Where can we start today?";
+      ? `Hi ${userName}! 👋 Welcome to StudyBuddy. I'm your AI tutor and I'll be guiding your learning journey. Let's get started! Based on your course, I'd like to teach you about the first key concept. Ready?`
+      : `Hi! 👋 Welcome to StudyBuddy. I'm your AI tutor and I'll be guiding your learning journey. Let's get started! I'll teach you the first key concept from your course. Ready?`;
     setPendingAutoGreeting(greeting);
     setShowPostOnboardingPopup(false);
     setScreen("tutor");
