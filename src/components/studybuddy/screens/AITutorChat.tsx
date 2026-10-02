@@ -2269,13 +2269,25 @@ export function AITutorChat() {
             Sits inside the flex-1 container as a sibling of the chat area. */}
         {USE_WORKSPACE && workspaceArtifact && (
           <div className="fixed inset-0 z-50 md:relative md:z-auto md:flex-1 md:flex-shrink-0 md:w-[42%] flex flex-col bg-gray-50 border-l border-gray-200">
-            {/* Mobile: tab to switch back to chat */}
+            {/* Mobile: tab to switch back to chat + Ask AI */}
             <div className="md:hidden flex items-center justify-between px-4 py-2.5 bg-white border-b border-gray-200 flex-shrink-0">
               <button
                 onClick={() => setWorkspaceArtifact(null)}
                 className="flex items-center gap-1 text-xs font-semibold text-indigo-600"
               >
                 <ChevronLeft className="w-4 h-4" /> Back to chat
+              </button>
+              <button
+                onClick={() => {
+                  if (!workspaceArtifact) return;
+                  let ctx = `[Looking at my workspace: ${workspaceArtifact.type}]\n\n`;
+                  try { ctx = `[Looking at my workspace: ${workspaceArtifact.caption.slice(0, 300)}…]\n\n`; } catch {}
+                  setInput(ctx);
+                  setWorkspaceArtifact(null); // close workspace so the input is visible
+                }}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-violet-50 text-violet-700 text-[10px] font-semibold"
+              >
+                <Bot className="w-3 h-3" /> Ask AI about this
               </button>
             </div>
             {/* Workspace header */}
@@ -2290,6 +2302,41 @@ export function AITutorChat() {
                 </span>
               </div>
               <div className="flex items-center gap-1.5 flex-shrink-0">
+                {/* Phase F12 — "Ask AI about this" — prepends workspace context to next message */}
+                <button
+                  onClick={() => {
+                    if (!workspaceArtifact) return;
+                    // Build a context summary from the artifact
+                    let ctx = "";
+                    try {
+                      const spec = JSON.parse(workspaceArtifact.caption);
+                      const typeLabel = workspaceArtifact.type === "graph" ? "the graph"
+                        : workspaceArtifact.type === "quiz" ? "the quiz"
+                        : workspaceArtifact.type === "draw_task" ? "the drawing task"
+                        : workspaceArtifact.type === "conceptmap" ? "the concept map"
+                        : workspaceArtifact.type === "manipulative" ? "the math activity"
+                        : workspaceArtifact.type === "code_project" ? "the code project"
+                        : "this workspace artifact";
+                      ctx = `[Looking at ${typeLabel} in my workspace: ${workspaceArtifact.caption.slice(0, 500)}${workspaceArtifact.caption.length > 500 ? "…" : ""}]\n\n`;
+                    } catch {
+                      ctx = `[Looking at my workspace: ${workspaceArtifact.type}]\n\n`;
+                    }
+                    setInput(ctx);
+                    // Focus the input so the user can type their question
+                    setTimeout(() => {
+                      const inputEl = document.querySelector('input[placeholder*="Ask"]') as HTMLInputElement;
+                      if (inputEl) {
+                        inputEl.focus();
+                        // Move cursor to end (after the context)
+                        inputEl.setSelectionRange(inputEl.value.length, inputEl.value.length);
+                      }
+                    }, 50);
+                  }}
+                  className="hidden md:flex items-center gap-1 px-2.5 py-1 rounded-full bg-violet-50 text-violet-700 text-[10px] font-semibold hover:bg-violet-100 transition"
+                  title="Ask the AI about what's in your workspace"
+                >
+                  <Bot className="w-3 h-3" /> Ask AI
+                </button>
                 {/* Phase F9 — Save workspace as Project */}
                 <button
                   onClick={saveWorkspaceAsProject}
