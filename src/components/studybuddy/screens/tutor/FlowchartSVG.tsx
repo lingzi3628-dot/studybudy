@@ -18,17 +18,19 @@
  * This renderer does NOT compute positions — it only renders them.
  */
 
-import { type CompiledFlowchart, type CompiledNode, type CompiledEdge } from "@/lib/flowchart-compiler";
+import type { CompiledFlowchart, CompiledNode, CompiledEdge } from "@/lib/flowchart-compiler";
+import type { FlowchartNodeShape } from "@/lib/flowchart-validator";
 
 // ============================================================
 // Constants
 // ============================================================
 
-const PALETTE = {
+const PALETTE: Record<string, { fill: string; stroke: string }> = {
   rectangle: { fill: "#e0e7ff", stroke: "#4f46e5" },
   rounded_rectangle: { fill: "#dbeafe", stroke: "#2563eb" },
   diamond: { fill: "#fef3c7", stroke: "#d97706" },
   terminator: { fill: "#d1fae5", stroke: "#059669" },
+  input_output: { fill: "#fae8ff", stroke: "#9333ea" },
 };
 
 const ARROW_COLOR = "#475569";
@@ -161,6 +163,26 @@ function NodeElement({ node }: { node: CompiledNode }) {
             x={node.x} y={node.y}
             width={node.width} height={node.height}
             rx={node.height / 2} ry={node.height / 2}
+            fill={colors.fill}
+            stroke={colors.stroke}
+            strokeWidth={2}
+          />
+          {renderTextLines(lines, node.centerX, node.centerY)}
+        </g>
+      );
+
+    case "input_output":
+      // Parallelogram — slanted rectangle (standard ICT input/output shape)
+      const skew = 12; // horizontal skew offset
+      const px = node.x;
+      const py = node.y;
+      const pw = node.width;
+      const ph = node.height;
+      const points = `${px + skew},${py} ${px + pw},${py} ${px + pw - skew},${py + ph} ${px},${py + ph}`;
+      return (
+        <g>
+          <polygon
+            points={points}
             fill={colors.fill}
             stroke={colors.stroke}
             strokeWidth={2}

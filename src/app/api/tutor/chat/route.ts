@@ -45,13 +45,13 @@ export async function POST(req: NextRequest) {
   const conversationId = (body?.conversationId ?? "").toString().trim() || null;
   const userMessage = (body?.message ?? "").toString().trim();
   const clientPlatform = body?.clientPlatform === "mobile" ? "mobile" : "web";
-  // Optional image attachment — base64 data URL (e.g. "data:image/jpeg;base64,...")
-  // When present, the AI calls the vision model to analyze the image.
   const imageDataUrl = (body?.image ?? "").toString().trim() || null;
-  // Phase 45: Data Saver mode
   const dataSaver = !!body?.dataSaver;
   const allowedLearningModes = ["standard", "explain", "practice", "hint", "simpler"] as const;
   const learningMode = allowedLearningModes.includes(body?.learningMode) ? body.learningMode : "standard";
+  // AC1: Workspace context is a SEPARATE optional field — not part of the visible message.
+  // The visible ChatMessage saved to DB contains only userMessage (the learner's actual question).
+  const workspaceContext = body?.workspaceContext ?? null;
   // Phase 47/61: Buddy routing — if the client sends a buddyId, use it.
   // If not, fall back to the user's track to pick the right default buddy.
   // This ensures the AI Tutor persona matches the user's education track
@@ -142,7 +142,9 @@ export async function POST(req: NextRequest) {
       toolResults: toolContext,
       learningMode,
       clientPlatform,
-      conversationId: conversation.id,  // Phase 95 — for lesson state lookup
+      conversationId: conversation.id,
+      // AC1: Pass workspace context to the system prompt builder
+      workspaceContext,
     });
 
     const aiMessages: AIMessage[] = [

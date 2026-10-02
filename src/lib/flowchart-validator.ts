@@ -21,7 +21,7 @@
  * The AI must NOT supply x, y, width, height, svg, html, or any coordinates.
  */
 
-export type FlowchartNodeShape = "rectangle" | "rounded_rectangle" | "diamond" | "terminator";
+export type FlowchartNodeShape = "rectangle" | "rounded_rectangle" | "diamond" | "terminator" | "input_output";
 export type FlowchartDirection = "top_to_bottom" | "left_to_right";
 
 export type FlowchartNode = {
@@ -84,6 +84,12 @@ const SHAPE_ALIASES: Record<string, FlowchartNodeShape> = {
   end: "terminator",
   terminal: "terminator",
   startend: "terminator",
+  input: "input_output",
+  output: "input_output",
+  input_output: "input_output",
+  io: "input_output",
+  parallelogram: "input_output",
+  data: "input_output",
 };
 
 const DIRECTION_ALIASES: Record<string, FlowchartDirection> = {
@@ -195,7 +201,7 @@ export function validateFlowchartPlan(raw: any): FlowchartValidationResult {
       const shapeLower = rawNode.shape.toLowerCase().trim();
       if (SHAPE_ALIASES[shapeLower]) {
         shape = SHAPE_ALIASES[shapeLower];
-      } else if (["rectangle", "rounded_rectangle", "diamond", "terminator"].includes(shapeLower)) {
+      } else if (["rectangle", "rounded_rectangle", "diamond", "terminator", "input_output"].includes(shapeLower)) {
         shape = shapeLower as FlowchartNodeShape;
       } else {
         warnings.push(`node "${id}" has unknown shape "${rawNode.shape}" — defaulting to rectangle`);

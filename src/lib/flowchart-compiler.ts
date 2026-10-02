@@ -34,7 +34,7 @@ import { computeLayers } from "./flowchart-validator";
 export type CompiledNode = {
   id: string;
   label: string;
-  shape: "rectangle" | "rounded_rectangle" | "diamond" | "terminator";
+  shape: "rectangle" | "rounded_rectangle" | "diamond" | "terminator" | "input_output";
   x: number;          // top-left corner
   y: number;
   width: number;

@@ -133,12 +133,17 @@ export function AITutorChat() {
   const pendingAutoGreeting = useApp((s) => s.pendingAutoGreeting);
   const setPendingAutoGreeting = useApp((s) => s.setPendingAutoGreeting);
 
-  // Phase F8 — Workspace artifact state. When non-null, the workspace panel
-  // opens alongside the chat showing the selected attachment (graph, quiz,
-  // drawing, concept map). The user can close it to return to chat-only view.
+  // Phase F8 — Workspace artifact state.
+  // AC1: pendingWorkspaceContext is sent as a SEPARATE field in the request body,
+  // NOT mixed into the visible learner message. It's cleared after each send.
+  const WORKSPACE_LS_KEY = "studybuddy.tutor.workspaceArtifact";
+  const [pendingWorkspaceContext, setPendingWorkspaceContext] = useState<{
+    artifactType: string;
+    artifactCaption: string;
+    action: string;
+  } | null>(null);
   // Phase F9 — Persisted to localStorage so it survives navigation away from
   // the tutor screen and back within the same session.
-  const WORKSPACE_LS_KEY = "studybuddy.tutor.workspaceArtifact";
   const [workspaceArtifact, setWorkspaceArtifact] = useState<Attachment | null>(() => {
     if (typeof window !== "undefined" && USE_WORKSPACE) {
       try {
@@ -600,7 +605,14 @@ export function AITutorChat() {
       buddyId: activeBuddyId,
       learningMode,
       clientPlatform: "web",
+      // AC1: Workspace context sent as a SEPARATE field — not in the visible message.
+      // The server uses this to give the AI context about what the learner is looking at.
+      // The visible ChatMessage saved to DB contains only messageText (the learner's actual question).
+      workspaceContext: pendingWorkspaceContext ?? undefined,
     });
+
+    // AC1: Clear the pending workspace context after it's been included in the request
+    setPendingWorkspaceContext(null);
 
     const finalizeStreamedMessage = (patch: Partial<ChatMsg>) => {
       setMessages((m) => m.map((msg) => (msg.id === streamId ? { ...msg, ...patch } : msg)));
@@ -2334,33 +2346,35 @@ export function AITutorChat() {
                 </span>
               </div>
               <div className="flex items-center gap-1.5 flex-shrink-0">
-                {/* Phase F12 — "Ask AI about this" — prepends workspace context to next message */}
+                {/* AC1: "Ask AI about this" — opens a contextual menu instead of putting raw JSON in the input.
+                    The workspace context is sent as a SEPARATE field (workspaceContext) in the request body,
+                    NOT mixed into the visible learner message. */}
                 <button
                   onClick={() => {
                     if (!workspaceArtifact) return;
-                    // Build a context summary from the artifact
-                    let ctx = "";
-                    try {
-                      const spec = JSON.parse(workspaceArtifact.caption);
-                      const typeLabel = workspaceArtifact.type === "graph" ? "the graph"
-                        : workspaceArtifact.type === "quiz" ? "the quiz"
-                        : workspaceArtifact.type === "draw_task" ? "the drawing task"
-                        : workspaceArtifact.type === "conceptmap" ? "the concept map"
-                        : workspaceArtifact.type === "manipulative" ? "the math activity"
-                        : workspaceArtifact.type === "code_project" ? "the code project"
-                        : "this workspace artifact";
-                      ctx = `[Looking at ${typeLabel} in my workspace: ${workspaceArtifact.caption.slice(0, 500)}${workspaceArtifact.caption.length > 500 ? "…" : ""}]\n\n`;
-                    } catch {
-                      ctx = `[Looking at my workspace: ${workspaceArtifact.type}]\n\n`;
-                    }
-                    setInput(ctx);
-                    // Focus the input so the user can type their question
+                    // Build a bounded workspace context (sent as separate field, not in the message text)
+                    const wsCtx = {
+                      artifactType: workspaceArtifact.type,
+                      artifactCaption: workspaceArtifact.caption.slice(0, 2000), // bounded
+                      action: "inspect" as const,
+                    };
+                    setPendingWorkspaceContext(wsCtx);
+                    // Set a SHORT visible prompt (not raw JSON)
+                    const typeLabel = workspaceArtifact.type === "graph" ? "this graph"
+                      : workspaceArtifact.type === "quiz" ? "this quiz"
+                      : workspaceArtifact.type === "draw_task" ? "this drawing task"
+                      : workspaceArtifact.type === "conceptmap" ? "this concept map"
+                      : workspaceArtifact.type === "manipulative" ? "this math activity"
+                      : workspaceArtifact.type === "code_project" ? "this code project"
+                      : workspaceArtifact.type === "flowchart_v1" ? "this flowchart"
+                      : "this workspace artifact";
+                    setInput(`Explain ${typeLabel}.`);
+                    // Focus the input so the user can edit the question
                     setTimeout(() => {
                       const inputEl = document.querySelector('input[placeholder*="Ask"]') as HTMLInputElement;
                       if (inputEl) {
                         inputEl.focus();
-                        // Move cursor to end (after the context)
-                        inputEl.setSelectionRange(inputEl.value.length, inputEl.value.length);
+                        inputEl.select(); // select all so user can type their own question
                       }
                     }, 50);
                   }}

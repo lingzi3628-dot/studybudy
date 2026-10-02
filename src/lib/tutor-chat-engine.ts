@@ -315,16 +315,72 @@ export async function parseGraphAttachments(opts: {
   const { reply, userMessage, userId, intents } = opts;
   const attachments: TutorAttachment[] = [];
 
+  // ---- AC1: Determine the requested artifact type from intents ----
+  // This constrains which specs are accepted. If the user asked for a bar
+  // graph, we don't accept a scatter or scene spec that the AI may have
+  // emitted by mistake.
+  type RequestedArtifactType = string | null;
+  const requestedType: RequestedArtifactType = (() => {
+    if (intents.wantsBar) return "bar";
+    if (intents.wantsHistogram) return "histogram";
+    if (intents.wantsPie) return "pie";
+    if (intents.wantsScatter) return "scatter";
+    if (intents.wantsFunctionPlot) return "function";
+    if (intents.wantsVenn) return "venn";
+    if (intents.wantsNumberLine) return "numberline";
+    if (intents.wantsTree) return "tree";
+    if (intents.wantsBoxPlot) return "boxplot";
+    if (intents.wantsVector) return "vector";
+    if (intents.wantsPolygon) return "polygon";
+    if (intents.wantsNetwork) return "network";
+    if (intents.wantsConceptMap) return "network";
+    if (intents.wantsERDiagram) return "erdiagram";
+    if (intents.wantsCSV) return "csv";
+    // flowchart_v1 only if generation is enabled (server-side check)
+    if (/\bflowchart\b|\bprocess diagram\b|\bdecision flow\b|\bflow.?chart\b/i.test(userMessage)) {
+      const fcEnabled = (process.env.TUTOR_FLOWCHART_GENERATION_ENABLED ?? "false").toLowerCase().trim();
+      if (fcEnabled === "true" || fcEnabled === "1" || fcEnabled === "on") return "flowchart_v1";
+    }
+    return null; // no explicit request — preserve current behavior
+  })();
+
+  // ---- AC1: Compatibility map — which graph types are acceptable for a request ----
+  const COMPATIBLE_TYPES: Record<string, Set<string>> = {
+    bar: new Set(["bar"]),
+    histogram: new Set(["histogram"]),
+    pie: new Set(["pie"]),
+    scatter: new Set(["scatter"]),
+    function: new Set(["function"]),
+    venn: new Set(["venn"]),
+    numberline: new Set(["numberline"]),
+    tree: new Set(["tree"]),
+    boxplot: new Set(["boxplot"]),
+    vector: new Set(["vector"]),
+    polygon: new Set(["polygon"]),
+    network: new Set(["network"]),
+    erdiagram: new Set(["erdiagram"]),
+    csv: new Set(["csv"]),
+    flowchart_v1: new Set(["flowchart_v1"]),
+  };
+
   try {
     const foundSpecs: any[] = [];
 
     // 1) Fenced code blocks (ANY language tag)
+    // AC1: Expanded the skip list to include C, C++, Java, Go, Rust, Ruby, PHP, JSON, YAML, TOML, XML
+    // so that ordinary programming code blocks are NOT parsed as graph specifications.
+    const CODE_LANGS_TO_SKIP = new Set([
+      "bash", "sh", "shell", "python", "py", "javascript", "js", "typescript", "ts",
+      "html", "css", "sql", "c", "cpp", "c++", "java", "go", "rust", "rs", "ruby",
+      "rb", "php", "json", "yaml", "yml", "toml", "xml", "kotlin", "swift", "scala",
+      "perl", "lua", "r", "matlab", "dart", "plaintext", "text",
+    ]);
     const codeBlockRe = /```([\w-]*)\s*([\s\S]*?)```/g;
     let codeBlockMatch: RegExpExecArray | null;
     while ((codeBlockMatch = codeBlockRe.exec(reply)) !== null) {
       const lang = (codeBlockMatch[1] ?? "").toLowerCase();
       const body = codeBlockMatch[2] ?? "";
-      if (["bash", "sh", "shell", "python", "py", "javascript", "js", "typescript", "ts", "html", "css", "sql"].includes(lang)) {
+      if (CODE_LANGS_TO_SKIP.has(lang)) {
         continue;
       }
       const spec = tryParseGraphSpec(body);
@@ -355,7 +411,19 @@ export async function parseGraphAttachments(opts: {
     }
 
     // 3) Validate + correct each spec (with one AI retry on failure)
+    // AC1: If a requestedType exists, reject specs that don't match.
+    // AC1: Deduplicate identical specs (same type + same caption).
+    const seenCaptions = new Set<string>();
     for (const spec of foundSpecs) {
+      // AC1: Reject specs that don't match the requested type
+      if (requestedType) {
+        const compatibleSet = COMPATIBLE_TYPES[requestedType];
+        if (compatibleSet && !compatibleSet.has(spec.type)) {
+          console.log(`[tutor-engine] AC1: rejected spec type "${spec.type}" — requested "${requestedType}"`);
+          continue;
+        }
+      }
+
       let validation = validateAndCorrectGraphSpec(spec);
 
       if (!validation.valid && foundSpecs.length <= 2) {
@@ -432,6 +500,20 @@ export async function parseGraphAttachments(opts: {
       if (correctedSpec.type === "flowchart_v1") {
         attachmentType = "flowchart_v1";
       }
+      // AC1: Deduplicate — skip if we already have an attachment with the same type + caption
+      const captionKey = `${attachmentType}:${JSON.stringify(correctedSpec)}`;
+      if (seenCaptions.has(captionKey)) {
+        console.log(`[tutor-engine] AC1: deduplicated identical ${attachmentType} attachment`);
+        continue;
+      }
+      seenCaptions.add(captionKey);
+
+      // AC1: Enforce maximum 1 primary artifact when a type was explicitly requested
+      if (requestedType && attachments.length >= 1 && attachmentType !== "source" && attachmentType !== "video" && attachmentType !== "image") {
+        console.log(`[tutor-engine] AC1: max 1 primary artifact reached for requested "${requestedType}" — skipping additional`);
+        continue;
+      }
+
       attachments.push({
         type: attachmentType,
         url: null,
@@ -440,8 +522,13 @@ export async function parseGraphAttachments(opts: {
     }
 
     // Recover when a model explains a requested drawing but omits its spec.
-    // This keeps the drawing format generic and avoids one-off intent handlers.
-    if (intents.wantsDrawing && !intents.wantsConceptMap && attachments.length === 0) {
+    // AC1: Only run recovery when:
+    //   1. No valid attachments were produced, AND
+    //   2. No specific artifact type was requested (don't recover Scene for a Bar request)
+    //   3. The user explicitly asked to draw something (wantsDrawing)
+    //   4. It's not a concept map (concept maps have their own fallback below)
+    if (intents.wantsDrawing && !intents.wantsConceptMap && attachments.length === 0
+        && (!requestedType || requestedType === "scene")) {
       try {
         const sceneReply = await callAI([
           {
@@ -730,6 +817,20 @@ export async function postProcessReply(opts: {
     } catch (proofErr: any) {
       console.error("[tutor-engine] proof engine failed:", proofErr?.message);
     }
+  }
+
+  // ---- AC1: Minimal text-artifact consistency ----
+  // If the AI text claims an artifact is ready but no matching attachment exists,
+  // append an honest learner-facing status instead of leaving a false claim.
+  const hasGraphReady = /graph (?:is )?ready|bar (?:chart|graph) (?:is )?ready|here.?s your (?:bar|graph|chart)|i.?ve (?:created|drawn|made) (?:a |the )?(?:bar|graph|chart|pie|scatter)/i.test(finalReply);
+  const hasFlowchartReady = /flowchart (?:is )?ready|i.?ve (?:created|drawn|made) (?:a |the )?flowchart/i.test(finalReply);
+  const hasGraphAttachment = attachments.some(a => ["graph", "conceptmap"].includes(a.type));
+  const hasFlowchartAttachment = attachments.some(a => a.type === "flowchart_v1");
+
+  if (hasGraphReady && !hasGraphAttachment && !hasFlowchartAttachment) {
+    finalReply += "\n\n⚠️ I wasn't able to prepare that graph correctly. Please try again, or give me the categories and values you'd like to use.";
+  } else if (hasFlowchartReady && !hasFlowchartAttachment) {
+    finalReply += "\n\n⚠️ I wasn't able to prepare that flowchart correctly. Please try again with a clearer description.";
   }
 
   return {

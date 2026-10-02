@@ -324,6 +324,13 @@ export interface BuildTutorSystemPromptOpts {
   conversationId?: string | null;
   /** Phase 95 — set true to skip the LESSON STATE block (e.g. tests, exam generation). */
   skipLessonState?: boolean;
+  /** AC1 — workspace context from the client (artifact type + caption + action).
+   *  Sent as a SEPARATE field in the request body, NOT in the visible message. */
+  workspaceContext?: {
+    artifactType: string;
+    artifactCaption: string;
+    action: string;
+  } | null;
 }
 
 export interface BuildTutorSystemPromptResult {
@@ -359,6 +366,7 @@ export async function buildTutorSystemPrompt(
     skipRag = false,
     conversationId = null,
     skipLessonState = false,
+    workspaceContext = null,
   } = opts;
   const completeContext = [searchContext, toolResults, studyContext].filter(Boolean).join("\n\n");
 
@@ -599,17 +607,31 @@ Only suggest this ONCE per conversation — don't nag.
     }
   }
 
+  // AC1: Build workspace context block — injected as INTERNAL context, not visible to learner.
+  // The learner's message is clean ("Explain this graph") — the workspace context
+  // is passed separately so it doesn't appear in the chat.
+  let workspaceContextBlock = "";
+  if (workspaceContext) {
+    const typeLabel = workspaceContext.artifactType === "graph" ? "a graph"
+      : workspaceContext.artifactType === "quiz" ? "a quiz"
+      : workspaceContext.artifactType === "draw_task" ? "a drawing task"
+      : workspaceContext.artifactType === "conceptmap" ? "a concept map"
+      : workspaceContext.artifactType === "manipulative" ? "a math activity"
+      : workspaceContext.artifactType === "code_project" ? "a code project"
+      : workspaceContext.artifactType === "flowchart_v1" ? "a flowchart"
+      : "an artifact";
+    workspaceContextBlock = `\n\n=== ACTIVE WORKSPACE (the learner is looking at ${typeLabel}) ===
+The learner has ${typeLabel} open in their workspace. Their question is about it.
+Workspace artifact type: ${workspaceContext.artifactType}
+Learner action: ${workspaceContext.artifactCaption.slice(0, 800)}${workspaceContext.artifactCaption.length > 800 ? "…" : ""}
+Respond to the learner's question with specific reference to this artifact. Do NOT output the raw JSON — the learner can already see the artifact in their workspace.
+=== END ACTIVE WORKSPACE ===\n`;
+  }
+
   let systemContent: string;
   if (buddyId === "study") {
-    // Phase 84 — system prompt now includes track context + course knowledge + upload prompt
-    // Phase 92 — learnerStateBlock is injected AFTER completeContext but BEFORE the
-    // data-saver + proactive-teaching rules. This positions the learner profile as
-    // context the AI reads BEFORE deciding how to teach, not as a rule it must follow.
-    // Phase 93 — retrievedKnowledgeBlock is injected right after courseKnowledgeContext,
-    // so semantic chunks appear alongside the structured knowledge base entry.
-    // Phase 95 — lessonStateBlock is injected after learnerStateBlock, so the lesson
-    // guidance appears after the learner profile, right before the proactive teaching rules.
-    systemContent = `You are StudyBuddy, a friendly AI tutor for students of all levels (K-12 CBC, Secondary, University, College, TVET). ${teachingProfile.systemPromptSuffix}${trackContext}${uploadPrompt}${courseKnowledgeContext}${retrievedKnowledgeBlock}${curriculumContext}${dbCurriculumContext}${completeContext}${learnerStateBlock}${lessonStateBlock}
+    // AC1: workspaceContextBlock injected after lessonStateBlock, before proactive teaching rules
+    systemContent = `You are StudyBuddy, a friendly AI tutor for students of all levels (K-12 CBC, Secondary, University, College, TVET). ${teachingProfile.systemPromptSuffix}${trackContext}${uploadPrompt}${courseKnowledgeContext}${retrievedKnowledgeBlock}${curriculumContext}${dbCurriculumContext}${completeContext}${learnerStateBlock}${lessonStateBlock}${workspaceContextBlock}
 ${dataSaver ? `\nDATA SAVER MODE is ON. Keep your reply concise — target 1-2 short paragraphs (max ~150 words). Skip verbose examples and unnecessary elaboration. Lead with the direct answer; only add explanation if the user asks for it.\n` : ``}
 
 ${STUDY_PROMPT_GRAPH_RULES}`;
@@ -632,7 +654,7 @@ ${STUDY_PROMPT_GRAPH_RULES}`;
     // Phase 92 — also append the learner-state block so non-study buddies personalize too
     // Phase 93 — also append retrieved-knowledge block (RAG chunks)
     // Phase 95 — also append lesson-state block
-    systemContent += `\n${trackContext}${uploadPrompt}${courseKnowledgeContext}${retrievedKnowledgeBlock}${learnerStateBlock}${lessonStateBlock}`;
+    systemContent += `\n${trackContext}${uploadPrompt}${courseKnowledgeContext}${retrievedKnowledgeBlock}${learnerStateBlock}${lessonStateBlock}${workspaceContextBlock}`;
   }
 
   if (toolResults) {

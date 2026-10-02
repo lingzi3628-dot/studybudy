@@ -229,41 +229,16 @@ export function GraphRenderer({ spec, onSpecChange }: { spec: GraphSpec; onSpecC
 function SceneSVG({ spec }: { spec: any }) {
   let elements = Array.isArray(spec?.elements) ? spec.elements : [];
 
-  // Phase 86.1 — Generative recovery: if all elements were dropped by the validator
-  // (because the AI used unsupported kinds), synthesize a basic diagram from the
-  // title + any text/labels found in the original elements. This way the user ALWAYS
-  // sees something useful instead of "This drawing could not be rendered."
+  // Phase 86.1 / AC1 — If all elements were dropped by the validator, show a
+  // learner-friendly "incomplete drawing" message instead of fabricating
+  // meaningless fallback labels (Rectangle A, Rectangle B, etc.).
   if (!elements.length) {
-    const title = spec?.title || spec?.label || "Diagram";
-    const labels: string[] = [];
-    // Try to extract labels from the original (invalid) elements
-    if (Array.isArray(spec?.elements)) {
-      for (const el of spec.elements) {
-        if (el?.label) labels.push(el.label);
-        else if (el?.text) labels.push(el.text);
-        else if (typeof el?.kind === "string" && el.kind !== "text") labels.push(el.kind);
-      }
-    }
-    // If still no labels, use the title alone
-    const finalLabels = labels.length > 0 ? labels.slice(0, 6) : [title];
-    elements = finalLabels.map((label, i) => {
-      const col = i % 3;
-      const row = Math.floor(i / 3);
-      return {
-        kind: "rect",
-        x: 80 + col * 300,
-        y: 80 + row * 180,
-        width: 240,
-        height: 120,
-        fill: ["#fde68a", "#bfdbfe", "#bbf7d0", "#fbcfe8", "#ddd6fe", "#fed7aa"][i % 6],
-        stroke: "#475569",
-        label,
-      };
-    });
-    if (spec) spec.title = title;
+    return (
+      <div className="p-3 text-center text-xs text-gray-400">
+        This drawing could not be displayed. Try asking the tutor to redraw it with clearer labels.
+      </div>
+    );
   }
-
-  if (!elements.length) return <div className="p-3 text-xs text-rose-600">This drawing could not be rendered.</div>;
 
   const labelPosition = (el: any) => {
     if (el.kind === "circle") return [el.cx, el.cy];
