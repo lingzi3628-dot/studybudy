@@ -39,6 +39,7 @@ import type { BuddyId } from "@/lib/buddies/types";
 import { extractCodeFiles } from "@/lib/code-extract";
 import { FractionManipulative } from "./tutor/FractionManipulative";
 import { CodePreviewPanel } from "./tutor/CodePreviewPanel";
+import { ScienceSimulationPanel } from "./tutor/ScienceSimulationPanel";
 import {
   isBrowserTTSSupported,
   isBrowserASRSupported,
@@ -2779,6 +2780,23 @@ function AttachmentRenderer({ attachment, onSpecChange, onOpenWorkspace, onOpenI
           </div>
         )}
         <CodePreviewPanel spec={codeSpec} />
+      </div>
+    );
+  }
+
+  // Phase F14 — Science simulation (circuit builder)
+  if (attachment.type === "science_simulation") {
+    let simSpec: any = null;
+    try { simSpec = JSON.parse(attachment.caption); } catch { return null; }
+    if (!simSpec || !simSpec.circuit) return null;
+    return (
+      <div>
+        {onOpenInWorkspacePanel && (
+          <div className="flex justify-end mb-1">
+            <WorkspaceButton />
+          </div>
+        )}
+        <ScienceSimulationPanel spec={simSpec} />
       </div>
     );
   }

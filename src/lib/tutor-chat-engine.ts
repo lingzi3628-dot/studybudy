@@ -279,6 +279,7 @@ const KNOWN_GRAPH_TYPES = new Set([
   "transform", "axes3d", "twoway", "erdiagram", "csv", "steps", "scene",
   "manipulative",  // Phase F10 — math manipulative (drag-and-drop fractions etc.)
   "code_project",  // Phase F11 — HTML/CSS/JS code project (live preview in workspace)
+  "science_simulation",  // Phase F14 — circuit/physics simulation (reuses circuit-sim.ts)
 ]);
 
 function tryParseGraphSpec(raw: string): any | null {
@@ -419,6 +420,10 @@ export async function parseGraphAttachments(opts: {
       // frontend routes them to CodePreviewPanel instead of GraphRenderer
       if (correctedSpec.type === "code_project") {
         attachmentType = "code_project";
+      }
+      // Phase F14 — science_simulation specs get their own attachment type
+      if (correctedSpec.type === "science_simulation") {
+        attachmentType = "science_simulation";
       }
       attachments.push({
         type: attachmentType,
