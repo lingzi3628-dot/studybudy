@@ -58,7 +58,11 @@ export function isProduction(): boolean {
  * Assert that required production secrets are explicitly configured.
  * Called at module load time in user-jwt.ts, admin-jwt.ts, crypto.ts.
  *
- * In production: throws if any secret is missing.
+ * In production: throws if any secret is missing — BUT ONLY AT RUNTIME.
+ * During `next build` (page data collection), the assertion is SKIPPED
+ * because Vercel secrets are runtime-only and not available at build time.
+ * The assertion runs when the serverless function handles its first request.
+ *
  * In development/test: logs a warning but allows fallback (for local dev convenience).
  *
  * NEVER prints secret values — only checks for presence.
@@ -80,7 +84,16 @@ export function assertProductionSecrets(): void {
     return;
   }
 
-  // Production: fail closed
+  // Production build: skip assertion. Vercel secrets are runtime-only —
+  // they're NOT available during `next build` page data collection.
+  // Next.js sets NEXT_PHASE=phase-production-build during build.
+  // The assertion will run at runtime when the serverless function handles
+  // its first request and the secrets ARE available.
+  if (process.env.NEXT_PHASE === "phase-production-build") {
+    return;
+  }
+
+  // Production runtime: fail closed
   const missing: string[] = [];
   if (!process.env.USER_JWT_SECRET) missing.push("USER_JWT_SECRET");
   if (!process.env.ADMIN_JWT_SECRET) missing.push("ADMIN_JWT_SECRET");

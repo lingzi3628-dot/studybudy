@@ -312,6 +312,26 @@ describe("Phase 0 — Production secret enforcement", () => {
     expect(calls.join(" ")).not.toContain("actual-secret-value-xyz");
     warnSpy.mockRestore();
   });
+
+  it("assertProductionSecrets does NOT throw during next build (NEXT_PHASE=phase-production-build)", () => {
+    process.env.NODE_ENV = "production";
+    delete process.env.USER_JWT_SECRET;
+    delete process.env.ADMIN_JWT_SECRET;
+    delete process.env.API_KEY_ENCRYPTION_SECRET;
+    process.env.NEXT_PHASE = "phase-production-build";
+    // Should NOT throw during build — secrets are runtime-only on Vercel
+    expect(() => assertProductionSecrets()).not.toThrow();
+    delete process.env.NEXT_PHASE;
+  });
+
+  it("assertProductionSecrets DOES throw at production runtime (NEXT_PHASE not set)", () => {
+    process.env.NODE_ENV = "production";
+    delete process.env.USER_JWT_SECRET;
+    delete process.env.ADMIN_JWT_SECRET;
+    process.env.API_KEY_ENCRYPTION_SECRET = "test-api-key-secret";
+    delete process.env.NEXT_PHASE; // runtime — no NEXT_PHASE
+    expect(() => assertProductionSecrets()).toThrow(/USER_JWT_SECRET/);
+  });
 });
 
 // ============================================================
