@@ -40,6 +40,7 @@ import { extractCodeFiles } from "@/lib/code-extract";
 import { FractionManipulative } from "./tutor/FractionManipulative";
 import { CodePreviewPanel } from "./tutor/CodePreviewPanel";
 import { ScienceSimulationPanel } from "./tutor/ScienceSimulationPanel";
+import { GraphLab } from "./tutor/GraphLab";
 import {
   isBrowserTTSSupported,
   isBrowserASRSupported,
@@ -2379,14 +2380,43 @@ export function AITutorChat() {
                 </button>
               </div>
             </div>
-            {/* Workspace content — reuses the existing AttachmentRenderer */}
-            <div className="flex-1 overflow-auto p-4">
-              <AttachmentRenderer
-                attachment={workspaceArtifact}
-                onSpecChange={undefined}
-                onOpenWorkspace={undefined}
-                onOpenInWorkspacePanel={undefined}
-              />
+            {/* Workspace content — uses GraphLab for bar graphs, AttachmentRenderer for others */}
+            <div className="flex-1 overflow-auto min-h-0">
+              {(() => {
+                // Phase G4 — Route bar graphs to GraphLab (interactive)
+                // Other attachment types use the regular AttachmentRenderer
+                if (workspaceArtifact.type === "graph" || workspaceArtifact.type === "conceptmap") {
+                  try {
+                    const spec = JSON.parse(workspaceArtifact.caption);
+                    if (spec.type === "bar") {
+                      return (
+                        <GraphLab
+                          spec={spec}
+                          onAskTutor={(ctx) => { setInput(ctx); }}
+                          onSave={(newSpec) => {
+                            // Update the workspace artifact with the edited spec
+                            setWorkspaceArtifact({
+                              ...workspaceArtifact,
+                              caption: JSON.stringify(newSpec),
+                            });
+                          }}
+                        />
+                      );
+                    }
+                  } catch {}
+                }
+                // Fall through to regular renderer for non-bar graphs + other types
+                return (
+                  <div className="p-4">
+                    <AttachmentRenderer
+                      attachment={workspaceArtifact}
+                      onSpecChange={undefined}
+                      onOpenWorkspace={undefined}
+                      onOpenInWorkspacePanel={undefined}
+                    />
+                  </div>
+                );
+              })()}
             </div>
           </div>
         )}
