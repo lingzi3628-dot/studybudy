@@ -1539,7 +1539,7 @@ export function AITutorChat() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
+    <div className={`${USE_WORKSPACE && workspaceArtifact ? "h-screen overflow-hidden" : "min-h-screen"} bg-gray-50 flex flex-col`}>
       {/* Header */}
       <header className="sticky top-0 z-30 bg-white border-b border-gray-200 flex-shrink-0">
         <div className="flex items-center justify-between h-14 px-4">
@@ -1629,7 +1629,7 @@ export function AITutorChat() {
         </div>
       </header>
 
-      <div className="flex flex-1 relative">
+      <div className="flex flex-1 relative overflow-hidden">
         {/* Sidebar — conversation history */}
         {showSidebar && (
           <>
@@ -1680,8 +1680,9 @@ export function AITutorChat() {
           </>
         )}
 
-        {/* Chat area — shrinks when workspace is open (Phase F8) */}
-        <div className={`flex flex-col w-full ${USE_WORKSPACE && workspaceArtifact ? "md:flex-1 md:max-w-[58%]" : "flex-1 max-w-3xl mx-auto"}`}>
+        {/* Chat area — shrinks when workspace is open (Phase F8).
+            overflow-hidden so messages scroll inside instead of pushing layout down */}
+        <div className={`flex flex-col w-full overflow-hidden ${USE_WORKSPACE && workspaceArtifact ? "md:flex-1 md:max-w-[58%]" : "flex-1 max-w-3xl mx-auto"}`}>
           {/* Phase 88.4 — Netflix-style animated topic cards (projects as "ads") */}
           <TopicCardsBar />
           {/* Messages */}
