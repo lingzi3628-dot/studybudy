@@ -107,6 +107,8 @@ CRITICAL RULES FOR THE mathgraph BLOCK:
 - Use EXACTLY this format (the tag must be "mathgraph", not "json" or "text"):
   \`\`\`mathgraph
   {"type":"scatter", "title":"...", "xLabel":"...", "yLabel":"...", "points":[...]}
+  For bar charts: {"type":"bar", "title":"...", "categories":["A","B","C"], "values":[4,6,3], "xLabel":"...", "yLabel":"..."}
+  For pie charts: {"type":"pie", "title":"...", "slices":[{"label":"A","value":4},{"label":"B","value":6}]}
   \`\`\`
 - Include the block ONCE per graph (don't repeat the JSON as plain text after).
 - Don't wrap it in any other language tag.

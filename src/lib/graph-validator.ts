@@ -174,6 +174,23 @@ export function validateAndCorrectGraphSpec(spec: any): ValidationResult {
     }
   }
 
+  // Phase G2 — Bar chart field aliases. The AI often emits bar graphs with
+  // non-canonical field names (labels, data, series, x, y) instead of the
+  // canonical (categories, values). Auto-correct these before validation.
+  if (corrected.type === "bar" || (corrected.type === "bar")) {
+    if (!corrected.categories) {
+      if (Array.isArray(corrected.labels)) { corrected.categories = corrected.labels; delete corrected.labels; warnings.push('Auto-corrected: renamed "labels" → "categories"'); }
+      else if (Array.isArray(corrected.x)) { corrected.categories = corrected.x; delete corrected.x; warnings.push('Auto-corrected: renamed "x" → "categories"'); }
+      else if (Array.isArray(corrected.names)) { corrected.categories = corrected.names; delete corrected.names; warnings.push('Auto-corrected: renamed "names" → "categories"'); }
+    }
+    if (!corrected.values) {
+      if (Array.isArray(corrected.data) && corrected.data.every((v: any) => typeof v === "number")) { corrected.values = corrected.data; delete corrected.data; warnings.push('Auto-corrected: renamed "data" → "values"'); }
+      else if (Array.isArray(corrected.series) && corrected.series.every((v: any) => typeof v === "number")) { corrected.values = corrected.series; delete corrected.series; warnings.push('Auto-corrected: renamed "series" → "values"'); }
+      else if (Array.isArray(corrected.y)) { corrected.values = corrected.y; delete corrected.y; warnings.push('Auto-corrected: renamed "y" → "values"'); }
+      else if (Array.isArray(corrected.counts)) { corrected.values = corrected.counts; delete corrected.counts; warnings.push('Auto-corrected: renamed "counts" → "values"'); }
+    }
+  }
+
   // Ensure type field exists
   if (!corrected.type) {
     // Try to infer type from field names

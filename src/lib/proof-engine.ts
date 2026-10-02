@@ -208,9 +208,22 @@ export async function runProofEngine(
         const spec = specs[i];
         const result = validateAndCorrectGraphSpec(spec);
         if (!result.valid) {
-          warnings.push(`⚠️ Graph ${i + 1} (${spec.type ?? "unknown"}): ${result.errors.join("; ")}`);
+          // Phase G2 — Don't show technical validation errors to the learner.
+          // The tutor-chat-engine's parseGraphAttachments already handles
+          // correction + rendering. If the graph truly can't render, the
+          // AttachmentRenderer shows a graceful fallback. Log internally only.
           thinkingSteps.push(`❌ Graph ${i + 1} (${spec.type ?? "unknown"}) invalid: ${result.errors.join("; ")}`);
+          // Only show a learner-friendly warning if NO attachment was created
+          // for this spec (meaning it truly failed to render). The
+          // parseGraphAttachments function runs BEFORE the proof engine and
+          // creates attachments for successfully corrected specs.
+          // We check: did parseGraphAttachments already handle this? If the
+          // spec has a known type, it was likely auto-corrected + rendered.
+          if (!spec.type || !["bar", "scatter", "pie", "function", "histogram", "venn", "numberline", "tree", "network", "boxplot", "scene", "steps", "csv", "erdiagram", "manipulative", "code_project", "science_simulation"].includes(spec.type)) {
+            warnings.push("⚠️ One graph in the reply could not be displayed. Try asking the tutor to redraw it.");
+          }
         } else {
+          // Graph validated (possibly with auto-corrections) — log internally only
           if (result.warnings.length > 0) {
             thinkingSteps.push(`⚠️ Graph ${i + 1} (${spec.type}): valid with ${result.warnings.length} auto-correction(s) — ${result.warnings.slice(0, 2).join("; ")}${result.warnings.length > 2 ? " …" : ""}`);
           } else {
