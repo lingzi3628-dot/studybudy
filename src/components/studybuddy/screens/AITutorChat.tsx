@@ -119,12 +119,76 @@ export function AITutorChat() {
   // Phase F8 — Workspace artifact state. When non-null, the workspace panel
   // opens alongside the chat showing the selected attachment (graph, quiz,
   // drawing, concept map). The user can close it to return to chat-only view.
-  const [workspaceArtifact, setWorkspaceArtifact] = useState<Attachment | null>(null);
+  // Phase F9 — Persisted to localStorage so it survives navigation away from
+  // the tutor screen and back within the same session.
+  const WORKSPACE_LS_KEY = "studybuddy.tutor.workspaceArtifact";
+  const [workspaceArtifact, setWorkspaceArtifact] = useState<Attachment | null>(() => {
+    if (typeof window !== "undefined" && USE_WORKSPACE) {
+      try {
+        const stored = window.localStorage.getItem(WORKSPACE_LS_KEY);
+        if (stored) return JSON.parse(stored) as Attachment;
+      } catch {}
+    }
+    return null;
+  });
+
+  // Persist workspace state to localStorage whenever it changes
+  useEffect(() => {
+    if (typeof window === "undefined" || !USE_WORKSPACE) return;
+    try {
+      if (workspaceArtifact) {
+        window.localStorage.setItem(WORKSPACE_LS_KEY, JSON.stringify(workspaceArtifact));
+      } else {
+        window.localStorage.removeItem(WORKSPACE_LS_KEY);
+      }
+    } catch {}
+  }, [workspaceArtifact]);
 
   // Open an attachment in the workspace panel (Phase F8)
   const openInWorkspace = useCallback((att: Attachment) => {
     setWorkspaceArtifact(att);
   }, []);
+
+  // Phase F9 — Save the current workspace artifact as a Project (uses existing Project model)
+  const [savingWorkspace, setSavingWorkspace] = useState(false);
+  const saveWorkspaceAsProject = useCallback(async () => {
+    if (!workspaceArtifact) return;
+    setSavingWorkspace(true);
+    try {
+      // Create a project with the artifact's JSON spec as a file
+      const title = workspaceArtifact.type === "graph" ? "Graph Workspace"
+        : workspaceArtifact.type === "quiz" ? "Quiz Workspace"
+        : workspaceArtifact.type === "draw_task" ? "Drawing Task"
+        : workspaceArtifact.type === "conceptmap" ? "Concept Map"
+        : "Workspace Artifact";
+      const fileContent = workspaceArtifact.caption || "";
+      const fileName = `${workspaceArtifact.type}.json`;
+
+      const r = await fetch("/api/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          buddyId: "study",
+          title: `${title} — ${new Date().toLocaleDateString()}`,
+          description: `Saved from AI Tutor workspace on ${new Date().toISOString()}`,
+          tags: [workspaceArtifact.type, "workspace"],
+          files: [{ path: fileName, language: "json", content: fileContent, isEntry: true }],
+        }),
+      });
+      if (r.ok) {
+        const d = await r.json();
+        // Briefly show success, then navigate to the project
+        if (d.project?.id) {
+          useApp.getState().setActiveProjectId(d.project.id);
+          useApp.getState().setScreen("projects");
+        }
+      }
+    } catch (e: any) {
+      console.error("[workspace] save failed:", e?.message);
+    } finally {
+      setSavingWorkspace(false);
+    }
+  }, [workspaceArtifact]);
 
   // Phase 87 — Auto-send the greeting message when the AI Tutor loads
   // after onboarding (pendingAutoGreeting is set by PostOnboardingPopup)
@@ -1614,8 +1678,8 @@ export function AITutorChat() {
           </>
         )}
 
-        {/* Chat area */}
-        <div className="flex-1 flex flex-col max-w-3xl mx-auto w-full">
+        {/* Chat area — shrinks when workspace is open (Phase F8) */}
+        <div className={`flex flex-col w-full ${USE_WORKSPACE && workspaceArtifact ? "md:flex-1 md:max-w-[58%]" : "flex-1 max-w-3xl mx-auto"}`}>
           {/* Phase 88.4 — Netflix-style animated topic cards (projects as "ads") */}
           <TopicCardsBar />
           {/* Messages */}
@@ -2201,7 +2265,7 @@ export function AITutorChat() {
             Only renders when USE_WORKSPACE is true AND an artifact has been opened.
             Sits inside the flex-1 container as a sibling of the chat area. */}
         {USE_WORKSPACE && workspaceArtifact && (
-          <div className="fixed inset-0 z-50 md:relative md:z-auto md:flex-shrink-0 md:w-[42%] flex flex-col bg-gray-50 border-l border-gray-200">
+          <div className="fixed inset-0 z-50 md:relative md:z-auto md:flex-1 md:flex-shrink-0 md:w-[42%] flex flex-col bg-gray-50 border-l border-gray-200">
             {/* Mobile: tab to switch back to chat */}
             <div className="md:hidden flex items-center justify-between px-4 py-2.5 bg-white border-b border-gray-200 flex-shrink-0">
               <button
@@ -2222,13 +2286,25 @@ export function AITutorChat() {
                     : "Workspace"}
                 </span>
               </div>
-              <button
-                onClick={() => setWorkspaceArtifact(null)}
-                className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-500 flex-shrink-0"
-                title="Close workspace"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                {/* Phase F9 — Save workspace as Project */}
+                <button
+                  onClick={saveWorkspaceAsProject}
+                  disabled={savingWorkspace}
+                  className="hidden md:flex items-center gap-1 px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-700 text-[10px] font-semibold hover:bg-indigo-100 transition disabled:opacity-50"
+                  title="Save this artifact to your projects"
+                >
+                  {savingWorkspace ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                  Save
+                </button>
+                <button
+                  onClick={() => setWorkspaceArtifact(null)}
+                  className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-500 flex-shrink-0"
+                  title="Close workspace"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
             {/* Workspace content — reuses the existing AttachmentRenderer */}
             <div className="flex-1 overflow-auto p-4">
