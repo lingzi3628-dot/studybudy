@@ -21,6 +21,11 @@ import {
   isValidIdempotencyKey,
   type TurnContext,
 } from "@/lib/tutor/turn-manager";
+import {
+  resolvePluginBeforeAI,
+  injectBoundedPrompt,
+  isPluginFirstOrchestrationEnabled,
+} from "@/lib/tutor/plugin-orchestrator";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -184,6 +189,66 @@ export async function POST(req: NextRequest) {
     // 4. Detect intent from user message (engine)
     const intents = detectIntents(userMessage);
 
+    // Phase 3 — Pre-AI plugin resolution (flag-gated, default off).
+    // When TUTOR_PLUGIN_FIRST_ORCHESTRATION_ENABLED is on:
+    //   - Resolve the action + select a single plugin BEFORE the AI call
+    //   - Inject the plugin's bounded schema into the system prompt
+    //   - The AI is constrained to emit only that plugin's artifact format
+    //   - If clarification is required, short-circuit with a question (no AI call)
+    // When off: zero behavior change (existing post-validation path runs)
+    const pluginOrchestration = await resolvePluginBeforeAI({
+      userMessage,
+      intents,
+      workspaceContext,
+      userId: user.id,
+      conversationId: conversation.id,
+    });
+
+    // Phase 3 — Short-circuit if clarification is required (no AI call wasted)
+    if (pluginOrchestration.clarificationQuestion) {
+      turnLogger.info("plugin-first: clarification required, short-circuiting", {
+        candidates: pluginOrchestration.decision?.candidatesConsidered ?? [],
+      });
+      // Refund the tokens we deducted (no AI call was made)
+      await refundTokens(user.id, "tutor", deduct.costTokens, turn.idempotencyKey);
+
+      // Save the clarification question as the assistant's reply
+      const clarificationReply = pluginOrchestration.clarificationQuestion;
+      await db.chatMessage.create({
+        data: {
+          conversationId: conversation.id,
+          userId: user.id,
+          role: "assistant",
+          content: clarificationReply,
+          attachments: undefined,
+        },
+      }).catch(() => {});
+      await db.chatConversation.update({
+        where: { id: conversation.id },
+        data: { updatedAt: new Date() },
+      }).catch(() => {});
+
+      // Cache for idempotent replay
+      if (clientKey && isValidIdempotencyKey(clientKey)) {
+        await completeIdempotency({
+          key: turn.idempotencyKey,
+          response: { ok: true, conversationId: conversation.id, reply: clarificationReply },
+        }).catch(() => {});
+      }
+
+      return NextResponse.json({
+        ok: true,
+        conversationId: conversation.id,
+        reply: clarificationReply,
+        attachments: undefined,
+        remaining: deduct.remaining,
+        tokenBalance: deduct.newBalance + deduct.costTokens, // refunded
+        turnId: turn.turnId,
+        _pluginFirst: true,
+        _clarification: true,
+      });
+    }
+
     // 5. Web search for general queries (and videos, images) — engine
     const [{ searchContext, searchAttachments }, toolContext] = await Promise.all([runWebSearch({
       userMessage,
@@ -193,7 +258,7 @@ export async function POST(req: NextRequest) {
     const attachments: Array<{ type: string; url: string | null; caption: string }> = [...searchAttachments];
 
     // 6. Build the system prompt (engine) + assemble AI messages
-    const { systemContent } = await buildTutorSystemPrompt({
+    const { systemContent: baseSystemContent } = await buildTutorSystemPrompt({
       user,
       buddy,
       buddyId,
@@ -208,6 +273,18 @@ export async function POST(req: NextRequest) {
       // AC1: Pass workspace context to the system prompt builder
       workspaceContext,
     });
+
+    // Phase 3 — Inject the bounded prompt block when a plugin was pre-selected.
+    // This constrains the AI to emit only that plugin's artifact format.
+    const systemContent = injectBoundedPrompt(baseSystemContent, pluginOrchestration.boundedPromptBlock);
+
+    if (pluginOrchestration.activated) {
+      turnLogger.info("plugin-first: bounded schema injected", {
+        pluginId: pluginOrchestration.decision?.pluginId ?? null,
+        matchedStep: pluginOrchestration.decision?.matchedStep ?? null,
+        boundedPromptLength: pluginOrchestration.boundedPromptBlock.length,
+      });
+    }
 
     const aiMessages: AIMessage[] = [
       { role: "system", content: systemContent },
@@ -354,6 +431,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       ...successResponse,
       turnId: turn.turnId,
+      _pluginFirst: pluginOrchestration.activated,
     });
   } catch (e: any) {
     turnLogger.error("tutor chat uncaught error", { error: e?.message ?? String(e) });

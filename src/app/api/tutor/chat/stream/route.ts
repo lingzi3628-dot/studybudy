@@ -15,6 +15,11 @@ import { checkSseOpen, releaseSse } from "@/lib/sse-rate-limit";
 import { runTutorTools } from "@/lib/tutor-tools";
 import { logger } from "@/lib/logger";
 import { buildTurnContext, type TurnContext } from "@/lib/tutor/turn-manager";
+import {
+  resolvePluginBeforeAI,
+  injectBoundedPrompt,
+  isPluginFirstOrchestrationEnabled,
+} from "@/lib/tutor/plugin-orchestrator";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -206,6 +211,53 @@ export async function POST(req: NextRequest) {
         try {
           const intents = detectIntents(userMessage);
           send("meta", { conversationId: conversation!.id, remaining: deduct.remaining, tokenBalance: deduct.newBalance, turnId: turn.turnId });
+
+          // Phase 3 — Pre-AI plugin resolution (flag-gated, default off)
+          const pluginOrchestration = await resolvePluginBeforeAI({
+            userMessage,
+            intents,
+            workspaceContext: null, // stream route doesn't receive workspaceContext yet
+            userId: user.id,
+            conversationId: conversation!.id,
+          });
+
+          // Phase 3 — Short-circuit if clarification required (no AI call)
+          if (pluginOrchestration.clarificationQuestion) {
+            turnLogger.info("plugin-first: clarification required, short-circuiting", {});
+            await refundTokens(user.id, "tutor", deduct.costTokens, turn.idempotencyKey);
+
+            const clarificationReply = pluginOrchestration.clarificationQuestion;
+            // Save as assistant message
+            await db.chatMessage.create({
+              data: {
+                conversationId: conversation!.id,
+                userId: user.id,
+                role: "assistant",
+                content: clarificationReply,
+                attachments: undefined,
+              },
+            }).catch(() => {});
+            await db.chatConversation.update({
+              where: { id: conversation!.id },
+              data: { updatedAt: new Date() },
+            }).catch(() => {});
+
+            send("delta", { text: clarificationReply });
+            send("done", {
+              ok: true,
+              conversationId: conversation!.id,
+              reply: clarificationReply,
+              streamedReply: clarificationReply,
+              attachments: undefined,
+              remaining: deduct.remaining,
+              tokenBalance: deduct.newBalance + deduct.costTokens,
+              turnId: turn.turnId,
+              _pluginFirst: true,
+              _clarification: true,
+            });
+            return;
+          }
+
           const toolLabel: Record<string, string> = {
             calculator: "Using the calculator…",
             code_runner: "Running your code…",
@@ -225,7 +277,7 @@ export async function POST(req: NextRequest) {
             runWebSearch({ userMessage, intents, dataSaver, onStatus: onToolStatus }),
             runTutorTools(userMessage, onToolStatus),
           ]);
-          const { systemContent } = await buildTutorSystemPrompt({
+          const { systemContent: baseSystemContent } = await buildTutorSystemPrompt({
             user,
             buddy,
             buddyId,
@@ -239,6 +291,16 @@ export async function POST(req: NextRequest) {
             clientPlatform,
             conversationId: conversation!.id,  // Phase 95 — for lesson state lookup
           });
+
+          // Phase 3 — Inject bounded prompt when a plugin was pre-selected
+          const systemContent = injectBoundedPrompt(baseSystemContent, pluginOrchestration.boundedPromptBlock);
+          if (pluginOrchestration.activated) {
+            turnLogger.info("plugin-first: bounded schema injected", {
+              pluginId: pluginOrchestration.decision?.pluginId ?? null,
+              boundedPromptLength: pluginOrchestration.boundedPromptBlock.length,
+            });
+          }
+
           const aiMessages: AIMessage[] = [
             { role: "system", content: systemContent },
             ...allMessages
@@ -335,6 +397,7 @@ export async function POST(req: NextRequest) {
             remaining: deduct.remaining,
             tokenBalance: deduct.newBalance,
             turnId: turn.turnId,
+            _pluginFirst: pluginOrchestration.activated,
           });
         } catch (e: any) {
           turnLogger.error("tutor stream AI call failed", { error: e?.message ?? String(e) });
