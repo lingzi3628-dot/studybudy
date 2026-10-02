@@ -20,8 +20,12 @@ export default defineConfig({
   },
   test: {
     // Phase F0 — component tests need the jsdom environment for DOM APIs.
-    // Pure-logic tests (in src/lib/) also work in jsdom — no downside.
     environment: "jsdom",
+    // Phase G7 — Disable React Strict Mode in tests (it double-renders,
+    // causing "found multiple elements" errors in component tests)
+    react: {
+      strictMode: false,
+    },
     env: {
       // PrismaClient constructor validates the datasource URL format —
       // give it a syntactically valid postgres URL it will never connect to.
