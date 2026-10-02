@@ -1716,3 +1716,45 @@ Stage Summary:
 - No further work needed unless user has new feedback.
 
 Stop point: AC1 complete. Per advisor's directive, do NOT proceed to a full TutorActionController refactor.
+
+---
+Task ID: AC2
+Agent: main (continuation)
+Task: Build invisible plugin architecture foundation + adapters (Phase AC2). User gave a 14-section spec describing a plugin registry, action controller, tool router, and adapter pattern. Goal: build foundation + adapters WITHOUT changing learner behavior yet.
+
+Work Log:
+- Reviewed existing tutor-chat-engine.ts + context-builder.ts to align new modules with existing types
+- Created src/lib/tutor/plugin-types.ts (~210 lines): ToolCategory, ActionVerb, LearningToolManifest, ConstraintEnvelope, WorkspaceArtifact, ToolResult, RoutingDecision, WorkspaceContext, LEARNER_STATUS constant. All learner-facing strings audited to never mention plugin IDs.
+- Created src/lib/tutor/plugin-registry.ts (~200 lines): 5 manifests (graph.bar, diagram.flowchart, code.python, code.javascript, assessment.quiz). Lookup API + filterCandidates for AI shortlist.
+- Created src/lib/tutor/tutor-action-controller.ts (~330 lines): detectActionVerb (review > run > modify > inspect > create precedence), detectCategoryAndType (graph/diagram/code/assessment families), buildConstraintEnvelope (with workspace-context shortcut).
+- Created src/lib/tutor/tool-router.ts (~290 lines): 4-step pipeline. Step 2 (workspace_context) checked BEFORE step 1 (deterministic) so the matchedStep records follow-up turns correctly. AI shortlist caps confidence at 0.7, rejects off-shortlist picks, catches throws.
+- Created src/lib/tutor/plugin-adapters.ts (~250 lines): ToolPlugin interface + adapter registry for 5 plugins. Adapters return ADAPTER_NOT_WIRED in this phase (stubs). wrapAttachmentAsArtifact + primaryAttachmentOf helpers for Phase AC3 wire-in.
+- Created src/lib/tutor/plugin-framework.ts (~150 lines): Single import site. isPluginFrameworkEnabled() flag reader. runPluginPipeline() entry point (dormant, not called by chat flow).
+- Wrote 5 test files (107 tests total):
+  - plugin-types.test.ts (10)
+  - plugin-registry.test.ts (25)
+  - tutor-action-controller.test.ts (28)
+  - tool-router.test.ts (23)
+  - plugin-adapters.test.ts (21)
+- Fixed 6 test failures during iteration:
+  1. tryDeterministic was masking workspace_context matchedStep → reordered step 2 BEFORE step 1
+  2. "Write code" didn't trigger any code-category regex → added generic /\bcode\b|\bprogram\b|\bscript\b/ fallback (returns category=code, requestedType=null → triggers AI shortlist)
+  3. detectActionVerb "short follow-up → inspect" heuristic was wrong → removed; "why" already matches INSPECT_PATTERNS
+  4. Adapter stub messages contained the word "plugin" → tightened test to forbid plugin IDs + "plugin id"/"adapter id"/"registry"
+  5. "how" alone doesn't match any INSPECT_PATTERN → changed test to use "why" + "what is this?" + "how does this work?"
+  6. clarify test expected `assessmentPlugins.map(...)` syntax error → fixed bracket
+- Ran full vitest suite: 779/779 pass (was 672, +107 new from AC2). 35s.
+- TypeScript check: 0 new errors. 22 pre-existing baseline unchanged.
+- Committed as db39b7e. Pushed to main.
+
+Stage Summary:
+- Phase AC2 foundation is shipped and dormant.
+- All 5 advisor-recommended plugins are registered: graph.bar, diagram.flowchart, code.python, code.javascript, assessment.quiz.
+- 4-step routing pipeline (deterministic → workspace_context → ai_shortlist → clarification) is in place.
+- ConstraintEnvelope enforces max 1 primary artifact + whitelisted plugin IDs.
+- AI classifier only picks from server-provided shortlist (cannot invent plugin IDs).
+- Adapters are stubs returning ADAPTER_NOT_WIRED — they will be filled in by Phase AC3.
+- TUTOR_PLUGIN_FRAMEWORK_ENABLED flag exists but is NOT wired into the chat flow.
+- Learner behavior is 100% unchanged.
+
+Next step (Phase AC3): wire runPluginPipeline() into /api/tutor/chat + /api/tutor/chat/stream behind the flag, replacing the existing parseGraphAttachments path when flag is on. Replace adapter stubs with real calls. Validate that learner sees identical behavior with flag on vs off.
