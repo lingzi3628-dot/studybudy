@@ -1683,8 +1683,6 @@ export function AITutorChat() {
         {/* Chat area — shrinks when workspace is open (Phase F8).
             overflow-hidden so messages scroll inside instead of pushing layout down */}
         <div className={`flex flex-col w-full overflow-hidden ${USE_WORKSPACE && workspaceArtifact ? "md:flex-1 md:max-w-[58%]" : "flex-1 max-w-3xl mx-auto"}`}>
-          {/* Phase 88.4 — Netflix-style animated topic cards (projects as "ads") */}
-          <TopicCardsBar />
           {/* Messages */}
           <div
             ref={scrollRef}
