@@ -3510,9 +3510,9 @@ function DownloadGraphButton({ spec, fileName }: { spec: any; fileName: string }
       <button
         onClick={() => setOpen(!open)}
         className="text-[10px] text-gray-500 hover:text-indigo-600 flex items-center gap-0.5"
-        title="Download graph"
+        title="Download graph as image"
       >
-        <Download className="w-3 h-3" /> Save
+        <Download className="w-3 h-3" /> Download
       </button>
       {open && (
         <div className="absolute right-0 top-6 z-10 bg-white rounded-lg shadow-lg border border-gray-200 p-1 min-w-[100px]">
