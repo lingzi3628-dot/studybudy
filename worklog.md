@@ -1689,3 +1689,30 @@ PROPOSED FOR A LATER PHASE:
   - Questions tab (like GraphLab)
 
 STOP after completing this flowchart pilot.
+
+---
+Task ID: AC1-verify
+Agent: main (continuation)
+Task: Verify Phase AC1 is complete and tests pass; summarize state for user.
+
+Work Log:
+- Read worklog.md to recover session state — found that Phase AC1 was already committed (commit 6731446) at the end of the previous session before context ran out.
+- Inspected the AC1 commit diff in detail to confirm all 7 fixes are present and correctly implemented:
+  - A. Requested-type enforcement + deduplication (tutor-chat-engine.ts: requestedType + COMPATIBLE_TYPES map, reject off-type specs, dedupe by caption key, max 1 primary artifact)
+  - B. Correct recovery guards (scene recovery only runs when no other attachment was produced AND no specific type was requested)
+  - C. Workspace context separation (AITutorChat sends short visible prompt + workspaceContext field; chat/route.ts accepts workspaceContext; context-builder.ts injects ACTIVE WORKSPACE block)
+  - D. Structured-block parsing safety (CODE_LANGS_TO_SKIP expanded to ~25 languages)
+  - E. input_output (parallelogram) shape added to FlowchartNodeShape, validator aliases, compiler type, SVG renderer
+  - F. Text-artifact consistency check (postProcessReply appends honest ⚠️ note when AI claims graph/flowchart is ready but no attachment exists)
+  - G. SceneSVG no longer fabricates Rectangle A/B/C — shows learner-friendly "This drawing could not be displayed" instead
+- Ran full vitest suite: 35 test files / 672 tests pass in 31s. No regressions.
+- git status clean. Nothing to push (commit 6731446 already on main).
+
+Stage Summary:
+- Phase AC1 is fully shipped and verified.
+- All 7 advisor-requested fixes are in place.
+- 672/672 tests passing.
+- Working tree clean.
+- No further work needed unless user has new feedback.
+
+Stop point: AC1 complete. Per advisor's directive, do NOT proceed to a full TutorActionController refactor.
