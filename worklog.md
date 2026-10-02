@@ -1446,3 +1446,92 @@ DEFERRED (advisor warned against):
   F3 — Hybrid URL routing (do not do this + tutor refactor in same patch)
 
 Next step: wait for the other AI's advice on the tutor, then implement F5.
+
+
+============================================================
+PHASE G — GRAPH LAB COMPLETION REPORT (advisor step 10)
+============================================================
+
+1. EXACT FILES CHANGED (13 files):
+   - src/lib/graph-validator.ts        (G2: bar chart field aliases)
+   - src/lib/proof-engine.ts           (G2: stop leaking technical errors)
+   - src/lib/tutor-chat-engine.ts      (G2: manipulative + code_project + science_simulation types)
+   - src/lib/tutor/context-builder.ts  (G2: bar/pie/manipulative/code_project/science_simulation prompt docs)
+   - src/components/studybuddy/screens/AITutorChat.tsx (G3-G6: workspace routing, compact cards, auto-open, labs)
+   - src/components/studybuddy/screens/ChatbotPlayground.tsx (F16: selectors)
+   - src/components/studybuddy/screens/tutor/GraphLab.tsx (G4: NEW — 494 lines)
+   - src/components/studybuddy/screens/tutor/QuizLab.tsx (G5: NEW — 372 lines)
+   - src/components/studybuddy/screens/tutor/DrawingStudio.tsx (G6: NEW — 407 lines)
+   - src/components/studybuddy/screens/tutor/ScienceSimulationPanel.tsx (F14: NEW — 230 lines)
+   - src/components/studybuddy/screens/tutor/__tests__/GraphLab.test.tsx (G7: NEW — 16 tests)
+   - src/components/studybuddy/screens/tutor/__tests__/QuizLab.test.tsx (G7: NEW — 11 tests)
+   - vitest.config.ts (G7: strictMode fix + cleanup)
+
+2. CAUSE OF THE ORIGINAL GRAPH VALIDATION WARNING:
+   The AI often emitted bar graphs with field names like "labels" + "data"
+   instead of the canonical "categories" + "values". The validator only
+   auto-corrected data→points for scatter charts, NOT for bar charts.
+   So the validator marked the spec as invalid → the proof engine showed
+   "bar spec missing 'categories' or 'values' arrays" to the learner —
+   even though the BarChartSVG renderer silently rendered an empty graph
+   (using its fallback: Array.isArray(spec.categories) ? ... : []).
+   FIX: Added 7 bar chart field aliases to graph-validator.ts + stopped
+   the proof engine from showing technical errors to learners.
+
+3. CANONICAL GRAPH REPRESENTATION + ADAPTERS:
+   Canonical bar graph: { type:"bar", categories:[string], values:[number] }
+   Adapters auto-correct:
+     labels → categories    data → values (if all numbers)
+     names → categories     series → values (if all numbers)
+     x → categories         y → values
+                            counts → values
+
+4. NEW GRAPH LAB BEHAVIOR:
+   - Bar graphs → GraphLab (3 tabs: Explore / Edit Data / Questions)
+   - Quizzes → QuizLab (3 tabs: Answer / Review / Retry)
+   - Drawing tasks → DrawingStudio (3 tabs: Draw / Review / Redo)
+   - Other types → regular AttachmentRenderer (view-only, unchanged)
+   - When workspace is ON: attachments show compact cards, auto-open after 2s
+   - Ask Tutor sends bounded context (graph type + data + selection)
+   - Questions checked deterministically (no AI, no mastery updates)
+   - Activity objective shown at top of workspace
+
+5. TESTS RUN + RESULTS:
+   - GraphLab: 16/16 pass (objective, tabs, rendering, selection, summary,
+     Ask Tutor, Edit Data, Questions, view-only fallback)
+   - QuizLab: 11/11 pass (objective, questions, submit gating, score,
+     retry flow, disclaimer)
+   - Full suite: 222/222 pass (10 test files)
+   - TypeScript: 0 new errors (13 pre-existing baseline, unchanged)
+
+6. PERFORMANCE IMPACT:
+   - GraphLab/QuizLab/DrawingStudio are lazy-loaded via next/dynamic (already in AITutorChat)
+   - No new dependencies added
+   - No new DB models (reuses Project + ProjectFile)
+   - No new API endpoints
+   - State is LOCAL to each lab (not global Zustand)
+   - Auto-open workspace uses a 2s timer (non-blocking)
+   - vitest.config strictMode fix prevents double-rendering in tests
+
+7. KNOWN LIMITATIONS:
+   - GraphLab only supports bar graphs (other types view-only)
+   - QuizLab only supports MCQ (no short-answer yet)
+   - DrawingStudio has no undo/redo (only Clear + Redo tab)
+   - "Ask Tutor" prepends context to input (doesn't auto-send)
+   - No element-level selection (can't click a specific bar on the SVG)
+   - No server-side assessment (questions are practice only)
+   - No version history for edited graphs
+
+8. ROLLBACK STEPS:
+   - Set NEXT_PUBLIC_TUTOR_WORKSPACE=false → all labs disabled, old inline behavior
+   - Set NEXT_PUBLIC_NEW_DASHBOARD=false → old dashboards render
+   - git revert <commit> for any individual phase
+   - No DB migrations to reverse (no new tables added in G phases)
+   - No API contracts changed
+
+NOT STARTED (advisor said to STOP after Graph Lab pilot):
+   - Quiz Lab decomposition (quiz is done but not decomposed into sub-files)
+   - Web Development Lab
+   - Science simulation labs (circuit sim exists but is not a 3-tab lab yet)
+   - Mini-project mode
+   - Element-level AI highlighting
