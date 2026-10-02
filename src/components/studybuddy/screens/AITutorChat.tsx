@@ -29,6 +29,7 @@ import {
   Save,
   FileText,
   GraduationCap,
+  PanelRightOpen,
 } from "lucide-react";
 import { useApp } from "../store";
 import { GraphRenderer, type GraphSpec } from "./GraphRenderers";
@@ -43,6 +44,13 @@ import {
   stopBrowserSpeech,
   startBrowserListening,
 } from "./voice-mode";
+import { TutorWorkspaceShell } from "./tutor/TutorWorkspaceShell";
+
+// Phase F8 — Workspace shell feature flag.
+// When true, attachments get an "Open in workspace" button that opens them
+// in a side panel (desktop) or full-screen tab (mobile) alongside the chat.
+// Default: off — old inline-attachment behavior is preserved.
+const USE_WORKSPACE = process.env.NEXT_PUBLIC_TUTOR_WORKSPACE === "true";
 
 type Attachment = {
   type: "video" | "image" | "graph" | "conceptmap" | "source" | string;
@@ -107,6 +115,16 @@ type ConceptMapSpec = {
  */
 export function AITutorChat() {
   const { setScreen, dataSaver, activeTopicId, openCreate, pendingAutoGreeting, setPendingAutoGreeting } = useApp();
+
+  // Phase F8 — Workspace artifact state. When non-null, the workspace panel
+  // opens alongside the chat showing the selected attachment (graph, quiz,
+  // drawing, concept map). The user can close it to return to chat-only view.
+  const [workspaceArtifact, setWorkspaceArtifact] = useState<Attachment | null>(null);
+
+  // Open an attachment in the workspace panel (Phase F8)
+  const openInWorkspace = useCallback((att: Attachment) => {
+    setWorkspaceArtifact(att);
+  }, []);
 
   // Phase 87 — Auto-send the greeting message when the AI Tutor loads
   // after onboarding (pendingAutoGreeting is set by PostOnboardingPopup)
@@ -1676,6 +1694,7 @@ export function AITutorChat() {
                     if (activeTopicId) setScreen("study");
                     else openCreate("room");
                   }}
+                  onOpenInWorkspacePanel={USE_WORKSPACE ? openInWorkspace : undefined}
                   onRetry={msg.role === "user" && i === messages.length - 1 ? retry : undefined}
                   copied={copiedId === msg.id}
                   // Phase 48 — pass the "save as project" callback ONLY when the
@@ -2177,6 +2196,51 @@ export function AITutorChat() {
             </p>
           </div>
         </div>
+
+        {/* Phase F8 — Workspace panel (side-by-side with chat on desktop, full-screen on mobile).
+            Only renders when USE_WORKSPACE is true AND an artifact has been opened.
+            Sits inside the flex-1 container as a sibling of the chat area. */}
+        {USE_WORKSPACE && workspaceArtifact && (
+          <div className="fixed inset-0 z-50 md:relative md:z-auto md:flex-shrink-0 md:w-[42%] flex flex-col bg-gray-50 border-l border-gray-200">
+            {/* Mobile: tab to switch back to chat */}
+            <div className="md:hidden flex items-center justify-between px-4 py-2.5 bg-white border-b border-gray-200 flex-shrink-0">
+              <button
+                onClick={() => setWorkspaceArtifact(null)}
+                className="flex items-center gap-1 text-xs font-semibold text-indigo-600"
+              >
+                <ChevronLeft className="w-4 h-4" /> Back to chat
+              </button>
+            </div>
+            {/* Workspace header */}
+            <div className="flex items-center justify-between px-4 py-2.5 bg-white border-b border-gray-200 flex-shrink-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-sm font-semibold text-gray-900 truncate">
+                  {workspaceArtifact.type === "graph" ? "📊 Graph Workspace"
+                    : workspaceArtifact.type === "quiz" ? "📝 Quiz Workspace"
+                    : workspaceArtifact.type === "draw_task" ? "✏️ Drawing Workspace"
+                    : workspaceArtifact.type === "conceptmap" ? "🧠 Concept Map Workspace"
+                    : "Workspace"}
+                </span>
+              </div>
+              <button
+                onClick={() => setWorkspaceArtifact(null)}
+                className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-500 flex-shrink-0"
+                title="Close workspace"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            {/* Workspace content — reuses the existing AttachmentRenderer */}
+            <div className="flex-1 overflow-auto p-4">
+              <AttachmentRenderer
+                attachment={workspaceArtifact}
+                onSpecChange={undefined}
+                onOpenWorkspace={undefined}
+                onOpenInWorkspacePanel={undefined}
+              />
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -2189,6 +2253,7 @@ function MessageBubble({
   copied,
   onAttachmentChange,
   onOpenWorkspace,
+  onOpenInWorkspacePanel,
   // Phase 48 — callback to save the AI's code blocks as a Project.
   // Only passed when the active buddy supports code files (dev, web, backend).
   onSaveAsProject,
@@ -2199,6 +2264,8 @@ function MessageBubble({
   copied: boolean;
   onAttachmentChange?: (attIdx: number, newCaption: string) => void;
   onOpenWorkspace?: (attachment: Attachment) => void;
+  /** Phase F8 — opens the attachment in the workspace panel (side-by-side with chat) */
+  onOpenInWorkspacePanel?: (attachment: Attachment) => void;
   onSaveAsProject?: (fileCount: number) => void;
 }) {
   const isUser = msg.role === "user";
@@ -2318,6 +2385,7 @@ function MessageBubble({
                   key={i}
                   attachment={att}
                   onOpenWorkspace={onOpenWorkspace}
+                  onOpenInWorkspacePanel={onOpenInWorkspacePanel}
                   onSpecChange={onAttachmentChange ? (newSpec: any) => onAttachmentChange(i, JSON.stringify(newSpec)) : undefined}
                 />
               ))}
@@ -2382,7 +2450,18 @@ function MessageBubble({
   );
 }
 
-function AttachmentRenderer({ attachment, onSpecChange, onOpenWorkspace }: { attachment: Attachment; onSpecChange?: (newSpec: any) => void; onOpenWorkspace?: (attachment: Attachment) => void }) {
+function AttachmentRenderer({ attachment, onSpecChange, onOpenWorkspace, onOpenInWorkspacePanel }: { attachment: Attachment; onSpecChange?: (newSpec: any) => void; onOpenWorkspace?: (attachment: Attachment) => void; onOpenInWorkspacePanel?: (attachment: Attachment) => void }) {
+  // Phase F8 — Small "Open in workspace" button shown on workspace-compatible attachments.
+  // Only renders when the feature flag is on (onOpenInWorkspacePanel is passed).
+  const WorkspaceButton = () => onOpenInWorkspacePanel ? (
+    <button
+      onClick={() => onOpenInWorkspacePanel(attachment)}
+      className="ml-auto flex items-center gap-1 text-[10px] font-semibold text-indigo-600 hover:text-indigo-800 transition"
+      title="Open in workspace panel"
+    >
+      <PanelRightOpen className="w-3 h-3" /> Open in workspace
+    </button>
+  ) : null;
   if (attachment.type === "computer_workspace") {
     let offer: any = null;
     try { offer = JSON.parse(attachment.caption); } catch {}
@@ -2467,7 +2546,10 @@ function AttachmentRenderer({ attachment, onSpecChange, onOpenWorkspace }: { att
             <GitBranch className="w-3.5 h-3.5 text-indigo-500" />
             <span className="text-[10px] font-bold uppercase text-indigo-500">{spec?.type === "scene" ? "Drawing" : "Graph"}</span>
           </div>
-          {spec && <DownloadGraphButton spec={spec} fileName={`graph-${spec.type ?? "custom"}.svg`} />}
+          <div className="flex items-center gap-2">
+            {spec && <DownloadGraphButton spec={spec} fileName={`graph-${spec.type ?? "custom"}.svg`} />}
+            <WorkspaceButton />
+          </div>
         </div>
         {spec ? <GraphRenderer spec={spec} onSpecChange={onSpecChange} /> : <p className="text-xs text-gray-600">{attachment.caption}</p>}
       </div>
@@ -2488,9 +2570,10 @@ function AttachmentRenderer({ attachment, onSpecChange, onOpenWorkspace }: { att
             <Brain className="w-3.5 h-3.5 text-violet-500" />
             <span className="text-[10px] font-bold uppercase text-violet-500">Concept Map</span>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
             {spec && <FlashcardsFromConceptMapButton spec={spec} />}
             {spec && <DownloadGraphButton spec={{ ...spec, type: "network" }} fileName="concept-map.svg" />}
+            <WorkspaceButton />
           </div>
         </div>
         {spec ? (
@@ -2508,7 +2591,16 @@ function AttachmentRenderer({ attachment, onSpecChange, onOpenWorkspace }: { att
     let quizSpec: any = null;
     try { quizSpec = JSON.parse(attachment.caption); } catch { return null; }
     if (!quizSpec || !Array.isArray(quizSpec.questions)) return null;
-    return <QuizRenderer quiz={quizSpec} />;
+    return (
+      <div>
+        {onOpenInWorkspacePanel && (
+          <div className="flex justify-end mb-1">
+            <WorkspaceButton />
+          </div>
+        )}
+        <QuizRenderer quiz={quizSpec} />
+      </div>
+    );
   }
 
   // Phase 86.2 — Draw task (user draws on canvas, AI reviews)
@@ -2516,12 +2608,21 @@ function AttachmentRenderer({ attachment, onSpecChange, onOpenWorkspace }: { att
     let drawSpec: any = null;
     try { drawSpec = JSON.parse(attachment.caption); } catch { return null; }
     if (!drawSpec || !drawSpec.prompt) return null;
-    return <DrawTaskRenderer task={drawSpec} onSubmit={(imageDataUrl) => {
+    return (
+      <div>
+        {onOpenInWorkspacePanel && (
+          <div className="flex justify-end mb-1">
+            <WorkspaceButton />
+          </div>
+        )}
+        <DrawTaskRenderer task={drawSpec} onSubmit={(imageDataUrl) => {
       // Send the drawing as an image attachment to the AI for review
       // The send() function will include it as a vision input
       const event = new CustomEvent("studybuddy:submit-drawing", { detail: { imageDataUrl, task: drawSpec } });
       window.dispatchEvent(event);
-    }} />;
+    }} />
+      </div>
+    );
   }
 
   return null;
