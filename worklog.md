@@ -1888,3 +1888,57 @@ Stage Summary:
 - Idempotent XP via xpAwarded flag on AssessmentAttempt — re-processing same attempt is no-op.
 - stripAnswerKeyFromQuiz helper available for client migration (Phase 3+).
 - STOP after Phase 2. Next is Phase 3 (plugin-first orchestration) when user requests.
+
+---
+Task ID: Phase 3
+Agent: main
+Task: Plugin-first orchestration. Advisor's Phase 3 spec: move action resolution before the AI call, select one plugin, pass only the selected plugin's schema to the AI, validate the plugin result, generate confirmation from the result. Preserve old attachment adapters. STOP after Phase 3.
+
+Work Log:
+- Reviewed current flow: detectIntents → buildTutorSystemPrompt → callAI → postProcessReply (AC1/AC3 post-validation). The AI replies freely, then parseGraphAttachments validates afterward.
+- Created src/lib/tutor/plugin-orchestrator.ts (~280 lines):
+  * isPluginFirstOrchestrationEnabled() — reads TUTOR_PLUGIN_FIRST_ORCHESTRATION_ENABLED (default false)
+  * resolvePluginBeforeAI() — runs BEFORE the AI call. Builds envelope, routes (deterministic → workspace → clarification), returns boundedPromptBlock for the selected plugin OR a clarificationQuestion OR inactive.
+  * PLUGIN_BOUNDED_SCHEMAS — per-plugin schemas for graph.bar, diagram.flowchart, code.python, code.javascript, assessment.quiz. Each tells the AI to produce ONLY that artifact type, specifies the exact JSON shape, forbids coordinates/HTML/SVG/scripts, and says "DO NOT mention this name to the learner".
+  * injectBoundedPrompt() — appends bounded schema to system content after existing teaching rules.
+  * shouldSkipLegacyPostValidation() — currently returns false (keep both paths for safety).
+- Wired into /api/tutor/chat/route.ts:
+  * Calls resolvePluginBeforeAI() after detectIntents, before buildTutorSystemPrompt
+  * If clarification required: short-circuits — refunds tokens, saves clarification question as assistant message, caches response for idempotent replay, returns with _pluginFirst + _clarification flags
+  * Injects boundedPromptBlock into systemContent via injectBoundedPrompt()
+  * Response includes _pluginFirst flag (true when orchestration ran)
+- Wired into /api/tutor/chat/stream/route.ts:
+  * Same pre-AI resolution in stream start() callback
+  * If clarification: sends delta + done events with question, no AI call
+  * SSE done event includes _pluginFirst flag
+- Wrote src/lib/__tests__/phase3-plugin-orchestration.test.ts (29 tests):
+  * Flag reader (default false, true/1/on accepted)
+  * Flag off = inactive (zero behavior change)
+  * Flag on + bar graph → graph.bar + bounded schema
+  * Flag on + flowchart → diagram.flowchart + bounded schema (forbids coordinates)
+  * Flag on + Python → code.python + bounded schema (```python block)
+  * Flag on + JavaScript → code.javascript + bounded schema
+  * Flag on + quiz → assessment.quiz + bounded schema (correctIndex + explanation)
+  * Flag on + ambiguous "write code" → clarification question (Python vs JS, NO plugin IDs)
+  * Flag on + general question ("Hello") → inactive (AI replies freely)
+  * Bounded schemas NEVER mention plugin IDs to learner
+  * Bounded schemas constrain AI to ONLY the selected type
+  * injectBoundedPrompt appends, empty = no-op
+  * Existing contracts preserved
+- Fixed 2 test failures: clarification with empty candidates should return inactive (general question), not clarification. Added check for candidatesConsidered.length === 0 → return inactive.
+- Fixed 2 TS errors: Prisma JSON field needs `undefined` not `null` for empty attachments.
+- Ran full vitest suite: 922/922 pass (was 893, +29 new from Phase 3).
+- TypeScript: 0 new errors. 22 pre-existing baseline unchanged.
+- Committed as 3813386. Pushed to main.
+
+Stage Summary:
+- Phase 3 plugin-first orchestration shipped.
+- ARCHITECTURE SHIFT: AI no longer replies freely then gets post-validated.
+  Now: resolve action → select plugin → inject bounded schema → AI constrained → validate.
+- When flag is OFF: zero behavior change (existing AC1/AC3 path).
+- When flag is ON + plugin selected: AI receives ONLY that plugin's schema.
+- When flag is ON + ambiguous: clarification question short-circuits (no AI call, tokens refunded).
+- When flag is ON + general question: AI replies freely (same as flag off).
+- Bounded schemas never mention plugin IDs to the learner.
+- Existing parseGraphAttachments still runs for safety (catches any off-type specs even when AI is constrained).
+- STOP after Phase 3. Next is Phase 4 (artifact service) when user requests.
