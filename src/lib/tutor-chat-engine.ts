@@ -280,6 +280,7 @@ const KNOWN_GRAPH_TYPES = new Set([
   "manipulative",  // Phase F10 — math manipulative (drag-and-drop fractions etc.)
   "code_project",  // Phase F11 — HTML/CSS/JS code project (live preview in workspace)
   "science_simulation",  // Phase F14 — circuit/physics simulation (reuses circuit-sim.ts)
+  "flowchart_v1",  // Phase FC — semantic flowchart (AI provides nodes+edges, code computes layout)
 ]);
 
 function tryParseGraphSpec(raw: string): any | null {
@@ -424,6 +425,12 @@ export async function parseGraphAttachments(opts: {
       // Phase F14 — science_simulation specs get their own attachment type
       if (correctedSpec.type === "science_simulation") {
         attachmentType = "science_simulation";
+      }
+      // Phase FC — flowchart_v1 specs get their own attachment type
+      // The AI provides semantic nodes+edges; the frontend compiler computes positions.
+      // No coordinates from the AI are used.
+      if (correctedSpec.type === "flowchart_v1") {
+        attachmentType = "flowchart_v1";
       }
       attachments.push({
         type: attachmentType,

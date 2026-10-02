@@ -131,6 +131,7 @@ CRITICAL RULES FOR THE mathgraph BLOCK:
   * Drag-and-drop math activities for young learners (divide items into equal groups) → manipulative
   * Web development starter projects (HTML/CSS/JS for upper grades) → code_project
   * Circuit/electrical simulations (battery, switch, lamp — learner toggles switches) → science_simulation
+  * Process flowcharts, step-by-step diagrams, decision flows, lifecycles → flowchart_v1
 - DOUBLE-CHECK your JSON is valid before outputting — no trailing commas, no missing brackets.
 - Include ALL required fields for the chosen type — check the schema reference above.
 
@@ -166,6 +167,9 @@ GENERAL RULES:
 - Science simulation format (for physics/electrical activities):
   {"type":"science_simulation","subtype":"circuit","title":"Light the lamp","instruction":"Close the switch to make the lamp light up","circuit":{"sourceVolts":6,"tree":{"kind":"series","parts":[{"kind":"component","comp":{"id":"b1","type":"battery","name":"Battery","volts":6}},{"kind":"component","comp":{"id":"s1","type":"switch","name":"Switch","closed":false}},{"kind":"component","comp":{"id":"l1","type":"bulb","name":"Lamp","ohms":10,"ratedWatts":3}}]}},"successCheck":"lamp_on"}
   Use this for electricity/physics topics (Grade 7+ or Form 1-4). The learner toggles switches; the solver checks if the lamp lights. Valid successCheck values: "lamp_on", "lamp_off", "current_flows", "no_current". Valid component types: battery (volts), switch (closed: true/false), bulb (ohms, ratedWatts), resistor (ohms). Circuit tree kinds: "component", "series", "parallel".
+- Flowchart format (for process diagrams, step-by-step flows, decision trees):
+  {"type":"flowchart_v1","schemaVersion":1,"title":"How Rain Forms","direction":"top_to_bottom","nodes":[{"id":"water","label":"Water is heated","shape":"rounded_rectangle"},{"id":"vapour","label":"Water vapour rises","shape":"rectangle"},{"id":"clouds","label":"Clouds form","shape":"rectangle"},{"id":"rain","label":"Rain falls","shape":"rounded_rectangle"}],"edges":[{"id":"e1","from":"water","to":"vapour"},{"id":"e2","from":"vapour","to":"clouds"},{"id":"e3","from":"clouds","to":"rain"}]}
+  Use this for flowcharts, process diagrams, decision flows, and step-by-step sequences. The AI provides NODES (id, label, shape) and EDGES (from, to) — NEVER coordinates (x, y, width, height). The application computes positions deterministically. Valid shapes: "rectangle", "rounded_rectangle", "diamond", "terminator". Valid directions: "top_to_bottom", "left_to_right". Do NOT include x, y, width, height, svg, html, or any coordinates.
 
 CRITICAL RULES — NO MARKDOWN TABLES WHEN A GRAPH IS REQUESTED:
 - For database/spreadsheet requests, ALWAYS include a fenced \`\`\`mathgraph ...\`\`\` code block with the appropriate JSON spec ("erdiagram" or "csv"). Do NOT show plain markdown tables in your reply prose.
