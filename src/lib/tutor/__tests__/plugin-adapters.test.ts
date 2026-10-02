@@ -1,9 +1,12 @@
 /**
- * plugin-adapters tests — Phase AC2
+ * plugin-adapters tests — Phase AC2 + AC3
  *
- * Covers the adapter registry + the wrapAttachmentAsArtifact helper.
- * Adapter .run() methods return `failed` (ADAPTER_NOT_WIRED) in this phase
- * — that's intentional. Phase AC3 will wire them in with real logic.
+ * AC2: registry + wrapAttachmentAsArtifact helper tests (unchanged)
+ * AC3: adapter .run() now does REAL validation — tests cover:
+ *   - ready when matching attachment is present
+ *   - failed when no matching attachment
+ *   - failed when AI reply has no code block (code.python / code.javascript)
+ *   - safeMessage NEVER mentions plugin IDs / schemas / internals
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -40,6 +43,7 @@ function makeRequest(overrides: Partial<PluginRequest> = {}): PluginRequest {
     userId: "user-1",
     conversationId: "conv-1",
     messageId: "msg-1",
+    existingAttachments: [],
     ...overrides,
   };
 }
@@ -49,7 +53,7 @@ function makeAttachment(type: string, caption: string = ""): TutorAttachment {
 }
 
 // ---------------------------------------------------------------
-// Adapter registry
+// Adapter registry (AC2 — unchanged)
 // ---------------------------------------------------------------
 
 describe("plugin-adapters — registry", () => {
@@ -68,84 +72,304 @@ describe("plugin-adapters — registry", () => {
 });
 
 // ---------------------------------------------------------------
-// Adapter .run() — stub behavior in Phase AC2
+// graph.bar adapter — AC3 real validation
 // ---------------------------------------------------------------
 
-describe("plugin-adapters — .run() returns ADAPTER_NOT_WIRED in Phase AC2", () => {
-  it("graph.bar adapter returns failed with ADAPTER_NOT_WIRED", async () => {
-    const result = await runAdapter("graph.bar", makeRequest());
+describe("plugin-adapters — graph.bar adapter (AC3)", () => {
+  it("returns ready when a graph attachment is present", async () => {
+    const request = makeRequest({
+      existingAttachments: [
+        makeAttachment("graph", '{"type":"bar","title":"Class Scores"}'),
+      ],
+    });
+    const result = await runAdapter("graph.bar", request);
+    expect(result.status).toBe("ready");
+    if (result.status === "ready") {
+      expect(result.artifact.plugin.id).toBe("graph.bar");
+      expect(result.artifact.plugin.version).toBe(1);
+      expect(result.artifact.status).toBe("ready");
+      expect(result.artifact.title).toBe("Class Scores");
+      expect(result.artifact.source.conversationId).toBe("conv-1");
+      expect(result.artifact.source.messageId).toBe("msg-1");
+      expect(result.tutorSummary.shortMessage).toMatch(/graph is ready/i);
+    }
+  });
+
+  it("accepts bar / pie / scatter attachment types as graph variants", async () => {
+    for (const type of ["bar", "pie", "scatter", "histogram", "function", "line", "conceptmap"]) {
+      const request = makeRequest({
+        existingAttachments: [makeAttachment(type)],
+      });
+      const result = await runAdapter("graph.bar", request);
+      expect(result.status).toBe("ready");
+    }
+  });
+
+  it("returns failed when no graph attachment exists", async () => {
+    const request = makeRequest({
+      existingAttachments: [makeAttachment("source"), makeAttachment("video")],
+    });
+    const result = await runAdapter("graph.bar", request);
     expect(result.status).toBe("failed");
     if (result.status === "failed") {
-      expect(result.errorCode).toBe("ADAPTER_NOT_WIRED");
-      expect(result.safeMessage).toMatch(/bar graph/i);
+      expect(result.errorCode).toBe("NO_GRAPH_PRODUCED");
+      expect(result.safeMessage).toMatch(/graph/i);
       // Learner-facing message must NOT mention plugin IDs, schemas, or internals
       expect(result.safeMessage).not.toMatch(/graph\.bar|diagram\.flowchart|code\.python|code\.javascript|assessment\.quiz|plugin id|adapter id|registry/i);
     }
   });
 
-  it("diagram.flowchart adapter returns failed with ADAPTER_NOT_WIRED", async () => {
-    const result = await runAdapter("diagram.flowchart", makeRequest({
+  it("returns failed when existingAttachments is empty", async () => {
+    const result = await runAdapter("graph.bar", makeRequest());
+    expect(result.status).toBe("failed");
+  });
+
+  it("picks the first matching attachment when multiple exist", async () => {
+    const request = makeRequest({
+      existingAttachments: [
+        makeAttachment("source", "first"),
+        makeAttachment("graph", '{"title":"Picked"}'),
+        makeAttachment("graph", '{"title":"Not Picked"}'),
+      ],
+    });
+    const result = await runAdapter("graph.bar", request);
+    expect(result.status).toBe("ready");
+    if (result.status === "ready") {
+      expect(result.artifact.title).toBe("Picked");
+    }
+  });
+
+  it("catches adapter errors and returns failed (never throws)", async () => {
+    // Force an error by passing a malformed envelope (adapter should not throw)
+    const result = await runAdapter("graph.bar", makeRequest({
+      envelope: makeEnvelope({ category: null as any }),
+    }));
+    // Should either be ready (if existingAttachments is non-empty) or failed
+    expect(["ready", "failed"]).toContain(result.status);
+  });
+});
+
+// ---------------------------------------------------------------
+// diagram.flowchart adapter — AC3 real validation
+// ---------------------------------------------------------------
+
+describe("plugin-adapters — diagram.flowchart adapter (AC3)", () => {
+  function fcRequest(overrides: Partial<PluginRequest> = {}): PluginRequest {
+    return makeRequest({
       envelope: makeEnvelope({
         category: "diagram",
         requestedType: "flowchart",
         allowedPlugins: ["diagram.flowchart"],
       }),
-    }));
-    expect(result.status).toBe("failed");
-    if (result.status === "failed") {
-      expect(result.errorCode).toBe("ADAPTER_NOT_WIRED");
-      expect(result.safeMessage).toMatch(/flowchart/i);
+      ...overrides,
+    });
+  }
+
+  it("returns ready when a flowchart_v1 attachment is present", async () => {
+    const request = fcRequest({
+      existingAttachments: [
+        makeAttachment("flowchart_v1", '{"type":"flowchart_v1","title":"Login Flow"}'),
+      ],
+    });
+    const result = await runAdapter("diagram.flowchart", request);
+    expect(result.status).toBe("ready");
+    if (result.status === "ready") {
+      expect(result.artifact.plugin.id).toBe("diagram.flowchart");
+      expect(result.artifact.title).toBe("Login Flow");
+      expect(result.tutorSummary.shortMessage).toMatch(/flowchart is ready/i);
     }
   });
 
-  it("code.python adapter returns failed with ADAPTER_NOT_WIRED", async () => {
-    const result = await runAdapter("code.python", makeRequest({
+  it("returns failed when no flowchart_v1 attachment exists", async () => {
+    const request = fcRequest({
+      existingAttachments: [makeAttachment("graph")], // wrong type
+    });
+    const result = await runAdapter("diagram.flowchart", request);
+    expect(result.status).toBe("failed");
+    if (result.status === "failed") {
+      expect(result.errorCode).toBe("NO_FLOWCHART_PRODUCED");
+      expect(result.safeMessage).toMatch(/flowchart/i);
+      expect(result.safeMessage).not.toMatch(/diagram\.flowchart|plugin id/i);
+    }
+  });
+
+  it("returns failed when existingAttachments is empty", async () => {
+    const result = await runAdapter("diagram.flowchart", fcRequest());
+    expect(result.status).toBe("failed");
+  });
+});
+
+// ---------------------------------------------------------------
+// code.python adapter — AC3 real validation
+// ---------------------------------------------------------------
+
+describe("plugin-adapters — code.python adapter (AC3)", () => {
+  function pyRequest(overrides: Partial<PluginRequest> = {}): PluginRequest {
+    return makeRequest({
       envelope: makeEnvelope({
         category: "code",
         requestedType: "python",
         allowedPlugins: ["code.python"],
       }),
-    }));
-    expect(result.status).toBe("failed");
-    if (result.status === "failed") {
-      expect(result.errorCode).toBe("ADAPTER_NOT_WIRED");
-      expect(result.safeMessage).toMatch(/python/i);
+      ...overrides,
+    });
+  }
+
+  it("returns ready when the AI reply contains a ```python block", async () => {
+    const request = pyRequest({
+      aiReply: "Here is the code:\n```python\nprint('hello')\n```\nDone.",
+    });
+    const result = await runAdapter("code.python", request);
+    expect(result.status).toBe("ready");
+    if (result.status === "ready") {
+      expect(result.artifact.plugin.id).toBe("code.python");
+      expect(result.artifact.title).toBe("Python Code");
+      expect(result.artifact.status).toBe("draft");
+      const payload = result.artifact.payload as any;
+      expect(payload.language).toBe("python");
+      expect(payload.code).toMatch(/print\('hello'\)/);
+      expect(payload.files[0].name).toBe("main.py");
+      expect(result.tutorSummary.shortMessage).toMatch(/python code is ready/i);
     }
   });
 
-  it("code.javascript adapter returns failed with ADAPTER_NOT_WIRED", async () => {
-    const result = await runAdapter("code.javascript", makeRequest({
+  it("accepts ```py as an alias for ```python", async () => {
+    const request = pyRequest({
+      aiReply: "```py\nx = 1\n```",
+    });
+    const result = await runAdapter("code.python", request);
+    expect(result.status).toBe("ready");
+  });
+
+  it("returns failed when the AI reply has no Python code block", async () => {
+    const request = pyRequest({
+      aiReply: "I would write Python like this: print('hello')", // no fence
+    });
+    const result = await runAdapter("code.python", request);
+    expect(result.status).toBe("failed");
+    if (result.status === "failed") {
+      expect(result.errorCode).toBe("NO_PYTHON_CODE_FOUND");
+      expect(result.safeMessage).not.toMatch(/code\.python|plugin id/i);
+    }
+  });
+
+  it("returns failed when only a ```javascript block is present (not python)", async () => {
+    const request = pyRequest({
+      aiReply: "```javascript\nconsole.log('hi')\n```",
+    });
+    const result = await runAdapter("code.python", request);
+    expect(result.status).toBe("failed");
+  });
+});
+
+// ---------------------------------------------------------------
+// code.javascript adapter — AC3 real validation
+// ---------------------------------------------------------------
+
+describe("plugin-adapters — code.javascript adapter (AC3)", () => {
+  function jsRequest(overrides: Partial<PluginRequest> = {}): PluginRequest {
+    return makeRequest({
       envelope: makeEnvelope({
         category: "code",
         requestedType: "javascript",
         allowedPlugins: ["code.javascript"],
       }),
-    }));
-    expect(result.status).toBe("failed");
-    if (result.status === "failed") {
-      expect(result.errorCode).toBe("ADAPTER_NOT_WIRED");
-      expect(result.safeMessage).toMatch(/javascript/i);
+      ...overrides,
+    });
+  }
+
+  it("returns ready when the AI reply contains a ```javascript block", async () => {
+    const request = jsRequest({
+      aiReply: "Here:\n```javascript\nconsole.log('hi')\n```",
+    });
+    const result = await runAdapter("code.javascript", request);
+    expect(result.status).toBe("ready");
+    if (result.status === "ready") {
+      expect(result.artifact.plugin.id).toBe("code.javascript");
+      expect(result.artifact.title).toBe("JavaScript Code");
+      const payload = result.artifact.payload as any;
+      expect(payload.language).toBe("javascript");
+      expect(payload.code).toMatch(/console\.log/);
+      expect(payload.files[0].name).toBe("main.js");
     }
   });
 
-  it("assessment.quiz adapter returns failed with ADAPTER_NOT_WIRED", async () => {
-    const result = await runAdapter("assessment.quiz", makeRequest({
+  it("accepts ```js as an alias for ```javascript", async () => {
+    const request = jsRequest({
+      aiReply: "```js\nconst x = 1;\n```",
+    });
+    const result = await runAdapter("code.javascript", request);
+    expect(result.status).toBe("ready");
+  });
+
+  it("returns failed when the AI reply has no JavaScript code block", async () => {
+    const request = jsRequest({
+      aiReply: "I would use console.log to print",
+    });
+    const result = await runAdapter("code.javascript", request);
+    expect(result.status).toBe("failed");
+    if (result.status === "failed") {
+      expect(result.errorCode).toBe("NO_JAVASCRIPT_CODE_FOUND");
+      expect(result.safeMessage).not.toMatch(/code\.javascript|plugin id/i);
+    }
+  });
+
+  it("returns failed when only a ```python block is present (not javascript)", async () => {
+    const request = jsRequest({
+      aiReply: "```python\nprint('hi')\n```",
+    });
+    const result = await runAdapter("code.javascript", request);
+    expect(result.status).toBe("failed");
+  });
+});
+
+// ---------------------------------------------------------------
+// assessment.quiz adapter — AC3 real validation
+// ---------------------------------------------------------------
+
+describe("plugin-adapters — assessment.quiz adapter (AC3)", () => {
+  function quizRequest(overrides: Partial<PluginRequest> = {}): PluginRequest {
+    return makeRequest({
       envelope: makeEnvelope({
         category: "assessment",
         requestedType: "quiz",
         allowedPlugins: ["assessment.quiz"],
       }),
-    }));
+      ...overrides,
+    });
+  }
+
+  it("returns ready when a quiz attachment is present", async () => {
+    const request = quizRequest({
+      existingAttachments: [
+        makeAttachment("quiz", '{"title":"Fractions Quiz","questions":[]}'),
+      ],
+    });
+    const result = await runAdapter("assessment.quiz", request);
+    expect(result.status).toBe("ready");
+    if (result.status === "ready") {
+      expect(result.artifact.plugin.id).toBe("assessment.quiz");
+      expect(result.artifact.title).toBe("Fractions Quiz");
+      expect(result.tutorSummary.shortMessage).toMatch(/quiz is ready/i);
+    }
+  });
+
+  it("returns failed when no quiz attachment exists", async () => {
+    const request = quizRequest({
+      existingAttachments: [makeAttachment("graph")],
+    });
+    const result = await runAdapter("assessment.quiz", request);
     expect(result.status).toBe("failed");
     if (result.status === "failed") {
-      expect(result.errorCode).toBe("ADAPTER_NOT_WIRED");
+      expect(result.errorCode).toBe("NO_QUIZ_PRODUCED");
       expect(result.safeMessage).toMatch(/quiz/i);
+      expect(result.safeMessage).not.toMatch(/assessment\.quiz|plugin id/i);
     }
   });
 });
 
 // ---------------------------------------------------------------
-// runAdapter — missing adapter fallback
+// runAdapter fallback — unsupported when plugin not registered
 // ---------------------------------------------------------------
 
 describe("plugin-adapters — runAdapter fallback", () => {
@@ -158,12 +382,11 @@ describe("plugin-adapters — runAdapter fallback", () => {
     }
   });
 
-  it("catches uncaught adapter errors and returns failed", async () => {
-    // We can't easily force an adapter to throw in this phase (they're stubs).
-    // This test verifies the safeMessage never exposes internals.
+  it("safeMessage never exposes stack traces or internals", async () => {
     const result = await runAdapter("graph.bar", makeRequest());
     if (result.status === "failed") {
       expect(result.safeMessage).not.toMatch(/stack|trace|at \//i);
+      expect(result.safeMessage).not.toMatch(/errorCode|reasonCode/i);
     }
   });
 });

@@ -30,7 +30,7 @@ import type {
   RoutingDecision,
 } from "./plugin-types";
 import { buildConstraintEnvelope } from "./tutor-action-controller";
-import { route, type AIClassifierFn } from "./tool-router";
+import { route, buildClarificationQuestion, type AIClassifierFn } from "./tool-router";
 import { runAdapter } from "./plugin-adapters";
 import type { TutorIntents } from "../tutor-chat-engine";
 
@@ -69,19 +69,20 @@ export type PluginPipelineResult = {
 /**
  * Run the invisible plugin pipeline end-to-end.
  *
- * Phase AC2: NOT called by the chat flow. Provided for future Phase AC3.
+ * Phase AC3: called by postProcessReply when TUTOR_PLUGIN_FRAMEWORK_ENABLED
+ * is on. Validates the existing attachments against the chosen plugin.
  *
  * Steps:
  *   1. Build the constraint envelope (action + allowedPlugins)
  *   2. Route to a single plugin (deterministic → workspace → AI → clarification)
- *   3. Run the adapter (currently returns ADAPTER_NOT_WIRED for all 5)
+ *   3. Run the adapter (inspects existing attachments, returns ready/failed)
  *   4. Return the ToolResult
  *
- * The caller (future Phase AC3 wire-in) is responsible for:
- *   - Translating ToolResult.ready into a TutorAttachment[] for the existing chat response
+ * The caller (postProcessReply wire-in) is responsible for:
+ *   - Logging the routing decision (admin observability)
+ *   - Translating ToolResult.failed into a learner-facing note appended to the reply
  *   - Translating ToolResult.clarification_required into a learner-facing question
- *   - Translating ToolResult.unsupported into a graceful fallback
- *   - Translating ToolResult.failed into a retry prompt
+ *   - ToolResult.ready is a no-op (the existing attachments already work)
  */
 export async function runPluginPipeline(opts: {
   userMessage: string;
@@ -91,9 +92,14 @@ export async function runPluginPipeline(opts: {
   userId: string;
   conversationId: string | null;
   messageId: string | null;
+  /**
+   * AC3: Existing attachments produced by parseGraphAttachments + parseQuiz + parseDrawTask.
+   * Adapters inspect these to decide if the plugin's expected artifact was produced.
+   */
+  existingAttachments: import("../tutor-chat-engine").TutorAttachment[];
   classifier?: AIClassifierFn | null;
 }): Promise<PluginPipelineResult> {
-  const { userMessage, intents, workspaceContext, aiReply, userId, conversationId, messageId, classifier = null } = opts;
+  const { userMessage, intents, workspaceContext, aiReply, userId, conversationId, messageId, existingAttachments, classifier = null } = opts;
 
   // Step 1: build constraint envelope
   const envelope: ConstraintEnvelope = buildConstraintEnvelope({
@@ -120,6 +126,7 @@ export async function runPluginPipeline(opts: {
       userId,
       conversationId,
       messageId,
+      existingAttachments,
     });
     return { decision, toolResult };
   }
@@ -146,6 +153,70 @@ export async function runPluginPipeline(opts: {
       alternatives: decision.candidatesConsidered,
     },
   };
+}
+
+// ============================================================
+// Phase AC3 — wire-in helper for postProcessReply
+// ============================================================
+
+/**
+ * Thin wrapper that builds a learner-facing appendix from the pipeline result.
+ *
+ * Used by postProcessReply when TUTOR_PLUGIN_FRAMEWORK_ENABLED is on:
+ *   - Logs the routing decision (admin observability only)
+ *   - If toolResult.status === "failed": returns the safeMessage to append
+ *   - If toolResult.status === "clarification_required": returns the question to append
+ *   - If toolResult.status === "ready": returns empty string (no appendix needed)
+ *   - If toolResult.status === "unsupported": returns empty string (existing behavior)
+ *
+ * The returned appendix is appended to the learner's reply as a NEW paragraph,
+ * separated by a blank line. It NEVER mentions plugin IDs, schemas, or internals.
+ */
+export async function runPluginPipelineForReply(opts: {
+  userMessage: string;
+  intents: TutorIntents;
+  workspaceContext: WorkspaceContext | null;
+  aiReply: string;
+  userId: string;
+  conversationId: string | null;
+  messageId: string | null;
+  existingAttachments: import("../tutor-chat-engine").TutorAttachment[];
+}): Promise<{
+  /** Learner-facing appendix (empty if no appendix is needed). */
+  appendix: string;
+  /** The full pipeline result, for admin logging. */
+  pipeline: PluginPipelineResult | null;
+}> {
+  // If the framework flag is off, return empty appendix + null pipeline.
+  if (!isPluginFrameworkEnabled()) {
+    return { appendix: "", pipeline: null };
+  }
+
+  try {
+    const pipeline = await runPluginPipeline(opts);
+
+    // Admin observability log — NEVER shown to the learner
+    console.log(
+      `[plugin-framework] routing: pluginId=${pipeline.decision.pluginId ?? "null"}, ` +
+      `step=${pipeline.decision.matchedStep}, confidence=${pipeline.decision.confidence.toFixed(2)}, ` +
+      `status=${pipeline.toolResult.status}`,
+    );
+
+    if (pipeline.toolResult.status === "failed") {
+      return { appendix: pipeline.toolResult.safeMessage, pipeline };
+    }
+    if (pipeline.toolResult.status === "clarification_required") {
+      // Build a learner-facing clarifying question
+      const q = pipeline.toolResult.question ||
+        buildClarificationQuestion(pipeline.decision.envelope, pipeline.decision.candidatesConsidered);
+      return { appendix: q, pipeline };
+    }
+    // ready or unsupported: no appendix
+    return { appendix: "", pipeline };
+  } catch (err) {
+    console.warn("[plugin-framework] pipeline threw — returning empty appendix:", err);
+    return { appendix: "", pipeline: null };
+  }
 }
 
 // ============================================================

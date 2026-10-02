@@ -833,6 +833,44 @@ export async function postProcessReply(opts: {
     finalReply += "\n\n⚠️ I wasn't able to prepare that flowchart correctly. Please try again with a clearer description.";
   }
 
+  // ---- AC3: Invisible plugin framework ----
+  // When TUTOR_PLUGIN_FRAMEWORK_ENABLED is on, run the new pipeline alongside
+  // the existing logic. The pipeline:
+  //   1. Builds a constraint envelope (action + allowedPlugins)
+  //   2. Routes to a single plugin (deterministic → workspace → AI → clarification)
+  //   3. Runs the adapter, which inspects the existing attachments
+  //   4. Returns a ToolResult (ready | clarification_required | unsupported | failed)
+  //
+  // Learner-facing behavior:
+  //   - "ready": no appendix (the existing attachments already work)
+  //   - "failed": append the safeMessage (e.g. "I couldn't prepare that graph…")
+  //   - "clarification_required": append the clarifying question
+  //   - "unsupported": no appendix (existing behavior continues)
+  //
+  // The pipeline NEVER throws — failures return empty appendix + logged warning.
+  // Default: OFF (no behavior change). Flip via TUTOR_PLUGIN_FRAMEWORK_ENABLED=true.
+  try {
+    const { runPluginPipelineForReply } = await import("./tutor/plugin-framework");
+    const pipelineResult = await runPluginPipelineForReply({
+      userMessage,
+      intents,
+      workspaceContext: null, // AC1 already handles workspace context via system prompt
+      aiReply: finalReply,
+      userId,
+      conversationId: null, // not available here in postProcessReply
+      messageId: null,
+      existingAttachments: attachments,
+    });
+    if (pipelineResult.appendix) {
+      // Append as a NEW paragraph, separated by a blank line.
+      // The appendix NEVER mentions plugin IDs, schemas, or internals.
+      finalReply += `\n\n${pipelineResult.appendix}`;
+    }
+  } catch (pluginErr: any) {
+    // Pipeline must never break the existing chat flow.
+    console.warn("[tutor-engine] plugin framework pipeline failed:", pluginErr?.message);
+  }
+
   return {
     reply: finalReply,
     attachments,
