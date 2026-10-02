@@ -167,6 +167,13 @@ const codeRunnerPlugin: BuiltinPlugin = {
 
     try {
       const result = await runCode(language, code);
+      // Phase 0 — when execution is disabled (kill switch off), runCode returns
+      // an `unsupported` result with a learner-facing message in stderr.
+      // Surface ONLY the stderr message — do NOT expose exit code / duration
+      // / unsupported flag to the learner (those are internal details).
+      if (result.unsupported) {
+        return result.stderr || "Code execution is not available right now.";
+      }
       const output: string[] = [];
       if (result.stdout) output.push(`Output:\n${result.stdout}`);
       if (result.stderr) output.push(`Error:\n${result.stderr}`);

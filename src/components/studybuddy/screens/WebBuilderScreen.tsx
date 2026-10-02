@@ -234,10 +234,18 @@ export function WebBuilderScreen() {
 
   useEffect(() => {
     const handler = (e: MessageEvent) => {
-      const d = e.data;
-      if (d && typeof d === "object" && d.__webbuddyPreview) {
-        setConsoleEntries((prev) => [...prev.slice(-80), { level: d.level, text: d.text, at: Date.now() }]);
+      // Phase 0 — validate postMessage source.
+      // The preview iframe uses srcdoc, so its origin will be "null".
+      // Only accept messages from our own window OR from the iframe (origin "null").
+      // Reject messages from other origins to prevent cross-site message injection.
+      if (e.source !== window && e.origin !== "null" && e.origin !== window.location.origin) {
+        return;
       }
+      const d = e.data;
+      // Validate message shape — only accept the exact schema the console bridge sends.
+      if (!d || typeof d !== "object" || d.__webbuddyPreview !== true) return;
+      if (typeof d.level !== "string" || typeof d.text !== "string") return;
+      setConsoleEntries((prev) => [...prev.slice(-80), { level: d.level, text: d.text, at: Date.now() }]);
     };
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
@@ -602,6 +610,7 @@ export function WebBuilderScreen() {
             className="h-full border-0 bg-white"
             style={{ width: DEVICE_WIDTHS[device] }}
             sandbox="allow-scripts allow-forms allow-popups"
+            referrerPolicy="no-referrer"
           />
         ) : (
           <div className="flex flex-col items-center justify-center text-gray-400 text-xs text-center px-6">

@@ -112,11 +112,13 @@ describe("buildPreviewDocument — inlining", () => {
     expect(bridgePos).toBeLessThan(headEnd);
   });
 
-  it("works without a <head> tag (bridge prepended)", () => {
+  it("works without a <head> tag (CSP meta + bridge prepended)", () => {
     const doc = buildPreviewDocument([
       { path: "index.html", content: "<p>no head</p>" },
     ])!;
-    expect(doc.startsWith("<script>")).toBe(true);
+    // Phase 0 — CSP meta tag is now injected FIRST, then the console bridge.
+    expect(doc.startsWith("<meta http-equiv=\"Content-Security-Policy\"")).toBe(true);
+    expect(doc).toContain("__webbuddyPreview");
     expect(doc).toContain("no head");
   });
 

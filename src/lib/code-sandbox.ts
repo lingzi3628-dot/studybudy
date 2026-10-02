@@ -1,24 +1,43 @@
 /**
- * Code sandbox — Phase 74
+ * Code sandbox — Phase 74 / Phase 0 (security containment)
  *
- * Executes Python and JavaScript code snippets in a sandboxed environment
- * with timeouts and resource limits. Used by the "code_runner" built-in
- * plugin so the bot can run code during conversations.
+ * Executes Python and JavaScript code snippets.
  *
- * Security:
- *   - JavaScript: Node's `vm` module with a limited context (no require,
- *     no process, no fs). 5s timeout. Code runs in a new V8 context.
- *   - Python: subprocess with --no-site-packages, 5s timeout, 50MB memory
- *     limit (via --ulimit on Linux/macOS). Stdout/stderr captured.
+ * PHASE 0 SECURITY CONTAINMENT:
+ *   Server-side code execution is DISABLED BY DEFAULT.
+ *   - TUTOR_SERVER_PYTHON_EXECUTION_ENABLED (default: false)
+ *   - TUTOR_SERVER_JAVASCRIPT_EXECUTION_ENABLED (default: false)
  *
- * NOTE: This is NOT a full Docker sandbox. For production use with
- * untrusted code, wrap this in a Docker container (E2B-style) or use a
- * managed sandbox service. For a chatbot tutor bot where the owner
- * controls the code, the vm + subprocess approach is sufficient.
+ *   When disabled, runCode() returns an `unsupported` result WITHOUT:
+ *     - Spawning a child_process
+ *     - Creating a vm.Script
+ *     - Accessing the filesystem
+ *     - Accessing environment variables
+ *     - Making network calls
+ *
+ *   Kill switches are at this lowest level so ALL callers are covered:
+ *     - tutor-tools.ts (auth-gated tutor chat)
+ *     - bot-engine.ts (deployed bots, embed routes, Slack/Telegram webhooks)
+ *     - plugins/executor.ts (custom plugin execution)
+ *
+ * LEGACY SECURITY NOTES (for when execution is re-enabled in the future):
+ *   - JavaScript: Node's `vm` module — NOT a security boundary per Node docs.
+ *     Escaped prototype chains can reach the host. Only suitable for low-stakes
+ *     tutor code, not untrusted input.
+ *   - Python: child_process.exec with python3 -c. Full site-packages loaded,
+ *     unrestricted FS + network. NOT safe for untrusted code.
+ *   For production untrusted execution, use a separately isolated service
+ *   (Docker container, E2B, or a managed sandbox provider).
  */
 
 import vm from "node:vm";
 import { exec } from "node:child_process";
+import {
+  isServerPythonExecutionEnabled,
+  isServerJavascriptExecutionEnabled,
+  PYTHON_UNSUPPORTED_MESSAGE,
+  JAVASCRIPT_UNSUPPORTED_MESSAGE,
+} from "./security-config";
 
 // === Types ===
 
@@ -29,6 +48,8 @@ export type CodeResult = {
   exitCode: number | null;
   durationMs: number;
   timedOut: boolean;
+  /** Phase 0 — true when execution was not attempted because the kill switch was off. */
+  unsupported?: boolean;
 };
 
 // === JavaScript sandbox (Node vm) ===
@@ -36,10 +57,25 @@ export type CodeResult = {
 const JS_TIMEOUT_MS = 5000;
 
 /**
- * Execute JavaScript in a sandboxed V8 context. No access to require,
- * process, fs, or any Node APIs. Only basic JS + a limited console.
+ * Execute JavaScript in a sandboxed V8 context.
+ *
+ * Phase 0: DISABLED by default. Returns `unsupported` without creating
+ * a vm.Script or executing any code when the kill switch is off.
  */
 export async function runJavaScript(code: string): Promise<CodeResult> {
+  // Phase 0 — Kill switch check FIRST. Do NOT create vm.Script when disabled.
+  if (!isServerJavascriptExecutionEnabled()) {
+    return {
+      language: "javascript",
+      stdout: "",
+      stderr: JAVASCRIPT_UNSUPPORTED_MESSAGE,
+      exitCode: null,
+      durationMs: 0,
+      timedOut: false,
+      unsupported: true,
+    };
+  }
+
   const started = Date.now();
   const stdoutChunks: string[] = [];
   const stderrChunks: string[] = [];
@@ -117,15 +153,25 @@ export async function runJavaScript(code: string): Promise<CodeResult> {
 const PYTHON_TIMEOUT_MS = 5000;
 
 /**
- * Execute Python code via subprocess. Uses `python3` with a 5s timeout.
- * Stdout + stderr are captured. If python3 isn't available, returns an
- * error (the bot owner needs Python installed on the server).
+ * Execute Python code via subprocess.
  *
- * Security: this is NOT a full sandbox. For untrusted code, run in a
- * Docker container. For a tutor bot where the owner controls the code,
- * this is sufficient.
+ * Phase 0: DISABLED by default. Returns `unsupported` without spawning
+ * a child_process or accessing the filesystem when the kill switch is off.
  */
 export async function runPython(code: string): Promise<CodeResult> {
+  // Phase 0 — Kill switch check FIRST. Do NOT spawn process when disabled.
+  if (!isServerPythonExecutionEnabled()) {
+    return {
+      language: "python",
+      stdout: "",
+      stderr: PYTHON_UNSUPPORTED_MESSAGE,
+      exitCode: null,
+      durationMs: 0,
+      timedOut: false,
+      unsupported: true,
+    };
+  }
+
   const started = Date.now();
 
   return new Promise((resolve) => {

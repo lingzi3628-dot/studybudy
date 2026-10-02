@@ -1,22 +1,31 @@
 /**
  * Admin JWT helpers — sign/verify HTTP-only cookies for /admin sessions.
  *
- * Phase 90.2 — SECRET IS NOW SEPARATE FROM USER JWT:
- *   1. ADMIN_JWT_SECRET (dedicated admin-only secret)
+ * Phase 0 — SECRET REQUIREMENTS IN PRODUCTION:
+ *   1. ADMIN_JWT_SECRET (REQUIRED in production — explicit, not derived)
  *   2. API_KEY_ENCRYPTION_SECRET (fallback, derived differently from user)
- *   3. Hash of DATABASE_URL with "admin:" prefix (last resort)
+ *   3. Hash of DATABASE_URL with "admin:" prefix (LAST RESORT — dev/test only)
+ *
+ * In production (NODE_ENV=production), the module REFUSES to start if
+ * ADMIN_JWT_SECRET is not set. No DATABASE_URL-derived fallback is allowed.
+ * In dev/test, the fallback chain remains with a console warning.
  *
  * This separation means a leaked admin JWT secret CANNOT forge user tokens,
  * and vice versa. Defense in depth.
  */
 import jwt from "jsonwebtoken";
 import { createHash } from "crypto";
+import { assertProductionSecrets } from "./security-config";
+
+// Phase 0 — Assert production secrets at module load time.
+assertProductionSecrets();
 
 function getSecret(): string {
-  // Phase 90.2 — Admin-specific secret (separate from user)
+  // Phase 90.2 / Phase 0 — Admin-specific secret (separate from user)
   if (process.env.ADMIN_JWT_SECRET) return process.env.ADMIN_JWT_SECRET;
   // Fallback: derive a DIFFERENT secret from the API key
   // (adds "admin:" prefix so the hash differs from user's)
+  // Phase 0: This fallback is ONLY available in dev/test.
   if (process.env.API_KEY_ENCRYPTION_SECRET) {
     return createHash("sha256").update("admin:" + process.env.API_KEY_ENCRYPTION_SECRET).digest("hex");
   }

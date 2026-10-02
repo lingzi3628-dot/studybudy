@@ -1,23 +1,30 @@
 /**
  * User JWT helpers — for direct email/password auth sessions.
  *
- * Phase 90.2 — SECRET IS NOW SEPARATE FROM ADMIN JWT:
- *   1. USER_JWT_SECRET (dedicated user-only secret)
+ * Phase 0 — SECRET REQUIREMENTS IN PRODUCTION:
+ *   1. USER_JWT_SECRET (REQUIRED in production — explicit, not derived)
  *   2. ADMIN_JWT_SECRET (fallback for backward compat — will be removed)
  *   3. API_KEY_ENCRYPTION_SECRET
- *   4. Hash of DATABASE_URL (last resort — always present)
+ *   4. Hash of DATABASE_URL (LAST RESORT — dev/test only, never in production)
  *
- * This separation means a leaked user JWT secret CANNOT forge admin tokens,
- * and vice versa. Defense in depth.
+ * In production (NODE_ENV=production), the module REFUSES to start if
+ * USER_JWT_SECRET is not set. No DATABASE_URL-derived fallback is allowed.
+ * In dev/test, the fallback chain remains with a console warning.
  */
 import jwt from "jsonwebtoken";
 import { createHash } from "crypto";
+import { assertProductionSecrets } from "./security-config";
+
+// Phase 0 — Assert production secrets at module load time.
+assertProductionSecrets();
 
 function getSecret(): string {
-  // Phase 90.2 — User-specific secret (separate from admin)
+  // Phase 90.2 / Phase 0 — User-specific secret (separate from admin)
   if (process.env.USER_JWT_SECRET) return process.env.USER_JWT_SECRET;
   // Fallback: derive a DIFFERENT secret from the admin secret
   // (adds "user:" prefix so the hash differs from admin's)
+  // Phase 0: This fallback is ONLY available in dev/test.
+  // assertProductionSecrets() above ensures production never reaches here without USER_JWT_SECRET.
   if (process.env.ADMIN_JWT_SECRET) {
     return createHash("sha256").update("user:" + process.env.ADMIN_JWT_SECRET).digest("hex");
   }

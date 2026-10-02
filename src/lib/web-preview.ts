@@ -1,5 +1,5 @@
 /**
- * web-preview.ts — Phase 54 (WebBuddy)
+ * web-preview.ts — Phase 54 (WebBuddy) / Phase 0 (security hardening)
  *
  * Pure preview assembler for the WebBuilderScreen live iframe.
  *
@@ -15,6 +15,17 @@
  * runtime errors next to the code (like a real devtools-lite): every
  * console.* call and uncaught error is postMessage'd to the parent window.
  *
+ * PHASE 0 SECURITY HARDENING:
+ *   - A strict CSP is injected via <meta> tag inside the assembled document.
+ *   - The WEB_BACKEND_SCRIPT (window.db / auth / API bridge) is now gated
+ *     behind NEXT_PUBLIC_WEB_PREVIEW_BACKEND_ENABLED (default: off).
+ *     When off, the preview is a pure HTML/CSS/JS sandbox with no access
+ *     to application data, cookies, or parent APIs.
+ *   - External CDN scripts are still allowed (the learner authored them),
+ *     but the CSP restricts connect-src to learner-declared origins only.
+ *   - The console bridge validates postMessage origin on the parent side
+ *     (see WebBuilderScreen.tsx message handler).
+ *
  * Everything here is synchronous and pure — fully unit-testable.
  */
 
@@ -24,6 +35,46 @@ export type PreviewFile = {
   path: string;
   content: string;
 };
+
+/**
+ * Phase 0 — Whether to inject the Web Backend bridge (window.db, auth, API).
+ * Default: false. The bridge exposes application-level APIs to the preview,
+ * which is unsafe for untrusted or third-party HTML. Enable only when the
+ * learner's own code needs backend access AND the iframe sandbox is reviewed.
+ */
+export function isWebBackendBridgeEnabled(): boolean {
+  const flag = (process.env.NEXT_PUBLIC_WEB_PREVIEW_BACKEND_ENABLED ?? "false")
+    .toLowerCase().trim();
+  return flag === "true" || flag === "1" || flag === "on";
+}
+
+/**
+ * Phase 0 — Strict Content Security Policy injected into the preview document.
+ *
+ * - default-src 'none' — deny everything by default
+ * - script-src 'unsafe-inline' — learner's own inline scripts (srcdoc requires this)
+ * - style-src 'unsafe-inline' — learner's own inline styles
+ * - img-src data: blob: — allow data URIs for images
+ * - font-src data: — allow inline fonts
+ * - connect-src 'none' — BLOCK all network requests from the preview by default
+ * - form-action 'none' — block form submissions
+ *
+ * NOTE: connect-src 'none' blocks fetch/XHR/WebSockets from the preview. If the
+ * learner's code needs to make API calls, they must use the (disabled) Web
+ * Backend bridge. External CDN scripts loaded via <script src="https://...">
+ * will fail to execute under this CSP unless the learner explicitly allows
+ * the origin.
+ */
+export const PREVIEW_CSP_META =
+  `<meta http-equiv="Content-Security-Policy" ` +
+  `content="default-src 'none'; ` +
+  `script-src 'unsafe-inline' 'unsafe-eval'; ` +
+  `style-src 'unsafe-inline'; ` +
+  `img-src data: blob:; ` +
+  `font-src data:; ` +
+  `connect-src 'none'; ` +
+  `form-action 'none'; ` +
+  `base-uri 'none'" />`;
 
 /** The script injected at the top of <head> — forwards console + errors to parent. */
 export const CONSOLE_BRIDGE_SNIPPET = `<script>(function(){
@@ -110,20 +161,24 @@ export function buildPreviewDocument(files: PreviewFile[]): string | null {
 
   // 3) Inject the console bridge right after <head> (or at the very top).
   if (/<head[^>]*>/i.test(html)) {
-    html = html.replace(/<head[^>]*>/i, (m) => `${m}\n${CONSOLE_BRIDGE_SNIPPET}`);
+    html = html.replace(/<head[^>]*>/i, (m) => `${m}\n${PREVIEW_CSP_META}\n${CONSOLE_BRIDGE_SNIPPET}`);
   } else {
-    html = `${CONSOLE_BRIDGE_SNIPPET}\n${html}`;
+    html = `${PREVIEW_CSP_META}\n${CONSOLE_BRIDGE_SNIPPET}\n${html}`;
   }
 
-  // 4) Phase 61c — Inject the Web Backend (db, auth, api) so user apps
+  // 4) Phase 61c / Phase 0 — Inject the Web Backend (db, auth, api) so user apps
   //    can store data, authenticate users, and make API calls.
-  //    The script is injected BEFORE the user's own scripts so `window.db`
-  //    is available when their code runs.
-  const WEB_BACKEND_TAG = `<script>\n${WEB_BACKEND_SCRIPT}\n</script>`;
-  if (/<head[^>]*>/i.test(html)) {
-    html = html.replace(/<\/head>/i, `${WEB_BACKEND_TAG}\n</head>`);
-  } else {
-    html = `${WEB_BACKEND_TAG}\n${html}`;
+  //    Phase 0: GATED behind NEXT_PUBLIC_WEB_PREVIEW_BACKEND_ENABLED (default: off).
+  //    The bridge exposes application-level APIs to the preview iframe, which
+  //    is unsafe for untrusted HTML. When disabled, the preview is a pure
+  //    HTML/CSS/JS sandbox with no access to application data.
+  if (isWebBackendBridgeEnabled()) {
+    const WEB_BACKEND_TAG = `<script>\n${WEB_BACKEND_SCRIPT}\n</script>`;
+    if (/<head[^>]*>/i.test(html)) {
+      html = html.replace(/<\/head>/i, `${WEB_BACKEND_TAG}\n</head>`);
+    } else {
+      html = `${WEB_BACKEND_TAG}\n${html}`;
+    }
   }
 
   return html;

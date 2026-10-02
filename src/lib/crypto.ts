@@ -1,15 +1,26 @@
 /**
  * AES-256-CBC encryption helpers for user BYOK API keys.
  * Secret comes from API_KEY_ENCRYPTION_SECRET env (32-byte hex).
+ *
+ * Phase 0 — In production, API_KEY_ENCRYPTION_SECRET is REQUIRED.
+ * The dev fallback key ("dev-only-key-do-not-use-in-prod") is ONLY available
+ * when NODE_ENV !== "production". assertProductionSecrets() in security-config.ts
+ * enforces this at module load time.
  */
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "crypto";
+import { assertProductionSecrets } from "./security-config";
+
+// Phase 0 — Assert production secrets at module load time.
+assertProductionSecrets();
 
 const SECRET_HEX = process.env.API_KEY_ENCRYPTION_SECRET || "";
 const SECRET_KEY = Buffer.from(SECRET_HEX, "hex");
 
 function getKey(): Buffer {
   if (SECRET_KEY.length === 32) return SECRET_KEY;
-  // dev fallback — deterministic key, NOT for production
+  // Phase 0 — dev fallback only. assertProductionSecrets() ensures production
+  // never reaches this branch (the module throws at load time if the secret
+  // is missing in production).
   return createHash("sha256").update("dev-only-key-do-not-use-in-prod").digest();
 }
 
