@@ -43,9 +43,12 @@ import { ScienceSimulationPanel } from "./tutor/ScienceSimulationPanel";
 import { GraphLab } from "./tutor/GraphLab";
 import { QuizLab } from "./tutor/QuizLab";
 import { DrawingStudio } from "./tutor/DrawingStudio";
-import { FlowchartSVG } from "./tutor/FlowchartSVG";
-import { validateFlowchartPlan } from "@/lib/flowchart-validator";
-import { compileFlowchartLayout } from "@/lib/flowchart-compiler";
+import { FlowchartRenderer } from "./tutor/FlowchartRenderer";
+// Phase FC — Flowchart renderer feature flag.
+// NEXT_PUBLIC_FLOWCHART_RENDERER_ENABLED controls client-side rendering.
+// TUTOR_FLOWCHART_GENERATION_ENABLED (server-side, in context-builder.ts) controls AI prompt.
+// Both default to off — old scene/drawing behavior is preserved.
+const USE_FLOWCHART_RENDERER = process.env.NEXT_PUBLIC_FLOWCHART_RENDERER_ENABLED === "true";
 import {
   isBrowserTTSSupported,
   isBrowserASRSupported,
@@ -2442,44 +2445,21 @@ export function AITutorChat() {
                     }
                   } catch {}
                 }
-                // Phase FC — Route flowcharts to FlowchartSVG (view-only in workspace)
+                // Phase FC — Route flowcharts to FlowchartRenderer (lazy-loaded, view-only)
                 if (workspaceArtifact.type === "flowchart_v1") {
                   try {
                     const spec = JSON.parse(workspaceArtifact.caption);
-                    const validation = validateFlowchartPlan(spec);
-                    if (validation.valid && validation.plan) {
-                      const compiled = compileFlowchartLayout(validation.plan);
-                      const planTitle = validation.plan.title;
-                      const planNodes = validation.plan.nodes;
-                      return (
-                        <div className="p-4">
-                          <div className="mb-3 px-4 py-2 bg-indigo-50 rounded-lg">
-                            <p className="text-[10px] font-bold uppercase text-indigo-600">Activity</p>
-                            <p className="text-xs text-gray-700">
-                              Explore this flowchart. {planNodes.length} steps, {validation.plan.direction.replace(/_/g, " ")} flow.
-                            </p>
-                          </div>
-                          <FlowchartSVG compiled={compiled} title={planTitle} />
-                          {/* Text summary */}
-                          <div className="mt-3 p-3 bg-gray-50 rounded-lg">
-                            <p className="text-[10px] font-bold uppercase text-gray-500 mb-1">Summary</p>
-                            <p className="text-xs text-gray-700">
-                              This flowchart shows {planNodes.length} steps:
-                              {" "}{planNodes.map(n => n.label).join(" → ")}.
-                            </p>
-                          </div>
-                          {/* Ask Tutor */}
-                          <div className="mt-3 flex flex-wrap gap-1.5">
-                            <button
-                              onClick={() => setInput(`[Looking at flowchart "${planTitle}" in my workspace. ${planNodes.length} steps: ${planNodes.map(n => n.label).join(", ")}]\n\nPlease explain this flowchart.`)}
-                              className="flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-violet-50 text-violet-700 text-[10px] font-semibold hover:bg-violet-100 transition"
-                            >
-                              <Bot className="w-3 h-3" /> Explain flowchart
-                            </button>
-                          </div>
+                    return (
+                      <div className="p-4">
+                        <div className="mb-3 px-4 py-2 bg-indigo-50 rounded-lg">
+                          <p className="text-[10px] font-bold uppercase text-indigo-600">Activity</p>
+                          <p className="text-xs text-gray-700">
+                            Explore this flowchart in the workspace.
+                          </p>
                         </div>
-                      );
-                    }
+                        <FlowchartRenderer spec={spec} />
+                      </div>
+                    );
                   } catch {}
                 }
                 // Fall through to regular renderer for non-bar graphs + other types
@@ -2983,50 +2963,19 @@ function AttachmentRenderer({ attachment, onSpecChange, onOpenWorkspace, onOpenI
   }
 
   // Phase FC — Flowchart (semantic plan → deterministic layout → SVG)
+  // Uses the lazy-loaded FlowchartRenderer which dynamically imports
+  // the validator + compiler + SVG renderer only when needed.
   if (attachment.type === "flowchart_v1") {
     let fcSpec: any = null;
     try { fcSpec = JSON.parse(attachment.caption); } catch { return null; }
-    // Validate the semantic plan
-    const validation = validateFlowchartPlan(fcSpec);
-    if (!validation.valid || !validation.plan) {
-      return (
-        <div className="rounded-xl border border-gray-200 p-3 mt-2">
-          <p className="text-xs text-gray-500">⚠️ This flowchart could not be displayed.</p>
-        </div>
-      );
-    }
-    // Compile layout (deterministic — no AI, no coordinates from AI)
-    const compiled = compileFlowchartLayout(validation.plan);
-
-    if (onOpenInWorkspacePanel) {
-      // Compact card (workspace mode)
-      return (
-        <div>
+    return (
+      <div>
+        {onOpenInWorkspacePanel && (
           <div className="flex justify-end mb-1">
             <WorkspaceButton />
           </div>
-          <div className="rounded-xl border border-indigo-200 bg-indigo-50/50 p-3">
-            <div className="flex items-center gap-2 mb-2">
-              <span className="text-lg">🔀</span>
-              <p className="text-xs font-bold text-gray-900">{validation.plan.title}</p>
-            </div>
-            <FlowchartSVG compiled={compiled} title={validation.plan.title} />
-            <p className="text-[9px] text-gray-400 text-center mt-1">
-              {validation.plan.nodes.length} steps · {validation.plan.direction === "top_to_bottom" ? "↓" : "→"} flow
-            </p>
-          </div>
-        </div>
-      );
-    }
-
-    // Full inline render (no workspace)
-    return (
-      <div className="rounded-xl border border-gray-200 bg-white p-3 mt-2">
-        <div className="flex items-center gap-2 mb-2">
-          <span className="text-lg">🔀</span>
-          <span className="text-[10px] font-bold uppercase text-indigo-500">Flowchart</span>
-        </div>
-        <FlowchartSVG compiled={compiled} title={validation.plan.title} />
+        )}
+        <FlowchartRenderer spec={fcSpec} compact={!!onOpenInWorkspacePanel} />
       </div>
     );
   }
