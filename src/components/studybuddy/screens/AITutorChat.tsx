@@ -42,6 +42,7 @@ import { CodePreviewPanel } from "./tutor/CodePreviewPanel";
 import { ScienceSimulationPanel } from "./tutor/ScienceSimulationPanel";
 import { GraphLab } from "./tutor/GraphLab";
 import { QuizLab } from "./tutor/QuizLab";
+import { DrawingStudio } from "./tutor/DrawingStudio";
 import {
   isBrowserTTSSupported,
   isBrowserASRSupported,
@@ -2412,6 +2413,27 @@ export function AITutorChat() {
                       return (
                         <QuizLab
                           spec={spec}
+                          onAskTutor={(ctx) => { setInput(ctx); }}
+                        />
+                      );
+                    }
+                  } catch {}
+                }
+                // Phase G6 — Route drawing tasks to DrawingStudio (interactive)
+                if (workspaceArtifact.type === "draw_task") {
+                  try {
+                    const spec = JSON.parse(workspaceArtifact.caption);
+                    if (spec.prompt) {
+                      return (
+                        <DrawingStudio
+                          spec={spec}
+                          onSubmitDrawing={(imageDataUrl) => {
+                            // Send the drawing to the AI for review (same as inline)
+                            const event = new CustomEvent("studybuddy:submit-drawing", {
+                              detail: { imageDataUrl, task: spec },
+                            });
+                            window.dispatchEvent(event);
+                          }}
                           onAskTutor={(ctx) => { setInput(ctx); }}
                         />
                       );
