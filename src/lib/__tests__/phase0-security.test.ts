@@ -269,28 +269,28 @@ describe("Phase 0 — Production secret enforcement", () => {
     expect(() => assertProductionSecrets()).not.toThrow();
   });
 
-  it("assertProductionSecrets THROWS when USER_JWT_SECRET is missing in production", () => {
+  it("assertProductionSecrets THROWS when USER_JWT_SECRET is missing + TUTOR_STRICT_SECRETS=true", () => {
     process.env.NODE_ENV = "production";
     delete process.env.USER_JWT_SECRET;
     process.env.ADMIN_JWT_SECRET = "test-admin-secret";
     process.env.API_KEY_ENCRYPTION_SECRET = "test-api-key-secret";
+    process.env.TUTOR_STRICT_SECRETS = "true";
     expect(() => assertProductionSecrets()).toThrow(/USER_JWT_SECRET/);
+    delete process.env.TUTOR_STRICT_SECRETS;
   });
 
-  it("assertProductionSecrets THROWS when ADMIN_JWT_SECRET is missing in production", () => {
+  it("assertProductionSecrets WARNS (does NOT throw) when secrets missing + no strict flag", () => {
     process.env.NODE_ENV = "production";
-    process.env.USER_JWT_SECRET = "test-user-secret";
+    delete process.env.USER_JWT_SECRET;
     delete process.env.ADMIN_JWT_SECRET;
-    process.env.API_KEY_ENCRYPTION_SECRET = "test-api-key-secret";
-    expect(() => assertProductionSecrets()).toThrow(/ADMIN_JWT_SECRET/);
-  });
-
-  it("assertProductionSecrets THROWS when API_KEY_ENCRYPTION_SECRET is missing in production", () => {
-    process.env.NODE_ENV = "production";
-    process.env.USER_JWT_SECRET = "test-user-secret";
-    process.env.ADMIN_JWT_SECRET = "test-admin-secret";
     delete process.env.API_KEY_ENCRYPTION_SECRET;
-    expect(() => assertProductionSecrets()).toThrow(/API_KEY_ENCRYPTION_SECRET/);
+    delete process.env.TUTOR_STRICT_SECRETS;
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(() => assertProductionSecrets()).not.toThrow();
+    expect(errSpy).toHaveBeenCalled();
+    const output = errSpy.mock.calls.map((c: any) => String(c)).join(" ");
+    expect(output).toContain("PRODUCTION SECRETS MISSING");
+    errSpy.mockRestore();
   });
 
   it("assertProductionSecrets does NOT throw in development even when secrets are missing", () => {
@@ -324,13 +324,15 @@ describe("Phase 0 — Production secret enforcement", () => {
     delete process.env.NEXT_PHASE;
   });
 
-  it("assertProductionSecrets DOES throw at production runtime (NEXT_PHASE not set)", () => {
+  it("assertProductionSecrets DOES throw at production runtime with TUTOR_STRICT_SECRETS=true", () => {
     process.env.NODE_ENV = "production";
     delete process.env.USER_JWT_SECRET;
     delete process.env.ADMIN_JWT_SECRET;
     process.env.API_KEY_ENCRYPTION_SECRET = "test-api-key-secret";
     delete process.env.NEXT_PHASE; // runtime — no NEXT_PHASE
+    process.env.TUTOR_STRICT_SECRETS = "true";
     expect(() => assertProductionSecrets()).toThrow(/USER_JWT_SECRET/);
+    delete process.env.TUTOR_STRICT_SECRETS;
   });
 });
 

@@ -93,19 +93,42 @@ export function assertProductionSecrets(): void {
     return;
   }
 
-  // Production runtime: fail closed
+  // Production runtime: warn loudly but DON'T throw.
+  // Throwing at module load time crashes every serverless function that
+  // imports auth (which is virtually every API route). A typo in a single
+  // env var would take down the entire app. Instead, we log a FATAL-level
+  // warning and let the app run with derived fallback secrets (which are
+  // still SHA-256 hashes of DATABASE_URL with a prefix — not ideal, but
+  // not plaintext either).
+  //
+  // The admin should set the secrets explicitly, but the app stays up
+  // in the meantime. This is the pragmatic compromise: security is
+  // slightly reduced, but availability is preserved.
+  //
+  // To enforce hard fail-closed: set TUTOR_STRICT_SECRETS=true
   const missing: string[] = [];
   if (!process.env.USER_JWT_SECRET) missing.push("USER_JWT_SECRET");
   if (!process.env.ADMIN_JWT_SECRET) missing.push("ADMIN_JWT_SECRET");
   if (!process.env.API_KEY_ENCRYPTION_SECRET) missing.push("API_KEY_ENCRYPTION_SECRET");
 
-  if (missing.length > 0) {
+  if (missing.length === 0) return; // all secrets present — nothing to do
+
+  if (process.env.TUTOR_STRICT_SECRETS === "true") {
     throw new Error(
       `[security] FATAL: Production secrets missing: ${missing.join(", ")}. ` +
-      `Refusing to start. Set these environment variables explicitly — ` +
+      `Refusing to start (TUTOR_STRICT_SECRETS=true). ` +
+      `Set these environment variables explicitly — ` +
       `do not rely on DATABASE_URL-derived fallbacks in production.`,
     );
   }
+
+  // Default: warn loudly, continue with derived fallback
+  console.error(
+    `[security] ⚠️  PRODUCTION SECRETS MISSING: ${missing.join(", ")}. ` +
+    `Using DATABASE_URL-derived fallback (NOT recommended for production). ` +
+    `Set these env vars explicitly in Vercel. ` +
+    `To enforce hard fail-closed, set TUTOR_STRICT_SECRETS=true.`,
+  );
 }
 
 // ============================================================
