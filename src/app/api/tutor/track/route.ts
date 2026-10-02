@@ -88,12 +88,21 @@ export async function POST(req: NextRequest) {
       }).catch(() => {});
     }
 
-    // Also update user's XP (5 XP per interaction, 10 for quiz, 15 for exam)
-    // Phase 88.6 — bonus XP for quiz performance: +2 XP per correct answer
-    let xpGain = activity === "exam" ? 15 : activity === "quiz" ? 10 : activity === "drawing" ? 5 : 5;
-    if (quizScore !== null && quizTotal !== null && quizTotal > 0) {
-      xpGain += Math.round((quizScore / quizTotal) * 10); // up to +10 bonus for perfect quiz
-    }
+    // Phase 2 — REMOVE XP awarding from client-supplied quizScore.
+    // /api/tutor/track should only track ACTIVITY (study time, interaction count),
+    // NOT decide academic correctness or award XP.
+    //
+    // XP for quizzes now comes through the VERIFIED assessment path:
+    //   - /api/attempts (card-based quizzes) → markCardAttempt → awardXpForAttempt
+    //   - /api/quiz/submit (chat-quiz questions) → markChatQuizAttempt → awardXpForAttempt
+    //
+    // The old code awarded XP based on client-supplied quizScore/quizTotal,
+    // which could be farmed by a malicious client sending quizScore:100.
+    //
+    // We still award a small ACTIVITY bonus (5 XP for any interaction) — this
+    // is for engagement, not academic correctness, and is bounded by the daily
+    // token deduction limit.
+    const xpGain = 5; // activity bonus only — NOT tied to quiz performance
     await db.user.update({
       where: { id: user.id },
       data: { lastActive: new Date() },
@@ -138,6 +147,15 @@ export async function POST(req: NextRequest) {
         },
       });
     } catch {}
+
+    // Phase 2 — Lesson advancement still uses quizScore/quizTotal for now.
+    // This is a known limitation — ideally, lesson advancement should also go
+    // through the verified assessment path. For now, we keep it because:
+    //   1. Lesson state is best-effort (not academic record)
+    //   2. The threshold (60%) is a heuristic, not a verified grade
+    //   3. Removing it would break the existing lesson flow without a replacement
+    // Phase 3 (plugin-first orchestration) will replace this with verified
+    // quiz completion signals from /api/quiz/submit.
 
     // Phase 95 — Advance the lesson state machine when a quiz is passed.
     // A "pass" is defined as >=60% correct (configurable — see PASS_THRESHOLD).

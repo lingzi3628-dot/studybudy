@@ -2538,3 +2538,47 @@ model IdempotencyRecord {
   @@index([userId, operation])
   @@index([expiresAt])
 }
+
+// =====================================================================
+// Phase 2 — AssessmentAttempt (verified assessment)
+//
+// Records every quiz/card attempt with SERVER-DERIVED correctness.
+// The answer key (correctIndex) is stored HERE on the server, NOT shipped
+// to the client. The client submits selectedIndex; the server marks it.
+//
+// This replaces the client-trusted isCorrect flow in /api/attempts.
+// XP and mastery updates reference the attemptId so they're idempotent —
+// re-processing the same attempt is a no-op.
+//
+// Fields:
+//   - cardId: nullable — for flashcard/MCQ card attempts
+//   - quizId: nullable — for chat-quiz attempts (conversationId + questionId)
+//   - conversationId: nullable — links to the chat that generated the quiz
+//   - questionId: nullable — identifies which question in a multi-question quiz
+//   - selectedIndex: what the learner chose
+//   - correctIndex: SERVER-HELD answer key (NOT shipped to client)
+//   - isCorrect: server-derived from selectedIndex === correctIndex
+//   - xpAwarded: whether XP was already granted (idempotency flag)
+//   - idempotencyKey: client-supplied key for replay protection
+// =====================================================================
+
+model AssessmentAttempt {
+  id              String   @id @default(uuid())
+  userId          String
+  cardId          String?  // FK to Card (nullable for chat-quiz attempts)
+  conversationId  String?  // FK to ChatConversation (nullable for card attempts)
+  questionId      String?  // index within a multi-question quiz (e.g. "q0", "q1")
+  selectedIndex   Int?
+  correctIndex    Int?     // SERVER-HELD — never shipped to client
+  isCorrect       Boolean?
+  responseTimeMs  Int?
+  xpAwarded       Boolean  @default(false)
+  idempotencyKey  String?  // client-supplied for replay protection
+  createdAt       DateTime @default(now())
+
+  @@index([userId])
+  @@index([cardId])
+  @@index([conversationId])
+  @@index([userId, createdAt])
+  @@index([idempotencyKey])
+}
