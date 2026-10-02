@@ -2582,3 +2582,58 @@ model AssessmentAttempt {
   @@index([userId, createdAt])
   @@index([idempotencyKey])
 }
+
+// =====================================================================
+// Phase 4 — WorkspaceArtifact + ArtifactVersion
+//
+// Persistent workspace artifacts with stable IDs, ownership, and version
+// history. This replaces the ad-hoc storage of artifacts as JSON in
+// ChatMessage.attachments captions.
+//
+// Legacy ChatMessage.attachments continue to work — a legacy adapter
+// (artifact-service.ts) wraps them as temporary WorkspaceArtifact
+// representations so old data isn't lost.
+//
+// WorkspaceArtifact: the artifact metadata (who owns it, what plugin
+//   produced it, current status, links to conversation/message).
+// ArtifactVersion: the actual payload for each version. When the learner
+//   or AI modifies an artifact, a new version is created (not an update
+//   to the existing payload). This enables undo/rollback + AI change
+//   proposals with Apply/Reject.
+// =====================================================================
+
+model WorkspaceArtifact {
+  id              String   @id @default(uuid())
+  ownerId         String
+  conversationId  String?
+  sourceMessageId String?
+  pluginId        String
+  pluginVersion   Int      @default(1)
+  currentVersion  Int      @default(1)
+  title           String
+  status          String   @default("draft")  // 'draft' | 'ready' | 'submitted' | 'completed'
+  artifactType    String   // 'graph' | 'flowchart_v1' | 'code_project' | 'quiz' | etc.
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  versions        ArtifactVersion[]
+
+  @@index([ownerId])
+  @@index([conversationId])
+  @@index([pluginId])
+}
+
+model ArtifactVersion {
+  id              String   @id @default(uuid())
+  artifactId      String
+  version         Int
+  payload         Json
+  createdBy       String   // userId or "ai" for AI-generated changes
+  changeSummary   String?
+  createdAt       DateTime @default(now())
+
+  artifact        WorkspaceArtifact @relation(fields: [artifactId], references: [id], onDelete: Cascade)
+
+  @@unique([artifactId, version])
+  @@index([artifactId])
+}
