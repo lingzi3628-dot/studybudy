@@ -1853,3 +1853,38 @@ Stage Summary:
 - All changes additive — no breaking API contract changes.
 - Client can opt-in to idempotency by sending idempotencyKey in request body. Without it, legacy behavior (no dedup, but everything works).
 - STOP after Phase 1. Next is Phase 2 (verified assessment) when user requests.
+
+---
+Task ID: Phase 2
+Agent: main
+Task: Verified assessment. Advisor's Phase 2 spec: server-held assessment keys, AssessmentAttempt model, server-side marking, idempotent XP/mastery updates, remove academic decisions from /api/tutor/track. STOP after Phase 2.
+
+Work Log:
+- Reviewed /api/attempts — confirmed client-trusted isCorrect (Boolean(body.isCorrect), no Card.correctIndex check).
+- Reviewed /api/tutor/track — confirmed XP awarded from client-supplied quizScore/quizTotal (farmable).
+- Reviewed /api/curriculum/quiz-submit — also trusts client score (separate capacity engine, lower risk, not changed in Phase 2).
+- Reviewed Card model — has correctIndex Int? (the answer key, currently fetched by client).
+- Added AssessmentAttempt Prisma model + migration (20261002120000_assessment_attempt). Fields: id, userId, cardId?, conversationId?, questionId?, selectedIndex?, correctIndex? (SERVER-HELD), isCorrect?, responseTimeMs?, xpAwarded Boolean @default(false), idempotencyKey?, createdAt. Indexes on userId, cardId, conversationId, [userId,createdAt], idempotencyKey.
+- Created src/lib/assessment.ts (~430 lines):
+  * markCardAttempt: fetches Card, checks selectedIndex === card.correctIndex, creates AssessmentAttempt, calls recordAttempt with SERVER-DERIVED isCorrect, awards XP idempotently. Client-supplied isCorrect is IGNORED.
+  * markChatQuizAttempt: reads quiz spec from ChatMessage.attachments, extracts correctIndex from stored spec (NOT from client), derives isCorrect, creates AssessmentAttempt, awards XP idempotently.
+  * awardXpForAttempt: checks xpAwarded flag — if already awarded → no-op (idempotent).
+  * stripAnswerKeyFromQuiz: pure function removing correctIndex + explanation from quiz spec.
+  * AssessmentError class with code field.
+- Modified /api/attempts/route.ts: now calls markCardAttempt. Ignores client's isCorrect. Response includes attemptId, isCorrect (server-derived), correctIndex, explanation, xpAwarded, replayed. Backward compat: old clients sending isCorrect still work (field accepted but ignored).
+- Modified /api/tutor/track/route.ts: xpGain = 5 (activity bonus only, NOT tied to quiz performance). Removed quizScore/quizTotal-based XP. Lesson advancement kept as known limitation (documented).
+- Created /api/quiz/submit/route.ts: POST handler for chat-quiz marking. Calls markChatQuizAttempt. Client never receives correctIndex until after submission.
+- Wrote src/lib/__tests__/phase2-verified-assessment.test.ts (22 tests): markCardAttempt server-derived isCorrect, ignores client isCorrect, throws on missing card, replay handling, calls recordAttempt with server-derived value. markChatQuizAttempt reads answer key from stored spec, throws on missing conversation/quiz/question. awardXpForAttempt idempotency. stripAnswerKeyFromQuiz. Existing contracts preserved.
+- Fixed 2 TS errors: Prisma Json type needs `as any[]` cast for property access on msg.attachments.
+- Ran full vitest suite: 893/893 pass (was 871, +22 new from Phase 2).
+- TypeScript: 0 new errors. 22 pre-existing baseline unchanged.
+- Committed as ea2a89b. Pushed to main.
+
+Stage Summary:
+- Phase 2 verified assessment shipped.
+- Client-trusted isCorrect FIXED — /api/attempts now re-derives from Card.correctIndex server-side.
+- Client-trusted quizScore XP FIXED — /api/tutor/track awards activity bonus only (5 XP), not quiz-performance-based XP.
+- New /api/quiz/submit route for chat-quiz marking — server reads answer key from stored spec, client never sees it until after submission.
+- Idempotent XP via xpAwarded flag on AssessmentAttempt — re-processing same attempt is no-op.
+- stripAnswerKeyFromQuiz helper available for client migration (Phase 3+).
+- STOP after Phase 2. Next is Phase 3 (plugin-first orchestration) when user requests.
