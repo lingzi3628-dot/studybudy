@@ -41,8 +41,8 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const ZAI = (await import("z-ai-web-dev-sdk")).default;
-    const client = await ZAI.create();
+    const { getZaiClient } = await import("@/lib/zai-client");
+    const client = await getZaiClient();
 
     const response = await client.audio.tts.create({
       input: text,

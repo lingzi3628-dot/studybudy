@@ -299,8 +299,8 @@ export async function POST(req: NextRequest) {
     try {
       if (imageDataUrl) {
         // Vision path — use the z-ai SDK's createVision endpoint directly.
-        const ZAI = (await import("z-ai-web-dev-sdk")).default;
-        const client = await ZAI.create();
+        const { getZaiClient } = await import("@/lib/zai-client");
+        const client = await getZaiClient();
         const visionMessages: any = [
           { role: "system", content: systemContent },
           {
@@ -347,8 +347,8 @@ export async function POST(req: NextRequest) {
         friendlyError = "The AI provider is temporarily unavailable. Please try again in a moment.";
       } else if (errMsg.includes("timeout")) {
         friendlyError = "The AI took too long to respond. Please try a shorter message or try again.";
-      } else if (errMsg.includes("configuration") || errMsg.includes(".z-ai-config")) {
-        friendlyError = "The AI service is not fully configured. Please contact support or try the 'Study Buddy Free' model.";
+      } else if (errMsg.includes("configuration") || errMsg.includes(".z-ai-config") || errMsg.includes("Z-AI SDK not configured")) {
+        friendlyError = "The AI service needs ZAI_BASE_URL and ZAI_API_KEY environment variables. Ask your admin to set them in Vercel → Settings → Environment Variables.";
       }
       turnLogger.error("tutor chat AI call failed", {
         error: e?.message ?? String(e),

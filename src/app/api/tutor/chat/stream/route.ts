@@ -313,8 +313,8 @@ export async function POST(req: NextRequest) {
 
           if (imageDataUrl) {
             // Vision path — non-streamed (single delta)
-            const ZAI = (await import("z-ai-web-dev-sdk")).default;
-            const client = await ZAI.create();
+            const { getZaiClient } = await import("@/lib/zai-client");
+            const client = await getZaiClient();
             const visionMessages: any = [
               { role: "system", content: systemContent },
               {

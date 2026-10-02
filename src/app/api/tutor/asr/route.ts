@@ -34,8 +34,8 @@ export async function POST(req: NextRequest) {
   const base64 = audioBase64.replace(/^data:[^;]+;base64,/, "");
 
   try {
-    const ZAI = (await import("z-ai-web-dev-sdk")).default;
-    const client = await ZAI.create();
+    const { getZaiClient } = await import("@/lib/zai-client");
+    const client = await getZaiClient();
 
     const response: any = await client.audio.asr.create({
       file_base64: base64,

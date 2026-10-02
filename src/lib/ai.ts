@@ -18,6 +18,7 @@ import ZAI from "z-ai-web-dev-sdk";
 import { db } from "./db";
 import { decryptApiKey } from "./crypto";
 import { callWithProviders, logAiCall } from "./ai-providers";
+import { getZaiClient } from "./zai-client";
 
 export type ChatRole = "system" | "user" | "assistant";
 export type ChatMessage = { role: ChatRole; content: string };
@@ -47,7 +48,7 @@ async function callPlatformAI(
   let content = "";
   let errorMessage: string | null = null;
   try {
-    const client = await ZAI.create();
+    const client = await getZaiClient();
     // Phase 25 — add timeout to prevent 504 on Vercel (10s max for serverless)
     const timeoutPromise = new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error("AI request timed out (10s)")), 10000)
@@ -559,8 +560,8 @@ export async function* streamPlatformAI(
 ): AsyncGenerator<string> {
   const userId = ctx?.userId ?? "system";
   const route = ctx?.route;
-  const ZAI = (await import("z-ai-web-dev-sdk")).default;
-  const client = await ZAI.create();
+  const { getZaiClient } = await import("./zai-client");
+  const client = await getZaiClient();
   const body: any = await client.chat.completions.create({
     messages,
     stream: true,

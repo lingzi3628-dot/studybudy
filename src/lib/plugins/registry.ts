@@ -75,8 +75,8 @@ const webSearchPlugin: BuiltinPlugin = {
   async execute(message: string): Promise<string> {
     // Use the z-ai-web-dev-sdk search function (same as the tutor engine).
     try {
-      const ZAI = (await import("z-ai-web-dev-sdk")).default;
-      const zai = await ZAI.create();
+      const { getZaiClient } = await import("../zai-client");
+      const zai = await getZaiClient();
       const results: any = await zai.functions.invoke("web_search", { query: message, num: 5 });
       const arr: any[] = Array.isArray(results) ? results : (results?.results ?? results?.data ?? []);
       if (arr.length > 0) {

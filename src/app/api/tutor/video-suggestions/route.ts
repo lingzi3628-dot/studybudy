@@ -30,8 +30,8 @@ export async function GET() {
 
   try {
     // Use the z-ai-web-dev-sdk's web search to find YouTube videos
-    const { default: ZAI } = await import("z-ai-web-dev-sdk");
-    const zai = await ZAI.create();
+    const { getZaiClient } = await import("@/lib/zai-client");
+    const zai = await getZaiClient();
     const results = await zai.functions.invoke("web_search", {
       query: `${searchQuery} site:youtube.com`,
     });

@@ -154,8 +154,8 @@ export async function runWebSearch(opts: {
   if ((intents.wantsSearch || intents.wantsVideo || (intents.wantsImage && !dataSaver)) &&
       (intents.wantsSearch || intents.wantsVideo || intents.wantsImage)) {
     try {
-      const ZAI = (await import("z-ai-web-dev-sdk")).default;
-      const client = await ZAI.create();
+      const { getZaiClient } = await import("./zai-client");
+      const client = await getZaiClient();
 
       // For videos, explicitly search YouTube
       const searchQuery = intents.wantsVideo
