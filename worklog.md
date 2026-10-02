@@ -1797,3 +1797,59 @@ Stage Summary:
 - All existing contracts preserved: chat shapes, SSE events, attachment formats, DB schema, auth cookies, ownership rules.
 - 36 new tests covering all Phase 0 changes.
 - STOP after Phase 0. Next is Phase 1 (transaction integrity) when user requests.
+
+---
+Task ID: Phase 1
+Agent: main
+Task: Transaction integrity. Advisor's Phase 1 spec: request/turn IDs, atomic token charging, idempotent refunds, prevent duplicate chat writes, structured logs. STOP after Phase 1.
+
+Work Log:
+- Reviewed monetization.ts checkAndDeductTokens — confirmed read-then-write race condition (lines 511-516: read balance → compute newBalance → write absolute value). Two concurrent requests could both read balance=100, both deduct 15, both write 85.
+- Reviewed refundTokens — confirmed non-idempotent (calling twice refunds twice).
+- Created src/lib/tutor/turn-manager.ts (~250 lines):
+  * generateId/generateTurnId/generateRequestId (UUID v4 via crypto.randomUUID + fallback)
+  * isValidIdempotencyKey (8-128 chars, alphanumeric + dash/underscore)
+  * buildTurnContext({userId, clientKey}) — turnId stable across retries (derived from key), requestId unique per call
+  * claimIdempotency — race-safe via Prisma unique constraint on key. Returns first/replay/pending. Handles P2002. Deletes expired + failed records.
+  * completeIdempotency / failIdempotency / releaseIdempotency / cleanupExpiredIdempotencyRecords
+- Added IdempotencyRecord Prisma model + migration (20261002100000_idempotency_record). Fields: id, key (unique), userId, operation, status (pending|completed|failed), response (Json?), errorCode, errorMessage, createdAt, completedAt, expiresAt. Indexes: unique on key, [userId,operation], [expiresAt]. TTL: 24h.
+- Ran prisma generate to regenerate client with new model.
+- Made checkAndDeductTokens atomic: replaced read-then-write with conditional UPDATE WHERE balance >= cost (db.user.updateMany + decrement). If 0 rows updated → race lost → re-read + retry once. Re-reads actual new balance after deduction. Prevents double-spend.
+- Made refundTokens idempotent: new optional 4th param idempotencyKey. Checks IdempotencyRecord for "refund_<key>". If completed → no-op. If pending → no-op. If failed → delete + retry. Otherwise claim + execute. Uses ATOMIC increment (no race with concurrent deductions). Marks completed/failed. Without key: legacy behavior (backward compat).
+- Upgraded src/lib/logger.ts with withTurn({turnId, requestId, userId}) — child logger that auto-includes turn context. Prod JSON mode includes fields. Dev pretty-print shows [turn_xxx] prefix. Backward compat preserved.
+- Wired turn context + idempotency into /api/tutor/chat/route.ts:
+  * Builds TurnContext at request start (from client idempotencyKey or generated)
+  * claimIdempotency at top: returns cached response on replay, 409 on pending, proceeds on first
+  * All refundTokens calls pass turn.idempotencyKey (idempotent)
+  * completeIdempotency on success — caches response for replay
+  * failIdempotency on error — allows client retry with same key
+  * Response includes turnId field
+  * All console.error → turnLogger.error (structured)
+- Wired turn context into /api/tutor/chat/stream/route.ts:
+  * SSE meta event includes turnId
+  * SSE done event includes turnId
+  * Error response includes turnId
+  * All refundTokens calls pass turn.idempotencyKey
+  * turnLogger for error logging
+- Wrote src/lib/__tests__/phase1-transaction-integrity.test.ts (29 tests):
+  * Turn context generation (UUID format, uniqueness, prefix validation)
+  * buildTurnContext (client key used when valid, generated when absent, stable turnId across retries, unique requestId per call)
+  * Logger withTurn (includes turnId, backward compat)
+  * Idempotency claim/complete/fail (mocked DB — first/replay/pending/expired/failed/P2002 race)
+  * Idempotent refund (with key credits once, same key twice = no-op, without key = legacy, marks failed when user not found)
+  * Existing contracts preserved (3-arg refundTokens, logger functions, turn-manager exports)
+- Fixed one test iteration: vi.mock for ../db must be at module scope (not inside describe). Converted all require() to import for ESM compat.
+- Ran full vitest suite: 871/871 pass (was 842, +29 new from Phase 1).
+- TypeScript check: 0 new errors. 22 pre-existing baseline unchanged.
+- Committed as ba335af. Pushed to main.
+
+Stage Summary:
+- Phase 1 transaction integrity shipped.
+- Double-spend race fixed (conditional UPDATE WHERE balance >= cost).
+- Double-refund fixed (idempotency key on refundTokens).
+- Duplicate chat writes prevented (claimIdempotency gates execution — replays return cached response).
+- Turn IDs flow through every log line (auth → deduct → AI → post-process → DB write).
+- SSE events include turnId (meta + done).
+- All changes additive — no breaking API contract changes.
+- Client can opt-in to idempotency by sending idempotencyKey in request body. Without it, legacy behavior (no dedup, but everything works).
+- STOP after Phase 1. Next is Phase 2 (verified assessment) when user requests.
