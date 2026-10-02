@@ -277,6 +277,7 @@ const KNOWN_GRAPH_TYPES = new Set([
   "argand", "contour", "vectorfield", "tessellation", "knot",
   "pictogram", "tally", "carroll", "ogive", "unitcircle",
   "transform", "axes3d", "twoway", "erdiagram", "csv", "steps", "scene",
+  "manipulative",  // Phase F10 — math manipulative (drag-and-drop fractions etc.)
 ]);
 
 function tryParseGraphSpec(raw: string): any | null {
@@ -407,6 +408,11 @@ export async function parseGraphAttachments(opts: {
         if (/concept map|mind map|mindmap/.test(titleLower) || intents.wantsConceptMap) {
           attachmentType = "conceptmap";
         }
+      }
+      // Phase F10 — manipulative specs get their own attachment type so the
+      // frontend routes them to FractionManipulative instead of GraphRenderer
+      if (correctedSpec.type === "manipulative") {
+        attachmentType = "manipulative";
       }
       attachments.push({
         type: attachmentType,

@@ -37,6 +37,7 @@ import katex from "katex";
 import { BuddySwitcher, getStoredBuddyId } from "./BuddySwitcher";
 import type { BuddyId } from "@/lib/buddies/types";
 import { extractCodeFiles } from "@/lib/code-extract";
+import { FractionManipulative } from "./tutor/FractionManipulative";
 import {
   isBrowserTTSSupported,
   isBrowserASRSupported,
@@ -2697,6 +2698,23 @@ function AttachmentRenderer({ attachment, onSpecChange, onOpenWorkspace, onOpenI
       const event = new CustomEvent("studybuddy:submit-drawing", { detail: { imageDataUrl, task: drawSpec } });
       window.dispatchEvent(event);
     }} />
+      </div>
+    );
+  }
+
+  // Phase F10 — Math manipulative (fraction division, drag-and-drop)
+  if (attachment.type === "manipulative") {
+    let manipSpec: any = null;
+    try { manipSpec = JSON.parse(attachment.caption); } catch { return null; }
+    if (!manipSpec || !manipSpec.totalCount || !manipSpec.basketCount) return null;
+    return (
+      <div>
+        {onOpenInWorkspacePanel && (
+          <div className="flex justify-end mb-1">
+            <WorkspaceButton />
+          </div>
+        )}
+        <FractionManipulative spec={manipSpec} />
       </div>
     );
   }

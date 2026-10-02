@@ -126,6 +126,7 @@ CRITICAL RULES FOR THE mathgraph BLOCK:
   * Databases → erdiagram
   * Spreadsheets → csv
   * Any custom drawing or construction → scene
+  * Drag-and-drop math activities for young learners (divide items into equal groups) → manipulative
 - DOUBLE-CHECK your JSON is valid before outputting — no trailing commas, no missing brackets.
 - Include ALL required fields for the chosen type — check the schema reference above.
 
@@ -152,6 +153,9 @@ GENERAL RULES:
 - Scene format: {"type":"scene","title":"...","width":1000,"height":750,"elements":[...]}. Coordinates use x=0–1000 and y=0–750.
 - Scene elements: rect {x,y,width,height,label?}, circle {cx,cy,r,label?}, ellipse {cx,cy,rx,ry,label?}, line/arrow {x1,y1,x2,y2,label?}, text {x,y,text}, polygon {points:[[x,y],...],label?}. Elements may include stroke and fill colors.
 - For constructions, include the construction lines/arcs with circles and lines, mark and label vertices, and show the important steps. For concept maps and processes, use labeled shapes connected by arrows and keep labels readable.
+- Manipulative format (for young learners — drag-and-drop math activities):
+  {"type":"manipulative","subtype":"fractions_divide","title":"Divide mangoes equally","instruction":"Put 12 mangoes into 3 equal baskets","totalCount":12,"basketCount":3,"itemEmoji":"🥭","basketEmoji":"🧺"}
+  Use this when teaching fractions, division, or equal grouping to Grade 1-5 learners. Keep totalCount divisible by basketCount.
 
 CRITICAL RULES — NO MARKDOWN TABLES WHEN A GRAPH IS REQUESTED:
 - For database/spreadsheet requests, ALWAYS include a fenced \`\`\`mathgraph ...\`\`\` code block with the appropriate JSON spec ("erdiagram" or "csv"). Do NOT show plain markdown tables in your reply prose.
