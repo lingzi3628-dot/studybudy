@@ -207,6 +207,25 @@ export function AITutorChat() {
   const [activeConversation, setActiveConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const chatSessionRef = useRef(0);
+
+  // Phase F15 — Auto-open workspace when a new attachment arrives.
+  // Watches the last message's attachments. If the last AI message has a
+  // workspace-compatible attachment AND the workspace isn't already showing
+  // that attachment, auto-open it after 2 seconds. This keeps the chat clean
+  // (compact notification card shows briefly) then the workspace opens.
+  const WORKSPACE_TYPES_F15 = ["graph", "quiz", "draw_task", "manipulative", "code_project", "science_simulation", "conceptmap"];
+  useEffect(() => {
+    if (!USE_WORKSPACE) return;
+    const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant" && m.attachments?.length);
+    if (!lastAssistant?.attachments) return;
+    const workspaceAtt = lastAssistant.attachments.find((a) => WORKSPACE_TYPES_F15.includes(a.type));
+    if (!workspaceAtt) return;
+    if (workspaceArtifact?.caption === workspaceAtt.caption) return;
+    const timer = setTimeout(() => {
+      setWorkspaceArtifact(workspaceAtt);
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [messages]); // eslint-disable-line react-hooks/exhaustive-deps
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [activityStatus, setActivityStatus] = useState("Waiting for your tutor…");
@@ -2587,6 +2606,56 @@ function AttachmentRenderer({ attachment, onSpecChange, onOpenWorkspace, onOpenI
       <PanelRightOpen className="w-3 h-3" /> Open in workspace
     </button>
   ) : null;
+
+  // Phase F15 — When workspace mode is ON, interactive attachments (graph, quiz,
+  // draw_task, manipulative, code_project, science_simulation, conceptmap) render
+  // as a COMPACT notification card in the chat instead of the full interactive UI.
+  // The full UI opens in the workspace panel. This keeps the chat clean — only
+  // text + small notification cards flow through the conversation.
+  const WORKSPACE_TYPES = ["graph", "quiz", "draw_task", "manipulative", "code_project", "science_simulation", "conceptmap"];
+  if (onOpenInWorkspacePanel && WORKSPACE_TYPES.includes(attachment.type)) {
+    // Auto-open the workspace panel after a short delay
+    // (the useEffect in the parent handles the actual auto-open — here we just
+    // render the compact card + trigger the open)
+    const typeLabel = attachment.type === "graph" ? "📊 Graph"
+      : attachment.type === "quiz" ? "📝 Quiz"
+      : attachment.type === "draw_task" ? "✏️ Drawing Task"
+      : attachment.type === "conceptmap" ? "🧠 Concept Map"
+      : attachment.type === "manipulative" ? "🥭 Math Activity"
+      : attachment.type === "code_project" ? "💻 Code Project"
+      : attachment.type === "science_simulation" ? "🔌 Circuit Simulation"
+      : "📦 Activity";
+
+    // Extract a title from the spec if possible
+    let activityTitle = "";
+    try {
+      const spec = JSON.parse(attachment.caption);
+      activityTitle = spec.title || spec.instruction?.slice(0, 60) || "";
+    } catch {}
+
+    return (
+      <div className="rounded-xl border border-indigo-200 bg-indigo-50/50 p-3 mt-2">
+        <div className="flex items-center gap-2">
+          <span className="text-lg">{typeLabel.split(" ")[0]}</span>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-bold text-gray-900">
+              {typeLabel.split(" ").slice(1).join(" ")} ready
+            </p>
+            {activityTitle && (
+              <p className="text-[10px] text-gray-500 truncate">{activityTitle}</p>
+            )}
+          </div>
+          <button
+            onClick={() => onOpenInWorkspacePanel(attachment)}
+            className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-indigo-600 text-white text-[10px] font-semibold hover:bg-indigo-700 transition flex-shrink-0"
+          >
+            <PanelRightOpen className="w-3 h-3" /> Open
+          </button>
+        </div>
+        <p className="text-[9px] text-gray-400 mt-1.5">Opening in workspace…</p>
+      </div>
+    );
+  }
   if (attachment.type === "computer_workspace") {
     let offer: any = null;
     try { offer = JSON.parse(attachment.caption); } catch {}
