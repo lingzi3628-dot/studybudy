@@ -1758,3 +1758,42 @@ Stage Summary:
 - Learner behavior is 100% unchanged.
 
 Next step (Phase AC3): wire runPluginPipeline() into /api/tutor/chat + /api/tutor/chat/stream behind the flag, replacing the existing parseGraphAttachments path when flag is on. Replace adapter stubs with real calls. Validate that learner sees identical behavior with flag on vs off.
+
+---
+Task ID: Phase 0
+Agent: main
+Task: Backend security containment. User gave a detailed advisor prompt with 9 sections covering verification of uncertain findings + kill switches for Python/JS execution + web preview hardening + production secret enforcement + cron protection + plugin mapping fix + tests + completion report. STOP after Phase 0.
+
+Work Log:
+- Synced local working tree to remote HEAD (b0e401f) — local was behind by 5 commits including AC1/AC2/AC3.
+- Verified all 7 uncertain findings:
+  1. WebBuilderScreen iframe: sandbox="allow-scripts allow-forms allow-popups" (no allow-same-origin — good). Missing CSP, referrerPolicy, postMessage validation, window.db bridge exposure.
+  2. /api/attempts: CONFIRMED client-trusted. Boolean(body.isCorrect), does NOT check Card.correctIndex. (Phase 2 fix.)
+  3. Cron routes: ALREADY validate CRON_SECRET via Bearer header + ?secret= param. Fail-closed if not configured. No changes needed.
+  4. Network/concept-map → graph.bar: REPORT WAS WRONG. Both map to diagram.flowchart in tutor-action-controller.ts. No fix needed.
+  5. x-vercel-function-max-duration: response header (advisory). Actual enforcement is route-level export const maxDuration = N. Both exist.
+  6. C execution runtime: DOES NOT EXIST.
+  7. Unauthenticated execution: runTutorTools is auth-gated, BUT bot-engine.ts:runBot calls executePlugin → code_runner, and runBot is called from /api/embed/[slug]/messages + Slack/Telegram webhooks. Kill switch must be at code-sandbox.ts:runCode level.
+- Created src/lib/security-config.ts (centralized flag readers + assertProductionSecrets() + learner-facing unsupported messages).
+- Modified src/lib/code-sandbox.ts: added kill switch checks at the TOP of runPython() and runJavaScript(). Returns {unsupported: true, stderr: <safe message>} WITHOUT spawning process or creating vm.Script. Added `unsupported?: boolean` field to CodeResult type.
+- Modified src/lib/plugins/registry.ts: code_runner plugin surfaces only stderr when unsupported — does not expose exit code / duration / unsupported flag to learner.
+- Modified src/lib/web-preview.ts: added PREVIEW_CSP_META (strict CSP: default-src 'none', connect-src 'none', form-action 'none', base-uri 'none'). Added isWebBackendBridgeEnabled() flag reader (NEXT_PUBLIC_WEB_PREVIEW_BACKEND_ENABLED, default off). WEB_BACKEND_SCRIPT injection now gated behind flag.
+- Modified src/components/studybuddy/screens/WebBuilderScreen.tsx: added referrerPolicy="no-referrer" to iframe. Hardened postMessage handler: validates origin (only window or iframe origin "null"), validates message shape.
+- Modified src/lib/user-jwt.ts + admin-jwt.ts + crypto.ts: added assertProductionSecrets() call at module load time. Production refuses to start if USER_JWT_SECRET / ADMIN_JWT_SECRET / API_KEY_ENCRYPTION_SECRET missing. Dev/test warns but allows fallback.
+- Created src/lib/__tests__/phase0-security.test.ts (36 tests): kill switches, no process spawn, no vm.Script creation, no env var leakage, C unsupported, CSP injection, backend bridge gated, production secret enforcement, concept-map mapping verification, existing contracts preserved.
+- Fixed 2 test iteration issues: vi.spyOn doesn't work on ESM module namespaces → replaced with behavioral assertion (durationMs === 0 proves early return).
+- Updated existing web-preview.test.ts test to reflect new CSP meta injection order.
+- Ran full vitest suite: 842/842 pass (was 806, +36 new from Phase 0).
+- TypeScript check: 0 new errors. 22 pre-existing baseline unchanged.
+- Committed as 950c059. Pushed to main.
+
+Stage Summary:
+- Phase 0 security containment shipped.
+- Python + JavaScript server-side execution DISABLED by default (kill switch at lowest level).
+- Web preview hardened: strict CSP, window.db bridge gated off, postMessage validated, referrerPolicy added.
+- Production secrets now REQUIRED — app refuses to start without them in production.
+- Cron routes already protected (verified, no changes needed).
+- Concept-map mapping verified correct (report was wrong, no fix needed).
+- All existing contracts preserved: chat shapes, SSE events, attachment formats, DB schema, auth cookies, ownership rules.
+- 36 new tests covering all Phase 0 changes.
+- STOP after Phase 0. Next is Phase 1 (transaction integrity) when user requests.
