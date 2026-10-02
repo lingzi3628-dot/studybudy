@@ -2501,3 +2501,40 @@ model CourseKnowledgeChunk {
   @@index([courseKnowledgeId])
   @@index([courseKnowledgeId, chunkIndex])
 }
+
+// =====================================================================
+// Phase 1 — Idempotency Record
+//
+// Stores idempotency keys for tutor chat turns, token deductions, refunds,
+// and message persistence. When a client retries a request with the same
+// idempotency key, the server returns the cached result instead of
+// re-executing the operation.
+//
+// TTL: rows are cleaned up after 24 hours (see cleanup script). The
+// table has a unique constraint on `key` so duplicate inserts fail
+// safely (the caller reads the existing row instead).
+//
+// Design:
+//   - `key` is a client-supplied UUID (sent in the request body or header)
+//   - `operation` is the feature name (e.g. "tutor_chat", "token_deduct")
+//   - `status` is "pending" | "completed" | "failed"
+//   - `response` is the cached response JSON (null while pending)
+//   - `expiresAt` is 24h after creation (cleanup via cron or lazy delete)
+// =====================================================================
+
+model IdempotencyRecord {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  userId      String
+  operation   String
+  status      String   @default("pending")  // 'pending' | 'completed' | 'failed'
+  response    Json?
+  errorCode   String?
+  errorMessage String?
+  createdAt   DateTime @default(now())
+  completedAt DateTime?
+  expiresAt   DateTime
+
+  @@index([userId, operation])
+  @@index([expiresAt])
+}

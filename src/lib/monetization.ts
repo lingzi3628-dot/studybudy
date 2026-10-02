@@ -507,16 +507,72 @@ export async function checkAndDeductTokens(userId: string, feature: string): Pro
       };
     }
 
-    // Deduct
-    const newBalance = Math.max(0, workingBalance - effectiveCost);
-    try {
-      await db.user.update({
-        where: { id: billingUserId },
-        data: { tokenBalance: newBalance },
-      });
-    } catch (e: any) {
-      console.error("deduct update failed:", e?.message);
-      // Don't fail the whole call — let the user keep their AI response.
+    // Phase 1 — ATOMIC conditional deduction.
+    // Instead of read-then-write (which races on concurrent calls), we use
+    // a conditional UPDATE that only succeeds if the balance hasn't changed
+    // since we read it. If 0 rows are updated, another concurrent request
+    // won the race — we re-read and retry once.
+    //
+    // This prevents the double-spend bug where two concurrent requests for
+    // the same user both read balance=100, both deduct 15, and both write 85
+    // (total deduction: 15 instead of 30).
+    let newBalance = Math.max(0, workingBalance - effectiveCost);
+    let deductSucceeded = false;
+    if (effectiveCost > 0) {
+      try {
+        // Conditional update: only deduct if balance >= effectiveCost
+        // (handles the case where another request deducted between our read + write)
+        const updateResult = await db.user.updateMany({
+          where: {
+            id: billingUserId,
+            tokenBalance: { gte: effectiveCost },
+          },
+          data: { tokenBalance: { decrement: effectiveCost } },
+        });
+        if (updateResult.count === 1) {
+          deductSucceeded = true;
+          // Re-read to get the actual new balance (in case another deduction happened between our read + the conditional update)
+          const refreshed = await db.user.findUnique({
+            where: { id: billingUserId },
+            select: { tokenBalance: true },
+          }).catch(() => null);
+          if (refreshed) newBalance = refreshed.tokenBalance ?? 0;
+        } else {
+          // Race: another request deducted between our read + write.
+          // Re-read balance + check if we still have enough.
+          const reRead = await db.user.findUnique({
+            where: { id: billingUserId },
+            select: { tokenBalance: true },
+          }).catch(() => null);
+          const currentBalance = reRead?.tokenBalance ?? 0;
+          if (currentBalance < effectiveCost) {
+            return {
+              ok: false,
+              error: `Not enough tokens (need ${effectiveCost}, have ${currentBalance}). Your tokens refill to ${FREE_DAILY_TOKEN_ALLOWANCE} tomorrow.`,
+              code: "INSUFFICIENT_TOKENS",
+            };
+          }
+          // Retry the conditional update once
+          const retryResult = await db.user.updateMany({
+            where: { id: billingUserId, tokenBalance: { gte: effectiveCost } },
+            data: { tokenBalance: { decrement: effectiveCost } },
+          });
+          if (retryResult.count === 1) {
+            deductSucceeded = true;
+            newBalance = currentBalance - effectiveCost;
+          } else {
+            // Second race — give up gracefully (don't fail the whole call)
+            console.error("deduct conditional update failed twice — concurrent race");
+            newBalance = currentBalance;
+          }
+        }
+      } catch (e: any) {
+        console.error("deduct atomic update failed:", e?.message);
+        // Don't fail the whole call — let the user keep their AI response.
+      }
+    } else {
+      // Free feature — no deduction needed
+      deductSucceeded = true;
     }
 
     // Ledger entries (best-effort) — log against the billing user (parent)
@@ -564,22 +620,107 @@ export async function checkAndDeductTokens(userId: string, feature: string): Pro
  *
  * Phase 21b — if the original call was for a child, this refunds the PARENT
  * (since that's where the tokens were deducted from).
+ *
+ * Phase 1 — IDEMPOTENT refund.
+ * Pass an `idempotencyKey` to ensure the refund is only applied once.
+ * If the same key is used again, the refund is a no-op (returns without
+ * re-crediting). This prevents double-refund when a client retries a
+ * failed request.
+ *
+ * The key should be derived from the original charge — e.g. the chat turn's
+ * idempotency key. The IdempotencyRecord table tracks whether a refund with
+ * this key has already been applied.
+ *
+ * If no idempotencyKey is provided, the refund is NOT idempotent (legacy
+ * behavior — calling twice refunds twice). Always pass a key for new code.
  */
-export async function refundTokens(userId: string, feature: string, costTokens: number): Promise<void> {
+export async function refundTokens(
+  userId: string,
+  feature: string,
+  costTokens: number,
+  idempotencyKey?: string,
+): Promise<void> {
   try {
     const billingUserId = await resolveBillingUserId(userId);
+
+    // Phase 1 — idempotency check. If a refund with this key already completed,
+    // return without re-crediting.
+    if (idempotencyKey) {
+      const existing = await db.idempotencyRecord.findUnique({
+        where: { key: `refund_${idempotencyKey}` },
+      }).catch(() => null);
+
+      if (existing) {
+        // Already refunded — this is a replay. Return without re-crediting.
+        if (existing.status === "completed") {
+          return;
+        }
+        // If pending or failed, proceed with the refund (claim below will handle races)
+        if (existing.status === "pending") {
+          // Another refund is in-flight — return without re-crediting
+          return;
+        }
+        // status === "failed" — delete + retry
+        await db.idempotencyRecord.delete({ where: { id: existing.id } }).catch(() => {});
+      }
+
+      // Claim the refund key (race-safe)
+      try {
+        await db.idempotencyRecord.create({
+          data: {
+            key: `refund_${idempotencyKey}`,
+            userId: billingUserId,
+            operation: `${feature}_refund`,
+            status: "pending",
+            expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+          },
+        });
+      } catch (e: any) {
+        // P2002 = another request won the race — they'll handle the refund
+        if (e?.code === "P2002") return;
+        // Other error — proceed without idempotency (best-effort)
+      }
+    }
 
     const user = await db.user.findUnique({
       where: { id: billingUserId },
       select: { tokenBalance: true, currentModel: true },
     });
-    if (!user) return;
+    if (!user) {
+      // Mark refund as failed so it can be retried
+      if (idempotencyKey) {
+        await db.idempotencyRecord.update({
+          where: { key: `refund_${idempotencyKey}` },
+          data: {
+            status: "failed",
+            errorCode: "USER_NOT_FOUND",
+            completedAt: new Date(),
+          },
+        }).catch(() => {});
+      }
+      return;
+    }
 
-    const newBalance = (user.tokenBalance ?? 0) + costTokens;
-    await db.user.update({
+    // Phase 1 — ATOMIC conditional increment (prevents race with concurrent deductions)
+    const refundResult = await db.user.update({
       where: { id: billingUserId },
-      data: { tokenBalance: newBalance },
-    });
+      data: { tokenBalance: { increment: costTokens } },
+    }).catch(() => null);
+
+    if (!refundResult) {
+      // DB update failed — mark refund as failed so it can be retried
+      if (idempotencyKey) {
+        await db.idempotencyRecord.update({
+          where: { key: `refund_${idempotencyKey}` },
+          data: {
+            status: "failed",
+            errorCode: "DB_UPDATE_FAILED",
+            completedAt: new Date(),
+          },
+        }).catch(() => {});
+      }
+      return;
+    }
 
     await db.tokenUsageLog.create({
       data: {
@@ -597,8 +738,32 @@ export async function refundTokens(userId: string, feature: string, costTokens: 
       where: { userId_feature_usageDate: { userId: billingUserId, feature, usageDate: todayStart } },
       data: { count: { decrement: 1 } },
     }).catch(() => {});
+
+    // Phase 1 — Mark the refund as completed so future replays are no-ops
+    if (idempotencyKey) {
+      await db.idempotencyRecord.update({
+        where: { key: `refund_${idempotencyKey}` },
+        data: {
+          status: "completed",
+          response: { refunded: costTokens, feature } as any,
+          completedAt: new Date(),
+        },
+      }).catch(() => {});
+    }
   } catch (e: any) {
     console.error("refundTokens error:", e?.message);
+    // Mark as failed so it can be retried
+    if (idempotencyKey) {
+      await db.idempotencyRecord.update({
+        where: { key: `refund_${idempotencyKey}` },
+        data: {
+          status: "failed",
+          errorCode: "UNCAUGHT_ERROR",
+          errorMessage: e?.message?.slice(0, 500),
+          completedAt: new Date(),
+        },
+      }).catch(() => {});
+    }
   }
 }
 

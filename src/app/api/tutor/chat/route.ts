@@ -12,6 +12,15 @@ import {
   splitThinking,
   postProcessReply,
 } from "@/lib/tutor-chat-engine";
+import { logger } from "@/lib/logger";
+import {
+  buildTurnContext,
+  claimIdempotency,
+  completeIdempotency,
+  failIdempotency,
+  isValidIdempotencyKey,
+  type TurnContext,
+} from "@/lib/tutor/turn-manager";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -71,6 +80,59 @@ export async function POST(req: NextRequest) {
   if (!userMessage && !imageDataUrl) {
     return NextResponse.json({ error: "Message or image is required" }, { status: 400 });
   }
+
+  // Phase 1 — Build turn context (requestId / turnId / idempotencyKey)
+  // The client MAY send `idempotencyKey` in the body. If absent, we generate one
+  // (but then retries can't be deduped — the client should always send a key).
+  const clientKey = body?.idempotencyKey ? String(body.idempotencyKey).trim() : null;
+  const turn: TurnContext = buildTurnContext({
+    userId: user.id,
+    clientKey: clientKey && isValidIdempotencyKey(clientKey) ? clientKey : null,
+  });
+  const turnLogger = logger.withTurn({
+    turnId: turn.turnId,
+    requestId: turn.requestId,
+    userId: user.id,
+  });
+
+  // Phase 1 — Idempotency check. If the client sent a key we've seen before,
+  // return the cached response instead of re-executing.
+  if (clientKey && isValidIdempotencyKey(clientKey)) {
+    const idemResult = await claimIdempotency({
+      key: turn.idempotencyKey,
+      userId: user.id,
+      operation: "tutor_chat",
+    });
+
+    if (idemResult.status === "replay" && idemResult.previousResult) {
+      turnLogger.info("tutor chat replay — returning cached response", {
+        conversationId: (idemResult.previousResult as any)?.conversationId ?? null,
+      });
+      return NextResponse.json({
+        ...idemResult.previousResult,
+        _replayed: true,
+        turnId: turn.turnId,
+      });
+    }
+
+    if (idemResult.status === "pending") {
+      // Another request with the same key is in-flight
+      turnLogger.warn("tutor chat pending — another request with same key in-flight");
+      return NextResponse.json(
+        { error: "A request with this idempotency key is already in progress. Please wait and retry." },
+        { status: 409 },
+      );
+    }
+
+    // status === "first" — proceed with execution
+  }
+
+  turnLogger.info("tutor chat started", {
+    conversationId: conversationId ?? null,
+    messageLength: userMessage.length,
+    hasImage: !!imageDataUrl,
+    buddyId,
+  });
 
   // Deduct tokens
   const deduct = await checkAndDeductTokens(user.id, "tutor");
@@ -195,7 +257,8 @@ export async function POST(req: NextRequest) {
       reply = split.clean;
       thinkingSteps = split.steps;
     } catch (e: any) {
-      await refundTokens(user.id, "tutor", deduct.costTokens);
+      // Phase 1 — Idempotent refund (key prevents double-refund on retry)
+      await refundTokens(user.id, "tutor", deduct.costTokens, turn.idempotencyKey);
       // Phase 62 — Clean up error messages for the user.
       // Raw API errors (429 rate limit, 500 server error) are confusing.
       // Replace with friendly messages + actionable suggestions.
@@ -210,10 +273,23 @@ export async function POST(req: NextRequest) {
       } else if (errMsg.includes("configuration") || errMsg.includes(".z-ai-config")) {
         friendlyError = "The AI service is not fully configured. Please contact support or try the 'Study Buddy Free' model.";
       }
+      turnLogger.error("tutor chat AI call failed", {
+        error: e?.message ?? String(e),
+        refunded: deduct.costTokens,
+      });
+      // Phase 1 — Cache the error response for idempotent retry
+      if (clientKey && isValidIdempotencyKey(clientKey)) {
+        await failIdempotency({
+          key: turn.idempotencyKey,
+          errorCode: "AI_CALL_FAILED",
+          errorMessage: friendlyError,
+        }).catch(() => {});
+      }
       // Return 200 (not 500) so the client shows the error as a chat message
       return NextResponse.json({
         ok: false,
         error: friendlyError,
+        turnId: turn.turnId,
       });
     }
 
@@ -251,7 +327,8 @@ export async function POST(req: NextRequest) {
       data: { updatedAt: new Date() },
     });
 
-    return NextResponse.json({
+    // Phase 1 — Cache the successful response for idempotent replay
+    const successResponse = {
       ok: true,
       conversationId: conversation.id,
       reply: finalReply,
@@ -261,9 +338,33 @@ export async function POST(req: NextRequest) {
       proof: proofResult ?? undefined,
       remaining: deduct.remaining,
       tokenBalance: deduct.newBalance,
+    };
+    if (clientKey && isValidIdempotencyKey(clientKey)) {
+      await completeIdempotency({
+        key: turn.idempotencyKey,
+        response: successResponse,
+      }).catch(() => {});
+    }
+    turnLogger.info("tutor chat completed", {
+      conversationId: conversation.id,
+      replyLength: finalReply.length,
+      attachmentCount: allAttachments.length,
+    });
+
+    return NextResponse.json({
+      ...successResponse,
+      turnId: turn.turnId,
     });
   } catch (e: any) {
-    console.error("[tutor-chat] error:", e?.message);
+    turnLogger.error("tutor chat uncaught error", { error: e?.message ?? String(e) });
+    // Phase 1 — Cache the error response for idempotent retry
+    if (clientKey && isValidIdempotencyKey(clientKey)) {
+      await failIdempotency({
+        key: turn.idempotencyKey,
+        errorCode: "UNCAUGHT_ERROR",
+        errorMessage: e?.message?.slice(0, 500),
+      }).catch(() => {});
+    }
     return NextResponse.json({ error: "Failed to process chat" }, { status: 500 });
   }
 }

@@ -13,6 +13,8 @@ import {
 } from "@/lib/tutor-chat-engine";
 import { checkSseOpen, releaseSse } from "@/lib/sse-rate-limit";
 import { runTutorTools } from "@/lib/tutor-tools";
+import { logger } from "@/lib/logger";
+import { buildTurnContext, type TurnContext } from "@/lib/tutor/turn-manager";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -87,6 +89,18 @@ export async function POST(req: NextRequest) {
       headers: { "Content-Type": "application/json" },
     });
   }
+
+  // Phase 1 — Build turn context (requestId / turnId / idempotencyKey)
+  const clientKey = body?.idempotencyKey ? String(body.idempotencyKey).trim() : null;
+  const turn: TurnContext = buildTurnContext({
+    userId: user.id,
+    clientKey,
+  });
+  const turnLogger = logger.withTurn({
+    turnId: turn.turnId,
+    requestId: turn.requestId,
+    userId: user.id,
+  });
 
   // Phase 53 — SSE safety-net rate limit (runaway-loop brake; the DB-backed
   // daily caps below remain the primary gate).
@@ -191,7 +205,7 @@ export async function POST(req: NextRequest) {
         let reply = "";
         try {
           const intents = detectIntents(userMessage);
-          send("meta", { conversationId: conversation!.id, remaining: deduct.remaining, tokenBalance: deduct.newBalance });
+          send("meta", { conversationId: conversation!.id, remaining: deduct.remaining, tokenBalance: deduct.newBalance, turnId: turn.turnId });
           const toolLabel: Record<string, string> = {
             calculator: "Using the calculator…",
             code_runner: "Running your code…",
@@ -320,10 +334,12 @@ export async function POST(req: NextRequest) {
             proof: post.proof ?? undefined,
             remaining: deduct.remaining,
             tokenBalance: deduct.newBalance,
+            turnId: turn.turnId,
           });
         } catch (e: any) {
-          console.error("[tutor-chat-stream] error:", e?.message);
-          await refundTokens(user.id, "tutor", deduct.costTokens);
+          turnLogger.error("tutor stream AI call failed", { error: e?.message ?? String(e) });
+          // Phase 1 — Idempotent refund
+          await refundTokens(user.id, "tutor", deduct.costTokens, turn.idempotencyKey);
           send("error", {
             ok: false,
             error: e?.message ?? "AI couldn't respond right now. Please try again.",
@@ -348,8 +364,9 @@ export async function POST(req: NextRequest) {
     // The stream may or may not have started — release defensively; the
     // limiter tolerates over-release (clamps at 0).
     releaseSse(user.id, "tutor");
-    await refundTokens(user.id, "tutor", deduct.costTokens);
-    return new Response(JSON.stringify({ error: "Failed to process chat" }), {
+    // Phase 1 — Idempotent refund (key prevents double-refund if client retries)
+    await refundTokens(user.id, "tutor", deduct.costTokens, turn.idempotencyKey);
+    return new Response(JSON.stringify({ error: "Failed to process chat", turnId: turn.turnId }), {
       status: 500,
       headers: { "Content-Type": "application/json" },
     });
