@@ -41,6 +41,7 @@ import { FractionManipulative } from "./tutor/FractionManipulative";
 import { CodePreviewPanel } from "./tutor/CodePreviewPanel";
 import { ScienceSimulationPanel } from "./tutor/ScienceSimulationPanel";
 import { GraphLab } from "./tutor/GraphLab";
+import { QuizLab } from "./tutor/QuizLab";
 import {
   isBrowserTTSSupported,
   isBrowserASRSupported,
@@ -2380,11 +2381,10 @@ export function AITutorChat() {
                 </button>
               </div>
             </div>
-            {/* Workspace content — uses GraphLab for bar graphs, AttachmentRenderer for others */}
+            {/* Workspace content — uses GraphLab/QuizLab for supported types, AttachmentRenderer for others */}
             <div className="flex-1 overflow-auto min-h-0">
               {(() => {
                 // Phase G4 — Route bar graphs to GraphLab (interactive)
-                // Other attachment types use the regular AttachmentRenderer
                 if (workspaceArtifact.type === "graph" || workspaceArtifact.type === "conceptmap") {
                   try {
                     const spec = JSON.parse(workspaceArtifact.caption);
@@ -2394,12 +2394,25 @@ export function AITutorChat() {
                           spec={spec}
                           onAskTutor={(ctx) => { setInput(ctx); }}
                           onSave={(newSpec) => {
-                            // Update the workspace artifact with the edited spec
                             setWorkspaceArtifact({
                               ...workspaceArtifact,
                               caption: JSON.stringify(newSpec),
                             });
                           }}
+                        />
+                      );
+                    }
+                  } catch {}
+                }
+                // Phase G5 — Route quizzes to QuizLab (interactive)
+                if (workspaceArtifact.type === "quiz") {
+                  try {
+                    const spec = JSON.parse(workspaceArtifact.caption);
+                    if (spec.questions && Array.isArray(spec.questions)) {
+                      return (
+                        <QuizLab
+                          spec={spec}
+                          onAskTutor={(ctx) => { setInput(ctx); }}
                         />
                       );
                     }
