@@ -117,7 +117,12 @@ type ConceptMapSpec = {
  * - Copy / retry buttons on AI messages
  */
 export function AITutorChat() {
-  const { setScreen, dataSaver, activeTopicId, openCreate, pendingAutoGreeting, setPendingAutoGreeting } = useApp();
+  const setScreen = useApp((s) => s.setScreen);
+  const dataSaver = useApp((s) => s.dataSaver);
+  const activeTopicId = useApp((s) => s.activeTopicId);
+  const openCreate = useApp((s) => s.openCreate);
+  const pendingAutoGreeting = useApp((s) => s.pendingAutoGreeting);
+  const setPendingAutoGreeting = useApp((s) => s.setPendingAutoGreeting);
 
   // Phase F8 — Workspace artifact state. When non-null, the workspace panel
   // opens alongside the chat showing the selected attachment (graph, quiz,
@@ -3538,7 +3543,8 @@ function FlashcardsFromConceptMapButton({ spec }: { spec: any }) {
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { setScreen, dataSaver } = useApp();
+  const setScreen = useApp((s) => s.setScreen);
+  const dataSaver = useApp((s) => s.dataSaver);
   const generate = async () => {
     setBusy(true);
     setError(null);

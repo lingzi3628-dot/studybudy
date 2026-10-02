@@ -387,7 +387,11 @@ const MODE_DEFAULT_THRESHOLD: Record<MatchingMode, number> = {
 };
 
 export function ChatbotPlayground() {
-  const { setScreen, activeProjectId, chatbotTrainingData, setChatbotTrainingData, addChatbotTrainingPairs } = useApp() as any;
+  const setScreen = useApp((s) => s.setScreen);
+  const activeProjectId = useApp((s) => s.activeProjectId);
+  const chatbotTrainingData = useApp((s) => s.chatbotTrainingData);
+  const setChatbotTrainingData = useApp((s) => s.setChatbotTrainingData);
+  const addChatbotTrainingPairs = useApp((s) => s.addChatbotTrainingPairs);
   // Phase 73.5 — Hydration fix: all state initializers return defaults (no
   // localStorage reads). localStorage is loaded in a useEffect after mount
   // so the server-rendered HTML matches the client's first render. This
