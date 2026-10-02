@@ -278,6 +278,7 @@ const KNOWN_GRAPH_TYPES = new Set([
   "pictogram", "tally", "carroll", "ogive", "unitcircle",
   "transform", "axes3d", "twoway", "erdiagram", "csv", "steps", "scene",
   "manipulative",  // Phase F10 — math manipulative (drag-and-drop fractions etc.)
+  "code_project",  // Phase F11 — HTML/CSS/JS code project (live preview in workspace)
 ]);
 
 function tryParseGraphSpec(raw: string): any | null {
@@ -413,6 +414,11 @@ export async function parseGraphAttachments(opts: {
       // frontend routes them to FractionManipulative instead of GraphRenderer
       if (correctedSpec.type === "manipulative") {
         attachmentType = "manipulative";
+      }
+      // Phase F11 — code_project specs get their own attachment type so the
+      // frontend routes them to CodePreviewPanel instead of GraphRenderer
+      if (correctedSpec.type === "code_project") {
+        attachmentType = "code_project";
       }
       attachments.push({
         type: attachmentType,

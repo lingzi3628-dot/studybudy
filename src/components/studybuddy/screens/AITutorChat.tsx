@@ -38,6 +38,7 @@ import { BuddySwitcher, getStoredBuddyId } from "./BuddySwitcher";
 import type { BuddyId } from "@/lib/buddies/types";
 import { extractCodeFiles } from "@/lib/code-extract";
 import { FractionManipulative } from "./tutor/FractionManipulative";
+import { CodePreviewPanel } from "./tutor/CodePreviewPanel";
 import {
   isBrowserTTSSupported,
   isBrowserASRSupported,
@@ -2715,6 +2716,23 @@ function AttachmentRenderer({ attachment, onSpecChange, onOpenWorkspace, onOpenI
           </div>
         )}
         <FractionManipulative spec={manipSpec} />
+      </div>
+    );
+  }
+
+  // Phase F11 — Code project (HTML/CSS/JS live preview)
+  if (attachment.type === "code_project") {
+    let codeSpec: any = null;
+    try { codeSpec = JSON.parse(attachment.caption); } catch { return null; }
+    if (!codeSpec || !codeSpec.files) return null;
+    return (
+      <div>
+        {onOpenInWorkspacePanel && (
+          <div className="flex justify-end mb-1">
+            <WorkspaceButton />
+          </div>
+        )}
+        <CodePreviewPanel spec={codeSpec} />
       </div>
     );
   }

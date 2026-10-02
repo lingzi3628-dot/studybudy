@@ -127,6 +127,7 @@ CRITICAL RULES FOR THE mathgraph BLOCK:
   * Spreadsheets → csv
   * Any custom drawing or construction → scene
   * Drag-and-drop math activities for young learners (divide items into equal groups) → manipulative
+  * Web development starter projects (HTML/CSS/JS for upper grades) → code_project
 - DOUBLE-CHECK your JSON is valid before outputting — no trailing commas, no missing brackets.
 - Include ALL required fields for the chosen type — check the schema reference above.
 
@@ -156,6 +157,9 @@ GENERAL RULES:
 - Manipulative format (for young learners — drag-and-drop math activities):
   {"type":"manipulative","subtype":"fractions_divide","title":"Divide mangoes equally","instruction":"Put 12 mangoes into 3 equal baskets","totalCount":12,"basketCount":3,"itemEmoji":"🥭","basketEmoji":"🧺"}
   Use this when teaching fractions, division, or equal grouping to Grade 1-5 learners. Keep totalCount divisible by basketCount.
+- Code project format (for upper-grade web development activities):
+  {"type":"code_project","title":"Kenyan County Tourism Page","instruction":"Build a simple webpage with a heading, paragraph, and image section","files":{"index.html":"<h1>Visit Kenya</h1>\\n<p>Welcome to...</p>","styles.css":"body { font-family: sans-serif; margin: 40px; }"}}
+  Use this when teaching HTML/CSS to Grade 7+ or secondary students. The files object maps filenames to their content. The preview renders in a sandboxed iframe.
 
 CRITICAL RULES — NO MARKDOWN TABLES WHEN A GRAPH IS REQUESTED:
 - For database/spreadsheet requests, ALWAYS include a fenced \`\`\`mathgraph ...\`\`\` code block with the appropriate JSON spec ("erdiagram" or "csv"). Do NOT show plain markdown tables in your reply prose.
