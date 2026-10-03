@@ -167,23 +167,30 @@ export async function callProvider(
         });
       } else if (provider.providerType === "huggingface") {
         // Hugging Face Inference API — use the router/chat-completions endpoint
-        // which supports OpenAI-compatible format for chat models.
         // URL: https://api-inference.huggingface.co/router/v1/chat/completions
-        // This is the recommended way for chat models (Llama-3.1, Mistral, etc.)
+        // NOTE: HF can take 20-30s on first request (cold model start).
+        // We add a 45s timeout (Vercel max is 60s).
         const hfBaseUrl = baseUrl.replace("/models", "").replace(/\/$/, "");
-        res = await fetch(`${hfBaseUrl}/router/v1/chat/completions`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${apiKey}`,
-          },
-          body: JSON.stringify({
-            model,
-            messages,
-            max_tokens: Math.min(provider.maxTokens, 1000),
-            temperature: 0.7,
-          }),
-        });
+        const hfController = new AbortController();
+        const hfTimeout = setTimeout(() => hfController.abort(), 45000);
+        try {
+          res = await fetch(`${hfBaseUrl}/router/v1/chat/completions`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({
+              model,
+              messages,
+              max_tokens: Math.min(provider.maxTokens, 1000),
+              temperature: 0.7,
+            }),
+            signal: hfController.signal,
+          });
+        } finally {
+          clearTimeout(hfTimeout);
+        }
       } else {
         // Standard OpenAI-compatible providers
         res = await fetch(`${baseUrl}/chat/completions`, {
@@ -219,6 +226,13 @@ export async function callProvider(
 
       if (!res.ok) {
         const txt = await res.text().catch(() => "");
+        // HF-specific: 503 means model is loading — provide a clear message
+        let errorMsg = `HTTP ${res.status}: ${txt.slice(0, 200)}`;
+        if (res.status === 503 && provider.providerType === "huggingface") {
+          errorMsg = "Model is loading (503) — Hugging Face is warming up the model. Please wait 20 seconds and try again.";
+        } else if (res.status === 429) {
+          errorMsg = `Rate limited (429): ${txt.slice(0, 150)}`;
+        }
         return {
           content: "",
           providerId: provider.id,
@@ -229,7 +243,7 @@ export async function callProvider(
           totalTokens: null,
           cost: 0,
           status: "error",
-          errorMessage: `HTTP ${res.status}: ${txt.slice(0, 200)}`,
+          errorMessage: errorMsg,
         };
       }
 

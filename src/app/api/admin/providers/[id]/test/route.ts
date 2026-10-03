@@ -218,6 +218,49 @@ export async function POST(req: NextRequest, { params }: Params) {
       });
     }
 
+    // Hugging Face: use the router endpoint (not /chat/completions)
+    if (provider.providerType === "huggingface") {
+      const hfBaseUrl = baseUrl.replace("/models", "").replace(/\/$/, "");
+      const hfRes = await fetch(`${hfBaseUrl}/router/v1/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages: testMessages,
+          max_tokens: 10,
+          temperature: 0,
+        }),
+      });
+      const latencyMs = Date.now() - start;
+      if (!hfRes.ok) {
+        const txt = await hfRes.text().catch(() => "");
+        let friendlyError = txt.slice(0, 300);
+        if (hfRes.status === 429) {
+          friendlyError = "Rate limited — Hugging Face free tier limits requests. Wait 30 seconds and try again.";
+        } else if (hfRes.status === 503) {
+          friendlyError = "Model is loading (503) — Hugging Face needs to warm up the model. Wait 20 seconds and try again.";
+        } else if (hfRes.status === 401) {
+          friendlyError = "Authentication failed — the HF API key is invalid or expired.";
+        }
+        return NextResponse.json(
+          { status: "error", httpStatus: hfRes.status, error: friendlyError, rawError: txt.slice(0, 300), latencyMs },
+          { status: 200 }
+        );
+      }
+      const hfData = await hfRes.json();
+      const hfReply: string = hfData?.choices?.[0]?.message?.content ?? "";
+      return NextResponse.json({
+        status: "success",
+        reply: hfReply.slice(0, 50),
+        model,
+        latencyMs,
+        usage: hfData?.usage,
+      });
+    }
+
     // Standard OpenAI-compatible providers
     const res = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
