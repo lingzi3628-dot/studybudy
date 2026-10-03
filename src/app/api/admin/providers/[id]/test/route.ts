@@ -269,7 +269,7 @@ function defaultBaseUrlForType(providerType: string): string {
     groq: "https://api.groq.com/openai/v1",
     anthropic: "https://api.anthropic.com/v1",
     gemini: "https://generativelanguage.googleapis.com/v1beta",
-    huggingface: "https://api-inference.huggingface.co/models",
+    huggingface: "https://api-inference.huggingface.co",
     pollinations: "https://text.pollinations.ai",
     together: "https://api.together.xyz/v1",
     ollama: "http://localhost:11434/v1",

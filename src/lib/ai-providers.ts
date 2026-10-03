@@ -166,14 +166,12 @@ export async function callProvider(
           body: JSON.stringify(anthropicBody),
         });
       } else if (provider.providerType === "huggingface") {
-        // Hugging Face Inference API: different URL format + body format
-        // URL: {baseUrl}/{model}  (model is the path, not a body field)
-        // Body: { inputs: prompt_text } for text-generation models
-        // OR for chat models: { model, messages } (OpenAI-compatible)
-        // HF now supports OpenAI-compatible endpoint at /models/{model}/v1/chat/completions
-        // Try the OpenAI-compatible path first (works for newer models like Llama-3.1)
-        const hfBaseUrl = baseUrl.replace("/models", "");
-        res = await fetch(`${hfBaseUrl}/models/${model}/v1/chat/completions`, {
+        // Hugging Face Inference API — use the router/chat-completions endpoint
+        // which supports OpenAI-compatible format for chat models.
+        // URL: https://api-inference.huggingface.co/router/v1/chat/completions
+        // This is the recommended way for chat models (Llama-3.1, Mistral, etc.)
+        const hfBaseUrl = baseUrl.replace("/models", "").replace(/\/$/, "");
+        res = await fetch(`${hfBaseUrl}/router/v1/chat/completions`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",

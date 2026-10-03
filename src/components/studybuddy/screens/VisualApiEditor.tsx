@@ -77,7 +77,7 @@ const PROVIDER_TEMPLATES: Array<{ type: string; label: string; baseUrl: string; 
   { type: "anthropic", label: "Anthropic Claude", baseUrl: "https://api.anthropic.com/v1", model: "claude-3-5-sonnet-20241022", emoji: "🟣", color: "#8B5CF6" },
   { type: "gemini", label: "Google Gemini", baseUrl: "https://generativelanguage.googleapis.com/v1beta", model: "gemini-3.6-flash", emoji: "🔵", color: "#3B82F6" },
   { type: "openrouter", label: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", model: "openai/gpt-4o-mini", emoji: "🔀", color: "#F59E0B" },
-  { type: "huggingface", label: "Hugging Face", baseUrl: "https://api-inference.huggingface.co/models", model: "meta-llama/Llama-3.1-8B-Instruct", emoji: "🤗", color: "#FFD21E" },
+  { type: "huggingface", label: "Hugging Face", baseUrl: "https://api-inference.huggingface.co", model: "meta-llama/Llama-3.1-8B-Instruct", emoji: "🤗", color: "#FFD21E" },
   { type: "groq", label: "Groq (fast)", baseUrl: "https://api.groq.com/openai/v1", model: "llama-3.1-70b-versatile", emoji: "⚡", color: "#F55036" },
   { type: "together", label: "Together AI", baseUrl: "https://api.together.xyz/v1", model: "meta-llama/Llama-3.3-70B-Instruct-Turbo", emoji: "🤝", color: "#0F6FFF" },
   { type: "deepseek", label: "DeepSeek", baseUrl: "https://api.deepseek.com/v1", model: "deepseek-chat", emoji: "🌊", color: "#4D6BFE" },
