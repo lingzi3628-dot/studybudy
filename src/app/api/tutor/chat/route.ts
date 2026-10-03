@@ -179,11 +179,12 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // 3. Build chat history from DB (last 20 for context window)
+    // 3. Build chat history from DB (last 10 for context window — reduced from 20
+    // to save tokens for providers with low prompt limits like OpenRouter free tier)
     const allMessages = await db.chatMessage.findMany({
       where: { conversationId: conversation.id },
       orderBy: { createdAt: "asc" },
-      take: 20,
+      take: 10,
     });
 
     // 4. Detect intent from user message (engine)

@@ -161,7 +161,7 @@ export async function POST(req: NextRequest) {
     const allMessages = await db.chatMessage.findMany({
       where: { conversationId: conversation.id },
       orderBy: { createdAt: "asc" },
-      take: 20,
+      take: 10,
     });
 
     let studyContext = "";

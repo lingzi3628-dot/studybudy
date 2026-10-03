@@ -631,8 +631,8 @@ Respond to the learner's question with specific reference to this artifact. Do N
   let systemContent: string;
   if (buddyId === "study") {
     // AC1: workspaceContextBlock injected after lessonStateBlock, before proactive teaching rules
-    systemContent = `You are StudyBuddy, a friendly AI tutor for students of all levels (K-12 CBC, Secondary, University, College, TVET). ${teachingProfile.systemPromptSuffix}${trackContext}${uploadPrompt}${courseKnowledgeContext}${retrievedKnowledgeBlock}${curriculumContext}${dbCurriculumContext}${completeContext}${learnerStateBlock}${lessonStateBlock}${workspaceContextBlock}
-${dataSaver ? `\nDATA SAVER MODE is ON. Keep your reply concise — target 1-2 short paragraphs (max ~150 words). Skip verbose examples and unnecessary elaboration. Lead with the direct answer; only add explanation if the user asks for it.\n` : ``}
+    systemContent = `You are StudyBuddy, a friendly AI tutor. ${teachingProfile.systemPromptSuffix}${trackContext}${uploadPrompt}${courseKnowledgeContext}${retrievedKnowledgeBlock}${curriculumContext}${completeContext}${learnerStateBlock}${lessonStateBlock}${workspaceContextBlock}
+${dataSaver ? `\nDATA SAVER: Keep replies to 1-2 short paragraphs (max ~150 words).\n` : ``}
 
 ${STUDY_PROMPT_GRAPH_RULES}`;
   } else {
@@ -667,7 +667,26 @@ ${STUDY_PROMPT_GRAPH_RULES}`;
   systemContent += `\n\nOPTIONAL COMPUTER WORKSPACE OFFER (${clientPlatform} client): First answer the learner's question and continue useful teaching on this device. On a mobile client, offer a computer when the requested next activity is materially blocked or awkward on a phone, or needs a real interactive workspace. On the web client, do not suggest switching to a computer; direct the learner to use the matching workspace already in this site. Match offers to an existing workspace: design = graph explorer and Study Room work board; study = Study Room with uploaded PDFs/documents, lesson material, and tutor; exam = curriculum exam and printable exam tools; code = Python runner; web = web builder and project workspace; modeling = ML playground; simulation = science lab; data = Python notebook; tvet = circuit, gear, network and PLC simulators. For an unsupported activity, say exactly what the available tool can do and what it cannot; never promise CAD, arbitrary freeform technical drawing, real equipment control, or arbitrary engineering simulation. A complex multi-step construction or repeated annotation can justify a larger board, but clearly say the board is only freehand plus basic lines/circles and is not precision CAD. If a requested drawing cannot be generated or validated, say so plainly, explain the limitation briefly, and on mobile offer design so the learner can sketch/check work on the larger board. Do not treat low tokens as a reason to send the learner to a computer: account limits are shared across devices and switching devices does not refill tokens. For exams, offer computer use for a full timed sitting, long written responses, or printing/downloading a paper; keep quick practice on the phone. Also consider multi-file coding, dataset analysis, model training, long document-based study, and practical simulator tasks when the matching tool really helps. Never recommend a computer only because a topic is hard. On mobile only, if helpful, append exactly one block at the very end using this schema and valid JSON: \`\`\`computer_workspace\n{"title":"Short activity name","reason":"Why this task is easier to do on a computer","benefit":"What the learner will be able to do there","workspace":"design|study|exam|code|web|modeling|simulation|data|tvet"}\n\`\`\`. Keep each field brief. Otherwise, do not emit this block.`;
   systemContent += `\n\nMANDATORY MOBILE FALLBACK: If you cannot complete any requested task in the mobile app/chat, or the user asks for a capability the app lacks, do not end with only a refusal or “unsupported”. Briefly state what failed and append one computer_workspace block. Choose a matching workspace when possible; otherwise use workspace "computer" to continue the same tutor conversation on the full website. The website may still have limits, so do not guarantee success. This rule overrides the optional handoff wording above. Never use the computer handoff for exhausted tokens because the account limit is shared. On a web client, do not offer a device switch.`;
   if (searchContext.includes("WEB SEARCH RESULTS")) {
-    systemContent += "\n\nSOURCE CITATIONS: For claims that rely on the web results above, cite the matching result inline using a Markdown link with its supplied title and URL. Do not invent links. Distinguish sourced facts from your own explanation.";
+    systemContent += "\n\nSOURCE CITATIONS: For claims from web results above, cite inline as a Markdown link. Do not invent links.";
+  }
+
+  // Phase 5 — Global context budget: truncate system prompt to stay within
+  // provider token limits. Some providers (OpenRouter free tier) limit prompt
+  // to ~4500 tokens (~18000 chars). We cap at 20000 chars to be safe.
+  // Truncation strategy: trim the CONTEXT BLOCKS (before rules) but keep
+  // the rules + post-rules sections (learning mode, workspace offer, etc.)
+  // intact since they're essential for behavior.
+  const MAX_SYSTEM_CONTENT_CHARS = 20000;
+  if (systemContent.length > MAX_SYSTEM_CONTENT_CHARS) {
+    const rulesStart = systemContent.indexOf("PROACTIVE TEACHING MODE");
+    if (rulesStart > 0) {
+      // Keep first 4000 chars of context + all rules + post-rules sections
+      const contextPart = systemContent.slice(0, Math.min(rulesStart, 4000));
+      const rulesAndAfter = systemContent.slice(rulesStart);
+      systemContent = contextPart + "\n…(context truncated)…\n" + rulesAndAfter;
+    } else {
+      systemContent = systemContent.slice(0, MAX_SYSTEM_CONTENT_CHARS) + "\n…(truncated)";
+    }
   }
 
   return { systemContent, teachingProfile, curriculumContext };

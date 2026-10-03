@@ -248,7 +248,7 @@ describe("buildTutorSystemPrompt — non-buddy features (Phase 91)", () => {
       buddy: STUB_BUDDY,
       dataSaver: true,
     });
-    expect(systemContent).toContain("DATA SAVER MODE is ON");
+    expect(systemContent).toContain("DATA SAVER");
     expect(systemContent).toContain("max ~150 words");
   });
 
@@ -259,7 +259,7 @@ describe("buildTutorSystemPrompt — non-buddy features (Phase 91)", () => {
       buddy: STUB_BUDDY,
       dataSaver: false,
     });
-    expect(systemContent).not.toContain("DATA SAVER MODE is ON");
+    expect(systemContent).not.toContain("DATA SAVER");
   });
 
   it("mobile clientPlatform includes the computer_workspace offer schema", async () => {
