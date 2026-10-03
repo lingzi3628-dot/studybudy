@@ -115,7 +115,7 @@ describe("formatRetrievedKnowledgeBlock", () => {
       chunkText: "Consideration in contract law refers to something of value exchanged between parties.",
     });
     const block = formatRetrievedKnowledgeBlock([chunk]);
-    expect(block).toContain("=== RETRIEVED KNOWLEDGE");
+    expect(block).toContain("=== UNTRUSTED REFERENCE MATERIAL");
     expect(block).toContain("top 1 chunks");
     expect(block).toContain("[1]");
     expect(block).toContain("(similarity 78%)");
@@ -124,7 +124,7 @@ describe("formatRetrievedKnowledgeBlock", () => {
     expect(block).toContain("Subject: Law");
     expect(block).toContain("Course: Bachelor of Laws (LLB)");
     expect(block).toContain("Consideration in contract law refers to");
-    expect(block).toContain("=== END RETRIEVED KNOWLEDGE ===");
+    expect(block).toContain("=== END UNTRUSTED REFERENCE MATERIAL ===");
   });
 
   it("formats multiple chunks with sequential indices", () => {
@@ -170,7 +170,8 @@ describe("formatRetrievedKnowledgeBlock", () => {
   it("includes the citation instruction", () => {
     const block = formatRetrievedKnowledgeBlock([makeChunk()]);
     expect(block).toContain("Cite each chunk by its source title");
-    expect(block).toContain("PRIMARY CONTEXT");
+    expect(block).toContain("UNTRUSTED");
+    expect(block).toContain("evidence");
   });
 
   it("includes the 'chunks don't fully answer' fallback instruction", () => {
@@ -178,10 +179,10 @@ describe("formatRetrievedKnowledgeBlock", () => {
     expect(block).toContain("If the chunks don't fully answer the question");
   });
 
-  it("always wraps with === RETRIEVED KNOWLEDGE === / === END RETRIEVED KNOWLEDGE ===", () => {
+  it("always wraps with === UNTRUSTED REFERENCE MATERIAL === / === END UNTRUSTED REFERENCE MATERIAL ===", () => {
     const block = formatRetrievedKnowledgeBlock([makeChunk()]);
-    expect(block.startsWith("\n\n=== RETRIEVED KNOWLEDGE")).toBe(true);
-    expect(block.endsWith("=== END RETRIEVED KNOWLEDGE ===\n")).toBe(true);
+    expect(block.startsWith("\n\n=== UNTRUSTED REFERENCE MATERIAL")).toBe(true);
+    expect(block.endsWith("=== END UNTRUSTED REFERENCE MATERIAL ===\n")).toBe(true);
   });
 
   it("preserves chunk text verbatim (no escaping)", () => {

@@ -2637,3 +2637,32 @@ model ArtifactVersion {
   @@unique([artifactId, version])
   @@index([artifactId])
 }
+
+// =====================================================================
+// Phase 5 — IngestionJob
+//
+// Tracks background ingestion of uploaded documents (chunking + embedding).
+// The upload route creates a job, returns immediately with the jobId, and
+// processes inline. If the function times out before completion, the job
+// stays "processing" and can be retried via /api/ingestion-jobs/[id]/retry.
+//
+// Status flow: pending → processing → completed | failed
+// =====================================================================
+
+model IngestionJob {
+  id              String   @id @default(uuid())
+  userId          String
+  courseKnowledgeId String?
+  status          String   @default("pending")  // 'pending' | 'processing' | 'completed' | 'failed'
+  progress        Int      @default(0)            // 0-100
+  chunkCount      Int      @default(0)
+  errorMessage    String?
+  contentHash     String?  // for duplicate detection
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  completedAt     DateTime?
+
+  @@index([userId])
+  @@index([status])
+  @@index([contentHash])
+}
