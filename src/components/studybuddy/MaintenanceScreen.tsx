@@ -197,9 +197,21 @@ export function MaintenanceScreen() {
 
 /**
  * Check if maintenance mode is enabled.
- * Reads NEXT_PUBLIC_MAINTENANCE_MODE env var.
+ * Checks NEXT_PUBLIC_MAINTENANCE_MODE env var (build-time) first.
+ * Also checks localStorage for runtime override (set by /api/maintenance-status).
  */
 export function isMaintenanceMode(): boolean {
+  // Build-time check (NEXT_PUBLIC_ vars are inlined at build time)
   const flag = (process.env.NEXT_PUBLIC_MAINTENANCE_MODE ?? "false").toLowerCase().trim();
-  return flag === "true" || flag === "1" || flag === "on";
+  if (flag === "true" || flag === "1" || flag === "on") return true;
+
+  // Runtime check — localStorage flag set by the /api/maintenance-status endpoint
+  if (typeof window !== "undefined") {
+    try {
+      const runtimeFlag = localStorage.getItem("maintenance_mode");
+      if (runtimeFlag === "true") return true;
+    } catch {}
+  }
+
+  return false;
 }

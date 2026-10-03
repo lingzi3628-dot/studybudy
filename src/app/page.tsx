@@ -118,6 +118,28 @@ export default function Page() {
     return <MaintenanceScreen />;
   }
 
+  // Runtime maintenance check — polls /api/maintenance-status on mount.
+  // This catches MAINTENANCE_MODE=true set in Vercel env vars AFTER the
+  // build was deployed (NEXT_PUBLIC_ vars are build-time only).
+  const [runtimeMaintenance, setRuntimeMaintenance] = useState(false);
+  useEffect(() => {
+    fetch("/api/maintenance-status")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.maintenance) {
+          localStorage.setItem("maintenance_mode", "true");
+          setRuntimeMaintenance(true);
+        } else {
+          localStorage.removeItem("maintenance_mode");
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  if (runtimeMaintenance && !adminOverride) {
+    return <MaintenanceScreen />;
+  }
+
   const keyBuffer = useRef("");
   // Phase 61 — user's education track (k12 | dev | data | ml | aiapp | tvet | server | backend | web | mixed)
   // Drives which Home screen we render.
