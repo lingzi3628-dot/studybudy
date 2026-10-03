@@ -10,6 +10,7 @@ import { PostOnboardingPopup } from "@/components/studybuddy/screens/PostOnboard
 import { SentryErrorBoundary } from "@/components/SentryErrorBoundary";
 import { OfflineBanner } from "@/components/studybuddy/OfflineBanner";
 import { MaintenanceBanner } from "@/components/studybuddy/MaintenanceBanner";
+import { MaintenanceScreen, isMaintenanceMode } from "@/components/studybuddy/MaintenanceScreen";
 import { FamilyChildGuard } from "@/components/studybuddy/FamilyChildGuard";
 import { PathDashboard } from "@/components/studybuddy/screens/PathDashboard";
 
@@ -98,6 +99,25 @@ const ADMIN_SECRET = "adminorg";
 
 export default function Page() {
   const { screen, setScreen, darkMode, setActiveTopicId } = useApp();
+
+  // Maintenance mode — blocks ALL app access. Shows a full-screen maintenance
+  // page with countdown timer + email notification. To enable: set
+  // NEXT_PUBLIC_MAINTENANCE_MODE=true in Vercel env vars.
+  // Admins can still access by visiting ?adminorg (secret URL param).
+  const [adminOverride, setAdminOverride] = useState(false);
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      if (url.searchParams.get("adminorg") === ADMIN_SECRET) {
+        setAdminOverride(true);
+      }
+    }
+  }, []);
+
+  if (isMaintenanceMode() && !adminOverride) {
+    return <MaintenanceScreen />;
+  }
+
   const keyBuffer = useRef("");
   // Phase 61 — user's education track (k12 | dev | data | ml | aiapp | tvet | server | backend | web | mixed)
   // Drives which Home screen we render.
