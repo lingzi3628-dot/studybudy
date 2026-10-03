@@ -285,6 +285,21 @@ export function VisualApiEditor({ mode }: Props) {
     }
   };
 
+  // Delete a Study Buddy entirely
+  const deleteBuddy = async (modelName: string, displayName: string) => {
+    if (!confirm(`Delete "${displayName}"?\n\nUsers currently using this buddy will be switched to Study Buddy Free.`)) return;
+    try {
+      const r = await fetch(`/api/admin/model-mappings?modelName=${encodeURIComponent(modelName)}`, {
+        method: "DELETE",
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Delete failed");
+      await load();
+    } catch (e: any) {
+      setError(e?.message ?? "Delete failed");
+    }
+  };
+
   // Create a new provider
   const createProvider = async () => {
     const template = PROVIDER_TEMPLATES.find((t) => t.type === newProvider.providerType);
@@ -690,6 +705,13 @@ export function VisualApiEditor({ mode }: Props) {
                       </>
                     ) : (
                       <span style={{ color: "#9CA3AF" }}>← Drag to an API to connect</span>
+                    )}
+                    {mode === "admin" && buddy.modelName !== "study_buddy_free" && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); deleteBuddy(buddy.modelName, buddy.displayName); }}
+                        style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "#FEE2E2", color: "#DC2626", border: "none", cursor: "pointer", fontWeight: 600, marginLeft: 4 }}
+                        title="Delete this Study Buddy"
+                      >🗑 Delete</button>
                     )}
                   </div>
                   {!hasProvider && (

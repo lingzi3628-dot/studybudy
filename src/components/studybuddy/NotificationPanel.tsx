@@ -29,6 +29,11 @@ const TYPE_EMOJI: Record<string, string> = {
   badge: "🏆",
   group_invite: "👥",
   system: "🔔",
+  streak_risk: "🔥",
+  low_tokens: "🪙",
+  ai_response: "💬",
+  quiz_graded: "✅",
+  unfinished_task: "⏰",
 };
 
 // ============================================================
@@ -163,6 +168,14 @@ export function NotificationPanel() {
 
   useEffect(() => {
     loadNotifs();
+    // Phase 5 — Real-time polling: check for new notifications every 30 seconds.
+    // This catches system notifications (AI responses, unfinished tasks,
+  // streak reminders, badge awards) without requiring a page refresh.
+  const pollInterval = setInterval(() => {
+    loadNotifs();
+  }, 30000); // 30 seconds
+
+  return () => clearInterval(pollInterval);
   }, []);
 
   useEffect(() => {
