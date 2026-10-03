@@ -66,8 +66,9 @@ const ContentTab = dynamic(() => import("./admin/ContentTab").then(m => ({ defau
 const ProvidersTab = dynamic(() => import("./admin/ProvidersTab").then(m => ({ default: m.ProvidersTab })), { loading: () => <div className="flex justify-center py-20"><Loader2 className="w-6 h-6 text-indigo-500 animate-spin" /></div> });
 const UsersTab = dynamic(() => import("./admin/UsersTab").then(m => ({ default: m.UsersTab })), { loading: () => <div className="flex justify-center py-20"><Loader2 className="w-6 h-6 text-indigo-500 animate-spin" /></div> });
 const DashboardTab = dynamic(() => import("./admin/DashboardTab").then(m => ({ default: m.DashboardTab })), { loading: () => <div className="flex justify-center py-20"><Loader2 className="w-6 h-6 text-indigo-500 animate-spin" /></div> });
+const AiDiagnosticsTab = dynamic(() => import("./admin/AiDiagnosticsTab").then(m => ({ default: m.AiDiagnosticsTab })), { loading: () => <div className="flex justify-center py-20"><Loader2 className="w-6 h-6 text-indigo-500 animate-spin" /></div> });
 
-type Tab = "dashboard" | "users" | "providers" | "content" | "logs" | "account" | "monetization" | "search" | "conceptMap" | "pathTemplates" | "badges" | "curriculum" | "games" | "explore" | "courseSwitch" | "migrateUsers";
+type Tab = "dashboard" | "users" | "providers" | "aiDiagnostics" | "content" | "logs" | "account" | "monetization" | "search" | "conceptMap" | "pathTemplates" | "badges" | "curriculum" | "games" | "explore" | "courseSwitch" | "migrateUsers";
 
 type Stats = {
   totalUsers: number;
@@ -196,6 +197,7 @@ export function AdminPanel() {
             { key: "dashboard" as const, label: "Dashboard", icon: Activity },
             { key: "users" as const, label: "Users", icon: UsersIcon },
             { key: "providers" as const, label: "AI Providers", icon: Bot },
+            { key: "aiDiagnostics" as const, label: "🔍 AI Diagnostics", icon: Activity },
             { key: "content" as const, label: "Content", icon: BookOpen },
             { key: "curriculum" as const, label: "📚 Curriculum", icon: BookOpen },
             { key: "logs" as const, label: "Logs", icon: FileText },
@@ -231,6 +233,7 @@ export function AdminPanel() {
         {tab === "dashboard" && <DashboardTab />}
         {tab === "users" && <UsersTab />}
         {tab === "providers" && <ProvidersTab />}
+        {tab === "aiDiagnostics" && <AiDiagnosticsTab />}
         {tab === "content" && <ContentTab />}
         {tab === "curriculum" && <CurriculumTab />}
         {tab === "logs" && <LogsTab />}
