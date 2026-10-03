@@ -365,6 +365,7 @@ export async function callWithProviders(
 
   // Phase 78 — Track rate-limited providers to skip them on retry.
   const rateLimitedKeys = new Set<string>();
+  let lastResult: ProviderCallResult | null = null;
 
   for (const provider of providers) {
     // Phase 35: skip providers over their daily budget
@@ -409,6 +410,7 @@ export async function callWithProviders(
     }
 
     const result = await callProvider(provider, messages, { userId: ctx.userId, route: ctx.route });
+    lastResult = result;
     await logAiCall(ctx.userId, result, ctx.route);
 
     if (result.status === "success" && result.content) {
@@ -424,8 +426,8 @@ export async function callWithProviders(
     // else try the next provider (fallback)
   }
 
-  // all providers failed
-  return { content: "", result: null };
+  // all providers failed — return the last result so the caller can log it
+  return { content: "", result: lastResult };
 }
 
 /** Insert a row into ai_call_logs. */

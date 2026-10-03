@@ -347,8 +347,10 @@ export async function POST(req: NextRequest) {
         friendlyError = "The AI provider is temporarily unavailable. Please try again in a moment.";
       } else if (errMsg.includes("timeout")) {
         friendlyError = "The AI took too long to respond. Please try a shorter message or try again.";
-      } else if (errMsg.includes("configuration") || errMsg.includes(".z-ai-config") || errMsg.includes("Z-AI SDK not configured")) {
-        friendlyError = "The AI service needs ZAI_BASE_URL and ZAI_API_KEY environment variables. Ask your admin to set them in Vercel → Settings → Environment Variables.";
+      } else if (errMsg.includes("no ai provider available") || errMsg.includes("not configured") || errMsg.includes(".z-ai-config") || errMsg.includes("z-ai sdk not configured")) {
+        friendlyError = "No AI provider is configured. Ask your admin to go to Admin → AI Providers and add a working API key, OR set ZAI_BASE_URL + ZAI_API_KEY environment variables.";
+      } else if (errMsg.includes("all api keys exhausted") || errMsg.includes("all admin providers failed")) {
+        friendlyError = "All configured AI providers failed. Ask your admin to check Admin → AI Providers (click 'Test' on each).";
       }
       turnLogger.error("tutor chat AI call failed", {
         error: e?.message ?? String(e),

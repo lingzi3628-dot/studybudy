@@ -348,13 +348,33 @@ export async function callAI(
     if (r.content) {
       return disconnectedBuddyNote + r.content;
     }
+    // Log WHY no provider succeeded — helps debugging "tutor not replying"
+    if (r.result) {
+      console.warn(`[ai] All admin providers failed. Last error: ${r.result.errorMessage}`);
+    } else {
+      console.warn("[ai] No admin providers configured (or all disabled). Falling back to platform AI.");
+    }
   } catch (e: any) {
     console.warn("Admin provider call failed:", e?.message ?? e);
   }
 
-  // 3) Platform fallback
-  const content = await callPlatformAI(messages, { userId, route, temperature: ctx?.temperature, maxTokens: ctx?.maxTokens });
-  return disconnectedBuddyNote + content;
+  // 3) Platform fallback (Z-AI SDK / GLM)
+  try {
+    const content = await callPlatformAI(messages, { userId, route, temperature: ctx?.temperature, maxTokens: ctx?.maxTokens });
+    return disconnectedBuddyNote + content;
+  } catch (e: any) {
+    // Both admin providers AND platform AI failed — return a clear error
+    const errMsg = e?.message ?? String(e);
+    console.error("[ai] Platform AI also failed:", errMsg);
+    if (errMsg.includes("Configuration file not found") || errMsg.includes("Z-AI SDK not configured")) {
+      throw new Error(
+        "No AI provider available. Admin has not configured any working providers AND the " +
+        "platform Z-AI SDK is not configured (set ZAI_BASE_URL + ZAI_API_KEY env vars). " +
+        "Ask your admin to add an AI provider in Admin → AI Providers, or set ZAI_BASE_URL + ZAI_API_KEY."
+      );
+    }
+    throw e;
+  }
 }
 
 function isTransientProviderFailure(value: unknown): boolean {
