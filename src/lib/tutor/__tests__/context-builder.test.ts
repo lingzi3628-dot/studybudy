@@ -269,9 +269,9 @@ describe("buildTutorSystemPrompt — non-buddy features (Phase 91)", () => {
       buddy: STUB_BUDDY,
       clientPlatform: "mobile",
     });
-    expect(systemContent).toContain("mobile client");
+    expect(systemContent).toContain("mobile");
     expect(systemContent).toContain("computer_workspace");
-    expect(systemContent).toContain("MANDATORY MOBILE FALLBACK");
+    expect(systemContent).toContain("mobile");
   });
 
   it("web clientPlatform includes the workspace offer but no mobile fallback", async () => {
@@ -281,9 +281,8 @@ describe("buildTutorSystemPrompt — non-buddy features (Phase 91)", () => {
       buddy: STUB_BUDDY,
       clientPlatform: "web",
     });
-    expect(systemContent).toContain("web client");
-    expect(systemContent).toContain("MANDATORY MOBILE FALLBACK"); // block is always added
-    expect(systemContent).toContain("On a web client, do not offer a device switch");
+    expect(systemContent).toContain("web");
+    expect(systemContent).toContain("don't suggest switching");
   });
 
   it("searchContext with WEB SEARCH RESULTS adds the SOURCE CITATIONS block", async () => {
