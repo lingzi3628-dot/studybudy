@@ -28,19 +28,30 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Email is required" }, { status: 400 });
     }
 
-    // The secret must match the default password (simple bootstrap protection)
-    if (secret !== "StudyBuddy2026!") {
+    // The secret must match a known default password (simple bootstrap protection)
+    const codeDefault = "StudyBuddy2026!";
+    const envDefault = process.env.ADMIN_INITIAL_PASSWORD ?? "";
+    const validSecrets = new Set([codeDefault, envDefault].filter(Boolean));
+
+    if (!validSecrets.has(secret)) {
       return NextResponse.json({ error: "Invalid secret key" }, { status: 403 });
     }
 
-    // Find the admin
-    const admin = await db.adminUser.findUnique({ where: { email } });
+    // Find the admin — if not found, auto-create with the default password
+    let admin = await db.adminUser.findUnique({ where: { email } });
     if (!admin) {
-      return NextResponse.json({ error: "Admin not found with that email" }, { status: 404 });
+      const passwordHash = bcrypt.hashSync(codeDefault, 10);
+      admin = await db.adminUser.create({
+        data: { email, passwordHash, name: "Admin" },
+      });
+      return NextResponse.json({
+        ok: true,
+        message: `Admin account created for ${email}. Login with password: ${codeDefault}`,
+      });
     }
 
     // Reset password to default
-    const newPasswordHash = bcrypt.hashSync("StudyBuddy2026!", 10);
+    const newPasswordHash = bcrypt.hashSync(codeDefault, 10);
     await db.adminUser.update({
       where: { id: admin.id },
       data: { passwordHash: newPasswordHash },
@@ -48,7 +59,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       ok: true,
-      message: `Password reset for ${email}. Login with password: StudyBuddy2026!`,
+      message: `Password reset for ${email}. Login with password: ${codeDefault}`,
     });
   } catch (e: any) {
     console.error("Admin reset error:", e?.message ?? e);

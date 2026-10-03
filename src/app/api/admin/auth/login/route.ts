@@ -35,17 +35,24 @@ export async function POST(req: NextRequest) {
     // Phase 62 — Bulletproof admin login.
     // Three paths to login:
     //   1. Admin exists + password matches → login
-    //   2. Admin exists + password doesn't match BUT user entered the default
-    //      password → reset password to default → login (handles case where
-    //      a previous deployment created the admin with a different password)
+    //   2. Admin exists + password doesn't match BUT user entered a known
+    //      default password → reset password to default → login
     //   3. Admin doesn't exist → auto-create with default password → login
+    //
+    // Known default passwords (used for Path 2 reset):
+    //   - "StudyBuddy2026!" (code default)
+    //   - ADMIN_INITIAL_PASSWORD env var (if set — matches what was seeded)
     const DEFAULT_PASSWORD = "StudyBuddy2026!";
+    const envInitialPassword = process.env.ADMIN_INITIAL_PASSWORD ?? "";
+    const knownDefaults = new Set([DEFAULT_PASSWORD, envInitialPassword].filter(Boolean));
 
     let admin = await db.adminUser.findUnique({ where: { email } });
 
     if (!admin) {
       // Path 3: Auto-create admin with default password
-      const passwordHash = bcrypt.hashSync(DEFAULT_PASSWORD, 10);
+      // If the user entered a known default, use that; otherwise use the code default
+      const createPassword = knownDefaults.has(password) ? password : DEFAULT_PASSWORD;
+      const passwordHash = bcrypt.hashSync(createPassword, 10);
       try {
         admin = await db.adminUser.create({
           data: { email, passwordHash, name: "Admin" },
@@ -61,18 +68,19 @@ export async function POST(req: NextRequest) {
     const passwordMatches = bcrypt.compareSync(password, admin.passwordHash);
 
     if (!passwordMatches) {
-      // Path 2: Password wrong, but if they entered the default password,
-      // reset the admin's password to the default and allow login.
+      // Path 2: Password wrong, but if they entered a known default password,
+      // reset the admin's password to that default and allow login.
       // This handles the case where a previous deployment created the admin
       // with a different password (e.g. from env vars that have since changed).
-      if (password === DEFAULT_PASSWORD) {
-        const newPasswordHash = bcrypt.hashSync(DEFAULT_PASSWORD, 10);
+      if (knownDefaults.has(password)) {
+        const newPasswordHash = bcrypt.hashSync(password, 10);
         admin = await db.adminUser.update({
           where: { id: admin.id },
           data: { passwordHash: newPasswordHash },
         });
         console.log("[admin-login] Reset password for admin:", email);
       } else {
+        console.warn("[admin-login] Failed login attempt for:", email, "- password mismatch");
         return NextResponse.json({ error: "Invalid email or password" }, { status: 401 });
       }
     }
