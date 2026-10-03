@@ -33,12 +33,52 @@ export async function POST(req: NextRequest, { params }: Params) {
   // Pollinations and other keyless providers don't need an API key
   const isKeyless = provider.providerType === "pollinations";
   if (!provider.apiKeyEncrypted && !isKeyless) {
-    return NextResponse.json({ error: "Provider has no API key set" }, { status: 400 });
+    return NextResponse.json({
+      status: "error",
+      httpStatus: 400,
+      error: "Provider has no API key set. Edit the provider and add an API key.",
+      hint: "Click 'Edit' on the provider and paste your API key (e.g. sk-... for OpenAI-compatible, sk-or-... for OpenRouter).",
+    });
   }
 
   const apiKey = provider.apiKeyEncrypted ? decryptApiKey(provider.apiKeyEncrypted) : "";
-  const baseUrl = (provider.baseUrl || "https://api.openai.com/v1").replace(/\/$/, "");
-  const model = provider.model || "gpt-4o-mini";
+
+  // Detect decryption failure — if API_KEY_ENCRYPTION_SECRET was changed,
+  // the stored encrypted key can't be decrypted (returns empty string).
+  if (!isKeyless && provider.apiKeyEncrypted && !apiKey) {
+    return NextResponse.json({
+      status: "error",
+      httpStatus: 401,
+      error: "API key decryption failed — the API_KEY_ENCRYPTION_SECRET env var has changed since this key was saved.",
+      hint: "Re-enter the API key for this provider (Edit → paste key → Save). The key will be re-encrypted with the current secret.",
+      providerName: provider.name,
+    });
+  }
+
+  // Detect malformed API keys (e.g. OpenRouter keys start with "sk-or-", OpenAI with "sk-", DeepSeek with "sk-")
+  if (!isKeyless && apiKey) {
+    const expectedPrefix: Record<string, string> = {
+      openai: "sk-",
+      openrouter: "sk-or-",
+      deepseek: "sk-",
+      mistral: "mstrl_",
+      groq: "gsk_",
+      anthropic: "sk-ant-",
+    };
+    const expected = expectedPrefix[provider.providerType];
+    if (expected && !apiKey.startsWith(expected)) {
+      return NextResponse.json({
+        status: "error",
+        httpStatus: 401,
+        error: `API key format mismatch — expected a key starting with "${expected}" but got "${apiKey.slice(0, 6)}..."`,
+        hint: `Re-enter a valid ${provider.providerType} API key. Current key looks malformed or was encrypted with a different secret.`,
+        providerName: provider.name,
+      });
+    }
+  }
+
+  const baseUrl = (provider.baseUrl || defaultBaseUrlForType(provider.providerType)).replace(/\/$/, "");
+  const model = provider.model || defaultModelForType(provider.providerType);
 
   const body = await req.json().catch(() => ({}));
   const customPrompt = (body?.customPrompt ?? "").toString().trim();
@@ -214,4 +254,44 @@ export async function POST(req: NextRequest, { params }: Params) {
       { status: 200 }
     );
   }
+}
+
+// ============================================================
+// Helper: default base URL + model per provider type
+// ============================================================
+
+function defaultBaseUrlForType(providerType: string): string {
+  const defaults: Record<string, string> = {
+    openai: "https://api.openai.com/v1",
+    openrouter: "https://openrouter.ai/api/v1",
+    deepseek: "https://api.deepseek.com/v1",
+    mistral: "https://api.mistral.ai/v1",
+    groq: "https://api.groq.com/openai/v1",
+    anthropic: "https://api.anthropic.com/v1",
+    gemini: "https://generativelanguage.googleapis.com/v1beta",
+    huggingface: "https://api-inference.huggingface.co/models",
+    pollinations: "https://text.pollinations.ai",
+    together: "https://api.together.xyz/v1",
+    ollama: "http://localhost:11434/v1",
+    glm: "https://open.bigmodel.cn/api/paas/v4",
+  };
+  return defaults[providerType] ?? "https://api.openai.com/v1";
+}
+
+function defaultModelForType(providerType: string): string {
+  const defaults: Record<string, string> = {
+    openai: "gpt-4o-mini",
+    openrouter: "openai/gpt-4o-mini",
+    deepseek: "deepseek-chat",
+    mistral: "mistral-small-latest",
+    groq: "llama-3.3-70b-versatile",
+    anthropic: "claude-3-5-sonnet-20241022",
+    gemini: "gemini-1.5-flash",
+    huggingface: "meta-llama/Llama-3.1-8B-Instruct",
+    pollinations: "openai",
+    together: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+    ollama: "llama3.2",
+    glm: "glm-4-flash",
+  };
+  return defaults[providerType] ?? "gpt-4o-mini";
 }

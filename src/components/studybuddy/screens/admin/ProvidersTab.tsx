@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { Loader2, Trash2, Pencil, Plus, Bot, Send } from "lucide-react";
 import { Provider, ErrorBox, Spinner } from "./shared";
+import { VisualApiEditor } from "../VisualApiEditor";
 
 export function ProvidersTab() {
   const [providers, setProviders] = useState<Provider[]>([]);
@@ -179,7 +180,14 @@ export function ProvidersTab() {
                   {result.status === "success" ? (
                     <span>✓ "{result.reply}" · {result.latencyMs}ms · model {result.model}</span>
                   ) : (
-                    <span>✗ {result.error ?? "Failed"}</span>
+                    <div>
+                      <div>✗ {result.error ?? "Failed"}</div>
+                      {result.hint && (
+                        <div className="mt-1 text-[10px] text-rose-600 bg-rose-100 rounded p-1.5">
+                          💡 {result.hint}
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
               )}
@@ -204,7 +212,5 @@ export function ProvidersTab() {
 }
 
 
-
-function VisualApiEditor(props: any): any { return null; }
 
 function ProviderFormModal(props: any): any { return null; }
