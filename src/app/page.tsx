@@ -9,6 +9,7 @@ import { CreateModal } from "@/components/studybuddy/screens/CreateModal";
 import { PostOnboardingPopup } from "@/components/studybuddy/screens/PostOnboardingPopup";
 import { SentryErrorBoundary } from "@/components/SentryErrorBoundary";
 import { OfflineBanner } from "@/components/studybuddy/OfflineBanner";
+import { MaintenanceBanner } from "@/components/studybuddy/MaintenanceBanner";
 import { FamilyChildGuard } from "@/components/studybuddy/FamilyChildGuard";
 import { PathDashboard } from "@/components/studybuddy/screens/PathDashboard";
 
@@ -259,6 +260,7 @@ export default function Page() {
     return (
       <div className="min-h-screen bg-gray-50 text-gray-900">
         <OfflineBanner />
+        <MaintenanceBanner />
         <Onboarding />
         <CreateModal />
       </div>
@@ -269,6 +271,7 @@ export default function Page() {
     return (
       <div className="min-h-screen bg-gray-50 text-gray-900">
         <OfflineBanner />
+        <MaintenanceBanner />
         {screen === "landing" && <Landing />}
         {screen === "adminLogin" && <AdminLogin />}
         {screen === "auth" && <AuthScreen />}
