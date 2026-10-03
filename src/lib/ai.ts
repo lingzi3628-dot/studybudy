@@ -258,7 +258,7 @@ export async function callAI(
             if (apiKey || provider.providerType === "pollinations") {
               try {
                                 const mappedProvider = { ...provider, model: mapping.modelIdentifier || provider.model };
-                const result = await (await import("./ai-providers") as any).provider(mappedProvider as any, messages, {
+                const result = await (await import("./ai-providers") as any).callProvider(mappedProvider as any, messages, {
                   userId,
                   route,
                 });
@@ -275,7 +275,7 @@ export async function callAI(
                   if (/rate.?limit|429|too many requests|rate_limited/i.test(result.errorMessage || "")) {
                     await new Promise((resolve) => setTimeout(resolve, 2000));
                     try {
-                      const retryResult = await (await import("./ai-providers") as any).provider(mappedProvider as any, messages, { userId, route });
+                      const retryResult = await (await import("./ai-providers") as any).callProvider(mappedProvider as any, messages, { userId, route });
                       await logAiCall(userId, retryResult, route);
                       if (retryResult.content) return retryResult.content;
                     } catch (retryError: any) {
@@ -297,7 +297,7 @@ export async function callAI(
                   if (/rate.?limit|429|too many requests|rate_limited/i.test(e?.message || "")) {
                     await new Promise((resolve) => setTimeout(resolve, 2000));
                     try {
-                      const retryResult = await (await import("./ai-providers") as any).provider(provider as any, messages, { userId, route });
+                      const retryResult = await (await import("./ai-providers") as any).callProvider(provider as any, messages, { userId, route });
                       await logAiCall(userId, retryResult, route);
                       if (retryResult.content) return retryResult.content;
                     } catch (retryError: any) {
