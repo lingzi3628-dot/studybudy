@@ -147,7 +147,7 @@ export async function callProvider(
         const userMsgs = messages.filter((m) => m.role !== "system");
         const anthropicBody: any = {
           model,
-          max_tokens: provider.maxTokens,
+          max_tokens: Math.min(provider.maxTokens, 1000),
           messages: userMsgs.map((m) => ({
             role: m.role === "assistant" ? "assistant" : "user",
             content: m.content,
@@ -182,7 +182,7 @@ export async function callProvider(
           body: JSON.stringify({
             model,
             messages,
-            max_tokens: provider.maxTokens,
+            max_tokens: Math.min(provider.maxTokens, 1000),
             temperature: 0.7,
           }),
         });
@@ -201,7 +201,7 @@ export async function callProvider(
           body: JSON.stringify({
             model,
             messages,
-            max_tokens: provider.maxTokens,
+            max_tokens: Math.min(provider.maxTokens, 1000),
             temperature: 0.7,
           }),
         });

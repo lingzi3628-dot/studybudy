@@ -172,11 +172,6 @@ export async function callAI(
   const userId = ctx?.userId ?? "system";
   const route = ctx?.route;
   let transientlyFailedProviderId: string | undefined;
-  // Phase 98b — when the user's selected Study Buddy is not connected to an
-  // API, we fall back to the free GLM platform path instead of throwing. This
-  // note is prepended to the GLM response so the user understands why they
-  // got a generic reply instead of their selected buddy's persona.
-  let disconnectedBuddyNote = "";
 
   // 1) BYOK
   if (userApiKey && userApiKey.trim()) {
@@ -234,15 +229,12 @@ export async function callAI(
         });
 
         if (mapping && !mapping.providerId) {
-          // Phase 98b — The buddy exists but is NOT connected to any API.
-          // Don't break the chat — fall back to the free GLM platform path
-          // and prepend a friendly note from the buddy explaining it's busy.
-          // The user still gets a useful answer; they just understand why it's
-          // not in their selected buddy's voice.
-          console.log(`[ai] Buddy "${mapping.displayName}" is not connected — falling back to GLM with a note`);
-          disconnectedBuddyNote =
-            `⚠️ _${mapping.displayName} ${mapping.emoji} is currently on peak and can't reply right now. Here's a response from Study Buddy Free:_\n\n`;
-          // Fall through to admin providers + GLM platform (do NOT throw)
+          // NO FALLBACK — the buddy is not connected to any provider.
+          // Show a clear error telling the admin to connect it.
+          throw new Error(
+            `${mapping.displayName} ${mapping.emoji} is not connected to any AI provider. ` +
+            `Ask an admin to connect it in Admin → AI Providers (drag the buddy onto a provider node).`
+          );
         }
 
         if (mapping?.providerId) {
@@ -266,55 +258,22 @@ export async function callAI(
                 if (result.content) {
                   return result.content;
                 }
-                // A selected premium model should remain first choice, but a
-                // temporary outage/rate limit may continue through the admin
-                // priority chain instead of failing the whole tutor turn.
-                if (isTransientProviderFailure(result.errorMessage)) {
-                  transientlyFailedProviderId = provider.id;
-                  console.warn("Selected model temporarily unavailable; trying configured fallbacks:", provider.name);
-                  if (/rate.?limit|429|too many requests|rate_limited/i.test(result.errorMessage || "")) {
-                    await new Promise((resolve) => setTimeout(resolve, 2000));
-                    try {
-                      const retryResult = await (await import("./ai-providers") as any).callProvider(mappedProvider as any, messages, { userId, route });
-                      await logAiCall(userId, retryResult, route);
-                      if (retryResult.content) return retryResult.content;
-                    } catch (retryError: any) {
-                      console.warn("Selected model retry failed; continuing through fallbacks:", retryError?.message);
-                    }
-                  }
-                } else {
-                  // An empty response without a transient failure usually means
-                  // this model is misconfigured, so surface that issue.
-                  throw new Error(
-                    `${mapping.displayName} ${mapping.emoji} connected to ${provider.name} but got an empty response. ` +
-                    `The API may be down or misconfigured. Try another Study Buddy.`
-                  );
-                }
+                // NO FALLBACK — surface the real error to the user.
+                // The old code fell through to GLM with "buddy is on peak" —
+                // the user explicitly said they don't want that.
+                throw new Error(
+                  `${mapping.displayName} ${mapping.emoji} couldn't respond. ` +
+                  `Error: ${result.errorMessage ?? "Empty response from " + provider.name}. ` +
+                  `This may be a credits issue — check your ${provider.providerType} account balance.`
+                );
               } catch (e: any) {
-                if (isTransientProviderFailure(e?.message)) {
-                  transientlyFailedProviderId = provider.id;
-                  console.warn("Selected model temporarily unavailable; trying configured fallbacks:", e?.message);
-                  if (/rate.?limit|429|too many requests|rate_limited/i.test(e?.message || "")) {
-                    await new Promise((resolve) => setTimeout(resolve, 2000));
-                    try {
-                      const retryResult = await (await import("./ai-providers") as any).callProvider(provider as any, messages, { userId, route });
-                      await logAiCall(userId, retryResult, route);
-                      if (retryResult.content) return retryResult.content;
-                    } catch (retryError: any) {
-                      console.warn("Selected model retry failed; continuing through fallbacks:", retryError?.message);
-                    }
-                  }
-                } else {
-                  // If it's our custom error (disconnected or empty response), re-throw it.
-                  if (e?.message?.includes("not connected") || e?.message?.includes("empty response")) {
-                    throw e;
-                  }
-                  console.warn("Model-specific provider failed:", e?.message);
-                  throw new Error(
-                    `${mapping.displayName} ${mapping.emoji} → ${provider.name} API call failed: ${e?.message ?? "unknown error"}. ` +
-                    `Try another Study Buddy or ask an admin to check the API key.`
-                  );
-                }
+                // NO FALLBACK — re-throw all errors from the selected provider.
+                // The user chose this Study Buddy specifically — don't silently
+                // switch to a different model.
+                throw new Error(
+                  `${mapping.displayName} ${mapping.emoji} → ${provider.name} error: ` +
+                  `${e?.message ?? "unknown error"}`
+                );
               }
             } else {
               // Provider has no API key and is not keyless
@@ -333,12 +292,9 @@ export async function callAI(
         }
       }
     } catch (e: any) {
-      // Re-throw our custom "not connected" / "empty response" / "disabled" errors
-      if (e?.message?.includes("not connected") || e?.message?.includes("empty response") || e?.message?.includes("API has no key") || e?.message?.includes("API is disabled") || e?.message?.includes("API call failed")) {
-        throw e;
-      }
-      // Other errors (DB lookup failed, etc.) — fall through to default resolution
-      console.warn("Model lookup failed, using default resolution:", e?.message);
+      // NO FALLBACK — re-throw errors from the selected Study Buddy.
+      // The user chose this buddy — don't silently switch models.
+      throw e;
     }
   }
 
@@ -346,7 +302,7 @@ export async function callAI(
   try {
     const r = await callWithProviders(messages, { userId, route, excludeProviderId: transientlyFailedProviderId });
     if (r.content) {
-      return disconnectedBuddyNote + r.content;
+      return r.content;
     }
     // Log WHY no provider succeeded — helps debugging "tutor not replying"
     if (r.result) {
@@ -361,7 +317,7 @@ export async function callAI(
   // 3) Platform fallback (Z-AI SDK / GLM)
   try {
     const content = await callPlatformAI(messages, { userId, route, temperature: ctx?.temperature, maxTokens: ctx?.maxTokens });
-    return disconnectedBuddyNote + content;
+    return content;
   } catch (e: any) {
     // Both admin providers AND platform AI failed — return a clear error
     const errMsg = e?.message ?? String(e);

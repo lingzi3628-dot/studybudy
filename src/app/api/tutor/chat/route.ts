@@ -342,15 +342,23 @@ export async function POST(req: NextRequest) {
       let friendlyError = e?.message ?? "AI couldn't respond right now. Please try again.";
       const errMsg = String(e?.message ?? "").toLowerCase();
       if (errMsg.includes("429") || errMsg.includes("rate limit") || errMsg.includes("rate_limited")) {
-        friendlyError = "The AI model is currently rate-limited (too many requests). Please try again in a minute, or switch to 'Study Buddy Free' model in the dropdown above (no rate limits).";
+        friendlyError = "The AI model is currently rate-limited (too many requests). Please try again in a minute.";
+      } else if (errMsg.includes("402") || errMsg.includes("credits") || errMsg.includes("afford")) {
+        friendlyError = "Your AI provider ran out of credits. Add more credits at your provider's website (e.g. openrouter.ai/keys), or switch to a different Study Buddy.";
       } else if (errMsg.includes("500") || errMsg.includes("502") || errMsg.includes("503")) {
         friendlyError = "The AI provider is temporarily unavailable. Please try again in a moment.";
       } else if (errMsg.includes("timeout")) {
         friendlyError = "The AI took too long to respond. Please try a shorter message or try again.";
+      } else if (errMsg.includes("not connected to any ai provider")) {
+        friendlyError = e?.message ?? "This Study Buddy is not connected to an AI provider. Ask an admin to connect it in Admin → AI Providers.";
       } else if (errMsg.includes("no ai provider available") || errMsg.includes("not configured") || errMsg.includes(".z-ai-config") || errMsg.includes("z-ai sdk not configured")) {
         friendlyError = "No AI provider is configured. Ask your admin to go to Admin → AI Providers and add a working API key, OR set ZAI_BASE_URL + ZAI_API_KEY environment variables.";
       } else if (errMsg.includes("all api keys exhausted") || errMsg.includes("all admin providers failed")) {
         friendlyError = "All configured AI providers failed. Ask your admin to check Admin → AI Providers (click 'Test' on each).";
+      }
+      // If the error already contains the buddy name (thrown by callAI), use it directly
+      if (e?.message && (e.message.includes("couldn't respond") || e.message.includes("→") || e.message.includes("not connected"))) {
+        friendlyError = e.message;
       }
       turnLogger.error("tutor chat AI call failed", {
         error: e?.message ?? String(e),
