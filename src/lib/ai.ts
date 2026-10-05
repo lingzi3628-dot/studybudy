@@ -49,15 +49,15 @@ async function callPlatformAI(
   let errorMessage: string | null = null;
   try {
     const client = await getZaiClient();
-    // Phase 25 — add timeout to prevent 504 on Vercel (10s max for serverless)
+    // 30s timeout — Z-AI can take 10-15s on cold starts
     const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("AI request timed out (10s)")), 10000)
+      setTimeout(() => reject(new Error("AI request timed out (30s)")), 30000)
     );
     const completion = await Promise.race([
       client.chat.completions.create({
         messages,
+        max_tokens: 1000,
         ...(ctx.temperature !== undefined ? { temperature: ctx.temperature } : {}),
-        ...(ctx.maxTokens !== undefined ? { max_tokens: ctx.maxTokens } : {}),
       } as any),
       timeoutPromise,
     ]);
@@ -541,6 +541,7 @@ export async function* streamPlatformAI(
   const body: any = await client.chat.completions.create({
     messages,
     stream: true,
+    max_tokens: 1000,
   } as any);
 
   // SDK returns the raw ReadableStream when the response is an SSE stream.

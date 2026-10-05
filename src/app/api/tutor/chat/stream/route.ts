@@ -403,9 +403,26 @@ export async function POST(req: NextRequest) {
           turnLogger.error("tutor stream AI call failed", { error: e?.message ?? String(e) });
           // Phase 1 — Idempotent refund
           await refundTokens(user.id, "tutor", deduct.costTokens, turn.idempotencyKey);
+
+          // Friendly error messages (same as non-streaming route)
+          let friendlyError = e?.message ?? "AI couldn't respond right now. Please try again.";
+          const errMsg = String(e?.message ?? "").toLowerCase();
+          if (errMsg.includes("402") || errMsg.includes("credits") || errMsg.includes("afford")) {
+            friendlyError = "Your AI provider ran out of credits. Add more credits at your provider's website, or switch to a different Study Buddy.";
+          } else if (errMsg.includes("429") || errMsg.includes("rate limit")) {
+            friendlyError = "The AI model is currently rate-limited. Please wait a minute and try again.";
+          } else if (errMsg.includes("503") || errMsg.includes("loading")) {
+            friendlyError = "The AI model is still loading (cold start). Please wait 20 seconds and try again.";
+          } else if (errMsg.includes("not connected to any ai provider")) {
+            friendlyError = e?.message;
+          } else if (errMsg.includes("no ai provider available") || errMsg.includes("not configured")) {
+            friendlyError = "No AI provider is configured. Ask your admin to set up providers in Admin → AI Providers.";
+          }
+
           send("error", {
             ok: false,
-            error: e?.message ?? "AI couldn't respond right now. Please try again.",
+            error: friendlyError,
+            turnId: turn.turnId,
           });
         } finally {
           releaseSse(user.id, "tutor");
