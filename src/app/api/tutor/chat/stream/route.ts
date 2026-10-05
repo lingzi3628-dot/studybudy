@@ -259,6 +259,22 @@ export async function POST(req: NextRequest) {
             if (label && status.phase === "done") send("status", { text: status.success ? `${label.replace(/…$/, "")} Done.` : `${label.replace(/…$/, "")} No result found.` });
           };
 
+          // Determine buddy name for status messages
+          let buddyDisplayName = "Study Buddy";
+          let buddyEmoji = "🌱";
+          try {
+            const mapping = await db.modelMapping.findUnique({
+              where: { modelName: user.currentModel || "study_buddy_free" },
+              select: { displayName: true, emoji: true },
+            });
+            if (mapping) {
+              buddyDisplayName = mapping.displayName;
+              buddyEmoji = mapping.emoji;
+            }
+          } catch {}
+
+          send("status", { text: `Connecting to ${buddyDisplayName} ${buddyEmoji}…` });
+
           if (imageDataUrl) send("status", { text: "Reading the image you attached…" });
           else if (intents.wantsSearch || intents.wantsVideo || intents.wantsImage) send("status", { text: "Looking for useful sources…" });
           const [{ searchContext, searchAttachments }, toolContext] = await Promise.all([
@@ -295,8 +311,8 @@ export async function POST(req: NextRequest) {
               .filter((m) => m.role === "user" || m.role === "assistant")
               .map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
           ];
-          send("status", { text: "Writing your explanation…" });
-          if (!imageDataUrl && intents.wantsDrawing) send("status", { text: "Preparing your drawing…" });
+          send("status", { text: `${buddyDisplayName} is thinking…` });
+          if (!imageDataUrl && intents.wantsDrawing) send("status", { text: `${buddyDisplayName} is preparing a drawing…` });
 
           if (imageDataUrl) {
             // Vision path — non-streamed (single delta)

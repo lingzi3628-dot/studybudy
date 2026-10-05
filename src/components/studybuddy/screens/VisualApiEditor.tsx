@@ -175,13 +175,15 @@ export function VisualApiEditor({ mode }: Props) {
 
   // Add-StudyBuddy modal state
   const [showAddBuddy, setShowAddBuddy] = useState(false);
-  const [newBuddy, setNewBuddy] = useState<{ modelName: string; displayName: string; emoji: string; providerId: string | null; modelIdentifier: string }>({
+  const [newBuddy, setNewBuddy] = useState<{ modelName: string; displayName: string; emoji: string; providerId: string | null; modelIdentifier: string; avatarUrl: string }>({
     modelName: "",
     displayName: "",
     emoji: "🤖",
     providerId: null,
     modelIdentifier: "",
+    avatarUrl: "",
   });
+  const [generatingAvatar, setGeneratingAvatar] = useState(false);
 
   // Load everything
   const load = useCallback(async () => {
@@ -371,6 +373,24 @@ export function VisualApiEditor({ mode }: Props) {
     }
   };
 
+  // Generate avatar via Pollinations AI
+  const generateAvatar = async () => {
+    if (!newBuddy.displayName.trim()) {
+      setError("Enter a name first, then generate an avatar");
+      return;
+    }
+    setGeneratingAvatar(true);
+    try {
+      const prompt = encodeURIComponent(`cute cartoon avatar of ${newBuddy.displayName}, friendly teacher character, simple flat design, colorful, icon style, white background`);
+      const url = `https://image.pollinations.ai/prompt/${prompt}?width=128&height=128&nologo=true&seed=${Date.now()}`;
+      setNewBuddy((b) => ({ ...b, avatarUrl: url }));
+    } catch (e: any) {
+      setError(e?.message ?? "Avatar generation failed");
+    } finally {
+      setGeneratingAvatar(false);
+    }
+  };
+
   // Create a new StudyBuddy
   const createBuddy = async () => {
     try {
@@ -386,10 +406,11 @@ export function VisualApiEditor({ mode }: Props) {
           modelIdentifier: newBuddy.modelIdentifier || provider?.model,
           tokenCostMultiplier: 1.0,
           requiresPremium: false,
+          avatarUrl: newBuddy.avatarUrl || undefined,
         }),
       });
       setShowAddBuddy(false);
-      setNewBuddy({ modelName: "", displayName: "", emoji: "🤖", providerId: null, modelIdentifier: "" });
+      setNewBuddy({ modelName: "", displayName: "", emoji: "🤖", providerId: null, modelIdentifier: "", avatarUrl: "" });
       await load();
     } catch (e: any) {
       setError(e?.message ?? "Create failed");
@@ -828,12 +849,35 @@ export function VisualApiEditor({ mode }: Props) {
 
       {/* Add StudyBuddy modal — admin only */}
       {showAddBuddy && mode === "admin" && (
-        <Modal onClose={() => setShowAddBuddy(false)} title="Add Study Buddy">
+        <Modal onClose={() => setShowAddBuddy(false)} title="Create a Study Buddy">
           <div className="space-y-3">
+            {/* Avatar preview + generate */}
+            <div className="flex items-center gap-3">
+              <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center overflow-hidden border-2 border-gray-200">
+                {newBuddy.avatarUrl ? (
+                  <img src={newBuddy.avatarUrl} alt="avatar" className="w-full h-full object-cover" />
+                ) : (
+                  <span className="text-3xl">{newBuddy.emoji}</span>
+                )}
+              </div>
+              <div className="flex-1">
+                <button
+                  onClick={generateAvatar}
+                  disabled={generatingAvatar || !newBuddy.displayName.trim()}
+                  className="px-3 py-1.5 rounded-full bg-purple-100 text-purple-700 text-xs font-semibold flex items-center gap-1 hover:bg-purple-200 disabled:opacity-50"
+                >
+                  {generatingAvatar ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                  {generatingAvatar ? "Generating…" : "AI Avatar"}
+                </button>
+                <p className="text-[10px] text-gray-400 mt-0.5">Generates a custom avatar via Pollinations AI</p>
+              </div>
+            </div>
+
+            {/* Emoji picker (fallback if no avatar) */}
             <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1">Emoji</label>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">Or pick an emoji</label>
               <div className="flex gap-1 flex-wrap">
-                {["🤖", "🎓", "🦊", "🦁", "🐼", "🐯", "🦉", "🐢", "🦄", "🐲", "👨‍🏫", "👩‍🔬", "🧙", "🦸"].map((e) => (
+                {["🤖", "🎓", "🦊", "🦁", "🐼", "🐯", "🦉", "🐢", "🦄", "🐲", "👨‍🏫", "👩‍🔬", "🧙", "🦸", "🌟", "🧸"].map((e) => (
                   <button
                     key={e}
                     onClick={() => setNewBuddy((b) => ({ ...b, emoji: e }))}
@@ -844,43 +888,66 @@ export function VisualApiEditor({ mode }: Props) {
                 ))}
               </div>
             </div>
+
+            {/* Custom name */}
             <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1">Display name</label>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">Buddy name (e.g. "Bradley", "Professor Owl")</label>
               <input
                 type="text"
                 value={newBuddy.displayName}
                 onChange={(e) => setNewBuddy((b) => ({ ...b, displayName: e.target.value }))}
-                placeholder="Math Whiz"
-                className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-xs outline-none focus:border-indigo-400"
+                placeholder="Enter any name…"
+                className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-sm outline-none focus:border-indigo-400"
+                autoFocus
               />
             </div>
+
+            {/* Internal name (auto-generated) */}
             <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1">Internal name (auto)</label>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">Internal ID (auto from name)</label>
               <input
                 type="text"
                 value={newBuddy.modelName || `study_buddy_${(newBuddy.displayName || "new").toLowerCase().replace(/\s+/g, "_")}`}
                 onChange={(e) => setNewBuddy((b) => ({ ...b, modelName: e.target.value }))}
-                className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-xs font-mono outline-none focus:border-indigo-400"
+                className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-xs font-mono outline-none focus:border-indigo-400 bg-gray-50"
               />
             </div>
+
+            {/* Connect to API */}
             <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1">Connect to API (optional)</label>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">Connect to AI provider</label>
               <select
                 value={newBuddy.providerId ?? ""}
                 onChange={(e) => setNewBuddy((b) => ({ ...b, providerId: e.target.value || null }))}
                 className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-xs outline-none focus:border-indigo-400 bg-white"
               >
-                <option value="">— None (use platform fallback) —</option>
+                <option value="">— None (uses first available) —</option>
                 {providers.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
+                  <option key={p.id} value={p.id}>{p.name} ({p.providerType})</option>
                 ))}
               </select>
             </div>
+
+            {/* Model identifier */}
+            {newBuddy.providerId && (
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Model (optional — uses provider default if empty)</label>
+                <input
+                  type="text"
+                  value={newBuddy.modelIdentifier}
+                  onChange={(e) => setNewBuddy((b) => ({ ...b, modelIdentifier: e.target.value }))}
+                  placeholder="e.g. openai, mistral-small-latest, llama-3.1-8b"
+                  className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-xs font-mono outline-none focus:border-indigo-400"
+                />
+              </div>
+            )}
+
             <button
               onClick={createBuddy}
-              className="w-full h-10 rounded-full bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 flex items-center justify-center gap-1"
+              disabled={!newBuddy.displayName.trim()}
+              className="w-full h-10 rounded-full bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 flex items-center justify-center gap-1 disabled:opacity-50"
             >
-              <Plus className="w-4 h-4" /> Create Study Buddy
+              <Plus className="w-4 h-4" /> Create {newBuddy.displayName || "Study Buddy"}
             </button>
           </div>
         </Modal>
