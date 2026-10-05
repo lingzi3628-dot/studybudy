@@ -218,10 +218,13 @@ export async function POST(req: NextRequest, { params }: Params) {
       });
     }
 
-    // Hugging Face: use the router endpoint (not /chat/completions)
+    // Hugging Face: use the router endpoint
     if (provider.providerType === "huggingface") {
-      const hfBaseUrl = baseUrl.replace("/models", "").replace(/\/$/, "");
-      const hfRes = await fetch(`${hfBaseUrl}/router/v1/chat/completions`, {
+      const hfBaseUrl = baseUrl
+        .replace("/models", "")
+        .replace("api-inference.huggingface.co", "router.huggingface.co")
+        .replace(/\/$/, "");
+      const hfRes = await fetch(`${hfBaseUrl}/v1/chat/completions`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -339,7 +342,7 @@ function defaultBaseUrlForType(providerType: string): string {
     groq: "https://api.groq.com/openai/v1",
     anthropic: "https://api.anthropic.com/v1",
     gemini: "https://generativelanguage.googleapis.com/v1beta",
-    huggingface: "https://api-inference.huggingface.co",
+    huggingface: "https://router.huggingface.co",
     pollinations: "https://text.pollinations.ai",
     together: "https://api.together.xyz/v1",
     ollama: "http://localhost:11434/v1",

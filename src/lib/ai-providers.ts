@@ -166,15 +166,17 @@ export async function callProvider(
           body: JSON.stringify(anthropicBody),
         });
       } else if (provider.providerType === "huggingface") {
-        // Hugging Face Inference API — use the router/chat-completions endpoint
-        // URL: https://api-inference.huggingface.co/router/v1/chat/completions
-        // NOTE: HF can take 20-30s on first request (cold model start).
-        // We add a 45s timeout (Vercel max is 60s).
-        const hfBaseUrl = baseUrl.replace("/models", "").replace(/\/$/, "");
+        // Hugging Face Inference Router — OpenAI-compatible endpoint
+        // URL: https://router.huggingface.co/v1/chat/completions
+        // NOTE: HF can take 10-20s on first request (cold model start).
+        const hfBaseUrl = baseUrl
+          .replace("/models", "")
+          .replace("api-inference.huggingface.co", "router.huggingface.co")
+          .replace(/\/$/, "");
         const hfController = new AbortController();
         const hfTimeout = setTimeout(() => hfController.abort(), 45000);
         try {
-          res = await fetch(`${hfBaseUrl}/router/v1/chat/completions`, {
+          res = await fetch(`${hfBaseUrl}/v1/chat/completions`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",

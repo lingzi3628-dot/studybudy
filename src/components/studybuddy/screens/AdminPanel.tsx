@@ -435,7 +435,7 @@ const PROVIDER_DEFAULTS: Record<string, { baseUrl: string; model: string }> = {
   glm:          { baseUrl: "https://api.openai.com/v1",                                  model: "glm-4" },
   gemini:       { baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",   model: "gemini-1.5-flash" },
   openrouter:   { baseUrl: "https://openrouter.ai/api/v1",                               model: "openai/gpt-4o-mini" },
-  huggingface:  { baseUrl: "https://api-inference.huggingface.co",                       model: "meta-llama/Meta-Llama-3-8B-Instruct" },
+  huggingface:  { baseUrl: "https://router.huggingface.co",                                  model: "meta-llama/Llama-3.1-8B-Instruct" },
   pollinations: { baseUrl: "https://text.pollinations.ai/openai",                       model: "openai" },
 };
 
