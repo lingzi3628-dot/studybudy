@@ -362,6 +362,52 @@ const WRITING_NOTEBOOK_MANIFEST: LearningToolManifest = {
   availability: { enabled: true, supportedPlatforms: ["web"] },
 };
 
+// --- Quick wins: existing renderers, now registered ---
+const GRAPH_VENN_MANIFEST: LearningToolManifest = {
+  id: "graph.venn", version: 1, category: "graph",
+  supportedActions: ["create", "modify", "inspect"],
+  capabilities: { render: true, edit: true, execute: false, save: true, offline: true },
+  searchTerms: ["venn diagram", "sets", "union", "intersection", "overlap", "disjoint"],
+  inputRequirements: ["sets"],
+  availability: { enabled: true, supportedPlatforms: ["web", "mobile"] },
+};
+
+const GRAPH_NUMBER_LINE_MANIFEST: LearningToolManifest = {
+  id: "graph.number-line", version: 1, category: "graph",
+  supportedActions: ["create", "modify", "inspect"],
+  capabilities: { render: true, edit: true, execute: false, save: true, offline: true },
+  searchTerms: ["number line", "inequality", "integers", "less than", "greater than", "x <"],
+  inputRequirements: ["ranges"],
+  availability: { enabled: true, supportedPlatforms: ["web", "mobile"] },
+};
+
+const GRAPH_BOXPLOT_MANIFEST: LearningToolManifest = {
+  id: "graph.box-plot", version: 1, category: "graph",
+  supportedActions: ["create", "modify", "inspect"],
+  capabilities: { render: true, edit: true, execute: false, save: true, offline: true },
+  searchTerms: ["box plot", "box and whisker", "quartile", "outlier", "five number summary", "median"],
+  inputRequirements: ["values"],
+  availability: { enabled: true, supportedPlatforms: ["web", "mobile"] },
+};
+
+const GRAPH_TREE_MANIFEST: LearningToolManifest = {
+  id: "graph.tree", version: 1, category: "graph",
+  supportedActions: ["create", "modify", "inspect"],
+  capabilities: { render: true, edit: true, execute: false, save: true, offline: true },
+  searchTerms: ["tree diagram", "probability tree", "decision tree", "outcome tree", "branch"],
+  inputRequirements: ["nodes", "branches"],
+  availability: { enabled: true, supportedPlatforms: ["web", "mobile"] },
+};
+
+const CODE_DOCKER_MANIFEST: LearningToolManifest = {
+  id: "code.docker", version: 1, category: "simulation",
+  supportedActions: ["create", "run", "inspect"],
+  capabilities: { render: true, edit: true, execute: true, save: true, offline: true },
+  searchTerms: ["docker", "container", "dockerfile", "docker-compose", "image", "build", "compose"],
+  inputRequirements: ["dockerfile or commands"],
+  availability: { enabled: true, supportedPlatforms: ["web"] },
+};
+
 const ALL_MANIFESTS: LearningToolManifest[] = [
   // Original 5
   GRAPH_BAR_MANIFEST,
@@ -393,6 +439,12 @@ const ALL_MANIFESTS: LearningToolManifest[] = [
   BUSINESS_ERDIAGRAM_MANIFEST,
   SERVER_SHELL_MANIFEST,
   WRITING_NOTEBOOK_MANIFEST,
+  // Quick wins — existing renderers registered
+  GRAPH_VENN_MANIFEST,
+  GRAPH_NUMBER_LINE_MANIFEST,
+  GRAPH_BOXPLOT_MANIFEST,
+  GRAPH_TREE_MANIFEST,
+  CODE_DOCKER_MANIFEST,
 ];
 
 const MANIFEST_MAP: ReadonlyMap<string, LearningToolManifest> = new Map(

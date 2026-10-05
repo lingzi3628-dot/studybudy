@@ -22,9 +22,9 @@ import {
 } from "../plugin-registry";
 
 describe("plugin-registry — initial manifest set", () => {
-  it("registers 28 plugins (5 original + 23 new)", () => {
+  it("registers 33 plugins (5 original + 23 + 5 quick wins)", () => {
     const ids = listAllPluginIds();
-    expect(ids.length).toBe(28);
+    expect(ids.length).toBe(33);
     // Original 5
     expect(ids).toContain("graph.bar");
     expect(ids).toContain("diagram.flowchart");
@@ -42,9 +42,9 @@ describe("plugin-registry — initial manifest set", () => {
     expect(ids).toContain("writing.notebook");
   });
 
-  it("all 28 manifests are enabled", () => {
+  it("all 33 manifests are enabled", () => {
     const manifests = listEnabledManifests();
-    expect(manifests).toHaveLength(28);
+    expect(manifests).toHaveLength(33);
     for (const m of manifests) {
       expect(m.availability.enabled).toBe(true);
     }
