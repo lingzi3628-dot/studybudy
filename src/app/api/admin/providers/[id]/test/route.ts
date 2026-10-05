@@ -95,36 +95,37 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   const start = Date.now();
   try {
-    // Pollinations: keyless, GET request
-    if (isKeyless) {
-      const prompt = encodeURIComponent("Reply with the single word 'ok'.");
-      const pollinationsUrl = `${baseUrl}/openai?model=${model}&messages=${JSON.stringify(testMessages)}`;
-      const res = await fetch(pollinationsUrl, {
-        method: "GET",
-        headers: { "Content-Type": "application/json" },
+    // Pollinations: OpenAI-compatible POST
+    if (isKeyless || provider.providerType === "pollinations") {
+      const pollRes = await fetch(`${baseUrl}/openai`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+        },
+        body: JSON.stringify({
+          model,
+          messages: testMessages,
+          max_tokens: 10,
+          temperature: 0,
+        }),
       });
       const latencyMs = Date.now() - start;
-      if (!res.ok) {
-        const txt = await res.text().catch(() => "");
+      if (!pollRes.ok) {
+        const txt = await pollRes.text().catch(() => "");
         refundRateLimit(admin.adminId);
-        // Provide friendly error messages for common HTTP errors
         let friendlyError = txt.slice(0, 300);
-        if (res.status === 429) {
-          friendlyError = "Rate limited (429) — this provider's free tier limits requests per minute. Wait 60 seconds and try again. For unlimited use, upgrade the provider's plan or use Hugging Face (free, no rate limits).";
-        } else if (res.status === 402) {
-          friendlyError = "Payment required (402) — this provider needs more credits. Add credits at the provider's website, or use Hugging Face (free).";
-        } else if (res.status === 401) {
-          friendlyError = "Authentication failed (401) — the API key is invalid or expired. Re-enter the key.";
-        }
+        if (pollRes.status === 429) friendlyError = "Rate limited — wait 30 seconds and try again.";
         return NextResponse.json(
-          { status: "error", httpStatus: res.status, error: friendlyError, rawError: txt.slice(0, 300), latencyMs },
+          { status: "error", httpStatus: pollRes.status, error: friendlyError, rawError: txt.slice(0, 300), latencyMs },
           { status: 200 }
         );
       }
-      const text = await res.text();
+      const pollData = await pollRes.json();
+      const pollReply = pollData?.choices?.[0]?.message?.content ?? "";
       return NextResponse.json({
         status: "success",
-        reply: text.slice(0, 50),
+        reply: pollReply.slice(0, 50),
         model,
         latencyMs,
       });

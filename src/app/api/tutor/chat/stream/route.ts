@@ -1,7 +1,8 @@
 import { NextRequest } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { callAI, streamPlatformAI, type ChatMessage as AIMessage } from "@/lib/ai";
+import { callAI, type ChatMessage as AIMessage } from "@/lib/ai";
+import { streamFromProvider } from "@/lib/ai-providers";
 import { checkAndDeductTokens, refundTokens } from "@/lib/monetization";
 import { getBuddy, isValidBuddyId, DEFAULT_BUDDY_ID } from "@/lib/buddies/registry";
 import {
@@ -49,14 +50,7 @@ export const maxDuration = 60;
  * Body: same as /api/tutor/chat.
  */
 
-// Users with a custom currentModel (e.g. rented / pro models) go through
-// callAI's model-mapping logic which can throw meaningful "not connected"
-// errors — those paths don't stream today. Free-model users stream directly.
-async function canStreamPlatform(userId: string): Promise<boolean> {
-  // Z-AI SDK fallback removed — all models go through callAI() now.
-  // callAI() uses BYOK → ModelMapping → admin providers (no GLM platform).
-  return false;
-}
+// Streaming is now handled by streamFromProvider() for all providers.
 
 export async function POST(req: NextRequest) {
   let user;
@@ -301,7 +295,6 @@ export async function POST(req: NextRequest) {
               .filter((m) => m.role === "user" || m.role === "assistant")
               .map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
           ];
-          const usePlatformStream = !imageDataUrl && (await canStreamPlatform(user.id));
           send("status", { text: "Writing your explanation…" });
           if (!imageDataUrl && intents.wantsDrawing) send("status", { text: "Preparing your drawing…" });
 
@@ -333,16 +326,63 @@ export async function POST(req: NextRequest) {
               "";
             if (!reply) throw new Error("Vision AI returned empty response");
             send("delta", { text: reply });
-          } else if (usePlatformStream) {
-            // True token streaming via the GLM platform path
-            for await (const delta of streamPlatformAI(aiMessages, { userId: user.id, route: "/api/tutor/chat/stream" })) {
-              reply += delta;
-              send("delta", { text: delta });
-            }
           } else {
-            // Custom-model path — full resolution (with meaningful errors), single delta
-            reply = await callAI(aiMessages, null, { userId: user.id, route: "/api/tutor/chat/stream" });
-            send("delta", { text: reply });
+            // Stream from the provider — token-by-token for ALL providers
+            // (HF, Mistral, OpenRouter, Pollinations, DeepSeek, etc.)
+            try {
+              // Determine which provider to use
+              const userRec = await db.user.findUnique({
+                where: { id: user.id },
+                select: { currentModel: true },
+              });
+
+              let streamProvider: any = null;
+
+              // Check if user has a custom Study Buddy with a connected provider
+              if (userRec?.currentModel && userRec.currentModel !== "study_buddy_free") {
+                const mapping = await db.modelMapping.findUnique({
+                  where: { modelName: userRec.currentModel },
+                });
+                if (mapping?.providerId) {
+                  const provider = await db.aiProvider.findUnique({
+                    where: { id: mapping.providerId },
+                  });
+                  if (provider && provider.enabled) {
+                    streamProvider = { ...provider, model: mapping.modelIdentifier || provider.model };
+                  }
+                }
+              }
+
+              // If no custom provider, try the first enabled admin provider
+              if (!streamProvider) {
+                const { loadEnabledProviders } = await import("@/lib/ai-providers");
+                const providers = await loadEnabledProviders();
+                if (providers.length > 0) {
+                  streamProvider = providers[0];
+                }
+              }
+
+              if (streamProvider) {
+                // Stream token-by-token from the provider
+                for await (const delta of streamFromProvider(streamProvider, aiMessages, {
+                  userId: user.id,
+                  route: "/api/tutor/chat/stream",
+                })) {
+                  reply += delta;
+                  send("delta", { text: delta });
+                }
+                if (!reply) throw new Error("Provider returned empty response");
+              } else {
+                // No provider available — fall back to callAI (which throws a clear error)
+                reply = await callAI(aiMessages, null, { userId: user.id, route: "/api/tutor/chat/stream" });
+                send("delta", { text: reply });
+              }
+            } catch (streamErr: any) {
+              // If streaming fails, fall back to non-streaming callAI
+              console.warn("[tutor-stream] Streaming failed, falling back to callAI:", streamErr?.message);
+              reply = await callAI(aiMessages, null, { userId: user.id, route: "/api/tutor/chat/stream" });
+              send("delta", { text: reply });
+            }
           }
 
           // Strip thinking block

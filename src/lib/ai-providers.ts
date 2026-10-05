@@ -110,11 +110,19 @@ export async function callProvider(
     try {
       let res: Response;
       if (provider.providerType === "pollinations") {
-        // Pollinations: GET request, keyless
-        const url = `${baseUrl}/openai?model=${model}&messages=${encodeURIComponent(JSON.stringify(messages))}`;
-        res = await fetch(url, {
-          method: "GET",
-          headers: { "Content-Type": "application/json" },
+        // Pollinations: OpenAI-compatible POST endpoint
+        res = await fetch(`${baseUrl}/openai`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+          },
+          body: JSON.stringify({
+            model,
+            messages,
+            max_tokens: Math.min(provider.maxTokens, 1000),
+            temperature: 0.7,
+          }),
         });
       } else if (provider.providerType === "gemini") {
         // Gemini: different URL format + auth via query param (NOT Bearer)
@@ -469,4 +477,153 @@ export async function logAiCall(
   } catch (e) {
     console.warn("Failed to log AI call", e);
   }
+}
+
+// ============================================================
+// Streaming support — stream from any OpenAI-compatible provider
+// ============================================================
+
+/**
+ * Stream text deltas from a provider (OpenAI-compatible SSE format).
+ * Yields text chunks as they arrive.
+ *
+ * Used by the streaming chat route for ALL providers (HF, Mistral, OpenRouter,
+ * Pollinations, DeepSeek, etc.) — they all support stream: true.
+ *
+ * Does NOT support Gemini or Anthropic (different streaming formats).
+ */
+export async function* streamFromProvider(
+  provider: ProviderRow,
+  messages: ChatMessage[],
+  opts?: { userId?: string; route?: string }
+): AsyncGenerator<string> {
+  const apiKey = provider.apiKeyEncrypted ? decryptApiKey(provider.apiKeyEncrypted) : "";
+  if (!apiKey && provider.providerType !== "pollinations") {
+    throw new Error("Provider has no API key set");
+  }
+
+  const baseUrl = (provider.baseUrl || defaultBaseUrlForType(provider.providerType)).replace(/\/$/, "");
+  const model = provider.model || defaultModelForType(provider.providerType);
+
+  // Build the fetch URL + headers per provider type
+  let url: string;
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+
+  if (provider.providerType === "pollinations") {
+    url = `${baseUrl}/openai`;
+    if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+  } else if (provider.providerType === "huggingface") {
+    const hfBaseUrl = baseUrl
+      .replace("/models", "")
+      .replace("api-inference.huggingface.co", "router.huggingface.co")
+      .replace(/\/$/, "");
+    url = `${hfBaseUrl}/v1/chat/completions`;
+    headers["Authorization"] = `Bearer ${apiKey}`;
+  } else if (provider.providerType === "openrouter") {
+    url = `${baseUrl}/chat/completions`;
+    headers["Authorization"] = `Bearer ${apiKey}`;
+    headers["HTTP-Referer"] = "https://studybuddy.ai";
+    headers["X-Title"] = "StudyBuddy AI";
+  } else {
+    // Standard OpenAI-compatible (DeepSeek, Mistral, Groq, Together, etc.)
+    url = `${baseUrl}/chat/completions`;
+    headers["Authorization"] = `Bearer ${apiKey}`;
+  }
+
+  const body = JSON.stringify({
+    model,
+    messages,
+    max_tokens: Math.min(provider.maxTokens, 1000),
+    temperature: 0.7,
+    stream: true,
+  });
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 45000);
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers,
+      body,
+      signal: controller.signal,
+    });
+
+    if (!res.ok || !res.body) {
+      const txt = await res.text().catch(() => "");
+      throw new Error(`HTTP ${res.status}: ${txt.slice(0, 200)}`);
+    }
+
+    // Parse SSE stream — OpenAI-compatible format:
+    // data: {"choices":[{"delta":{"content":"hello"}}]}
+    // data: [DONE]
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data:")) continue;
+        const payload = trimmed.slice(5).trim();
+        if (payload === "[DONE]") return;
+        try {
+          const json = JSON.parse(payload);
+          const delta = json?.choices?.[0]?.delta?.content ?? "";
+          if (delta) yield delta;
+        } catch {
+          // skip malformed chunks
+        }
+      }
+    }
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// ============================================================
+// Helpers: default base URL + model per provider type
+// ============================================================
+
+function defaultBaseUrlForType(providerType: string): string {
+  const defaults: Record<string, string> = {
+    openai: "https://api.openai.com/v1",
+    openrouter: "https://openrouter.ai/api/v1",
+    deepseek: "https://api.deepseek.com/v1",
+    mistral: "https://api.mistral.ai/v1",
+    groq: "https://api.groq.com/openai/v1",
+    anthropic: "https://api.anthropic.com/v1",
+    gemini: "https://generativelanguage.googleapis.com/v1beta",
+    huggingface: "https://router.huggingface.co",
+    pollinations: "https://text.pollinations.ai",
+    together: "https://api.together.xyz/v1",
+    ollama: "http://localhost:11434/v1",
+    glm: "https://open.bigmodel.cn/api/paas/v4",
+  };
+  return defaults[providerType] ?? "https://api.openai.com/v1";
+}
+
+function defaultModelForType(providerType: string): string {
+  const defaults: Record<string, string> = {
+    openai: "gpt-4o-mini",
+    openrouter: "openai/gpt-4o-mini",
+    deepseek: "deepseek-chat",
+    mistral: "mistral-small-latest",
+    groq: "llama-3.3-70b-versatile",
+    anthropic: "claude-3-5-sonnet-20241022",
+    gemini: "gemini-1.5-flash",
+    huggingface: "meta-llama/Llama-3.1-8B-Instruct",
+    pollinations: "openai",
+    together: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+    ollama: "llama3.2",
+    glm: "glm-4-flash",
+  };
+  return defaults[providerType] ?? "gpt-4o-mini";
 }
