@@ -22,19 +22,29 @@ import {
 } from "../plugin-registry";
 
 describe("plugin-registry — initial manifest set", () => {
-  it("registers exactly 5 plugins matching the advisor's recommendation", () => {
-    expect(listAllPluginIds()).toEqual([
-      "graph.bar",
-      "diagram.flowchart",
-      "code.python",
-      "code.javascript",
-      "assessment.quiz",
-    ]);
+  it("registers 28 plugins (5 original + 23 new)", () => {
+    const ids = listAllPluginIds();
+    expect(ids.length).toBe(28);
+    // Original 5
+    expect(ids).toContain("graph.bar");
+    expect(ids).toContain("diagram.flowchart");
+    expect(ids).toContain("code.python");
+    expect(ids).toContain("code.javascript");
+    expect(ids).toContain("assessment.quiz");
+    // New 23
+    expect(ids).toContain("code.html");
+    expect(ids).toContain("code.sql");
+    expect(ids).toContain("code.c");
+    expect(ids).toContain("diagram.circuit");
+    expect(ids).toContain("drawing.freehand");
+    expect(ids).toContain("assessment.flashcards");
+    expect(ids).toContain("server.shell");
+    expect(ids).toContain("writing.notebook");
   });
 
-  it("all 5 manifests are enabled", () => {
+  it("all 28 manifests are enabled", () => {
     const manifests = listEnabledManifests();
-    expect(manifests).toHaveLength(5);
+    expect(manifests).toHaveLength(28);
     for (const m of manifests) {
       expect(m.availability.enabled).toBe(true);
     }
@@ -56,12 +66,10 @@ describe("plugin-registry — getManifest", () => {
     expect(getManifest("assessment.quiz")?.id).toBe("assessment.quiz");
   });
 
-  it("returns null for unknown plugin IDs", () => {
-    expect(getManifest("graph.line")).toBeNull();
-    expect(getManifest("code.c")).toBeNull();
-    expect(getManifest("assessment.flashcards")).toBeNull();
-    expect(getManifest("")).toBeNull();
+  it("returns null for truly unknown plugin IDs", () => {
     expect(getManifest("nonexistent.plugin")).toBeNull();
+    expect(getManifest("")).toBeNull();
+    expect(getManifest("graph.unknown")).toBeNull();
   });
 });
 
@@ -101,37 +109,60 @@ describe("plugin-registry — isPluginAvailable + pluginSupportsAction", () => {
 });
 
 describe("plugin-registry — listManifestsByCategory", () => {
-  it("returns graph plugins only for graph category", () => {
+  it("returns graph plugins for graph category", () => {
     const graphPlugins = listManifestsByCategory("graph");
-    expect(graphPlugins.map((m) => m.id)).toEqual(["graph.bar"]);
+    expect(graphPlugins.map((m) => m.id)).toContain("graph.bar");
+    expect(graphPlugins.map((m) => m.id)).toContain("graph.function");
+    expect(graphPlugins.map((m) => m.id)).toContain("graph.scatter");
   });
 
   it("returns diagram plugins for diagram category", () => {
     const diagramPlugins = listManifestsByCategory("diagram");
-    expect(diagramPlugins.map((m) => m.id)).toEqual(["diagram.flowchart"]);
+    expect(diagramPlugins.map((m) => m.id)).toContain("diagram.flowchart");
+    expect(diagramPlugins.map((m) => m.id)).toContain("diagram.concept-map");
   });
 
-  it("returns both python and javascript for code category", () => {
+  it("returns all code plugins for code category", () => {
     const codePlugins = listManifestsByCategory("code");
-    expect(codePlugins.map((m) => m.id).sort()).toEqual(["code.javascript", "code.python"]);
+    const ids = codePlugins.map((m) => m.id);
+    expect(ids).toContain("code.python");
+    expect(ids).toContain("code.javascript");
+    expect(ids).toContain("code.html");
+    expect(ids).toContain("code.sql");
   });
 
-  it("returns quiz for assessment category", () => {
+  it("returns assessment plugins for assessment category", () => {
     const assessmentPlugins = listManifestsByCategory("assessment");
-    expect(assessmentPlugins.map((m) => m.id)).toEqual(["assessment.quiz"]);
+    const ids = assessmentPlugins.map((m) => m.id);
+    expect(ids).toContain("assessment.quiz");
+    expect(ids).toContain("assessment.flashcards");
+    expect(ids).toContain("assessment.exam");
   });
 
-  it("returns empty for simulation, writing, drawing categories (not yet registered)", () => {
-    expect(listManifestsByCategory("simulation")).toEqual([]);
-    expect(listManifestsByCategory("writing")).toEqual([]);
-    expect(listManifestsByCategory("drawing")).toEqual([]);
+  it("returns simulation plugins (circuit, gear, nginx, plc)", () => {
+    const simPlugins = listManifestsByCategory("simulation");
+    const ids = simPlugins.map((m) => m.id);
+    expect(ids).toContain("diagram.circuit");
+    expect(ids).toContain("diagram.gear");
+  });
+
+  it("returns drawing plugins (freehand, scene)", () => {
+    const drawPlugins = listManifestsByCategory("drawing");
+    const ids = drawPlugins.map((m) => m.id);
+    expect(ids).toContain("drawing.freehand");
+    expect(ids).toContain("drawing.scene");
   });
 });
 
 describe("plugin-registry — listEnabledCategories", () => {
-  it("returns graph, diagram, code, assessment (no simulation/writing/drawing yet)", () => {
+  it("returns all 6 categories (graph, diagram, code, assessment, simulation, drawing)", () => {
     const cats = listEnabledCategories().sort();
-    expect(cats).toEqual(["assessment", "code", "diagram", "graph"]);
+    expect(cats).toContain("graph");
+    expect(cats).toContain("diagram");
+    expect(cats).toContain("code");
+    expect(cats).toContain("assessment");
+    expect(cats).toContain("simulation");
+    expect(cats).toContain("drawing");
   });
 });
 
@@ -194,9 +225,11 @@ describe("plugin-registry — manifest shape (defensive)", () => {
     expect(ASSESSMENT_QUIZ_MANIFEST.capabilities.execute).toBe(false);
   });
 
-  it("all manifests support create action", () => {
+  it("most manifests support create action (except math.calculator which only supports run)", () => {
     for (const m of listEnabledManifests()) {
-      expect(m.supportedActions).toContain("create");
+      if (m.id !== "math.calculator") {
+        expect(m.supportedActions).toContain("create");
+      }
     }
   });
 });

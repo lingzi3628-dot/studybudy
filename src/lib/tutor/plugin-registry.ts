@@ -147,12 +147,252 @@ export const ASSESSMENT_QUIZ_MANIFEST: LearningToolManifest = {
 // Registry — manifest map + lookups
 // ============================================================
 
+// --- Code & Development ---
+const CODE_HTML_MANIFEST: LearningToolManifest = {
+  id: "code.html", version: 1, category: "code",
+  supportedActions: ["create", "modify", "run", "inspect"],
+  capabilities: { render: true, edit: true, execute: true, save: true, offline: true },
+  searchTerms: ["web", "html", "css", "website", "webpage", "web page", "web builder", "frontend"],
+  inputRequirements: ["html", "css", "javascript"],
+  availability: { enabled: true, supportedPlatforms: ["web"] },
+};
+
+const CODE_SQL_MANIFEST: LearningToolManifest = {
+  id: "code.sql", version: 1, category: "code",
+  supportedActions: ["create", "modify", "run", "inspect"],
+  capabilities: { render: true, edit: true, execute: true, save: true, offline: true },
+  searchTerms: ["sql", "database", "query", "sqlite", "select", "table", "schema"],
+  inputRequirements: ["sql statements"],
+  availability: { enabled: true, supportedPlatforms: ["web"] },
+};
+
+const CODE_C_MANIFEST: LearningToolManifest = {
+  id: "code.c", version: 1, category: "code",
+  supportedActions: ["create", "modify", "inspect"],
+  capabilities: { render: true, edit: true, execute: false, save: true, offline: true },
+  searchTerms: ["c", "c++", "cpp", "c program", "c code"],
+  inputRequirements: ["code"],
+  availability: { enabled: true, supportedPlatforms: ["web", "mobile"] },
+};
+
+const CODE_JSON_MANIFEST: LearningToolManifest = {
+  id: "code.json", version: 1, category: "code",
+  supportedActions: ["create", "modify", "inspect"],
+  capabilities: { render: true, edit: true, execute: false, save: true, offline: true },
+  searchTerms: ["json", "data", "csv", "spreadsheet", "dataset", "table"],
+  inputRequirements: ["data"],
+  availability: { enabled: true, supportedPlatforms: ["web", "mobile"] },
+};
+
+// --- Diagrams & Visualization ---
+const GRAPH_FUNCTION_MANIFEST: LearningToolManifest = {
+  id: "graph.function", version: 1, category: "graph",
+  supportedActions: ["create", "modify", "inspect"],
+  capabilities: { render: true, edit: true, execute: false, save: true, offline: true },
+  searchTerms: ["function", "plot", "y=", "f(x)", "equation graph", "curve", "parabola"],
+  inputRequirements: ["function expression"],
+  availability: { enabled: true, supportedPlatforms: ["web", "mobile"] },
+};
+
+const GRAPH_SCATTER_MANIFEST: LearningToolManifest = {
+  id: "graph.scatter", version: 1, category: "graph",
+  supportedActions: ["create", "modify", "inspect"],
+  capabilities: { render: true, edit: true, execute: false, save: true, offline: true },
+  searchTerms: ["scatter", "data points", "plot points", "line of best fit", "correlation"],
+  inputRequirements: ["x,y points"],
+  availability: { enabled: true, supportedPlatforms: ["web", "mobile"] },
+};
+
+const DIAGRAM_CONCEPT_MAP_MANIFEST: LearningToolManifest = {
+  id: "diagram.concept-map", version: 1, category: "diagram",
+  supportedActions: ["create", "modify", "inspect"],
+  capabilities: { render: true, edit: true, execute: false, save: true, offline: true },
+  searchTerms: ["concept map", "mind map", "relationship", "network graph", "knowledge graph"],
+  inputRequirements: ["nodes", "edges"],
+  availability: { enabled: true, supportedPlatforms: ["web"] },
+};
+
+const DIAGRAM_CIRCUIT_MANIFEST: LearningToolManifest = {
+  id: "diagram.circuit", version: 1, category: "simulation",
+  supportedActions: ["create", "modify", "run", "inspect"],
+  capabilities: { render: true, edit: true, execute: true, save: true, offline: true },
+  searchTerms: ["circuit", "electrical", "battery", "switch", "bulb", "lamp", "ohm", "resistor", "voltage"],
+  inputRequirements: ["circuit components"],
+  availability: { enabled: true, supportedPlatforms: ["web"] },
+};
+
+const DIAGRAM_GEAR_MANIFEST: LearningToolManifest = {
+  id: "diagram.gear", version: 1, category: "simulation",
+  supportedActions: ["create", "modify", "inspect"],
+  capabilities: { render: true, edit: true, execute: false, save: true, offline: true },
+  searchTerms: ["gear", "gear train", "gear ratio", "mechanical", "torque", "speed ratio"],
+  inputRequirements: ["gears"],
+  availability: { enabled: true, supportedPlatforms: ["web"] },
+};
+
+const DIAGRAM_NETWORK_TOPO_MANIFEST: LearningToolManifest = {
+  id: "diagram.network", version: 1, category: "diagram",
+  supportedActions: ["create", "modify", "inspect"],
+  capabilities: { render: true, edit: true, execute: false, save: true, offline: true },
+  searchTerms: ["network topology", "lan", "wan", "router", "switch", "ip", "subnet"],
+  inputRequirements: ["network nodes", "links"],
+  availability: { enabled: true, supportedPlatforms: ["web"] },
+};
+
+const DIAGRAM_NGINX_MANIFEST: LearningToolManifest = {
+  id: "diagram.nginx", version: 1, category: "simulation",
+  supportedActions: ["create", "modify", "inspect"],
+  capabilities: { render: true, edit: true, execute: false, save: true, offline: true },
+  searchTerms: ["nginx", "server config", "reverse proxy", "load balancer", "web server"],
+  inputRequirements: ["nginx config"],
+  availability: { enabled: true, supportedPlatforms: ["web"] },
+};
+
+const DIAGRAM_PLC_MANIFEST: LearningToolManifest = {
+  id: "diagram.plc", version: 1, category: "simulation",
+  supportedActions: ["create", "modify", "inspect"],
+  capabilities: { render: true, edit: true, execute: false, save: true, offline: true },
+  searchTerms: ["plc", "ladder logic", "ladder diagram", "programmable logic controller"],
+  inputRequirements: ["ladder rungs"],
+  availability: { enabled: true, supportedPlatforms: ["web"] },
+};
+
+// --- Drawing ---
+const DRAWING_FREEHAND_MANIFEST: LearningToolManifest = {
+  id: "drawing.freehand", version: 1, category: "drawing",
+  supportedActions: ["create", "modify", "inspect"],
+  capabilities: { render: true, edit: true, execute: false, save: true, offline: true },
+  searchTerms: ["draw", "sketch", "freehand", "drawing canvas", "illustrate"],
+  inputRequirements: ["prompt"],
+  availability: { enabled: true, supportedPlatforms: ["web", "mobile"] },
+};
+
+const DRAWING_SCENE_MANIFEST: LearningToolManifest = {
+  id: "drawing.scene", version: 1, category: "drawing",
+  supportedActions: ["create", "modify", "inspect"],
+  capabilities: { render: true, edit: true, execute: false, save: true, offline: true },
+  searchTerms: ["diagram", "labeled diagram", "construction", "geometry", "illustration"],
+  inputRequirements: ["elements"],
+  availability: { enabled: true, supportedPlatforms: ["web", "mobile"] },
+};
+
+// --- Assessment ---
+const ASSESSMENT_FLASHCARDS_MANIFEST: LearningToolManifest = {
+  id: "assessment.flashcards", version: 1, category: "assessment",
+  supportedActions: ["create", "modify", "run", "review"],
+  capabilities: { render: true, edit: true, execute: false, save: true, offline: true },
+  searchTerms: ["flashcards", "flash cards", "study cards", "spaced repetition", "review cards"],
+  inputRequirements: ["cards"],
+  availability: { enabled: true, supportedPlatforms: ["web", "mobile"] },
+};
+
+const ASSESSMENT_EXAM_MANIFEST: LearningToolManifest = {
+  id: "assessment.exam", version: 1, category: "assessment",
+  supportedActions: ["create", "review"],
+  capabilities: { render: true, edit: false, execute: false, save: true, offline: true },
+  searchTerms: ["exam", "test paper", "past paper", "kcse", "mock exam", "printable exam"],
+  inputRequirements: ["topic", "numQuestions"],
+  availability: { enabled: true, supportedPlatforms: ["web", "mobile"] },
+};
+
+const ASSESSMENT_DRAW_TASK_MANIFEST: LearningToolManifest = {
+  id: "assessment.draw-task", version: 1, category: "assessment",
+  supportedActions: ["create", "review"],
+  capabilities: { render: true, edit: true, execute: false, save: true, offline: true },
+  searchTerms: ["draw task", "drawing exercise", "construct", "sketch exercise"],
+  inputRequirements: ["prompt", "expectedKeywords"],
+  availability: { enabled: true, supportedPlatforms: ["web", "mobile"] },
+};
+
+// --- Math & Science ---
+const MATH_MANIPULATIVE_MANIFEST: LearningToolManifest = {
+  id: "math.manipulative", version: 1, category: "graph",
+  supportedActions: ["create", "modify", "run"],
+  capabilities: { render: true, edit: true, execute: true, save: true, offline: true },
+  searchTerms: ["manipulative", "fractions", "division", "equal groups", "drag and drop", "counting"],
+  inputRequirements: ["totalCount", "basketCount"],
+  availability: { enabled: true, supportedPlatforms: ["web", "mobile"] },
+};
+
+const MATH_CALCULATOR_MANIFEST: LearningToolManifest = {
+  id: "math.calculator", version: 1, category: "code",
+  supportedActions: ["run", "inspect"],
+  capabilities: { render: true, edit: true, execute: true, save: false, offline: true },
+  searchTerms: ["calculator", "calculate", "compute", "math", "solve"],
+  inputRequirements: ["expression"],
+  availability: { enabled: true, supportedPlatforms: ["web", "mobile"] },
+};
+
+// --- Business ---
+const BUSINESS_SPREADSHEET_MANIFEST: LearningToolManifest = {
+  id: "business.spreadsheet", version: 1, category: "graph",
+  supportedActions: ["create", "modify", "inspect"],
+  capabilities: { render: true, edit: true, execute: false, save: true, offline: true },
+  searchTerms: ["spreadsheet", "excel", "worksheet", "csv", "data table", "budget"],
+  inputRequirements: ["columns", "rows"],
+  availability: { enabled: true, supportedPlatforms: ["web", "mobile"] },
+};
+
+const BUSINESS_ERDIAGRAM_MANIFEST: LearningToolManifest = {
+  id: "business.erdiagram", version: 1, category: "diagram",
+  supportedActions: ["create", "modify", "inspect"],
+  capabilities: { render: true, edit: true, execute: false, save: true, offline: true },
+  searchTerms: ["er diagram", "entity relationship", "database schema", "database design", "tables"],
+  inputRequirements: ["tables", "relationships"],
+  availability: { enabled: true, supportedPlatforms: ["web", "mobile"] },
+};
+
+// --- Server & DevOps ---
+const SERVER_SHELL_MANIFEST: LearningToolManifest = {
+  id: "server.shell", version: 1, category: "code",
+  supportedActions: ["create", "run", "inspect"],
+  capabilities: { render: true, edit: true, execute: true, save: true, offline: true },
+  searchTerms: ["linux", "bash", "shell", "terminal", "command line", "nginx", "docker", "systemctl"],
+  inputRequirements: ["commands"],
+  availability: { enabled: true, supportedPlatforms: ["web"] },
+};
+
+// --- Writing ---
+const WRITING_NOTEBOOK_MANIFEST: LearningToolManifest = {
+  id: "writing.notebook", version: 1, category: "code",
+  supportedActions: ["create", "modify", "run", "inspect"],
+  capabilities: { render: true, edit: true, execute: true, save: true, offline: false },
+  searchTerms: ["notebook", "jupyter", "data analysis", "python notebook", "data science"],
+  inputRequirements: ["cells"],
+  availability: { enabled: true, supportedPlatforms: ["web"] },
+};
+
 const ALL_MANIFESTS: LearningToolManifest[] = [
+  // Original 5
   GRAPH_BAR_MANIFEST,
   DIAGRAM_FLOWCHART_MANIFEST,
   CODE_PYTHON_MANIFEST,
   CODE_JAVASCRIPT_MANIFEST,
   ASSESSMENT_QUIZ_MANIFEST,
+  // Phase 6 — 23 new plugins (existing components registered)
+  CODE_HTML_MANIFEST,
+  CODE_SQL_MANIFEST,
+  CODE_C_MANIFEST,
+  CODE_JSON_MANIFEST,
+  GRAPH_FUNCTION_MANIFEST,
+  GRAPH_SCATTER_MANIFEST,
+  DIAGRAM_CONCEPT_MAP_MANIFEST,
+  DIAGRAM_CIRCUIT_MANIFEST,
+  DIAGRAM_GEAR_MANIFEST,
+  DIAGRAM_NETWORK_TOPO_MANIFEST,
+  DIAGRAM_NGINX_MANIFEST,
+  DIAGRAM_PLC_MANIFEST,
+  DRAWING_FREEHAND_MANIFEST,
+  DRAWING_SCENE_MANIFEST,
+  ASSESSMENT_FLASHCARDS_MANIFEST,
+  ASSESSMENT_EXAM_MANIFEST,
+  ASSESSMENT_DRAW_TASK_MANIFEST,
+  MATH_MANIPULATIVE_MANIFEST,
+  MATH_CALCULATOR_MANIFEST,
+  BUSINESS_SPREADSHEET_MANIFEST,
+  BUSINESS_ERDIAGRAM_MANIFEST,
+  SERVER_SHELL_MANIFEST,
+  WRITING_NOTEBOOK_MANIFEST,
 ];
 
 const MANIFEST_MAP: ReadonlyMap<string, LearningToolManifest> = new Map(
