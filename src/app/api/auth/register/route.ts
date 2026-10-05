@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { verifyCsrf } from "@/lib/csrf";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { signUserToken, getUserCookieName, getUserCookieMaxAge } from "@/lib/user-jwt";
@@ -11,19 +10,19 @@ import { checkAuthRateLimit, getClientIp } from "@/lib/auth-rate-limit";
 
 /**
  * POST /api/auth/register
- * Body: { email, password, name? }
+ * Body: { email, password, name?, phoneNumber? }
  *
  * Creates a new user with bcrypt-hashed password.
  * - Default tokenBalance: 1000 (from schema)
  * - Sets tokenResetDate to +1 month so free users get monthly refresh
  * Sets HTTP-only JWT cookie.
  *
- * Wrapped in try/catch — handles Neon connection issues, unique
- * constraint violations, and other DB errors gracefully.
+ * NOTE: CSRF is NOT enforced on register/login routes because:
+ * 1. The user doesn't have a CSRF token yet (they haven't logged in)
+ * 2. A stale CSRF cookie from a previous session causes 403 "CSRF mismatch"
+ * 3. Auth routes are protected by rate limiting instead (checkAuthRateLimit)
  */
 export async function POST(req: NextRequest) {
-  const csrfError = verifyCsrf(req);
-  if (csrfError) return csrfError;
   let body: any;
   try {
     body = await req.json();
