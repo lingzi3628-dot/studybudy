@@ -121,6 +121,8 @@ export default function Page() {
   // Runtime maintenance check — polls /api/maintenance-status on mount.
   // This catches MAINTENANCE_MODE=true set in Vercel env vars AFTER the
   // build was deployed (NEXT_PUBLIC_ vars are build-time only).
+  // Also CLEARS the localStorage flag when maintenance is OFF, so the
+  // maintenance screen doesn't persist after the env var is removed.
   const [runtimeMaintenance, setRuntimeMaintenance] = useState(false);
   useEffect(() => {
     fetch("/api/maintenance-status")
@@ -130,10 +132,15 @@ export default function Page() {
           localStorage.setItem("maintenance_mode", "true");
           setRuntimeMaintenance(true);
         } else {
+          // Maintenance is OFF — clear the flag so the screen goes away
           localStorage.removeItem("maintenance_mode");
+          setRuntimeMaintenance(false);
         }
       })
-      .catch(() => {});
+      .catch(() => {
+        // If the API fails, clear the flag (don't trap users in maintenance)
+        localStorage.removeItem("maintenance_mode");
+      });
   }, []);
 
   if (runtimeMaintenance && !adminOverride) {

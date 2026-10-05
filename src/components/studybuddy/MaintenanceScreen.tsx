@@ -197,21 +197,12 @@ export function MaintenanceScreen() {
 
 /**
  * Check if maintenance mode is enabled.
- * Checks NEXT_PUBLIC_MAINTENANCE_MODE env var (build-time) first.
- * Also checks localStorage for runtime override (set by /api/maintenance-status).
+ * Only checks the build-time env var (NEXT_PUBLIC_MAINTENANCE_MODE).
+ * The runtime check is done via /api/maintenance-status in page.tsx.
+ * localStorage is NOT checked here — it was causing the maintenance screen
+ * to persist after the env var was removed.
  */
 export function isMaintenanceMode(): boolean {
-  // Build-time check (NEXT_PUBLIC_ vars are inlined at build time)
   const flag = (process.env.NEXT_PUBLIC_MAINTENANCE_MODE ?? "false").toLowerCase().trim();
-  if (flag === "true" || flag === "1" || flag === "on") return true;
-
-  // Runtime check — localStorage flag set by the /api/maintenance-status endpoint
-  if (typeof window !== "undefined") {
-    try {
-      const runtimeFlag = localStorage.getItem("maintenance_mode");
-      if (runtimeFlag === "true") return true;
-    } catch {}
-  }
-
-  return false;
+  return flag === "true" || flag === "1" || flag === "on";
 }

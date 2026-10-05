@@ -53,15 +53,9 @@ export const maxDuration = 60;
 // callAI's model-mapping logic which can throw meaningful "not connected"
 // errors — those paths don't stream today. Free-model users stream directly.
 async function canStreamPlatform(userId: string): Promise<boolean> {
-  try {
-    const u = await db.user.findUnique({
-      where: { id: userId },
-      select: { currentModel: true },
-    });
-    return !u?.currentModel || u.currentModel === "study_buddy_free";
-  } catch {
-    return false;
-  }
+  // Z-AI SDK fallback removed — all models go through callAI() now.
+  // callAI() uses BYOK → ModelMapping → admin providers (no GLM platform).
+  return false;
 }
 
 export async function POST(req: NextRequest) {
