@@ -2108,3 +2108,69 @@ Stage Summary:
 - Both code paths now use the SAME fixed extractPdfText() helper — no more duplicate code drift risk.
 - Regression tests use real PDFs generated on the fly (pdf-lib is already a dependency) — if pdf-parse ever breaks again (v3? different package?), the tests will fail loudly instead of silently shipping "Could not extract enough text" to every learner.
 - STOP after this fix. Next is the user's original document-reader plugin idea — Stage 1 (text-PDF uploads only, no OCR) which the fix above makes much more reliable.
+
+---
+Task ID: Phase 7 Stage 1 — Document Reader (text-PDF uploads)
+Agent: main
+Task: Build Stage 1 of the document-reader plugin: text-PDF uploads only (no OCR). The previous turn fixed the silent pdf-parse v2 API breakage; this turn polishes the existing upload pipeline + adds proper architecture (documentContext as a separate field, not concatenated into user message).
+
+Work Log:
+- Audit findings (3 gaps):
+  1. SIZE CAP MISMATCH — frontend allowed 10MB, backend capped at 4MB (parseFormData default = Vercel body limit). Files between 4–10MB passed the frontend check, then silently failed at the backend.
+  2. NO TESTS — /api/tutor/upload-document route + the documentContext flow had zero tests.
+  3. DB POLLUTION — doc text (up to 30k chars) was concatenated into the user's message text + saved to DB. Every conversation with a doc attached had 30k chars of PDF text persisted in the user message row, making chat history unreadable when scrolled back.
+
+Fix 1: Size cap alignment
+- src/components/studybuddy/screens/AITutorChat.tsx handleDocumentUpload:
+  - Was: `if (file.size > 10 * 1024 * 1024) setError("Document too large (max 10MB)")`
+  - Now: `MAX_DOC_BYTES = 4 * 1024 * 1024` (matches backend). Friendly message includes actual file size + cap + suggestion ("try splitting the PDF or pasting the relevant text").
+- Same fix applied to handleOutlineUpload (also had 10MB cap).
+
+Fix 2: documentContext as a separate field (architecture)
+- Frontend send() (AITutorChat.tsx):
+  - Was: `messageText = q + "\n\n--- DOCUMENT ---\n" + doc.text + "\n--- END ---\n"` (concatenated → saved to DB as user message)
+  - Now: `messageText = q || "📄 ${doc.fileName}"` (just the question). `documentContext = { text, fileName, fileType }` sent as a SEPARATE field in the request body (mirrors how workspaceContext is sent).
+  - The user's message bubble now shows JUST the question, not 30k chars of PDF text.
+  - The doc shows up as a `document` attachment card (filename + char count + "extracted" label) — mirrors how images are shown.
+
+- Backend /api/tutor/chat/route.ts:
+  - Added documentContext field parsing (validates text + fileName are strings, caps text at 22k chars, fileName at 200, fileType at 20, defaults fileType to "unknown" when missing).
+  - Updated empty-message check: was `if (!userMessage && !imageDataUrl)` → now `if (!userMessage && !imageDataUrl && !documentContext)`.
+  - Updated db.chatMessage.create: saves a `document` attachment with caption={ fileName, fileType, charCount } JSON. The full doc text is NOT saved to DB.
+  - Injects document text into the system prompt (NOT the user message): `systemContent += "\n\n--- ATTACHED DOCUMENT: <filename> ---\n<text>\n--- END DOCUMENT ---\n\nThe learner attached the document above. Use it to answer their question. If they didn't ask a specific question, offer to summarize, explain key concepts, or generate practice questions from the content."`
+  - User message saved content is JUST the question (or "(Uploaded <filename>)" if they didn't type a question).
+
+- Backend /api/tutor/chat/stream/route.ts:
+  - Mirror of the same changes (documentContext parsing, db.chatMessage.create with `document` attachment, system prompt injection).
+
+Fix 3: Frontend attachment card renderer
+- AITutorChat.tsx AttachmentRenderer: added a `document` attachment type render branch.
+  - Parses caption JSON to get { fileName, fileType, charCount }.
+  - Renders an amber file card with FileText icon, filename (truncated), "{fileType} · {charCount} chars extracted".
+  - Mirrors the image attachment card pattern.
+  - Static Tailwind classes (Tailwind v3 doesn't pick up dynamic `border-${color}-200`).
+
+Tests: src/lib/__tests__/phase7-doc-reader-stage1.test.ts (20 tests)
+- Frontend send() body shape: doc text in documentContext (NOT message), omitted when no doc, default message when no question typed.
+- Server-side validation: accepts well-formed documentContext, treats malformed (missing text/fileName, non-object, null) as null, caps text at 22k chars, caps fileName at 200 chars, caps fileType at 20 chars, defaults fileType to "unknown".
+- System prompt injection: appends doc text + teaching instruction, no-op when documentContext is null.
+- Saved user message shape: content is just the question (NOT 30k chars), falls back to "(Uploaded <filename>)" when no question, document attachment caption carries fileName+fileType+charCount, image+document can coexist.
+- Frontend size cap: MAX_DOC_BYTES = 4MB (matches backend), rejects 6MB file with friendly message, accepts 3MB file.
+
+All 1108/1108 tests pass (was 1088, +20 new). TypeScript: 0 new errors (22 pre-existing baseline unchanged).
+- Committed as <HASH>. Pushed to main.
+
+Stage Summary:
+- Stage 1 of the document reader is now properly architected:
+  1. PDF/DOCX/TXT upload → /api/tutor/upload-document → extractPdfText (fixed in previous turn) → returns text + filename + charCount
+  2. Frontend stores in pendingDocument state → shows amber preview banner
+  3. On send: doc text sent as `documentContext` field (NOT concatenated into user message)
+  4. Server: injects doc text into system prompt, saves user message with JUST the question + a `document` attachment card
+  5. Chat history: shows the user's question + a document card (filename + char count). No 30k chars of PDF text in the saved message.
+  6. AI: sees the full doc text in its system prompt, can answer questions about it, can offer to summarize/explain/quiz.
+- Size cap aligned at 4MB across frontend + backend (no silent failures for 4–10MB files).
+- 20 new tests covering the data shapes that matter for correctness.
+- Both /api/tutor/chat and /api/tutor/chat/stream routes updated symmetrically.
+- STOP after Stage 1. Next stages (when user requests):
+  - Stage 2: photo uploads via OCR (Tesseract.js + sharp preprocessing)
+  - Stage 3: multi-page scanned PDFs via pdfjs-dist page rendering + OCR, moved to a background queue

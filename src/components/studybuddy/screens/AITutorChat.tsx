@@ -554,6 +554,11 @@ export function AITutorChat() {
   // Phase 86.3 — accept optional overrideImage param so callers (like the
   // drawing canvas submit handler) can pass an image directly without relying
   // on the async setState + stale closure issue.
+  // Phase 7 (Stage 1 doc reader) — send documentContext as a SEPARATE field
+  // (NOT concatenated into the user message). The server injects it into
+  // the system prompt so the AI sees the doc text, but the user's saved
+  // message in the DB contains only their actual question — not 30k chars
+  // of PDF text. The document shows up as an attachment card in the chat.
   const send = async (text?: string, overrideImage?: string | null) => {
     const q = (text ?? input).trim();
     const img = overrideImage ?? pendingImage;
@@ -568,18 +573,28 @@ export function AITutorChat() {
     setError(null);
     setShowUpgrade(false);
 
-    // Build the message — if a document is attached, include its text as context
-    let messageText = q;
-    if (doc) {
-      messageText = q || "Please analyze this document and help me understand it.";
-      messageText += `\n\n--- DOCUMENT: ${doc.fileName} (${doc.fileType.toUpperCase()}) ---\n${doc.text}\n--- END DOCUMENT ---\n`;
-    }
+    // The visible user message is JUST the question (or a default if they
+    // attached a doc without typing a question). The doc text is sent
+    // separately as `documentContext` so it doesn't pollute the saved
+    // chat history.
+    const messageText = q || (doc ? `📄 ${doc.fileName}` : img ? "(Image attached)" : "");
+    const documentContext = doc ? {
+      text: doc.text,
+      fileName: doc.fileName,
+      fileType: doc.fileType,
+    } : undefined;
 
     const tempUserMsg: ChatMsg = {
       id: `temp-${Date.now()}`,
       role: "user",
-      content: q || (doc ? `📄 ${doc.fileName}` : "(Image attached)"),
-      attachments: img ? [{ type: "image", url: img, caption: "Uploaded image" }] : undefined,
+      content: messageText,
+      // Show the document as an attachment card in the user's bubble.
+      // Mirrors how images are shown — `document` type renders a compact
+      // file card (filename + char count + "extracted" label).
+      attachments: [
+        ...(img ? [{ type: "image", url: img, caption: "Uploaded image" }] : []),
+        ...(doc ? [{ type: "document", url: null, caption: JSON.stringify({ fileName: doc.fileName, fileType: doc.fileType, charCount: doc.text.length }) }] : []),
+      ],
       createdAt: new Date().toISOString(),
     };
     // Live placeholder assistant bubble — updated token-by-token as deltas arrive
@@ -619,6 +634,11 @@ export function AITutorChat() {
       studyRoomTopicId: activeTopicId ?? undefined,
       message: messageText,
       image: img,
+      // Phase 7 (Stage 1 doc reader) — extracted document text sent as a
+      // SEPARATE field (not concatenated into `message`). The server injects
+      // this into the system prompt so the AI sees the doc, but the saved
+      // user message in DB only contains `messageText` (the actual question).
+      documentContext,
       // Phase 45: keep replies short + skip image-search in Data Saver mode
       dataSaver,
       // Phase 47: route to the right buddy prompt builder
@@ -1080,10 +1100,16 @@ export function AITutorChat() {
   };
 
   // Document upload — extract text from PDF/DOC/DOCX/XLSX/CSV/TXT
+  // Cap matches the backend (parseFormData default = 4MB, which is the
+  // Vercel serverless body limit). Files between 4–10MB would silently
+  // fail at the backend even though the frontend accepted them.
+  const MAX_DOC_BYTES = 4 * 1024 * 1024; // 4 MB — matches /api/tutor/upload-document
   const handleDocumentUpload = async (file: File) => {
     if (!file) return;
-    if (file.size > 10 * 1024 * 1024) {
-      setError("Document too large (max 10MB)");
+    if (file.size > MAX_DOC_BYTES) {
+      const mb = (file.size / 1024 / 1024).toFixed(1);
+      const cap = (MAX_DOC_BYTES / 1024 / 1024).toFixed(0);
+      setError(`Document too large (${mb} MB). Max is ${cap} MB — try splitting the PDF or pasting the relevant text.`);
       return;
     }
     setUploadingDoc(true);
@@ -1113,8 +1139,9 @@ export function AITutorChat() {
   // This makes the AI smarter for the user's specific track + grade + course.
   const handleOutlineUpload = async (file: File) => {
     if (!file) return;
-    if (file.size > 10 * 1024 * 1024) {
-      setError("Outline too large (max 10MB)");
+    if (file.size > MAX_DOC_BYTES) {
+      const mb = (file.size / 1024 / 1024).toFixed(1);
+      setError(`Outline too large (${mb} MB). Max is ${(MAX_DOC_BYTES / 1024 / 1024).toFixed(0)} MB.`);
       return;
     }
     setUploadingOutline(true);
@@ -3055,6 +3082,31 @@ function AttachmentRenderer({ attachment, onSpecChange, onOpenWorkspace, onOpenI
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={attachment.url} alt={attachment.caption} className="w-full max-h-80 object-contain bg-gray-50" />
         <p className="text-[11px] text-gray-600 px-3 py-2">{attachment.caption}</p>
+      </div>
+    );
+  }
+
+  // Phase 7 (Stage 1 doc reader) — render an uploaded document as a file card.
+  // The `caption` field carries { fileName, fileType, charCount } as JSON.
+  // The full extracted text is NOT shown here — it's too long for a chat
+  // bubble. The user sees the filename + size; the AI sees the full text
+  // via the system prompt.
+  if (attachment.type === "document") {
+    let meta: { fileName?: string; fileType?: string; charCount?: number } = {};
+    try { meta = JSON.parse(attachment.caption); } catch {}
+    const fileName = meta.fileName || "document";
+    const fileType = (meta.fileType || "").toUpperCase();
+    const charCount = meta.charCount ?? 0;
+    return (
+      <div className="rounded-xl border border-amber-200 bg-amber-50/40 p-3">
+        <div className="flex items-center gap-1.5 mb-1">
+          <FileText className="w-3.5 h-3.5 text-amber-600" />
+          <span className="text-[10px] font-bold uppercase text-amber-600">Document</span>
+        </div>
+        <p className="text-sm font-semibold text-gray-900 truncate">{fileName}</p>
+        <p className="text-xs text-gray-500 mt-0.5">
+          {fileType}{fileType ? " · " : ""}{charCount.toLocaleString()} chars extracted
+        </p>
       </div>
     );
   }

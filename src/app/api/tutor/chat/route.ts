@@ -66,6 +66,26 @@ export async function POST(req: NextRequest) {
   // AC1: Workspace context is a SEPARATE optional field — not part of the visible message.
   // The visible ChatMessage saved to DB contains only userMessage (the learner's actual question).
   const workspaceContext = body?.workspaceContext ?? null;
+  // Phase 7 (Stage 1 doc reader) — extracted document text + metadata sent
+  // as a SEPARATE field. The server injects this into the system prompt so
+  // the AI sees the doc, but the saved user message in DB only contains
+  // the learner's actual question. Saved as a `document` attachment on the
+  // user message so the chat history shows a file card (not 30k chars of
+  // raw PDF text).
+  const documentContext: {
+    text: string;
+    fileName: string;
+    fileType: string;
+  } | null = (body?.documentContext && typeof body.documentContext === "object"
+    && typeof body.documentContext.text === "string"
+    && typeof body.documentContext.fileName === "string") ? {
+    // Cap at 22k chars (matches the previous inline cap; leaves room for
+    // the system prompt + chat history within typical token budgets).
+    text: body.documentContext.text.slice(0, 22_000),
+    fileName: String(body.documentContext.fileName).slice(0, 200),
+    fileType: typeof body.documentContext.fileType === "string"
+      ? body.documentContext.fileType.slice(0, 20) : "unknown",
+  } : null;
   // Phase 47/61: Buddy routing — if the client sends a buddyId, use it.
   // If not, fall back to the user's track to pick the right default buddy.
   // This ensures the AI Tutor persona matches the user's education track
@@ -82,8 +102,8 @@ export async function POST(req: NextRequest) {
     : (isValidBuddyId(trackDefaultBuddy) ? trackDefaultBuddy : DEFAULT_BUDDY_ID);
   const buddy = getBuddy(buddyId);
 
-  if (!userMessage && !imageDataUrl) {
-    return NextResponse.json({ error: "Message or image is required" }, { status: 400 });
+  if (!userMessage && !imageDataUrl && !documentContext) {
+    return NextResponse.json({ error: "Message, image, or document is required" }, { status: 400 });
   }
 
   // Phase 1 — Build turn context (requestId / turnId / idempotencyKey)
@@ -168,14 +188,35 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 2. Save the user's message (with optional image attachment)
+    // 2. Save the user's message (with optional image + document attachments).
+    // Phase 7 (Stage 1 doc reader) — when documentContext is set, save a
+    // `document` attachment on the user message (NOT the full text). The
+    // frontend renders this as a file card; the AI sees the text via the
+    // system prompt (injected below). This keeps DB rows small and the
+    // chat history readable when scrolled back.
+    const userAttachments: any[] = [];
+    if (imageDataUrl) {
+      userAttachments.push({ type: "image", url: imageDataUrl, caption: "Uploaded image" });
+    }
+    if (documentContext) {
+      userAttachments.push({
+        type: "document",
+        url: null,
+        caption: JSON.stringify({
+          fileName: documentContext.fileName,
+          fileType: documentContext.fileType,
+          charCount: documentContext.text.length,
+        }),
+      });
+    }
     await db.chatMessage.create({
       data: {
         conversationId: conversation.id,
         userId: user.id,
         role: "user",
-        content: userMessage || "(Image attached — please analyze)",
-        attachments: imageDataUrl ? [{ type: "image", url: imageDataUrl, caption: "Uploaded image" }] as any : null,
+        content: userMessage || (imageDataUrl ? "(Image attached — please analyze)"
+          : documentContext ? `(Uploaded ${documentContext.fileName})` : "(Empty)"),
+        attachments: userAttachments.length > 0 ? userAttachments : undefined,
       },
     });
 
@@ -277,7 +318,16 @@ export async function POST(req: NextRequest) {
 
     // Phase 3 — Inject the bounded prompt block when a plugin was pre-selected.
     // This constrains the AI to emit only that plugin's artifact format.
-    const systemContent = injectBoundedPrompt(baseSystemContent, pluginOrchestration.boundedPromptBlock);
+    let systemContent = injectBoundedPrompt(baseSystemContent, pluginOrchestration.boundedPromptBlock);
+
+    // Phase 7 (Stage 1 doc reader) — Inject the extracted document text into
+    // the system prompt so the AI sees it as context, NOT as part of the
+    // user's visible message. This keeps the saved chat history clean (the
+    // user's message is just their question) while giving the AI full access
+    // to the document's content. Bounded to 22k chars above.
+    if (documentContext) {
+      systemContent += `\n\n--- ATTACHED DOCUMENT: ${documentContext.fileName} (${documentContext.fileType.toUpperCase()}) ---\n${documentContext.text}\n--- END DOCUMENT ---\n\nThe learner attached the document above. Use it to answer their question. If they didn't ask a specific question, offer to summarize, explain key concepts, or generate practice questions from the content.`;
+    }
 
     if (pluginOrchestration.activated) {
       turnLogger.info("plugin-first: bounded schema injected", {
