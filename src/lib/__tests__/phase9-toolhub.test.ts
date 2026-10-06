@@ -146,7 +146,10 @@ describe("toolhub-client — listTools", () => {
       "https://toolhub.space-z.ai/api/plugins",
       expect.objectContaining({
         method: "GET",
-        headers: { Authorization: "Bearer sbth_test_key_12345" },
+        headers: {
+          Authorization: "Bearer sbth_test_key_12345",
+          "X-Hub-Key": "sbth_test_key_12345",
+        },
       }),
     );
   });
@@ -170,6 +173,28 @@ describe("toolhub-client — listTools", () => {
     const result = await listTools();
     expect(result.tools).toHaveLength(0);
     expect(result.error).toMatch(/not enabled/i);
+  });
+
+  it("accepts 'plugins' field name (not just 'tools')", async () => {
+    mockFetchOk({ plugins: [{ id: "sandbox", name: "Code Sandbox" }] });
+    const result = await listTools();
+    expect(result.tools).toHaveLength(1);
+    expect(result.tools[0].id).toBe("sandbox");
+  });
+
+  it("accepts bare array response", async () => {
+    mockFetchOk([{ id: "tutor", name: "AI Tutor" }, { id: "sandbox", name: "Code Sandbox" }]);
+    const result = await listTools();
+    expect(result.tools).toHaveLength(2);
+  });
+
+  it("surfaces raw body when no tools found (for debugging)", async () => {
+    mockFetchOk({ unexpectedShape: true, foo: "bar" });
+    const result = await listTools();
+    expect(result.tools).toHaveLength(0);
+    expect(result.error).toMatch(/No tools found/);
+    expect(result.error).toMatch(/unexpectedShape/);
+    expect(result.rawBody).toMatch(/unexpectedShape/);
   });
 });
 

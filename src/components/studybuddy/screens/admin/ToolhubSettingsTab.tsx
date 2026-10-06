@@ -278,10 +278,24 @@ export function ToolhubSettingsTab() {
                 )}
               </div>
             ) : (
-              <div className="flex items-center gap-1.5">
-                <AlertCircle className="w-3 h-3" />
-                <span className="font-semibold">Failed:</span>
-                <span className="font-mono break-all">{testResult.error}</span>
+              <div className="space-y-2">
+                <div className="flex items-center gap-1.5">
+                  <AlertCircle className="w-3 h-3" />
+                  <span className="font-semibold">Failed:</span>
+                  <span className="font-mono break-all">{testResult.error}</span>
+                </div>
+                {/* Phase 9 debug — show raw Tools Hub response body so admin
+                    can diagnose response-shape mismatches without server logs */}
+                {testResult.rawBody && (
+                  <details className="text-[11px]">
+                    <summary className="cursor-pointer text-gray-500 hover:text-gray-700">
+                      Show raw Tools Hub response ({testResult.rawBody.length} chars)
+                    </summary>
+                    <pre className="mt-1 p-2 bg-gray-100 rounded text-[10px] font-mono whitespace-pre-wrap break-all max-h-40 overflow-auto">
+                      {testResult.rawBody}
+                    </pre>
+                  </details>
+                )}
               </div>
             )}
           </div>

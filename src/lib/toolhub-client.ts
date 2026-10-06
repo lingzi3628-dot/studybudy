@@ -151,7 +151,7 @@ export async function isToolhubTutorEnabled(): Promise<boolean> {
 // listTools() — GET /api/plugins
 // ============================================================
 
-export async function listTools(): Promise<{ tools: ToolhubTool[]; error?: string }> {
+export async function listTools(): Promise<{ tools: ToolhubTool[]; error?: string; rawBody?: string }> {
   const { settings, apiKey } = await loadSettings();
   if (!settings.enabled || !apiKey) {
     return { tools: [], error: "Tools Hub is not enabled or API key is missing." };
@@ -162,16 +162,58 @@ export async function listTools(): Promise<{ tools: ToolhubTool[]; error?: strin
       method: "GET",
       headers: {
         Authorization: `Bearer ${apiKey}`,
+        "X-Hub-Key": apiKey, // send both — Tools Hub accepts either
       },
       signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) {
       const text = await res.text().catch(() => "");
-      return { tools: [], error: `Tools Hub returned ${res.status}: ${text.slice(0, 200)}` };
+      return { tools: [], error: `Tools Hub returned ${res.status}: ${text.slice(0, 500)}` };
     }
-    const data = await res.json();
-    // Tools Hub response shape: { tools: [...] } or [...]
-    const tools: ToolhubTool[] = Array.isArray(data) ? data : (data?.tools ?? []);
+    const text = await res.text().catch(() => "");
+    let data: any = null;
+    try { data = JSON.parse(text); } catch { /* not JSON */ }
+
+    // Tools Hub response shape is unknown — accept ANY of these field names.
+    // Different Tools Hub versions/deployments use different shapes.
+    const candidates: any[] = [];
+    if (Array.isArray(data)) {
+      candidates.push(...data);
+    } else if (data && typeof data === "object") {
+      for (const key of ["tools", "plugins", "data", "results", "items", "list"]) {
+        if (Array.isArray(data[key])) {
+          candidates.push(...data[key]);
+          break;
+        }
+      }
+      // If still nothing, maybe it's a single tool object (not a list).
+      // Or maybe the response IS the tool list nested deeper.
+      if (candidates.length === 0 && data.id && data.name) {
+        candidates.push(data);
+      }
+    }
+
+    // Normalize: each candidate should have at least an `id` or `name`.
+    const tools: ToolhubTool[] = candidates
+      .filter((t: any) => t && typeof t === "object" && (t.id || t.name || t.slug))
+      .map((t: any) => ({
+        id: String(t.id ?? t.slug ?? t.name ?? "unknown"),
+        name: String(t.name ?? t.id ?? t.slug ?? "unknown"),
+        description: typeof t.description === "string" ? t.description : undefined,
+        category: typeof t.category === "string" ? t.category : (typeof t.type === "string" ? t.type : undefined),
+        enabled: typeof t.enabled === "boolean" ? t.enabled : undefined,
+      }));
+
+    if (tools.length === 0) {
+      // Surface the raw body so the admin can see what Tools Hub returned.
+      // This makes it possible to debug response-shape mismatches without
+      // server logs — the admin UI shows the first 500 chars.
+      return {
+        tools: [],
+        error: `No tools found in response. Raw body (first 500 chars): ${text.slice(0, 500) || "(empty)"}`,
+        rawBody: text.slice(0, 1000),
+      };
+    }
     return { tools };
   } catch (err: any) {
     return { tools: [], error: `Failed to reach Tools Hub: ${err?.message ?? err}` };
@@ -356,10 +398,11 @@ export async function testConnection(): Promise<{
   ok: boolean;
   error?: string;
   tools?: ToolhubTool[];
+  rawBody?: string;
 }> {
   // Bypass the cache so we test the CURRENT key, not a stale cached one.
   cachedSettings = null;
-  const { tools, error } = await listTools();
+  const { tools, error, rawBody } = await listTools();
 
   // Persist the test result (best-effort — don't block on DB write).
   try {
@@ -377,5 +420,5 @@ export async function testConnection(): Promise<{
   if (tools.length > 0) {
     return { ok: true, tools };
   }
-  return { ok: false, error: error ?? "No tools returned." };
+  return { ok: false, error: error ?? "No tools returned.", rawBody };
 }
