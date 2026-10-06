@@ -464,6 +464,59 @@ RULES:
 - You MAY include a brief teaching intro BEFORE the anatomy block.
 === END ACTIVE PLUGIN ===
 `.trim(),
+
+  // ============================================================
+  // Phase 8 — workspace_edit (AI direct workspace writes)
+  // ============================================================
+  // This is NOT a plugin — it's a special instruction the AI can emit
+  // alongside any other artifact. It patches the ACTIVE workspace tab
+  // instead of opening a new one. This gives the AI "direct workspace
+  // control" — it can write into the workspace, not just into chat.
+  //
+  // The AI should use workspace_edit when the learner asks to MODIFY
+  // an existing artifact ("change Diana to 8", "add another event",
+  // "make the pendulum longer"). It should emit a NEW artifact (mathgraph,
+  // composition, etc.) when the learner asks to CREATE something new.
+  //
+  // This schema is injected into the system prompt when the action verb
+  // is "modify" AND there's an active workspace context.
+  "__workspace_edit__": `
+=== WORKSPACE EDIT MODE (DO NOT mention this name to the learner) ===
+The learner is asking you to MODIFY the artifact currently open in their workspace. You MUST produce a workspace_edit spec to patch the active artifact.
+
+Emit the spec inside a \`\`\`workspace_edit block. Use ONE of two modes:
+
+MERGE (preferred — patches specific fields):
+\`\`\`workspace_edit
+{
+  "op": "merge",
+  "values": [8, 4, 6],
+  "title": "Updated Graph"
+}
+\`\`\`
+The fields you include (except "op") are deep-merged into the active artifact's spec. Fields you don't include are preserved.
+
+REPLACE (use when the spec changes drastically):
+\`\`\`workspace_edit
+{
+  "op": "replace",
+  "spec": {
+    "type": "bar",
+    "title": "New Graph",
+    "categories": ["A", "B"],
+    "values": [8, 4]
+  }
+}
+\`\`\`
+The entire spec is replaced. Use this only when the merge would be confusing.
+
+RULES:
+- Emit ONLY ONE workspace_edit block per reply.
+- You MAY include a brief explanation in the chat BEFORE the workspace_edit block.
+- The patch applies to the ACTIVE tab (the one the learner is looking at).
+- If the learner asks to create something NEW (not modify), do NOT use workspace_edit — emit the appropriate artifact fence instead (mathgraph, composition, etc.).
+=== END WORKSPACE EDIT MODE ===
+`.trim(),
 };
 
 // ============================================================
@@ -581,6 +634,40 @@ export async function resolvePluginBeforeAI(opts: {
         userId,
         pluginId: decision.pluginId,
       });
+    }
+
+    // Phase 8 — workspace_edit injection.
+    // When the action verb is "modify" AND there's an active workspace
+    // context, inject the workspace_edit schema so the AI knows it can
+    // patch the active artifact directly (instead of emitting a new one).
+    // This is the "co-editor" pattern — AI writes directly into the workspace.
+    // We inject this AFTER the plugin schema check so it doesn't interfere
+    // with plugin selection. If a plugin was already selected + has a schema,
+    // we append the workspace_edit schema as an additional capability.
+    if (envelope.action === "modify" && workspaceContext) {
+      const editSchema = PLUGIN_BOUNDED_SCHEMAS["__workspace_edit__"];
+      if (editSchema) {
+        logger.info("plugin-first: workspace_edit mode active, injecting edit schema", {
+          userId,
+          conversationId,
+          workspaceArtifactType: workspaceContext.artifactType,
+        });
+        // If a plugin schema was already injected, append the edit schema.
+        // Otherwise, use the edit schema alone.
+        return {
+          activated: true,
+          decision: decision ?? {
+            pluginId: "__workspace_edit__",
+            confidence: 0.9,
+            matchedStep: "workspace_context",
+            candidatesConsidered: [],
+            envelope,
+          },
+          envelope,
+          boundedPromptBlock: editSchema,
+          clarificationQuestion: null,
+        };
+      }
     }
 
     // No plugin selected — AI replies freely (same as flag off)

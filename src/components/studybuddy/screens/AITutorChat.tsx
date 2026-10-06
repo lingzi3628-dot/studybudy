@@ -359,6 +359,38 @@ export function AITutorChat() {
     ));
   }, [activeTabId]);
 
+  // Phase 8 — Persist a learner's edit to the active tab's DB artifact.
+  // Called when the learner edits an artifact inline (sliders, text, drag).
+  // If the tab has a persistedId (from createArtifact), PUT the new payload
+  // to /api/artifacts/[id] which creates a new version (Phase 4 service).
+  // Best-effort: if the PUT fails, the tab still updates locally.
+  const persistTabUpdate = useCallback(async (att: Attachment) => {
+    if (!USE_WORKSPACE) return;
+    if (!activeTab?.persistedId) return; // not persisted yet — skip
+    try {
+      let payload: any = null;
+      try { payload = JSON.parse(att.caption); } catch { payload = { caption: att.caption }; }
+      await fetch(`/api/artifacts/${activeTab.persistedId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          payload,
+          changeSummary: "learner edit",
+        }),
+      });
+    } catch {
+      // Best-effort — failure here is fine. The tab is still updated locally.
+    }
+  }, [activeTab?.persistedId]);
+
+  // Phase 8 — Update the active tab's artifact AND persist to DB.
+  // Used by learner-side inline editing (sliders, text, drag) so changes
+  // save back to the workspace + DB simultaneously.
+  const updateActiveArtifact = useCallback((att: Attachment) => {
+    setWorkspaceArtifact(att);
+    persistTabUpdate(att);
+  }, [setWorkspaceArtifact, persistTabUpdate]);
+
   // Close a specific tab by id.
   const closeTab = useCallback((tabId: string) => {
     setWorkspaceTabs((prev) => {
@@ -462,19 +494,61 @@ export function AITutorChat() {
     // Phase 7 — 8 critical new plugin attachment types
     "composition", "timeline", "geometry", "physics_sim", "molecule", "free_body", "financial", "anatomy",
   ];
+  // Phase 8 — track which workspace_edit patches we've already applied, so
+  // we don't re-apply the same patch on every messages change (the useEffect
+  // re-runs when messages update, but we only want to apply each patch once).
+  const appliedWorkspaceEdits = useRef<Set<string>>(new Set());
+
   useEffect(() => {
     if (!USE_WORKSPACE) return;
     const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant" && m.attachments?.length);
     if (!lastAssistant?.attachments) return;
+
+    // Phase 8 — Check for workspace_edit FIRST (before opening new tabs).
+    // workspace_edit is a PATCH to the active tab, not a new artifact.
+    // The AI uses this to write directly into the workspace without opening
+    // a new tab. This is the "co-editor" pattern.
+    const editAtt = lastAssistant.attachments.find((a) => a.type === "workspace_edit");
+    if (editAtt) {
+      // Dedup by message id + caption — don't apply the same patch twice.
+      const editKey = `${lastAssistant.id}:${editAtt.caption}`;
+      if (!appliedWorkspaceEdits.current.has(editKey)) {
+        appliedWorkspaceEdits.current.add(editKey);
+        try {
+          const editSpec = JSON.parse(editAtt.caption);
+          // Apply the patch to the active tab.
+          // If no tab is active, we can't apply — skip silently.
+          // (The AI should only emit workspace_edit when there's an active
+          // artifact to edit. If it emits one without an active tab, the
+          // patch is lost — but the learner can still see the AI's text
+          // reply explaining what it tried to do.)
+          if (activeTab && workspaceArtifact) {
+            let newCaption: string;
+            if (editSpec.op === "replace" && editSpec.spec) {
+              newCaption = JSON.stringify(editSpec.spec);
+            } else if (editSpec.op === "merge" && editSpec.patch) {
+              const currentSpec = JSON.parse(workspaceArtifact.caption);
+              const merged = { ...currentSpec, ...editSpec.patch };
+              newCaption = JSON.stringify(merged);
+            } else {
+              throw new Error("Invalid workspace_edit spec");
+            }
+            // Update the active tab in place (revise-in-place).
+            setWorkspaceArtifact({ ...workspaceArtifact, caption: newCaption });
+          }
+        } catch {
+          // Malformed patch — ignore. The AI's text reply still shows.
+        }
+      }
+    }
+
+    // Then check for NEW artifacts to open in tabs.
     const workspaceAtt = lastAssistant.attachments.find((a) => WORKSPACE_TYPES_F15.includes(a.type));
     if (!workspaceAtt) return;
     // Phase 8: openInWorkspace now opens in a NEW tab (multi-tab workspace).
     // It dedupes — if a tab with the same type+caption already exists,
     // it just activates it. So calling it here is safe even if the
     // same artifact is already open.
-    // (Previously this checked `workspaceArtifact?.caption === workspaceAtt.caption`
-    // and skipped. With multi-tab, we want to open EVERY new artifact
-    // the AI emits — not just the first one. The dedup handles re-sends.)
     const alreadyOpen = workspaceTabs.some(
       (t) => t.artifact.type === workspaceAtt.type && t.artifact.caption === workspaceAtt.caption
     );
@@ -2906,7 +2980,8 @@ export function AITutorChat() {
                           </p>
                         </div>
                         <CompositionEditor spec={editorSpec} onSave={(newText) => {
-                          setWorkspaceArtifact({
+                          // Phase 8 — update active tab + persist to DB.
+                          updateActiveArtifact({
                             ...workspaceArtifact,
                             caption: JSON.stringify({ ...spec, content: newText }),
                           });

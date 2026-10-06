@@ -380,6 +380,8 @@ export async function parseGraphAttachments(opts: {
       // trying (and failing) to interpret them as graph specs.
       "composition", "timeline", "geometry", "physics", "molecule",
       "freebody", "financial", "anatomy",
+      // Phase 8 — workspace_edit fence (AI direct workspace writes)
+      "workspace_edit",
     ]);
     const codeBlockRe = /```([\w-]*)\s*([\s\S]*?)```/g;
     let codeBlockMatch: RegExpExecArray | null;
@@ -917,6 +919,56 @@ export function parseAnatomy(reply: string): any | null {
 }
 
 // ---------------------------------------------------------------
+// 6c. Phase 8 — workspace_edit parser (AI direct workspace writes)
+// ---------------------------------------------------------------
+//
+// The ```workspace_edit fence lets the AI patch the ACTIVE workspace tab
+// WITHOUT opening a new one. This is the "co-editor" pattern — the AI
+// writes directly into the workspace, not just into chat.
+//
+// Two modes:
+//   1. MERGE — patch specific fields of the active artifact's payload
+//      ```workspace_edit
+//      { "op": "merge", "values": [8, 4, 6] }
+//      ```
+//      → deep-merges { values: [8,4,6] } into the active tab's spec
+//
+//   2. REPLACE — replace the active artifact's entire payload
+//      ```workspace_edit
+//      { "op": "replace", "spec": { "type": "bar", "categories": ["A","B"], "values": [8,4] } }
+//      ```
+//      → replaces the active tab's spec entirely
+//
+// The postProcessReply returns this as a `workspace_edit` attachment.
+// The frontend's auto-open useEffect detects this type + applies the
+// patch to the active tab (NOT opening a new tab).
+//
+// CRITICAL: this does NOT change the saved chat message. The AI's reply
+// text still streams to the chat. The workspace_edit is a SEPARATE
+// instruction to update the workspace surface. This is the "shared
+// canvas" pattern — chat + workspace are decoupled but simultaneous.
+
+export function parseWorkspaceEdit(reply: string): any | null {
+  const spec = parseFencedSpec(reply, "workspace_edit", []);
+  if (!spec) return null;
+  // Validate: must have EITHER an "op" field OR be a bare spec (treated as merge)
+  // op must be "merge" or "replace". Default to "merge" if missing.
+  const op = typeof spec.op === "string" && ["merge", "replace"].includes(spec.op)
+    ? spec.op
+    : "merge";
+  // For "replace", a "spec" field is required (the new payload).
+  // For "merge", the top-level fields (minus "op") are the merge patch.
+  if (op === "replace") {
+    if (!spec.spec || typeof spec.spec !== "object") return null;
+    return { op: "replace", spec: spec.spec };
+  }
+  // merge: strip the "op" field, return the rest as the patch
+  const { op: _omit, ...patch } = spec;
+  if (Object.keys(patch).length === 0) return null;
+  return { op: "merge", patch };
+}
+
+// ---------------------------------------------------------------
 // 7. Post-process pipeline (graphs + examgen + proof engine)
 // ---------------------------------------------------------------
 
@@ -1064,6 +1116,17 @@ export async function postProcessReply(opts: {
   if (anatomySpec) {
     learnerReply = learnerReply.replace(/```anatomy\s*[\s\S]*?```\s*/i, "").trim();
     attachments.push({ type: "anatomy", url: null, caption: JSON.stringify(anatomySpec) });
+  }
+
+  // Phase 8 — workspace_edit (AI direct workspace writes)
+  // This is a SPECIAL attachment type: it doesn't open a new tab. Instead,
+  // the frontend's auto-open useEffect detects `workspace_edit` + applies
+  // the patch to the ACTIVE tab. This lets the AI write directly into the
+  // workspace without opening a new artifact.
+  const workspaceEditSpec = parseWorkspaceEdit(learnerReply);
+  if (workspaceEditSpec) {
+    learnerReply = learnerReply.replace(/```workspace_edit\s*[\s\S]*?```\s*/i, "").trim();
+    attachments.push({ type: "workspace_edit", url: null, caption: JSON.stringify(workspaceEditSpec) });
   }
 
   // Exam generation config

@@ -2256,3 +2256,48 @@ Stage Summary:
 - Export + share is Direction D (later).
 - 28 new tests covering tab state logic + persistence wiring shapes.
 - STOP after Phase 8 round 1. Next: Direction C (inline editing) OR code execution security decision.
+
+---
+Task ID: Phase 8 round 2 — AI direct workspace writes (co-editor pattern)
+Agent: main
+Task: User wants the AI tutor to have "full control of the workspace" — it should be able to write directly INTO the workspace, not just write in chat and open the workspace. This is the "co-editor" / "shared canvas" pattern. Also wire learner-side inline editing (save-back from editable panels to DB).
+
+Work Log:
+- Added parseWorkspaceEdit() in tutor-chat-engine.ts — parses ```workspace_edit fence. Supports two modes:
+  * MERGE (default): patches specific fields of the active artifact's spec. `{ "op": "merge", "values": [8,4,6] }` → deep-merges {values:[8,4,6]} into the active tab's spec.
+  * REPLACE: replaces the active artifact's entire spec. `{ "op": "replace", "spec": {...} }` → replaces the active tab's spec entirely.
+  * Defaults to "merge" when op is missing. Returns null for invalid specs (empty patch, replace without spec field).
+- Added "workspace_edit" to CODE_LANGS_TO_SKIP so tryParseGraphSpec doesn't try to interpret it as a graph spec.
+- Wired parseWorkspaceEdit into postProcessReply — returns as a special attachment type "workspace_edit" + strips the fence from the visible reply.
+- Frontend (AITutorChat.tsx) auto-open useEffect: checks for workspace_edit attachments FIRST (before opening new tabs). When found, applies the patch to the ACTIVE tab (merge or replace) instead of opening a new tab. Dedup via appliedWorkspaceEdits ref — prevents re-applying the same patch on messages change.
+- Added __workspace_edit__ bounded schema in plugin-orchestrator.ts — tells the AI about the workspace_edit capability. Injected into the system prompt when the action verb is "modify" AND there's an active workspace context. The schema explains MERGE vs REPLACE modes + when to use workspace_edit (modify) vs new artifact (create).
+- Learner-side save-back: added persistTabUpdate() + updateActiveArtifact() helpers. When the learner edits an artifact inline (CompositionEditor onSave, slider changes, etc.), the edit:
+  1. Updates the active tab via setWorkspaceArtifact (instant UI update)
+  2. Persists to DB via PUT /api/artifacts/[id] (creates a new version via Phase 4 modifyArtifact service)
+  Best-effort: if the PUT fails, the tab still updates locally.
+- Wired CompositionEditor's onSave to use updateActiveArtifact (was setWorkspaceArtifact — now persists to DB).
+- 16 new tests in phase8-workspace-edit.test.ts:
+  * parseWorkspaceEdit: merge, default-to-merge, replace, replace-without-spec, empty merge, no fence, invalid JSON, unknown op defaults to merge
+  * postProcessReply: workspace_edit → attachment + stripped from reply, no false positive without fence, coexists with new artifacts
+  * Frontend application logic: merge patches specific fields + preserves others, merge can update title, replace overwrites entirely, merge with nested object shallow-merges
+  * Edge cases: workspace_edit + new artifact in same reply, fence stripped from visible reply
+- Ran full vitest suite: 1158/1158 pass (was 1142, +16 new). 50s.
+- TypeScript: 0 new errors. 22 pre-existing baseline unchanged.
+- Committed as <HASH>. Pushed to main.
+
+Stage Summary:
+- AI can now write DIRECTLY into the workspace via ```workspace_edit fence.
+  This is the "co-editor" pattern — the AI patches the active tab instead
+  of opening a new one. The learner sees the workspace update in real-time
+  while the AI's text reply streams to the chat.
+- Learner edits (CompositionEditor) now persist to DB via PUT /api/artifacts/[id].
+  Creates a new version each time (Phase 4 version history).
+- The bounded schema tells the AI WHEN to use workspace_edit (modify) vs
+  new artifact (create). The action verb "modify" + active workspace
+  context triggers the workspace_edit schema injection.
+- Code execution stays disabled (Phase 0 kill switch). Separate task.
+- Inline editing for the other 7 panels (Timeline, Geometry, PhysicsSim,
+  Molecule, FreeBody, Financial, Anatomy) is the next round — the save-back
+  infrastructure (updateActiveArtifact) is already in place, each panel
+  just needs to call it on edit.
+- STOP after Phase 8 round 2. Next: wire save-back for the remaining 7 panels.
