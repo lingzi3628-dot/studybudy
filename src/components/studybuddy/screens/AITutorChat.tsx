@@ -2223,9 +2223,36 @@ export function AITutorChat() {
                   msg={msg}
                   onCopy={() => copyMessage(msg)}
                   onOpenWorkspace={(attachment) => {
-                    try { localStorage.setItem("studybuddy.pendingComputerWorkspace", JSON.stringify({ ...JSON.parse(attachment.caption), topicId: activeTopicId })); } catch {}
-                    if (activeTopicId) setScreen("study");
-                    else openCreate("room");
+                    try {
+                      const offer = JSON.parse(attachment.caption);
+                      localStorage.setItem("studybuddy.pendingComputerWorkspace", JSON.stringify({ ...offer, topicId: activeTopicId }));
+
+                      // Phase 9 fix — route to the RIGHT workspace screen
+                      // based on the offer's `workspace` field. Previously
+                      // this always went to StudyRoom, but the Web Builder,
+                      // Dev Buddy, etc. have their own dedicated screens.
+                      const ws = offer?.workspace;
+                      if (ws === "web") {
+                        setScreen("webBuilder");
+                        return;
+                      } else if (ws === "code") {
+                        setScreen("devBuddy");
+                        return;
+                      } else if (ws === "backend") {
+                        setScreen("backendBuddy");
+                        return;
+                      } else if (ws === "modeling" || ws === "simulation") {
+                        setScreen("devBuddy");
+                        return;
+                      }
+                      // Default: StudyRoom (which has its own computer workspace)
+                      if (activeTopicId) setScreen("study");
+                      else openCreate("room");
+                    } catch {
+                      // Fallback: try the old behavior
+                      if (activeTopicId) setScreen("study");
+                      else openCreate("room");
+                    }
                   }}
                   onOpenInWorkspacePanel={USE_WORKSPACE ? openInWorkspace : undefined}
                   onRetry={msg.role === "user" && i === messages.length - 1 ? retry : undefined}
