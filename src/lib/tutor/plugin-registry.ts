@@ -409,7 +409,7 @@ const CODE_DOCKER_MANIFEST: LearningToolManifest = {
 };
 
 // --- 8 critical new plugins ---
-const WRITING_COMPOSITION_MANIFEST: LearningToolManifest = {
+export const WRITING_COMPOSITION_MANIFEST: LearningToolManifest = {
   id: "writing.composition", version: 1, category: "writing",
   supportedActions: ["create", "modify", "inspect"],
   capabilities: { render: true, edit: true, execute: false, save: true, offline: true },
@@ -418,7 +418,7 @@ const WRITING_COMPOSITION_MANIFEST: LearningToolManifest = {
   availability: { enabled: true, supportedPlatforms: ["web", "mobile"] },
 };
 
-const DIAGRAM_TIMELINE_MANIFEST: LearningToolManifest = {
+export const DIAGRAM_TIMELINE_MANIFEST: LearningToolManifest = {
   id: "diagram.timeline", version: 1, category: "diagram",
   supportedActions: ["create", "modify", "inspect"],
   capabilities: { render: true, edit: true, execute: false, save: true, offline: true },
@@ -427,7 +427,7 @@ const DIAGRAM_TIMELINE_MANIFEST: LearningToolManifest = {
   availability: { enabled: true, supportedPlatforms: ["web", "mobile"] },
 };
 
-const MATH_GEOMETRY_MANIFEST: LearningToolManifest = {
+export const MATH_GEOMETRY_MANIFEST: LearningToolManifest = {
   id: "math.geometry", version: 1, category: "graph",
   supportedActions: ["create", "modify", "inspect"],
   capabilities: { render: true, edit: true, execute: false, save: true, offline: true },
@@ -436,7 +436,7 @@ const MATH_GEOMETRY_MANIFEST: LearningToolManifest = {
   availability: { enabled: true, supportedPlatforms: ["web", "mobile"] },
 };
 
-const SCIENCE_PHYSICS_MANIFEST: LearningToolManifest = {
+export const SCIENCE_PHYSICS_MANIFEST: LearningToolManifest = {
   id: "science.physics-sim", version: 1, category: "simulation",
   supportedActions: ["create", "modify", "run", "inspect"],
   capabilities: { render: true, edit: true, execute: true, save: true, offline: true },
@@ -445,7 +445,7 @@ const SCIENCE_PHYSICS_MANIFEST: LearningToolManifest = {
   availability: { enabled: true, supportedPlatforms: ["web"] },
 };
 
-const SCIENCE_CHEMISTRY_MANIFEST: LearningToolManifest = {
+export const SCIENCE_CHEMISTRY_MANIFEST: LearningToolManifest = {
   id: "science.chemistry-sim", version: 1, category: "simulation",
   supportedActions: ["create", "modify", "inspect"],
   capabilities: { render: true, edit: true, execute: false, save: true, offline: true },
@@ -454,7 +454,7 @@ const SCIENCE_CHEMISTRY_MANIFEST: LearningToolManifest = {
   availability: { enabled: true, supportedPlatforms: ["web"] },
 };
 
-const DIAGRAM_FREE_BODY_MANIFEST: LearningToolManifest = {
+export const DIAGRAM_FREE_BODY_MANIFEST: LearningToolManifest = {
   id: "diagram.free-body", version: 1, category: "diagram",
   supportedActions: ["create", "modify", "inspect"],
   capabilities: { render: true, edit: true, execute: false, save: true, offline: true },
@@ -463,7 +463,7 @@ const DIAGRAM_FREE_BODY_MANIFEST: LearningToolManifest = {
   availability: { enabled: true, supportedPlatforms: ["web"] },
 };
 
-const BUSINESS_FINANCIAL_MANIFEST: LearningToolManifest = {
+export const BUSINESS_FINANCIAL_MANIFEST: LearningToolManifest = {
   id: "business.financial", version: 1, category: "code",
   supportedActions: ["create", "modify", "run", "inspect"],
   capabilities: { render: true, edit: true, execute: true, save: true, offline: true },
@@ -472,7 +472,7 @@ const BUSINESS_FINANCIAL_MANIFEST: LearningToolManifest = {
   availability: { enabled: true, supportedPlatforms: ["web", "mobile"] },
 };
 
-const DIAGRAM_ANATOMY_MANIFEST: LearningToolManifest = {
+export const DIAGRAM_ANATOMY_MANIFEST: LearningToolManifest = {
   id: "diagram.anatomy", version: 1, category: "diagram",
   supportedActions: ["create", "modify", "inspect"],
   capabilities: { render: true, edit: true, execute: false, save: true, offline: true },

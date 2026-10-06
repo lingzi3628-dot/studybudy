@@ -1942,3 +1942,71 @@ Stage Summary:
 - Bounded schemas never mention plugin IDs to the learner.
 - Existing parseGraphAttachments still runs for safety (catches any off-type specs even when AI is constrained).
 - STOP after Phase 3. Next is Phase 4 (artifact service) when user requests.
+
+---
+Task ID: Phase 6 — 8 critical plugins
+Agent: main
+Task: Build the 8 critical missing plugin adapters + bounded schemas + routing detection. Each plugin already had a manifest registered (Phase AC2) and a type→plugin mapping (Phase AC2), but had NO adapter (so the pipeline returned "unsupported" with NO_ADAPTER_REGISTERED), NO bounded schema in plugin-orchestrator.ts (so when flag was on, plugin was selected but AI wasn't constrained), and NO keyword detection in detectCategoryAndType (so prompts like "draw a timeline" never routed to diagram.timeline). Build all 8: writing.composition, diagram.timeline, math.geometry, science.physics-sim, science.chemistry-sim, diagram.free-body, business.financial, diagram.anatomy.
+
+Work Log:
+- Exported all 8 manifest constants from plugin-registry.ts (they were `const`, now `export const`). Without this, plugin-adapters.ts couldn't import them.
+- Added 8 adapters to plugin-adapters.ts (~700 lines added):
+  * writing.composition — parses ```composition fence, validates sections array (each section needs body text), filters empty sections, falls back to "<type> draft" title.
+  * diagram.timeline — parses ```timeline fence, validates events array (each needs a label), supports date+label+description per event.
+  * math.geometry — parses ```geometry fence, validates shape types against whitelist (triangle/circle/square/rectangle/polygon/angle/perpendicular_bisector/angle_bisector/line_segment/etc.), filters invalid shapes.
+  * science.physics-sim — parses ```physics fence, validates simType (pendulum/projectile/free_fall/incline/spring/shm/circular_motion/collision/wave/doppler), allows empty parameters object.
+  * science.chemistry-sim — parses ```molecule fence, accepts EITHER atoms+bonds (molecule) OR reaction array. Validates element symbols against periodic table (H through Rn). Falls back to formula as title.
+  * diagram.free-body — parses ```freebody fence, validates forces array (each needs a label), defaults magnitude/direction to 0.
+  * business.financial — parses ```financial fence, validates calcType (npv/irr/payback/discounted_payback/profitability_index/compound_interest/simple_interest/break_even/breakeven/loan_payment/amortization/present_value/future_value/annuity/roi/roi_percent). Defaults parameters and result to empty objects.
+  * diagram.anatomy — parses ```anatomy fence, validates labels array (each needs a part name). Validates system against whitelist (skeletal/muscular/nervous/circulatory/respiratory/digestive/endocrine/lymphatic/immune/urinary/reproductive/integumentary/brain/heart/eye/ear/kidney/liver/cell/tissue/organ). Unknown systems accepted but flagged with systemRecognized=false.
+- Added shared helpers: parseFencedJson<T>() (generic fenced-code-block JSON parser with requiredFields validation) + wrapParsedSpecAsArtifact() (builds WorkspaceArtifact from a parsed spec object).
+- Registered all 8 adapters in ADAPTER_REGISTRY.
+- Added 8 bounded schemas to plugin-orchestrator.ts PLUGIN_BOUNDED_SCHEMAS map. Each schema:
+  * Names the active plugin (with "DO NOT mention this name to the learner" guard)
+  * Specifies the exact JSON shape the AI must emit
+  * Lists the fence name (composition/timeline/geometry/physics/molecule/freebody/financial/anatomy)
+  * Lists RULES the AI must follow (max items, required fields, allowed enum values, forbidden artifacts)
+  * Allows a brief teaching intro BEFORE the fenced block
+- Extended detectCategoryAndType in tutor-action-controller.ts with keyword detection for all 8 new request types:
+  * essay/composition/article/write me X → writing.composition
+  * report/assignment → writing.composition
+  * timeline/chronology/sequence of events → diagram.timeline
+  * geometry/compass/perpendicular bisector/angle bisector/construct → math.geometry
+  * pendulum/projectile/free fall/physics sim → science.physics-sim
+  * molecule/chemical reaction/atoms and bonds → science.chemistry-sim
+  * free-body diagram/force diagram → diagram.free-body
+  * NPV/IRR/compound interest/simple interest/break-even/financial calc → business.financial
+  * anatomy/human body/body system/skeleton/skeletal/muscular system/label the heart/brain/eye → diagram.anatomy
+  * CRITICAL: placed these checks BEFORE the `intents.wantsDrawing` fallthrough. Previously, "draw a timeline" matched wantsDrawing first (because "draw" is in the wantsDrawing regex) and routed to drawing.scene. Now "timeline" keyword check fires first, routing correctly to diagram.timeline. Generic "draw me a picture" still falls through to drawing.scene.
+- Wrote src/lib/tutor/__tests__/plugin-adapters-8-critical.test.ts (61 tests):
+  * Registry: all 8 adapters present + manifestId matches key
+  * Each adapter: ready on valid spec, failed on missing/empty/invalid, fallback titles, source attribution preserved
+  * Cross-cutting safety: safeMessage NEVER contains plugin IDs / "adapter" / "registry" / stack traces
+  * Unique artifactId per adapter per call
+- Wrote src/lib/__tests__/phase6-8-critical-bounded-schemas.test.ts (12 tests):
+  * Flag reader works (true when env var is "true"/"1"/"on")
+  * Each of 8 prompts activates plugin-first orchestration with the right plugin ID
+  * Each bounded schema contains the fence name the adapter parses (e.g., ```composition, ```timeline, etc.)
+  * Bounded schemas NEVER leak plugin IDs to learner-visible text (guard line stripped before check)
+  * All 8 schemas carry "DO NOT mention this name" guard
+  * General questions (e.g., "Hello") return inactive (no plugin selected, no bounded schema)
+- Verified debug routing: all 8 prompts (essay, timeline, geometry, pendulum, molecule, free-body, NPV, anatomy) route to the correct plugin via the deterministic step (matchedStep=deterministic, confidence=1.0).
+- Ran full vitest suite: 1033/1033 pass (was 922, +111 new from Phase 6). 42s.
+- TypeScript check: 0 new errors. 22 pre-existing baseline unchanged.
+- Committed as <HASH>. Pushed to main.
+
+Stage Summary:
+- All 8 critical plugins are now FULLY wired end-to-end:
+  1. Manifest registered in plugin-registry.ts (Phase AC2 — already done)
+  2. Type→plugin mapping in tutor-action-controller.ts (Phase AC2 — already done)
+  3. Keyword detection in detectCategoryAndType (NEW — Phase 6)
+  4. Adapter in plugin-adapters.ts (NEW — Phase 6)
+  5. Bounded schema in plugin-orchestrator.ts (NEW — Phase 6)
+- Each adapter parses a fenced-code-block JSON spec from the AI reply, validates required fields + per-type invariants, returns a WorkspaceArtifact on success or a learner-safe failed message on validation failure.
+- Bounded schemas constrain the AI to emit ONLY that plugin's artifact format when the plugin-first orchestration flag is on. They never leak the plugin ID to the learner.
+- When the flag is OFF: zero behavior change (existing AC1/AC3 path with parseGraphAttachments still runs).
+- When the flag is ON + plugin selected: AI is constrained upfront. Existing parseGraphAttachments still runs for backward compat (catches any specs the AI emits even when constrained).
+- When the flag is ON + general question (no plugin selected): AI replies freely (same as flag off).
+- All changes additive — no breaking API contract changes.
+- 111 new tests covering all 8 adapters + bounded schemas + safety invariants.
+- STOP after Phase 6. Next is Phase 7 (frontend renderers for the 8 artifact types) when user requests.

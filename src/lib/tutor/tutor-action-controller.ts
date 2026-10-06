@@ -161,6 +161,42 @@ export function detectCategoryAndType(opts: {
     return { category: "assessment", requestedType: "exam" };
   }
 
+  // --- 8 critical new plugins (Phase 6) ---
+  // Checked BEFORE the wantsDrawing fallthrough so that specific requests like
+  // "draw a timeline" or "construct a perpendicular bisector" route to the
+  // right plugin, not to drawing.scene. Generic "draw me a picture" still
+  // falls through to drawing.scene below.
+  if (/\bessay\b|\bcomposition\b|\barticle\b|\bwrite (?:me )?(?:an? )?(?:essay|report|article|composition)\b/i.test(userMessage)) {
+    return { category: "writing", requestedType: "essay" };
+  }
+  if (/\breport\b|\bassignment\b/i.test(userMessage)) {
+    return { category: "writing", requestedType: "report" };
+  }
+  if (/\btimeline\b|\bchronology\b|\bsequence of events\b/i.test(userMessage)) {
+    return { category: "diagram", requestedType: "timeline" };
+  }
+  // Geometry — must come AFTER wantsPolygon check above so a generic "polygon"
+  // prompt still routes to graph.bar. Only fires when the learner explicitly
+  // says "geometry", "construction", or "compass".
+  if (/\bgeometry\b|\bcompass (?:and )?(?:straightedge|construction)\b|\bperpendicular bisector\b|\bangle bisector\b|\bconstruct (?:an? )?\b/i.test(userMessage)) {
+    return { category: "graph", requestedType: "geometry" };
+  }
+  if (/\bpendulum\b|\bprojectile\b|\bfree fall\b|\bfree-fall\b|\bphysics sim(?:ulation)?\b/i.test(userMessage)) {
+    return { category: "simulation", requestedType: "pendulum" };
+  }
+  if (/\bmolecule\b|\bchemical reaction\b|\batoms? and bonds?\b/i.test(userMessage)) {
+    return { category: "simulation", requestedType: "molecule" };
+  }
+  if (/\bfree[- ]?body (?:diagram)?\b|\bforce diagram\b/i.test(userMessage)) {
+    return { category: "diagram", requestedType: "free-body" };
+  }
+  if (/\bnpv\b|\birr\b|\bcompound interest\b|\bsimple interest\b|\bbreak[- ]?even\b|\bfinancial calc(?:ulator|ulation)?\b/i.test(userMessage)) {
+    return { category: "code", requestedType: "npv" };
+  }
+  if (/\banatomy\b|\bhuman body\b|\bbody system\b|\bskeleton\b|\bskeletal\b|\bmuscular system\b|\blabel (?:the|a) (?:heart|brain|eye|ear|cell|organ|body)/i.test(userMessage)) {
+    return { category: "diagram", requestedType: "anatomy" };
+  }
+
   // --- drawing / simulation / writing — not yet in registry, fall through ---
   if (intents.wantsDrawing) return { category: "drawing", requestedType: "scene" };
 

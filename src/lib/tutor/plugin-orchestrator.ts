@@ -217,6 +217,253 @@ RULES:
 - Do NOT emit graph, flowchart, or any other artifact type.
 === END ACTIVE PLUGIN ===
 `.trim(),
+
+  // ============================================================
+  // 8 critical new plugins
+  // ============================================================
+
+  "writing.composition": `
+=== ACTIVE PLUGIN: writing.composition (DO NOT mention this name to the learner) ===
+The learner requested a piece of writing (essay, report, article, or letter). You MUST produce a composition spec.
+
+Emit the spec inside a \`\`\`composition block with this EXACT shape:
+\`\`\`composition
+{
+  "type": "essay",
+  "title": "<short title>",
+  "sections": [
+    {
+      "heading": "<section heading>",
+      "body": "<one or more well-formed paragraphs of original prose>"
+    }
+  ]
+}
+\`\`\`
+
+RULES:
+- type MUST be one of: "essay", "report", "article", "letter", "paragraph".
+- sections MUST have at least 1 entry; aim for 3-6 for essays and reports.
+- body MUST be original prose written for THIS learner's request — at least 3-5 sentences per section.
+- Do NOT copy-paste from external sources — paraphrase in your own words.
+- Do NOT include code, mathgraph, quiz, or any other artifact type.
+- You MAY include a brief teaching intro BEFORE the composition block.
+=== END ACTIVE PLUGIN ===
+`.trim(),
+
+  "diagram.timeline": `
+=== ACTIVE PLUGIN: diagram.timeline (DO NOT mention this name to the learner) ===
+The learner requested a timeline. You MUST produce a timeline spec.
+
+Emit the spec inside a \`\`\`timeline block with this EXACT shape:
+\`\`\`timeline
+{
+  "title": "<short title>",
+  "events": [
+    {
+      "date": "<year or date string, e.g. '1963' or '14 Oct 1066'>",
+      "label": "<short event name, max 80 chars>",
+      "description": "<1-2 sentence description of what happened>"
+    }
+  ]
+}
+\`\`\`
+
+RULES:
+- events MUST be in chronological order (earliest first).
+- Include 3-15 events.
+- label MUST be short (max 80 chars).
+- description is REQUIRED for each event.
+- Do NOT include graph, flowchart, or any other artifact type.
+- You MAY include a brief teaching intro BEFORE the timeline block.
+=== END ACTIVE PLUGIN ===
+`.trim(),
+
+  "math.geometry": `
+=== ACTIVE PLUGIN: math.geometry (DO NOT mention this name to the learner) ===
+The learner requested a geometry construction. You MUST produce a geometry spec.
+
+Emit the spec inside a \`\`\`geometry block with this EXACT shape:
+\`\`\`geometry
+{
+  "title": "<short title>",
+  "shapes": [
+    { "type": "triangle", "vertices": [{"x": 0, "y": 0}, {"x": 4, "y": 0}, {"x": 2, "y": 3}], "labels": ["A", "B", "C"] },
+    { "type": "circle", "center": {"x": 5, "y": 5}, "radius": 2 },
+    { "type": "angle", "vertex": {"x": 0, "y": 0}, "rays": [{"x": 4, "y": 0}, {"x": 2, "y": 3}], "measureDeg": 56 },
+    { "type": "perpendicular_bisector", "from": {"x": 0, "y": 0}, "to": {"x": 4, "y": 0} }
+  ]
+}
+\`\`\`
+
+RULES:
+- type MUST be one of: "triangle", "equilateral_triangle", "right_triangle", "isosceles_triangle", "square", "rectangle", "parallelogram", "rhombus", "trapezium", "trapezoid", "circle", "polygon", "pentagon", "hexagon", "heptagon", "octagon", "angle", "line_segment", "perpendicular_bisector", "angle_bisector", "point", "ray", "line".
+- Include only the fields relevant to each shape type.
+- Coordinates are in arbitrary grid units — do NOT use pixel coordinates.
+- Do NOT include SVG, HTML, or any rendering instructions.
+- Do NOT include graph, flowchart, or any other artifact type.
+- You MAY include a brief teaching intro BEFORE the geometry block.
+=== END ACTIVE PLUGIN ===
+`.trim(),
+
+  "science.physics-sim": `
+=== ACTIVE PLUGIN: science.physics-sim (DO NOT mention this name to the learner) ===
+The learner requested a physics simulation. You MUST produce a physics spec.
+
+Emit the spec inside a \`\`\`physics block with this EXACT shape:
+\`\`\`physics
+{
+  "title": "<short title>",
+  "simType": "pendulum",
+  "parameters": {
+    "length": 1.5,
+    "gravity": 9.81,
+    "initialAngleDeg": 30
+  }
+}
+\`\`\`
+
+RULES:
+- simType MUST be one of: "pendulum", "simple_pendulum", "projectile", "projectile_motion", "free_fall", "incline", "incline_plane", "incline_motion", "spring", "spring_mass", "shm", "circular_motion", "collision", "wave", "doppler".
+- parameters MUST contain numeric values only.
+- Use SI units (meters, seconds, kilograms, radians) unless the learner specified otherwise.
+- Do NOT include code, mathgraph, or any other artifact type.
+- You MAY include a brief teaching intro BEFORE the physics block.
+=== END ACTIVE PLUGIN ===
+`.trim(),
+
+  "science.chemistry-sim": `
+=== ACTIVE PLUGIN: science.chemistry-sim (DO NOT mention this name to the learner) ===
+The learner requested a molecule or reaction viewer. You MUST produce a molecule spec.
+
+Emit the spec inside a \`\`\`molecule block with this EXACT shape:
+\`\`\`molecule
+{
+  "title": "<short title>",
+  "formula": "H2O",
+  "atoms": [
+    { "element": "O", "x": 0, "y": 0, "label": "O" },
+    { "element": "H", "x": -1, "y": 1, "label": "H1" },
+    { "element": "H", "x": 1, "y": 1, "label": "H2" }
+  ],
+  "bonds": [
+    { "from": 0, "to": 1, "type": "single" },
+    { "from": 0, "to": 2, "type": "single" }
+  ]
+}
+\`\`\`
+
+OR for a reaction:
+
+\`\`\`molecule
+{
+  "title": "<short title>",
+  "reaction": [
+    {
+      "reactants": ["2H2", "O2"],
+      "products": ["2H2O"],
+      "conditions": "spark or heat"
+    }
+  ]
+}
+\`\`\`
+
+RULES:
+- element MUST be a valid periodic table symbol (e.g. "H", "He", "O", "Na").
+- bond.type MUST be one of: "single", "double", "triple".
+- Either atoms/bonds (for a molecule) OR reaction (for a reaction) is REQUIRED — at least one.
+- Do NOT include code, mathgraph, or any other artifact type.
+- You MAY include a brief teaching intro BEFORE the molecule block.
+=== END ACTIVE PLUGIN ===
+`.trim(),
+
+  "diagram.free-body": `
+=== ACTIVE PLUGIN: diagram.free-body (DO NOT mention this name to the learner) ===
+The learner requested a free-body (force) diagram. You MUST produce a freebody spec.
+
+Emit the spec inside a \`\`\`freebody block with this EXACT shape:
+\`\`\`freebody
+{
+  "title": "<short title>",
+  "body": "block on an incline",
+  "forces": [
+    { "label": "Weight (W)", "magnitude": 49.1, "direction": 270 },
+    { "label": "Normal (N)", "magnitude": 42.5, "direction": 60 },
+    { "label": "Friction (f)", "magnitude": 12.0, "direction": 180 }
+  ]
+}
+\`\`\`
+
+RULES:
+- body is a short description of the object being analysed (e.g. "block on incline", "pendulum bob").
+- forces MUST have at least 1 entry; usually 3-6 forces.
+- direction is degrees clockwise from the positive x-axis (0 = right, 90 = down, 180 = left, 270 = up). Use 0/90/180/270 for cardinal directions.
+- magnitude is in newtons (N).
+- label MUST be short and include the standard symbol in parentheses (e.g. "Weight (W)", "Normal (N)", "Tension (T)", "Friction (f)").
+- Do NOT include graph, flowchart, or any other artifact type.
+- You MAY include a brief teaching intro BEFORE the freebody block.
+=== END ACTIVE PLUGIN ===
+`.trim(),
+
+  "business.financial": `
+=== ACTIVE PLUGIN: business.financial (DO NOT mention this name to the learner) ===
+The learner requested a financial calculation. You MUST produce a financial spec.
+
+Emit the spec inside a \`\`\`financial block with this EXACT shape:
+\`\`\`financial
+{
+  "title": "<short title>",
+  "calcType": "npv",
+  "parameters": {
+    "initialInvestment": 10000,
+    "cashFlows": [3000, 4000, 5000, 6000],
+    "discountRate": 0.10
+  },
+  "result": {
+    "npv": 3213.46,
+    "explanation": "Positive NPV — accept the project."
+  }
+}
+\`\`\`
+
+RULES:
+- calcType MUST be one of: "npv", "irr", "payback", "discounted_payback", "profitability_index", "compound_interest", "simple_interest", "break_even", "breakeven", "loan_payment", "amortization", "present_value", "future_value", "annuity", "roi", "roi_percent".
+- parameters MUST contain the inputs the learner gave (or sensible defaults if they didn't specify).
+- result MUST contain the computed value(s) and a short explanation.
+- Use decimals (0.10) for rates, NOT percentages (10%).
+- Currency is unspecified — use the learner's currency or "currency units" generically.
+- Do NOT include code, mathgraph, or any other artifact type.
+- You MAY include a brief teaching intro BEFORE the financial block.
+=== END ACTIVE PLUGIN ===
+`.trim(),
+
+  "diagram.anatomy": `
+=== ACTIVE PLUGIN: diagram.anatomy (DO NOT mention this name to the learner) ===
+The learner requested a labelled anatomy diagram. You MUST produce an anatomy spec.
+
+Emit the spec inside a \`\`\`anatomy block with this EXACT shape:
+\`\`\`anatomy
+{
+  "title": "<short title>",
+  "system": "skeletal",
+  "view": "anterior",
+  "labels": [
+    { "part": "Skull", "description": "Protects the brain; formed of cranial and facial bones." },
+    { "part": "Clavicle", "description": "Collarbone; connects the sternum to the scapula." }
+  ]
+}
+\`\`\`
+
+RULES:
+- system is the body system or organ (e.g. "skeletal", "muscular", "nervous", "circulatory", "respiratory", "digestive", "brain", "heart", "eye").
+- view is the anatomical view: "anterior", "posterior", "lateral", "sagittal", "coronal" (optional but recommended).
+- labels MUST have at least 3 entries; aim for 5-15 for a system-level diagram.
+- part MUST be the standard anatomical name (e.g. "Femur", "Aorta", "Cerebellum").
+- description is REQUIRED for each label and should explain the part's role.
+- Do NOT include SVG, HTML, image data, or any rendering instructions.
+- Do NOT include graph, flowchart, or any other artifact type.
+- You MAY include a brief teaching intro BEFORE the anatomy block.
+=== END ACTIVE PLUGIN ===
+`.trim(),
 };
 
 // ============================================================
