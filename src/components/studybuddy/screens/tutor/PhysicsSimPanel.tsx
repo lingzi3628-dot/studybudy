@@ -1,19 +1,54 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 
-export function PhysicsSimPanel({ spec }: { spec: any }) {
+/**
+ * PhysicsSimPanel — interactive physics simulation.
+ *
+ * Phase 8 round 3: now accepts an optional `onChange` callback that fires
+ * whenever the learner adjusts the simulation parameters (length, angle,
+ * gravity, mass, velocity, height). The parent (AITutorChat) wires this to
+ * `updateActiveArtifact` so learner edits persist to the workspace tab +
+ * DB (creates a new version via Phase 4 modifyArtifact service).
+ */
+export function PhysicsSimPanel({
+  spec,
+  onChange,
+}: {
+  spec: any;
+  onChange?: (newSpec: any) => void;
+}) {
   const simType = spec?.simType || spec?.subtype || "pendulum";
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [running, setRunning] = useState(false);
   const [params, setParams] = useState({
-    length: spec?.length || 2,
-    angle: spec?.initialAngle || 30,
-    gravity: spec?.gravity || 9.81,
-    mass: spec?.mass || 1,
-    velocity: spec?.initialVelocity || 0,
-    height: spec?.height || 50,
+    length: spec?.length || spec?.parameters?.length || 2,
+    angle: spec?.initialAngle || spec?.parameters?.initialAngleDeg || 30,
+    gravity: spec?.gravity || spec?.parameters?.gravity || 9.81,
+    mass: spec?.mass || spec?.parameters?.mass || 1,
+    velocity: spec?.initialVelocity || spec?.parameters?.initialVelocity || 0,
+    height: spec?.height || spec?.parameters?.height || 50,
   });
   const stateRef = useRef<{ angle: number; velocity: number; time: number; x: number; y: number }>({ angle: params.angle * Math.PI / 180, velocity: params.velocity, time: 0, x: 0, y: 0 });
+
+  // Phase 8 round 3 — when params change (learner moved a slider), call
+  // onChange so the parent can persist the new spec to the workspace tab + DB.
+  // We build the canonical spec shape: { simType, parameters: {...} }
+  useEffect(() => {
+    if (!onChange) return;
+    const newSpec = {
+      simType,
+      title: spec?.title || `Physics simulation — ${simType}`,
+      parameters: {
+        length: params.length,
+        initialAngleDeg: params.angle,
+        gravity: params.gravity,
+        mass: params.mass,
+        initialVelocity: params.velocity,
+        height: params.height,
+      },
+    };
+    onChange(newSpec);
+  }, [params]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!running) return;
@@ -128,6 +163,75 @@ export function PhysicsSimPanel({ spec }: { spec: any }) {
         <span className="text-[10px] text-gray-400 self-center ml-auto">Physics Simulation · {simType}</span>
       </div>
       <canvas ref={canvasRef} width={500} height={350} className="w-full" style={{ maxHeight: "350px" }} />
+      {/* Phase 8 round 3 — parameter sliders. Changes persist to workspace + DB via onChange. */}
+      <div className="p-3 bg-gray-50 border-t border-gray-200 space-y-2">
+        {simType === "pendulum" && (
+          <>
+            <label className="block">
+              <span className="text-[10px] font-semibold text-gray-600">Length: {params.length.toFixed(2)} m</span>
+              <input type="range" min="0.5" max="5" step="0.1" value={params.length}
+                onChange={(e) => setParams({ ...params, length: parseFloat(e.target.value) })}
+                className="w-full h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer" />
+            </label>
+            <label className="block">
+              <span className="text-[10px] font-semibold text-gray-600">Initial angle: {params.angle.toFixed(0)}°</span>
+              <input type="range" min="0" max="90" step="1" value={params.angle}
+                onChange={(e) => setParams({ ...params, angle: parseFloat(e.target.value) })}
+                className="w-full h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer" />
+            </label>
+            <label className="block">
+              <span className="text-[10px] font-semibold text-gray-600">Gravity: {params.gravity.toFixed(2)} m/s²</span>
+              <input type="range" min="1" max="20" step="0.1" value={params.gravity}
+                onChange={(e) => setParams({ ...params, gravity: parseFloat(e.target.value) })}
+                className="w-full h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer" />
+            </label>
+            <label className="block">
+              <span className="text-[10px] font-semibold text-gray-600">Mass: {params.mass.toFixed(1)} kg</span>
+              <input type="range" min="0.1" max="5" step="0.1" value={params.mass}
+                onChange={(e) => setParams({ ...params, mass: parseFloat(e.target.value) })}
+                className="w-full h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer" />
+            </label>
+          </>
+        )}
+        {(simType === "projectile" || simType === "projectile_motion") && (
+          <>
+            <label className="block">
+              <span className="text-[10px] font-semibold text-gray-600">Initial velocity: {params.velocity.toFixed(1)} m/s</span>
+              <input type="range" min="0" max="50" step="0.5" value={params.velocity}
+                onChange={(e) => setParams({ ...params, velocity: parseFloat(e.target.value) })}
+                className="w-full h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer" />
+            </label>
+            <label className="block">
+              <span className="text-[10px] font-semibold text-gray-600">Launch angle: {params.angle.toFixed(0)}°</span>
+              <input type="range" min="0" max="90" step="1" value={params.angle}
+                onChange={(e) => setParams({ ...params, angle: parseFloat(e.target.value) })}
+                className="w-full h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer" />
+            </label>
+            <label className="block">
+              <span className="text-[10px] font-semibold text-gray-600">Gravity: {params.gravity.toFixed(2)} m/s²</span>
+              <input type="range" min="1" max="20" step="0.1" value={params.gravity}
+                onChange={(e) => setParams({ ...params, gravity: parseFloat(e.target.value) })}
+                className="w-full h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer" />
+            </label>
+          </>
+        )}
+        {(simType === "free_fall") && (
+          <>
+            <label className="block">
+              <span className="text-[10px] font-semibold text-gray-600">Height: {params.height.toFixed(0)} m</span>
+              <input type="range" min="1" max="200" step="1" value={params.height}
+                onChange={(e) => setParams({ ...params, height: parseFloat(e.target.value) })}
+                className="w-full h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer" />
+            </label>
+            <label className="block">
+              <span className="text-[10px] font-semibold text-gray-600">Gravity: {params.gravity.toFixed(2)} m/s²</span>
+              <input type="range" min="1" max="20" step="0.1" value={params.gravity}
+                onChange={(e) => setParams({ ...params, gravity: parseFloat(e.target.value) })}
+                className="w-full h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer" />
+            </label>
+          </>
+        )}
+      </div>
     </div>
   );
 }

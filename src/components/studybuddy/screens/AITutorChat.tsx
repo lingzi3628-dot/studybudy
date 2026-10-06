@@ -2998,10 +2998,18 @@ export function AITutorChat() {
                         <div className="mb-3 px-4 py-2 bg-amber-50 rounded-lg">
                           <p className="text-[10px] font-bold uppercase text-amber-600">Timeline</p>
                           <p className="text-xs text-gray-700">
-                            Events are shown in chronological order.
+                            Events are shown in chronological order. Click "Edit events" to add, remove, or change them.
                           </p>
                         </div>
-                        <TimelinePanel spec={spec} />
+                        <TimelinePanel
+                          spec={spec}
+                          onChange={(newSpec) => {
+                            updateActiveArtifact({
+                              ...workspaceArtifact,
+                              caption: JSON.stringify(newSpec),
+                            });
+                          }}
+                        />
                       </div>
                     );
                   } catch {}
@@ -3034,10 +3042,20 @@ export function AITutorChat() {
                         <div className="mb-3 px-4 py-2 bg-blue-50 rounded-lg">
                           <p className="text-[10px] font-bold uppercase text-blue-600">Simulation</p>
                           <p className="text-xs text-gray-700">
-                            Press Play to run the simulation. Adjust parameters to explore.
+                            Press Play to run the simulation. Adjust sliders to explore — changes save automatically.
                           </p>
                         </div>
-                        <PhysicsSimPanel spec={flatSpec} />
+                        <PhysicsSimPanel
+                          spec={flatSpec}
+                          onChange={(newSpec) => {
+                            // Phase 8 round 3 — persist learner's slider edits
+                            // back to the active workspace tab + DB.
+                            updateActiveArtifact({
+                              ...workspaceArtifact,
+                              caption: JSON.stringify(newSpec),
+                            });
+                          }}
+                        />
                       </div>
                     );
                   } catch {}
@@ -3113,10 +3131,20 @@ export function AITutorChat() {
                         <div className="mb-3 px-4 py-2 bg-green-50 rounded-lg">
                           <p className="text-[10px] font-bold uppercase text-green-600">Calculator</p>
                           <p className="text-xs text-gray-700">
-                            Adjust the inputs and the result updates instantly.
+                            Adjust the inputs and the result updates instantly. Changes save automatically.
                           </p>
                         </div>
-                        <FinancialCalculator spec={flatSpec} />
+                        <FinancialCalculator
+                          spec={flatSpec}
+                          onChange={(newSpec) => {
+                            // Phase 8 round 3 — persist learner's input edits
+                            // back to the active workspace tab + DB.
+                            updateActiveArtifact({
+                              ...workspaceArtifact,
+                              caption: JSON.stringify(newSpec),
+                            });
+                          }}
+                        />
                       </div>
                     );
                   } catch {}

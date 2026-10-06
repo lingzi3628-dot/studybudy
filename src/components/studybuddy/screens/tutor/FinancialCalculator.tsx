@@ -1,12 +1,40 @@
 "use client";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 
-export function FinancialCalculator({ spec }: { spec: any }) {
+/**
+ * FinancialCalculator — interactive NPV/IRR/compound interest/break-even calculator.
+ *
+ * Phase 8 round 3: now accepts an optional `onChange` callback that fires
+ * whenever the learner changes calcType, principal, rate, periods, or
+ * cashFlows. The parent (AITutorChat) wires this to `updateActiveArtifact`
+ * so learner edits persist to the workspace tab + DB.
+ */
+export function FinancialCalculator({
+  spec,
+  onChange,
+}: {
+  spec: any;
+  onChange?: (newSpec: any) => void;
+}) {
   const [calcType, setCalcType] = useState<string>(spec?.calcType || "compound");
   const [principal, setPrincipal] = useState(spec?.principal?.toString() || "10000");
   const [rate, setRate] = useState(spec?.rate?.toString() || "12");
   const [periods, setPeriods] = useState(spec?.periods?.toString() || "5");
   const [cashFlows, setCashFlows] = useState(spec?.cashFlows?.join(", ") || "-10000, 3000, 4000, 4000, 5000");
+
+  // Phase 8 round 3 — when inputs change, call onChange so the parent
+  // can persist the new spec to the workspace tab + DB.
+  useEffect(() => {
+    if (!onChange) return;
+    const newSpec = {
+      calcType,
+      principal: parseFloat(principal) || 0,
+      rate: parseFloat(rate) || 0,
+      periods: parseFloat(periods) || 0,
+      cashFlows: cashFlows.split(",").map((s) => parseFloat(s.trim())).filter((n) => !isNaN(n)),
+    };
+    onChange(newSpec);
+  }, [calcType, principal, rate, periods, cashFlows]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const result = useMemo(() => {
     const P = parseFloat(principal) || 0;
