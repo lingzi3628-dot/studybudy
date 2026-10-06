@@ -234,9 +234,24 @@ export function AITutorChat() {
   // instead of creating a duplicate.
   const openInWorkspace = useCallback((att: Attachment) => {
     setWorkspaceTabs((prev) => {
-      // Dedup: if a tab with the same type + caption already exists, just activate it.
-      const existing = prev.find((t) => t.artifact.type === att.type && t.artifact.caption === att.caption);
+      // Phase 9 fix — for code_playground, dedup by TYPE (one playground
+      // at a time). If a code_playground tab is already open, REPLACE its
+      // content instead of opening a new tab. This prevents the "3
+      // playground tabs stacking" issue when the AI emits multiple
+      // code_playground fences.
+      // For other types, dedup by type + caption (exact match).
+      const isSingleton = att.type === "code_playground";
+      const existing = isSingleton
+        ? prev.find((t) => t.artifact.type === att.type)
+        : prev.find((t) => t.artifact.type === att.type && t.artifact.caption === att.caption);
+
       if (existing) {
+        if (isSingleton) {
+          // Replace the content but keep the tab id (so the user doesn't
+          // lose their tab position).
+          setActiveTabId(existing.id);
+          return prev.map((t) => t.id === existing.id ? { ...t, artifact: att } : t);
+        }
         setActiveTabId(existing.id);
         return prev;
       }
@@ -319,8 +334,18 @@ export function AITutorChat() {
   // Used by the auto-open useEffect + the chat notification card click.
   const openInWorkspaceAndPersist = useCallback((att: Attachment) => {
     setWorkspaceTabs((prev) => {
-      const existing = prev.find((t) => t.artifact.type === att.type && t.artifact.caption === att.caption);
+      // Phase 9 fix — code_playground is a singleton (one at a time).
+      // If a code_playground is already open, REPLACE its content.
+      const isSingleton = att.type === "code_playground";
+      const existing = isSingleton
+        ? prev.find((t) => t.artifact.type === att.type)
+        : prev.find((t) => t.artifact.type === att.type && t.artifact.caption === att.caption);
       if (existing) {
+        if (isSingleton) {
+          setActiveTabId(existing.id);
+          // Replace content, keep tab id + persistedId
+          return prev.map((t) => t.id === existing.id ? { ...t, artifact: att } : t);
+        }
         setActiveTabId(existing.id);
         return prev;
       }

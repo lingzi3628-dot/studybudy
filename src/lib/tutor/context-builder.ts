@@ -467,21 +467,29 @@ ${STUDY_PROMPT_GRAPH_RULES}`;
   systemContent += `\n\nWORKSPACE OFFER (${clientPlatform}): On mobile, if a task needs a bigger screen (coding, exams, drawing), suggest the matching workspace (design/study/exam/code/web/modeling/simulation/data/tvet) using: \`\`\`computer_workspace\n{"title":"...","reason":"...","benefit":"...","workspace":"..."}\n\`\`\`. On web, don't suggest switching devices. Don't offer for low tokens (shared across devices).`;
 
   // Phase 9 — Code language preference + sandbox awareness.
-  // CRITICAL: when the learner explicitly asks for a specific language
-  // (JavaScript, Python, etc.), you MUST use THAT language — not your
-  // default. If they say "use js" / "in javascript" / "no python", honor it.
-  // Common mistakes to avoid:
-  //   - Learner asks for JS → you write Python (WRONG)
-  //   - Learner says "don't use python" → you write Python (WRONG)
-  //   - Learner says "javascript please" → you ignore + write Python (WRONG)
-  // When in doubt, ASK which language before writing code. If they've
-  // already specified, USE that language for ALL code in the reply.
-  systemContent += `\n\nCODE LANGUAGE PREFERENCE: When the learner asks for a specific programming language (e.g. "use JavaScript", "in Python", "don't use python", "what about js"), you MUST write ALL code in that reply using the requested language. Never default to Python when the learner explicitly asked for JavaScript. If unclear which language they want, ASK before writing code. The code sandbox supports: python, javascript.`;
+  systemContent += `\n\nCODE LANGUAGE PREFERENCE: When the learner asks for a specific programming language (e.g. "use JavaScript", "in Python", "don't use python", "what about js"), you MUST write ALL code in that reply using the requested language. Never default to Python when the learner explicitly asked for JavaScript. If unclear which language they want, ASK before writing code. The code sandbox supports: python, javascript. NOTE: "java" means Java (a compiled language) — if the learner previously discussed JavaScript and says "java", CLARIFY whether they mean Java or JavaScript before writing code.`;
 
-  // Phase 9 — Code sandbox availability. When the learner wants to run
-  // code, emit a ```code_playground fence so the workspace opens with
-  // a runnable playground. They can then click Run to execute it.
-  systemContent += `\n\nCODE PLAYGROUND: When the learner wants to write + run code in the workspace (e.g. "open a code playground", "let me code", "open workspace and write code there"), emit a \`\`\`code_playground fence with this shape: \`\`\`code_playground\n{"language":"python","code":"# starter code here"}\n\`\`\`. The workspace opens with an editable code editor + Run button. Pick the language based on their request (default python). Keep starter code SHORT (5-15 lines) and well-commented.`;
+  // Phase 9 — Code playground (workspace code execution).
+  // CRITICAL: code goes in the WORKSPACE, NOT in the chat bubble.
+  // The AI must NOT show the code twice (once as a ```javascript block
+  // in chat AND once in code_playground). The code_playground IS where
+  // the code lives. The chat should have a BRIEF intro only.
+  systemContent += `\n\nCODE PLAYGROUND RULES (CRITICAL):
+- When the learner wants to write, run, or experiment with code (e.g. "write me X", "show me Y", "let me code", "open a code playground"), emit a \`\`\`code_playground fence.
+- The code_playground fence shape: \`\`\`code_playground\n{"language":"python","code":"# code here"}\n\`\`\`
+- DO NOT also show the code as a \`\`\`javascript or \`\`\`python block in the chat. The code lives in the workspace playground, NOT in the chat bubble. Showing code in BOTH places is confusing + wastes tokens.
+- The chat reply should have a 1-2 sentence intro BEFORE the code_playground fence, explaining what the code does. NO code blocks in the chat text itself.
+- If the learner asks to UPDATE existing code (e.g. "change X to Y", "add a loop"), use \`\`\`workspace_edit to patch the active playground instead of emitting a new code_playground.
+- Keep starter code SHORT (5-20 lines) and well-commented. The learner will edit + run it in the workspace.`;
+
+  // Phase 9 — Website building. When the learner wants to build a website,
+  // offer the web workspace (WebBuilderScreen) via computer_workspace.
+  // Do NOT dump HTML/CSS/JS code in chat — the web workspace has its own
+  // editor + live preview.
+  systemContent += `\n\nWEBSITE BUILDING: When the learner wants to build a website or web page (e.g. "build a website", "make a webpage", "create a portfolio site", "let's build a website"), emit a \`\`\`computer_workspace fence with workspace:"web" to open the Web Builder. Do NOT dump multiple HTML/CSS/JS code files in the chat — the web workspace has a full editor + live preview. Keep the chat reply SHORT: 1-2 sentences about what you'll build, then the computer_workspace offer.`;
+
+  // Phase 9 — Conciseness. The AI should be Socratic, not a textbook dump.
+  systemContent += `\n\nCONCISENESS: Keep replies SHORT. Don't dump 4 sections + 3 tables + 3 code files in one reply. Ask ONE question or show ONE concept at a time. If the learner needs to see code, use code_playground (not inline code blocks). If they need to build something, use the workspace. Be conversational, not encyclopedic.`;
 
   if (searchContext.includes("WEB SEARCH RESULTS")) {
     systemContent += "\n\nSOURCE CITATIONS: For claims from web results above, cite inline as a Markdown link. Do not invent links.";
