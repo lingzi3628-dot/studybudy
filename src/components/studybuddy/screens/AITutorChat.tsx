@@ -2225,7 +2225,22 @@ export function AITutorChat() {
                   onOpenWorkspace={(attachment) => {
                     try {
                       const offer = JSON.parse(attachment.caption);
-                      localStorage.setItem("studybuddy.pendingComputerWorkspace", JSON.stringify({ ...offer, topicId: activeTopicId }));
+                      // Phase 9 fix — save the offer + the user's ORIGINAL request
+                      // so the Web Builder can auto-send it as the first message.
+                      // We look back through messages to find the user message that
+                      // triggered this workspace offer.
+                      let userRequest = "";
+                      for (let i = messages.length - 1; i >= 0; i--) {
+                        if (messages[i].role === "user") {
+                          userRequest = messages[i].content;
+                          break;
+                        }
+                      }
+                      localStorage.setItem("studybuddy.pendingComputerWorkspace", JSON.stringify({
+                        ...offer,
+                        topicId: activeTopicId,
+                        userRequest, // the learner's original prompt (e.g. "build a funny meme site")
+                      }));
 
                       // Phase 9 fix — route to the RIGHT workspace screen
                       // based on the offer's `workspace` field. Previously

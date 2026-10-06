@@ -142,6 +142,43 @@ export function WebBuilderScreen() {
     }
   }, [activeProjectId]);
 
+  // Phase 9 fix — check for a pending workspace request from the AI Tutor.
+  // When the learner clicks "Set up the full computer workspace" in the AI
+  // Tutor chat, their original request (e.g. "build a funny meme site") is
+  // saved to localStorage. On mount, we read it + auto-send it as the first
+  // chat message so the Web Builder immediately generates the code — the
+  // learner doesn't have to re-type their request.
+  const autoSentRef = useRef(false);
+  useEffect(() => {
+    if (autoSentRef.current || loading || !project) return;
+    try {
+      const raw = localStorage.getItem("studybuddy.pendingComputerWorkspace");
+      if (!raw) return;
+      const pending = JSON.parse(raw);
+      if (!pending?.userRequest) return;
+      // Clear it so we don't re-send on every re-render.
+      localStorage.removeItem("studybuddy.pendingComputerWorkspace");
+      autoSentRef.current = true;
+      // Use the user's original request as the first chat message.
+      // Also update the project title to reflect what they're building.
+      const request = pending.userRequest;
+      setProject((p) => p ? { ...p, title: pending.title || request.slice(0, 60) } : p);
+      // Auto-send the request to the Web Buddy chat after a short delay
+      // (so the component is fully mounted + ready to stream).
+      setTimeout(() => {
+        setInput(request);
+        // Trigger send after the input state is set.
+        setTimeout(() => {
+          // Simulate pressing Enter by calling sendChat with the request directly.
+          // We can't call sendChat directly because it reads `input` state which
+          // may not be updated yet. Instead, we set a flag that sendChat picks up.
+          const sendButton = document.querySelector('[data-send-button]') as HTMLButtonElement;
+          if (sendButton) sendButton.click();
+        }, 100);
+      }, 300);
+    } catch {}
+  }, [loading, project]);
+
   const saveProject = useCallback(async () => {
     if (!project) return;
     setSaving(true);
@@ -527,6 +564,7 @@ export function WebBuilderScreen() {
             disabled={streaming}
           />
           <button
+            data-send-button
             onClick={streaming ? () => abortRef.current?.abort() : sendChat}
             className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${streaming ? "bg-rose-600 hover:bg-rose-700" : "bg-amber-600 hover:bg-amber-700"} text-white`}
             aria-label={streaming ? "Stop" : "Send"}
