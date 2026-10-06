@@ -24,6 +24,32 @@ export async function GET() {
 }
 
 /**
+ * POST /api/notifications — trigger auto-creation of system notifications.
+ *
+ * The client (NotificationPanel.tsx) calls this on panel open to ensure
+ * "due review", "streak at risk", "low tokens", and "daily goal"
+ * notifications are created before the GET fetches them. Returns 200
+ * with the new unread count so the client can update the badge without
+ * a follow-up GET (though the client currently ignores the body).
+ *
+ * Before this handler existed, the POST returned 405 Method Not Allowed
+ * which logged a console error on every panel open. The auto-creation
+ * still worked (it also runs in GET), but the 405 was noisy.
+ */
+export async function POST() {
+  const user = await getCurrentUser();
+  await createSystemNotifications(user.id).catch(() => {});
+
+  // Return the unread count so the client can update the badge in one round-trip
+  const notifications = await db.notification.findMany({
+    where: { userId: user.id, read: false },
+    select: { id: true },
+  }).catch(() => []);
+
+  return NextResponse.json({ ok: true, unreadCount: notifications.length });
+}
+
+/**
  * Phase 5 — Auto-create system notifications:
  *   - Unfinished tasks (due cards, incomplete quizzes, pending daily goals)
  *   - Streak at risk (last activity > 1 day ago, streak >= 3)
