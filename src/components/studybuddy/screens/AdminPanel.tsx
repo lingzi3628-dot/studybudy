@@ -39,6 +39,7 @@ import {
   UploadCloud,
   Compass,
   GraduationCap,
+  Server,
 } from "lucide-react";
 import { useApp } from "../store";
 import { api } from "../api";
@@ -59,6 +60,7 @@ const BadgesTab = dynamic(() => import("./admin/BadgesTab").then(m => ({ default
 const PathTemplatesTab = dynamic(() => import("./admin/PathTemplatesTab").then(m => ({ default: m.PathTemplatesTab })), { loading: () => <div className="flex justify-center py-20"><Loader2 className="w-6 h-6 text-indigo-500 animate-spin" /></div> });
 const ConceptMapSettingsTab = dynamic(() => import("./admin/ConceptMapSettingsTab").then(m => ({ default: m.ConceptMapSettingsTab })), { loading: () => <div className="flex justify-center py-20"><Loader2 className="w-6 h-6 text-indigo-500 animate-spin" /></div> });
 const SearchSettingsTab = dynamic(() => import("./admin/SearchSettingsTab").then(m => ({ default: m.SearchSettingsTab })), { loading: () => <div className="flex justify-center py-20"><Loader2 className="w-6 h-6 text-indigo-500 animate-spin" /></div> });
+const ToolhubSettingsTab = dynamic(() => import("./admin/ToolhubSettingsTab").then(m => ({ default: m.ToolhubSettingsTab })), { loading: () => <div className="flex justify-center py-20"><Loader2 className="w-6 h-6 text-indigo-500 animate-spin" /></div> });
 const MonetizationTab = dynamic(() => import("./admin/MonetizationTab").then(m => ({ default: m.MonetizationTab })), { loading: () => <div className="flex justify-center py-20"><Loader2 className="w-6 h-6 text-indigo-500 animate-spin" /></div> });
 const AccountTab = dynamic(() => import("./admin/AccountTab").then(m => ({ default: m.AccountTab })), { loading: () => <div className="flex justify-center py-20"><Loader2 className="w-6 h-6 text-indigo-500 animate-spin" /></div> });
 const LogsTab = dynamic(() => import("./admin/LogsTab").then(m => ({ default: m.LogsTab })), { loading: () => <div className="flex justify-center py-20"><Loader2 className="w-6 h-6 text-indigo-500 animate-spin" /></div> });
@@ -68,7 +70,7 @@ const UsersTab = dynamic(() => import("./admin/UsersTab").then(m => ({ default: 
 const DashboardTab = dynamic(() => import("./admin/DashboardTab").then(m => ({ default: m.DashboardTab })), { loading: () => <div className="flex justify-center py-20"><Loader2 className="w-6 h-6 text-indigo-500 animate-spin" /></div> });
 const AiDiagnosticsTab = dynamic(() => import("./admin/AiDiagnosticsTab").then(m => ({ default: m.AiDiagnosticsTab })), { loading: () => <div className="flex justify-center py-20"><Loader2 className="w-6 h-6 text-indigo-500 animate-spin" /></div> });
 
-type Tab = "dashboard" | "users" | "providers" | "aiDiagnostics" | "content" | "logs" | "account" | "monetization" | "search" | "conceptMap" | "pathTemplates" | "badges" | "curriculum" | "games" | "explore" | "courseSwitch" | "migrateUsers";
+type Tab = "dashboard" | "users" | "providers" | "aiDiagnostics" | "content" | "logs" | "account" | "monetization" | "search" | "toolhub" | "conceptMap" | "pathTemplates" | "badges" | "curriculum" | "games" | "explore" | "courseSwitch" | "migrateUsers";
 
 type Stats = {
   totalUsers: number;
@@ -203,6 +205,7 @@ export function AdminPanel() {
             { key: "logs" as const, label: "Logs", icon: FileText },
             { key: "monetization" as const, label: "💰 Plans", icon: Crown },
             { key: "search" as const, label: "🔍 Search", icon: Search },
+            { key: "toolhub" as const, label: "🧰 Tools Hub", icon: Server },
             { key: "conceptMap" as const, label: "🗺️ Concept Maps", icon: MapIcon },
             { key: "pathTemplates" as const, label: "🛤️ Path Templates", icon: Route },
             { key: "badges" as const, label: "🏆 Badges", icon: Trophy },
@@ -239,6 +242,7 @@ export function AdminPanel() {
         {tab === "logs" && <LogsTab />}
         {tab === "monetization" && <MonetizationTab />}
         {tab === "search" && <SearchSettingsTab />}
+        {tab === "toolhub" && <ToolhubSettingsTab />}
         {tab === "conceptMap" && <ConceptMapSettingsTab />}
         {tab === "pathTemplates" && <PathTemplatesTab />}
         {tab === "badges" && <BadgesTab />}

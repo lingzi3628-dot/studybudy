@@ -2301,3 +2301,68 @@ Stage Summary:
   infrastructure (updateActiveArtifact) is already in place, each panel
   just needs to call it on edit.
 - STOP after Phase 8 round 2. Next: wire save-back for the remaining 7 panels.
+
+---
+Task ID: Phase 9 — Tools Hub integration (external code execution sandbox)
+Agent: main
+Task: User built an external Tools Hub service (https://toolhub.space-z.ai) that provides sandboxed code execution + an AI Tutor endpoint. Wire it as an OPTIONAL integration that admins can toggle on/off in the admin panel. When enabled + local kill switch is off, code-sandbox.ts routes runCode() calls to Tools Hub instead of returning `unsupported`. This is the escape hatch for the Phase 0 security containment — code runs on Tools Hub infrastructure, never on Study Buddy's server.
+
+Work Log:
+- prisma/schema.prisma: added ToolhubSettings model with fields: id, enabled, apiKeyEncrypted, baseUrl (default https://toolhub.space-z.ai), codeSandboxEnabled (default true), tutorEnabled (default false), lastTestedAt, lastTestOk, lastTestError. Single row (id=1) like SearchSettings. API key stored ENCRYPTED via existing crypto.ts (reuses encryptApiKey/decryptApiKey — same as YouTube/Pollinations keys).
+- prisma/migrations/20261006120000_add_toolhub_settings/migration.sql: CREATE TABLE for Postgres deployment.
+- src/lib/toolhub-client.ts (new, ~280 lines):
+  * Settings loader with 10s cache (avoid DB hits on every code run). Cache cleared by clearToolhubSettingsCache() after admin PUT.
+  * isToolhubCodeExecutionEnabled() — checks enabled + codeSandboxEnabled + hasApiKey.
+  * isToolhubTutorEnabled() — checks enabled + tutorEnabled + hasApiKey.
+  * listTools() — GET /api/plugins with Bearer auth. Returns the list of tools the API key can call.
+  * runCode(language, code) — POST /api/tools/sandbox. Sends BOTH Authorization: Bearer + X-Hub-Key headers (Tools Hub accepts either depending on version). 30s timeout (matches Vercel function limit). Accepts multiple response shapes (stdout/output, exitCode/returncode, etc.).
+  * callTutor(messages, subject, level) — POST /api/tools/tutor. 60s timeout. NOT used by default (existing tutor pipeline stays intact; tutorEnabled flag is there for future A/B testing).
+  * testConnection() — calls listTools(), updates lastTestedAt/lastTestOk/lastTestError in DB. Used by the admin "Test connection" button.
+- src/app/api/admin/toolhub-settings/route.ts (new):
+  * GET — returns settings with API key MASKED (sbth_…abc). Key never sent to browser.
+  * PUT — accepts enabled, apiKey (plaintext — encrypted before storage), baseUrl, codeSandboxEnabled, tutorEnabled. Upserts the single row. Clears cache.
+  * POST — calls testConnection(), returns { ok, error?, tools? }.
+- src/components/studybuddy/screens/admin/ToolhubSettingsTab.tsx (new):
+  * Master enable toggle with active/disabled badge.
+  * API key input (password type). Shows masked existing key (sbth_…abc) when set. Empty input = leave existing key alone.
+  * Base URL input (default https://toolhub.space-z.ai).
+  * Per-tool toggles: Code Sandbox (default on) + AI Tutor routing (default off).
+  * "Test connection" button — calls POST, shows live result with tool count + list of available tools.
+  * Last test result banner (with timestamp + ok/error).
+  * Architecture note explaining how it works + that local Phase 0 kill switch stays ON.
+- src/components/studybuddy/screens/AdminPanel.tsx: registered the new tab (🧰 Tools Hub, lazy-loaded).
+- src/lib/code-sandbox.ts: added tryToolhubExecution() helper. When local kill switch is off (default Phase 0 behavior), tries Tools Hub BEFORE returning `unsupported`. If Tools Hub is enabled + call succeeds, returns the result. If Tools Hub is disabled or fails, falls back to the existing `unsupported` return. Both runPython + runJavaScript updated.
+- src/app/api/tools/sandbox/route.ts (new): POST handler. Auth-gated (no anonymous code execution). Validates language (python/javascript/py/js) + code (max 10k chars). Delegates to runCode(). maxDuration=35 (30s Tools Hub timeout + 5s buffer). Response shape matches CodeResult — frontend renders stdout/stderr/exitCode uniformly.
+- src/lib/__tests__/phase9-toolhub.test.ts (new, 30 tests):
+  * Settings loading: isToolhubCodeExecutionEnabled/isToolhubTutorEnabled return correct booleans for all combinations of enabled/codeSandboxEnabled/tutorEnabled/hasApiKey.
+  * listTools: returns tools on 200, error on 401, error on network failure, empty list when disabled.
+  * runCode: executes Python + JavaScript, accepts alternative response shapes (output/returncode), returns stderr when code errors, returns requestError when disabled, network failure, timeout. Sends BOTH auth headers.
+  * callTutor: returns reply when enabled + responds, accepts content field alternative, returns error when tutorEnabled is false.
+  * testConnection: returns ok + tools on success, error on 401, updates DB with lastTestedAt/lastTestOk.
+  * code-sandbox.ts routing: routes to Tools Hub when local kill switch off + Tools Hub enabled (Python + JavaScript), returns unsupported when Tools Hub disabled, returns unsupported on network failure, returns real stderr when code errors.
+  * API key security: key sent in Authorization header (not body, not query, not URL).
+  * Used vi.hoisted() pattern for mock factory state (the vitest-recommended approach).
+- Ran full vitest suite: 1188/1188 pass (was 1158, +30 new). 50s.
+- TypeScript: 0 new errors. 22 pre-existing baseline unchanged.
+- Committed as <HASH>. Pushed to main.
+
+Stage Summary:
+- Tools Hub integration is live. Admins can now:
+  1. Go to Admin Panel → 🧰 Tools Hub tab
+  2. Toggle "Enable Tools Hub" on
+  3. Paste their API key (sbth_...) — stored encrypted
+  4. Set base URL (default https://toolhub.space-z.ai)
+  5. Toggle "Code Sandbox" on (default on) — this enables "Run" buttons in the workspace
+  6. Click "Test connection" to verify the key works + see available tools
+- When enabled + a learner runs Python/JS in the workspace:
+  1. Frontend calls POST /api/tools/sandbox with { language, code }
+  2. Backend authenticates user, validates input
+  3. runCode() checks local kill switch (off by default) → tries Tools Hub
+  4. toolhub-client.runCode() POSTs to https://toolhub.space-z.ai/api/tools/sandbox
+  5. Returns stdout/stderr/exitCode to frontend
+  6. Learner sees the output in the workspace
+- When disabled, behavior is unchanged from today (AI explains code but doesn't run it).
+- SECURITY: The local Phase 0 kill switch stays ON. No code runs on Study Buddy's server. Code runs on Tools Hub infrastructure which the admin controls separately. The API key is stored encrypted, never sent to the browser, never logged.
+- Existing 37 Phase 0 security tests still pass — no security regression.
+- 30 new tests cover all toolhub-client functions + code-sandbox routing + API key security.
+- STOP after Phase 9. Next: wire workspace code panels to call /api/tools/sandbox + show output inline.

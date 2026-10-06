@@ -2666,3 +2666,46 @@ model IngestionJob {
   @@index([status])
   @@index([contentHash])
 }
+
+// ════════════════════════════════════════════════════════════════
+// Phase 9 — Tools Hub integration (external code execution sandbox)
+// ════════════════════════════════════════════════════════════════
+//
+// Tools Hub is an EXTERNAL service (https://toolhub.space-z.ai) that
+// provides sandboxed code execution + an AI Tutor endpoint. Study Buddy
+// routes code execution here when the local Phase 0 kill switch is ON
+// (no server-side execution on Study Buddy's own infrastructure).
+//
+// This keeps the security containment intact: even when code execution
+// is "enabled" for learners, it never runs on Study Buddy's server —
+// it runs on the Tools Hub infrastructure, which the admin controls
+// separately. If Tools Hub is disabled, behavior is unchanged from
+// today (AI explains code but doesn't run it).
+//
+// The API key is stored ENCRYPTED (reuses crypto.ts encryptApiKey /
+// decryptApiKey — same as YouTube/Pollinations keys). The admin enters
+// the key via the admin panel; it's never exposed to the browser.
+
+model ToolhubSettings {
+  id                      Int       @id @default(1)
+  // Master toggle — when false, NO Tools Hub calls happen (code execution
+  // returns `unsupported` as today).
+  enabled                 Boolean   @default(false)
+  // The API key (sbth_...) — stored encrypted. Decrypted only at call time.
+  apiKeyEncrypted         String?
+  // The Tools Hub base URL. Default is the public instance. Admin can
+  // change this to point at a staging/self-hosted Tools Hub.
+  baseUrl                 String    @default("https://toolhub.space-z.ai")
+  // Per-tool toggles — admin can enable just the sandbox without routing
+  // tutor traffic through Tools Hub (the existing tutor pipeline stays
+  // intact when tutorEnabled is false).
+  codeSandboxEnabled      Boolean   @default(true)
+  tutorEnabled            Boolean   @default(false)
+  // Connection test result — updated by the "Test connection" button in
+  // the admin panel. Lets the admin see at a glance whether the key is
+  // valid + Tools Hub is reachable.
+  lastTestedAt            DateTime?
+  lastTestOk              Boolean?
+  lastTestError           String?
+  updatedAt               DateTime  @updatedAt
+}

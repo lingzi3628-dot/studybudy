@@ -39,6 +39,75 @@ import {
   JAVASCRIPT_UNSUPPORTED_MESSAGE,
 } from "./security-config";
 
+// ============================================================
+// Phase 9 — Tools Hub integration (external code execution sandbox)
+// ============================================================
+
+/**
+ * Try to execute code via Tools Hub when the local kill switch is OFF.
+ *
+ * Returns a CodeResult if Tools Hub is enabled + the call succeeded (or
+ * failed with a code error — that's still a valid execution result).
+ * Returns null if Tools Hub is disabled, so the caller falls back to
+ * returning `unsupported`.
+ *
+ * SECURITY: This is the escape hatch for Phase 0. The local kill switch
+ * stays ON — no code runs on Study Buddy's server. Code runs on Tools
+ * Hub infrastructure which the admin controls separately.
+ */
+async function tryToolhubExecution(
+  language: "python" | "javascript",
+  code: string,
+): Promise<CodeResult | null> {
+  try {
+    // Dynamic import — toolhub-client imports db, which would break the
+    // vitest mocks for code-sandbox tests if imported at module load.
+    const { isToolhubCodeExecutionEnabled, runCode: toolhubRunCode } =
+      await import("./toolhub-client");
+
+    const enabled = await isToolhubCodeExecutionEnabled();
+    if (!enabled) return null;
+
+    const result = await toolhubRunCode(language, code);
+
+    // If Tools Hub itself is disabled or unconfigured, fall back to unsupported.
+    if (result.requestError === "Tools Hub code execution is disabled." ||
+        result.requestError === "Disabled.") {
+      return null;
+    }
+
+    // Map ToolhubRunCodeResult → CodeResult.
+    // When the request itself failed (network, auth, 5xx), surface a friendly
+    // message but keep `unsupported: true` so the caller knows it tried.
+    if (result.requestError) {
+      return {
+        language,
+        stdout: "",
+        stderr: `Code execution is temporarily unavailable: ${result.requestError}`,
+        exitCode: null,
+        durationMs: 0,
+        timedOut: false,
+        unsupported: true,
+      };
+    }
+
+    return {
+      language,
+      stdout: result.stdout ?? "",
+      stderr: result.stderr ?? "",
+      exitCode: result.exitCode ?? null,
+      durationMs: result.durationMs ?? 0,
+      timedOut: false,
+      unsupported: false,
+    };
+  } catch (err: any) {
+    // If toolhub-client throws (DB error, etc.), fall back to unsupported.
+    // Don't crash the chat flow.
+    console.error("[code-sandbox] Tools Hub routing failed:", err?.message ?? err);
+    return null;
+  }
+}
+
 // === Types ===
 
 export type CodeResult = {
@@ -61,10 +130,19 @@ const JS_TIMEOUT_MS = 5000;
  *
  * Phase 0: DISABLED by default. Returns `unsupported` without creating
  * a vm.Script or executing any code when the kill switch is off.
+ *
+ * Phase 9: When local execution is off BUT Tools Hub is enabled, route
+ * to toolhub-client.runCode(). Code runs on Tools Hub infrastructure,
+ * not on Study Buddy's server. This is the escape hatch for the
+ * Phase 0 security containment — keeps the local kill switch ON.
  */
 export async function runJavaScript(code: string): Promise<CodeResult> {
   // Phase 0 — Kill switch check FIRST. Do NOT create vm.Script when disabled.
   if (!isServerJavascriptExecutionEnabled()) {
+    // Phase 9 — Try Tools Hub before returning unsupported.
+    const toolhubResult = await tryToolhubExecution("javascript", code);
+    if (toolhubResult) return toolhubResult;
+
     return {
       language: "javascript",
       stdout: "",
@@ -157,10 +235,18 @@ const PYTHON_TIMEOUT_MS = 5000;
  *
  * Phase 0: DISABLED by default. Returns `unsupported` without spawning
  * a child_process or accessing the filesystem when the kill switch is off.
+ *
+ * Phase 9: When local execution is off BUT Tools Hub is enabled, route
+ * to toolhub-client.runCode(). Code runs on Tools Hub infrastructure,
+ * not on Study Buddy's server.
  */
 export async function runPython(code: string): Promise<CodeResult> {
   // Phase 0 — Kill switch check FIRST. Do NOT spawn process when disabled.
   if (!isServerPythonExecutionEnabled()) {
+    // Phase 9 — Try Tools Hub before returning unsupported.
+    const toolhubResult = await tryToolhubExecution("python", code);
+    if (toolhubResult) return toolhubResult;
+
     return {
       language: "python",
       stdout: "",
