@@ -408,6 +408,79 @@ const CODE_DOCKER_MANIFEST: LearningToolManifest = {
   availability: { enabled: true, supportedPlatforms: ["web"] },
 };
 
+// --- 8 critical new plugins ---
+const WRITING_COMPOSITION_MANIFEST: LearningToolManifest = {
+  id: "writing.composition", version: 1, category: "writing",
+  supportedActions: ["create", "modify", "inspect"],
+  capabilities: { render: true, edit: true, execute: false, save: true, offline: true },
+  searchTerms: ["essay", "report", "composition", "writing", "assignment", "article", "paragraph"],
+  inputRequirements: ["prompt"],
+  availability: { enabled: true, supportedPlatforms: ["web", "mobile"] },
+};
+
+const DIAGRAM_TIMELINE_MANIFEST: LearningToolManifest = {
+  id: "diagram.timeline", version: 1, category: "diagram",
+  supportedActions: ["create", "modify", "inspect"],
+  capabilities: { render: true, edit: true, execute: false, save: true, offline: true },
+  searchTerms: ["timeline", "chronology", "history", "sequence of events", "lifecycle", "project schedule"],
+  inputRequirements: ["events"],
+  availability: { enabled: true, supportedPlatforms: ["web", "mobile"] },
+};
+
+const MATH_GEOMETRY_MANIFEST: LearningToolManifest = {
+  id: "math.geometry", version: 1, category: "graph",
+  supportedActions: ["create", "modify", "inspect"],
+  capabilities: { render: true, edit: true, execute: false, save: true, offline: true },
+  searchTerms: ["geometry", "construction", "compass", "triangle", "circle", "angle", "bisector", "perpendicular"],
+  inputRequirements: ["shapes"],
+  availability: { enabled: true, supportedPlatforms: ["web", "mobile"] },
+};
+
+const SCIENCE_PHYSICS_MANIFEST: LearningToolManifest = {
+  id: "science.physics-sim", version: 1, category: "simulation",
+  supportedActions: ["create", "modify", "run", "inspect"],
+  capabilities: { render: true, edit: true, execute: true, save: true, offline: true },
+  searchTerms: ["pendulum", "projectile", "motion", "force", "velocity", "acceleration", "physics simulation", "free fall"],
+  inputRequirements: ["simulation type", "parameters"],
+  availability: { enabled: true, supportedPlatforms: ["web"] },
+};
+
+const SCIENCE_CHEMISTRY_MANIFEST: LearningToolManifest = {
+  id: "science.chemistry-sim", version: 1, category: "simulation",
+  supportedActions: ["create", "modify", "inspect"],
+  capabilities: { render: true, edit: true, execute: false, save: true, offline: true },
+  searchTerms: ["molecule", "chemical reaction", "atom", "bond", "compound", "element", "periodic table"],
+  inputRequirements: ["atoms", "bonds"],
+  availability: { enabled: true, supportedPlatforms: ["web"] },
+};
+
+const DIAGRAM_FREE_BODY_MANIFEST: LearningToolManifest = {
+  id: "diagram.free-body", version: 1, category: "diagram",
+  supportedActions: ["create", "modify", "inspect"],
+  capabilities: { render: true, edit: true, execute: false, save: true, offline: true },
+  searchTerms: ["free body diagram", "force diagram", "vector", "tension", "normal force", "friction", "gravity"],
+  inputRequirements: ["body", "forces"],
+  availability: { enabled: true, supportedPlatforms: ["web"] },
+};
+
+const BUSINESS_FINANCIAL_MANIFEST: LearningToolManifest = {
+  id: "business.financial", version: 1, category: "code",
+  supportedActions: ["create", "modify", "run", "inspect"],
+  capabilities: { render: true, edit: true, execute: true, save: true, offline: true },
+  searchTerms: ["npv", "irr", "compound interest", "simple interest", "break-even", "breakeven", "financial calculator", "investment"],
+  inputRequirements: ["calcType", "values"],
+  availability: { enabled: true, supportedPlatforms: ["web", "mobile"] },
+};
+
+const DIAGRAM_ANATOMY_MANIFEST: LearningToolManifest = {
+  id: "diagram.anatomy", version: 1, category: "diagram",
+  supportedActions: ["create", "modify", "inspect"],
+  capabilities: { render: true, edit: true, execute: false, save: true, offline: true },
+  searchTerms: ["anatomy", "body", "organ", "skeleton", "muscle", "heart", "brain", "cell", "system", "human body"],
+  inputRequirements: ["labels"],
+  availability: { enabled: true, supportedPlatforms: ["web", "mobile"] },
+};
+
 const ALL_MANIFESTS: LearningToolManifest[] = [
   // Original 5
   GRAPH_BAR_MANIFEST,
@@ -445,6 +518,15 @@ const ALL_MANIFESTS: LearningToolManifest[] = [
   GRAPH_BOXPLOT_MANIFEST,
   GRAPH_TREE_MANIFEST,
   CODE_DOCKER_MANIFEST,
+  // 8 critical new plugins
+  WRITING_COMPOSITION_MANIFEST,
+  DIAGRAM_TIMELINE_MANIFEST,
+  MATH_GEOMETRY_MANIFEST,
+  SCIENCE_PHYSICS_MANIFEST,
+  SCIENCE_CHEMISTRY_MANIFEST,
+  DIAGRAM_FREE_BODY_MANIFEST,
+  BUSINESS_FINANCIAL_MANIFEST,
+  DIAGRAM_ANATOMY_MANIFEST,
 ];
 
 const MANIFEST_MAP: ReadonlyMap<string, LearningToolManifest> = new Map(

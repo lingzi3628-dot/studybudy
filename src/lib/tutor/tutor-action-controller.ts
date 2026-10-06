@@ -233,6 +233,23 @@ function allowedPluginsFor(category: ToolCategory, requestedType: string | null)
     notebook: "writing.notebook",
     manipulative: "math.manipulative",
     calculator: "math.calculator",
+    essay: "writing.composition",
+    report: "writing.composition",
+    composition: "writing.composition",
+    timeline: "diagram.timeline",
+    geometry: "math.geometry",
+    construction: "math.geometry",
+    pendulum: "science.physics-sim",
+    projectile: "science.physics-sim",
+    molecule: "science.chemistry-sim",
+    reaction: "science.chemistry-sim",
+    "free-body": "diagram.free-body",
+    "force diagram": "diagram.free-body",
+    npv: "business.financial",
+    "compound interest": "business.financial",
+    "break-even": "business.financial",
+    anatomy: "diagram.anatomy",
+    "human body": "diagram.anatomy",
   };
   const id = TYPE_TO_PLUGIN[requestedType];
   return id ? [id] : [];
