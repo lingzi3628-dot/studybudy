@@ -374,6 +374,12 @@ export async function parseGraphAttachments(opts: {
       "html", "css", "sql", "c", "cpp", "c++", "java", "go", "rust", "rs", "ruby",
       "rb", "php", "json", "yaml", "yml", "toml", "xml", "kotlin", "swift", "scala",
       "perl", "lua", "r", "matlab", "dart", "plaintext", "text",
+      // Phase 7 — 8 critical new plugin fences. These are handled by their
+      // own dedicated parsers (parseComposition, parseTimeline, etc.) in
+      // postProcessReply. Skipping them here prevents tryParseGraphSpec from
+      // trying (and failing) to interpret them as graph specs.
+      "composition", "timeline", "geometry", "physics", "molecule",
+      "freebody", "financial", "anatomy",
     ]);
     const codeBlockRe = /```([\w-]*)\s*([\s\S]*?)```/g;
     let codeBlockMatch: RegExpExecArray | null;
@@ -684,6 +690,212 @@ export function parseDrawTask(reply: string): any | null {
 }
 
 // ---------------------------------------------------------------
+// 6b. Phase 7 — Parsers for the 8 critical new plugin fences
+// ---------------------------------------------------------------
+//
+// Each parser mirrors the corresponding adapter in plugin-adapters.ts.
+// The adapter runs when TUTOR_PLUGIN_FRAMEWORK_ENABLED is on (validating
+// the spec + returning a WorkspaceArtifact). These parsers run UNCONDITIONALLY
+// so the legacy postProcessReply path can also surface the artifact as a
+// TutorAttachment — meaning learners see the artifact even when the flag
+// is off (the adapter still runs as a validator when the flag is on).
+//
+// Attachment types produced (each must match the WORKSPACE_TYPES dispatch
+// in AITutorChat.tsx):
+//   composition  ← ```composition fence
+//   timeline     ← ```timeline fence
+//   geometry     ← ```geometry fence
+//   physics_sim  ← ```physics fence
+//   molecule     ← ```molecule fence
+//   free_body    ← ```freebody fence
+//   financial    ← ```financial fence
+//   anatomy      ← ```anatomy fence
+
+/**
+ * Generic fenced-JSON parser. Looks for ```<fenceName> ... ```, extracts the
+ * JSON object between the first `{` and last `}`, and parses it. Returns null
+ * on any failure. `requiredFields` is an optional list of top-level keys
+ * that MUST be present (and non-null).
+ *
+ * Mirrors parseFencedJson() in plugin-adapters.ts — duplicated here to
+ * avoid a circular import (plugin-adapters imports from tutor-chat-engine
+ * for TutorAttachment).
+ */
+function parseFencedSpec(
+  reply: string,
+  fenceName: string,
+  requiredFields: string[] = [],
+): any | null {
+  try {
+    const fenceRe = new RegExp("```" + fenceName + "\\s*([\\s\\S]*?)```", "i");
+    let match = reply.match(fenceRe);
+    // Some models emit a nested ```json fence INSIDE the plugin fence:
+    //   ```composition
+    //   ```json
+    //   {...}
+    //   ```
+    //   ```
+    // The non-greedy match then closes at the inner fence and captures
+    // nothing useful. Detect that shape (empty capture OR capture starts
+    // with ```) and re-capture greedily. Brace-slicing below tolerates
+    // the trailing fence marks.
+    if (match) {
+      const captured = match[1].trim();
+      if (!captured || captured.startsWith("```")) {
+        const greedy = new RegExp("```" + fenceName + "\\s*([\\s\\S]*)```", "i");
+        const greedyMatch = reply.match(greedy);
+        if (greedyMatch) match = greedyMatch;
+      }
+    }
+    if (!match || !match[1]) return null;
+    let cleaned = match[1].trim();
+    // Some models wrap the spec in an inner ```json fence — strip it.
+    if (cleaned.startsWith("```")) {
+      cleaned = cleaned.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "");
+    }
+    const firstBrace = cleaned.indexOf("{");
+    const lastBrace = cleaned.lastIndexOf("}");
+    if (firstBrace === -1 || lastBrace === -1 || lastBrace < firstBrace) return null;
+    const parsed = JSON.parse(cleaned.slice(firstBrace, lastBrace + 1));
+    if (!parsed || typeof parsed !== "object") return null;
+    for (const f of requiredFields) {
+      if (parsed[f] === undefined || parsed[f] === null) return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+/** Parse a ```composition block. Validates sections is a non-empty array. */
+export function parseComposition(reply: string): any | null {
+  const spec = parseFencedSpec(reply, "composition", ["sections"]);
+  if (!spec || !Array.isArray(spec.sections) || spec.sections.length === 0) return null;
+  // Each section must have a body string (heading optional).
+  const valid = spec.sections.filter(
+    (s: any) => s && typeof s.body === "string" && s.body.trim().length > 0,
+  );
+  if (valid.length === 0) return null;
+  return { ...spec, sections: valid };
+}
+
+/** Parse a ```timeline block. Validates events is a non-empty array. */
+export function parseTimeline(reply: string): any | null {
+  const spec = parseFencedSpec(reply, "timeline", ["events"]);
+  if (!spec || !Array.isArray(spec.events) || spec.events.length === 0) return null;
+  const valid = spec.events.filter(
+    (e: any) => e && typeof e.label === "string" && e.label.trim().length > 0,
+  );
+  if (valid.length === 0) return null;
+  return { ...spec, events: valid };
+}
+
+/**
+ * Parse a ```geometry block. Validates shapes is a non-empty array and
+ * each shape's type is in the whitelist.
+ */
+const GEOMETRY_VALID_TYPES = new Set([
+  "triangle", "equilateral_triangle", "right_triangle", "isosceles_triangle",
+  "square", "rectangle", "parallelogram", "rhombus", "trapezium", "trapezoid",
+  "circle", "polygon", "pentagon", "hexagon", "heptagon", "octagon",
+  "angle", "line_segment", "perpendicular_bisector", "angle_bisector",
+  "point", "ray", "line",
+]);
+
+export function parseGeometry(reply: string): any | null {
+  const spec = parseFencedSpec(reply, "geometry", ["shapes"]);
+  if (!spec || !Array.isArray(spec.shapes) || spec.shapes.length === 0) return null;
+  const valid = spec.shapes.filter(
+    (s: any) => s && typeof s.type === "string" && GEOMETRY_VALID_TYPES.has(s.type),
+  );
+  if (valid.length === 0) return null;
+  return { ...spec, shapes: valid };
+}
+
+/** Parse a ```physics block. Validates simType is a recognized string. */
+const PHYSICS_VALID_SIM_TYPES = new Set([
+  "pendulum", "simple_pendulum",
+  "projectile", "projectile_motion",
+  "free_fall", "incline", "incline_plane", "incline_motion",
+  "spring", "spring_mass", "shm", "circular_motion",
+  "collision", "wave", "doppler",
+]);
+
+export function parsePhysicsSim(reply: string): any | null {
+  const spec = parseFencedSpec(reply, "physics", ["simType"]);
+  if (!spec || typeof spec.simType !== "string") return null;
+  if (!PHYSICS_VALID_SIM_TYPES.has(spec.simType)) return null;
+  if (!spec.parameters || typeof spec.parameters !== "object") {
+    spec.parameters = {};
+  }
+  return spec;
+}
+
+/**
+ * Parse a ```molecule block. Accepts EITHER an atoms/bonds molecule OR
+ * a reaction array. Validates element symbols against the periodic table.
+ */
+const PERIODIC_TABLE = new Set([
+  "H","He","Li","Be","B","C","N","O","F","Ne","Na","Mg","Al","Si","P","S","Cl","Ar",
+  "K","Ca","Sc","Ti","V","Cr","Mn","Fe","Co","Ni","Cu","Zn","Ga","Ge","As","Se","Br","Kr",
+  "Rb","Sr","Y","Zr","Nb","Mo","Tc","Ru","Rh","Pd","Ag","Cd","In","Sn","Sb","Te","I","Xe",
+  "Cs","Ba","La","Hf","Ta","W","Re","Os","Ir","Pt","Au","Hg","Tl","Pb","Bi","Po","At","Rn",
+]);
+
+export function parseMolecule(reply: string): any | null {
+  const spec = parseFencedSpec(reply, "molecule", []);
+  if (!spec) return null;
+  const hasMolecule = Array.isArray(spec.atoms) && spec.atoms.length > 0;
+  const hasReaction = Array.isArray(spec.reaction) && spec.reaction.length > 0;
+  if (!hasMolecule && !hasReaction) return null;
+  if (hasMolecule) {
+    for (const a of spec.atoms) {
+      if (!a || typeof a.element !== "string" || !PERIODIC_TABLE.has(a.element)) return null;
+    }
+  }
+  return spec;
+}
+
+/** Parse a ```freebody block. Validates forces is a non-empty array. */
+export function parseFreeBody(reply: string): any | null {
+  const spec = parseFencedSpec(reply, "freebody", ["forces"]);
+  if (!spec || !Array.isArray(spec.forces) || spec.forces.length === 0) return null;
+  const valid = spec.forces.filter(
+    (f: any) => f && typeof f.label === "string" && f.label.trim().length > 0,
+  );
+  if (valid.length === 0) return null;
+  return { ...spec, forces: valid };
+}
+
+/** Parse a ```financial block. Validates calcType is a recognized string. */
+const FINANCIAL_VALID_CALC_TYPES = new Set([
+  "npv", "irr", "payback", "discounted_payback", "profitability_index",
+  "compound_interest", "simple_interest", "break_even", "breakeven",
+  "loan_payment", "amortization", "present_value", "future_value",
+  "annuity", "roi", "roi_percent",
+]);
+
+export function parseFinancial(reply: string): any | null {
+  const spec = parseFencedSpec(reply, "financial", ["calcType"]);
+  if (!spec || typeof spec.calcType !== "string") return null;
+  if (!FINANCIAL_VALID_CALC_TYPES.has(spec.calcType)) return null;
+  if (!spec.parameters || typeof spec.parameters !== "object") spec.parameters = {};
+  if (!spec.result || typeof spec.result !== "object") spec.result = {};
+  return spec;
+}
+
+/** Parse a ```anatomy block. Validates labels is a non-empty array. */
+export function parseAnatomy(reply: string): any | null {
+  const spec = parseFencedSpec(reply, "anatomy", ["labels"]);
+  if (!spec || !Array.isArray(spec.labels) || spec.labels.length === 0) return null;
+  const valid = spec.labels.filter(
+    (l: any) => l && typeof l.part === "string" && l.part.trim().length > 0,
+  );
+  if (valid.length === 0) return null;
+  return { ...spec, labels: valid };
+}
+
+// ---------------------------------------------------------------
 // 7. Post-process pipeline (graphs + examgen + proof engine)
 // ---------------------------------------------------------------
 
@@ -782,6 +994,55 @@ export async function postProcessReply(opts: {
       url: null,
       caption: JSON.stringify(drawTaskSpec),
     });
+  }
+
+  // Phase 7 — 8 critical new plugin fences. Each parser validates + returns
+  // the spec; we strip the fence from the visible reply + push as attachment.
+  // When the fence is missing or invalid, the parser returns null (no-op).
+  // ATTACHMENT TYPES: composition | timeline | geometry | physics_sim |
+  //                   molecule | free_body | financial | anatomy
+  //
+  // These MUST match the WORKSPACE_TYPES dispatch in AITutorChat.tsx so the
+  // frontend routes each attachment to the right panel.
+  const compositionSpec = parseComposition(learnerReply);
+  if (compositionSpec) {
+    learnerReply = learnerReply.replace(/```composition\s*[\s\S]*?```\s*/i, "").trim();
+    attachments.push({ type: "composition", url: null, caption: JSON.stringify(compositionSpec) });
+  }
+  const timelineSpec = parseTimeline(learnerReply);
+  if (timelineSpec) {
+    learnerReply = learnerReply.replace(/```timeline\s*[\s\S]*?```\s*/i, "").trim();
+    attachments.push({ type: "timeline", url: null, caption: JSON.stringify(timelineSpec) });
+  }
+  const geometrySpec = parseGeometry(learnerReply);
+  if (geometrySpec) {
+    learnerReply = learnerReply.replace(/```geometry\s*[\s\S]*?```\s*/i, "").trim();
+    attachments.push({ type: "geometry", url: null, caption: JSON.stringify(geometrySpec) });
+  }
+  const physicsSpec = parsePhysicsSim(learnerReply);
+  if (physicsSpec) {
+    learnerReply = learnerReply.replace(/```physics\s*[\s\S]*?```\s*/i, "").trim();
+    attachments.push({ type: "physics_sim", url: null, caption: JSON.stringify(physicsSpec) });
+  }
+  const moleculeSpec = parseMolecule(learnerReply);
+  if (moleculeSpec) {
+    learnerReply = learnerReply.replace(/```molecule\s*[\s\S]*?```\s*/i, "").trim();
+    attachments.push({ type: "molecule", url: null, caption: JSON.stringify(moleculeSpec) });
+  }
+  const freeBodySpec = parseFreeBody(learnerReply);
+  if (freeBodySpec) {
+    learnerReply = learnerReply.replace(/```freebody\s*[\s\S]*?```\s*/i, "").trim();
+    attachments.push({ type: "free_body", url: null, caption: JSON.stringify(freeBodySpec) });
+  }
+  const financialSpec = parseFinancial(learnerReply);
+  if (financialSpec) {
+    learnerReply = learnerReply.replace(/```financial\s*[\s\S]*?```\s*/i, "").trim();
+    attachments.push({ type: "financial", url: null, caption: JSON.stringify(financialSpec) });
+  }
+  const anatomySpec = parseAnatomy(learnerReply);
+  if (anatomySpec) {
+    learnerReply = learnerReply.replace(/```anatomy\s*[\s\S]*?```\s*/i, "").trim();
+    attachments.push({ type: "anatomy", url: null, caption: JSON.stringify(anatomySpec) });
   }
 
   // Exam generation config

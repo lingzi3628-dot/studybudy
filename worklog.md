@@ -2010,3 +2010,66 @@ Stage Summary:
 - All changes additive — no breaking API contract changes.
 - 111 new tests covering all 8 adapters + bounded schemas + safety invariants.
 - STOP after Phase 6. Next is Phase 7 (frontend renderers for the 8 artifact types) when user requests.
+
+---
+Task ID: Phase 7 — Backend parsers + frontend dispatch for 8 critical plugins
+Agent: main
+Task: Wire the 8 critical new plugin artifacts end-to-end through the legacy chat pipeline. Phase 6 built the adapters + bounded schemas + routing detection, but the artifacts never reached the learner because: (1) parseGraphAttachments only handled mathgraph-style specs, (2) postProcessReply only called parseQuiz/parseDrawTask/parseExamGen, (3) AITutorChat.tsx only dispatched on graph/quiz/draw_task/conceptmap/code_project/science_simulation/flowchart_v1. The 8 new fence types (composition/timeline/geometry/physics/molecule/freebody/financial/anatomy) were invisible to the learner even when the AI emitted them.
+
+Work Log:
+- Added 8 new parsers to src/lib/tutor-chat-engine.ts:
+  * parseFencedSpec() — generic helper that extracts a fenced-code-block JSON spec. Handles the nested ```json fence case (some models wrap the spec in ```composition\n```json\n{...}\n```\n``` — the non-greedy regex captures nothing useful, so we detect this shape and re-capture greedily, then brace-slice to tolerate trailing fence marks). Mirrors the same pattern used by parseExamGen.
+  * parseComposition — validates sections is a non-empty array, each section has body text
+  * parseTimeline — validates events is a non-empty array, each event has a label
+  * parseGeometry — validates shapes is a non-empty array, each shape type is in whitelist (triangle/circle/square/rectangle/polygon/angle/perpendicular_bisector/angle_bisector/etc.)
+  * parsePhysicsSim — validates simType is in whitelist (pendulum/projectile/free_fall/incline/spring/shm/circular_motion/collision/wave/doppler), defaults parameters to {}
+  * parseMolecule — accepts EITHER atoms+bonds (molecule) OR reaction array. Validates element symbols against periodic table (H through Rn)
+  * parseFreeBody — validates forces is a non-empty array, each force has a label
+  * parseFinancial — validates calcType is in whitelist (npv/irr/payback/discounted_payback/profitability_index/compound_interest/simple_interest/break_even/breakeven/loan_payment/amortization/present_value/future_value/annuity/roi/roi_percent), defaults parameters and result to {}
+  * parseAnatomy — validates labels is a non-empty array, each label has a part name
+- Added the 8 new fence names to CODE_LANGS_TO_SKIP in parseGraphAttachments. Without this, tryParseGraphSpec would try to parse ```composition blocks as graph specs (fail because their type field isn't in KNOWN_GRAPH_TYPES) and log noise.
+- Wired all 8 parsers into postProcessReply. Each parser:
+  * Runs unconditionally (flag-independent — learners see the artifact even when TUTOR_PLUGIN_FRAMEWORK_ENABLED is off)
+  * Strips the fence from the visible reply (so user doesn't see raw JSON)
+  * Pushes the spec as a TutorAttachment with the right `type` field
+  * Attachment types: composition | timeline | geometry | physics_sim | molecule | free_body | financial | anatomy
+- Frontend: src/components/studybuddy/screens/AITutorChat.tsx
+  * Imported 8 new panel components: CompositionEditor, TimelinePanel, GeometryPanel, PhysicsSimPanel, MoleculePanel, FreeBodyPanel, FinancialCalculator, AnatomyPanel
+  * Extended WORKSPACE_TYPES_F15 array (auto-open workspace) with the 8 new types
+  * Extended WORKSPACE_TYPES array (Open in Workspace button) with the 8 new types
+  * Extended the workspace title switch (graph/quiz/draw_task/conceptmap/...) with 8 new entries + emojis
+  * Extended the typeLabel switch (used in "Explain this X" prompt) with 8 new entries
+  * Added 8 new workspace content render branches, each:
+    - Parses the spec from workspaceArtifact.caption
+    - Adapts the adapter's payload shape into what the existing panel component expects:
+      · composition: flattens sections[] into a single text blob for CompositionEditor (expects spec.content)
+      · physics_sim: flattens parameters{} into top-level fields (expects spec.length, spec.gravity, etc.)
+      · free_body: wraps string body into an object (panel expects spec.body to be {kind, x, y, w, h, label})
+      · financial: maps calcType (compound_interest → compound, break_even → breakeven, etc.) + flattens parameters
+      · timeline/geometry/molecule/anatomy: pass spec through unchanged (panel contract matches adapter output)
+    - Renders the panel with a colored header banner
+    - try/catch wraps each branch so a malformed spec falls through to AttachmentRenderer
+  * Added an inline renderer branch for the 8 new types — shows a compact notification card in the chat with icon, label, title, and summary (e.g. "3 sections • essay", "5 events • 1963 → 2024", "pendulum", "H2O", "3 forces • block on incline")
+  * Used STATIC Tailwind class strings (border-purple-200, bg-purple-50/40, etc.) — Tailwind v3 doesn't pick up dynamically constructed class names
+- Wrote src/lib/__tests__/phase7-8-critical-parsers.test.ts (44 tests):
+  * Each parser: valid spec, missing fence, empty/missing required fields, invalid enum values, nested ```json fence handling
+  * Integration with postProcessReply: each fence → attachment with right type, fence stripped from reply, all 8 fences in a single reply, no false-positive graph attachments
+- Fixed nested-fence bug in parseFencedSpec: when the AI emits ```composition\n```json\n{...}\n```\n```, the non-greedy regex captures nothing (the inner ```json's opening ``` matches as the closer). Mirrored parseExamGen's approach: detect empty capture OR capture starting with ```, then re-capture greedily.
+- Ran full vitest suite: 1077/1077 pass (was 1033, +44 new from Phase 7). 43s.
+- TypeScript check: 0 new errors. 22 pre-existing baseline unchanged.
+- Committed as <HASH>. Pushed to main.
+
+Stage Summary:
+- All 8 critical plugins are now FULLY wired end-to-end through BOTH paths:
+  1. LEGACY path (flag off): AI emits ```composition fence → parseComposition extracts spec → postProcessReply pushes as attachment type="composition" → AITutorChat renders compact card + opens workspace panel → CompositionEditor renders interactive editor
+  2. PLUGIN-FIRST path (flag on): resolvePluginBeforeAI selects writing.composition → bounded schema constrains AI to emit ONLY ```composition fence → adapter validates spec → postProcessReply also extracts it → same frontend rendering
+- Both paths converge on the same 8 attachment types: composition | timeline | geometry | physics_sim | molecule | free_body | financial | anatomy
+- Each attachment type has:
+  * A dedicated parser in tutor-chat-engine.ts (validates + extracts)
+  * A dedicated adapter in plugin-adapters.ts (when flag on, validates + wraps in WorkspaceArtifact)
+  * A dedicated bounded schema in plugin-orchestrator.ts (when flag on, constrains AI)
+  * A dedicated render branch in AITutorChat.tsx (workspace panel + inline card)
+  * A dedicated React panel component (CompositionEditor, TimelinePanel, etc.)
+- Existing behavior preserved: all old attachment types (graph, quiz, draw_task, conceptmap, code_project, science_simulation, flowchart_v1, manipulative) work unchanged.
+- 44 new tests covering parsers + postProcessReply integration.
+- STOP after Phase 7. Next is Phase 8 (workspace persistence — save/load artifacts across sessions) when user requests.

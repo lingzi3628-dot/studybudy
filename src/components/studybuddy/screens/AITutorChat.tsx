@@ -44,6 +44,15 @@ import { GraphLab } from "./tutor/GraphLab";
 import { QuizLab } from "./tutor/QuizLab";
 import { DrawingStudio } from "./tutor/DrawingStudio";
 import { FlowchartRenderer } from "./tutor/FlowchartRenderer";
+// Phase 7 — 8 critical new plugin panels
+import { CompositionEditor } from "./tutor/CompositionEditor";
+import { TimelinePanel } from "./tutor/TimelinePanel";
+import { GeometryPanel } from "./tutor/GeometryPanel";
+import { PhysicsSimPanel } from "./tutor/PhysicsSimPanel";
+import { MoleculePanel } from "./tutor/MoleculePanel";
+import { FreeBodyPanel } from "./tutor/FreeBodyPanel";
+import { FinancialCalculator } from "./tutor/FinancialCalculator";
+import { AnatomyPanel } from "./tutor/AnatomyPanel";
 // Phase FC — Flowchart renderer feature flag.
 // NEXT_PUBLIC_FLOWCHART_RENDERER_ENABLED controls client-side rendering.
 // TUTOR_FLOWCHART_GENERATION_ENABLED (server-side, in context-builder.ts) controls AI prompt.
@@ -182,6 +191,14 @@ export function AITutorChat() {
         : workspaceArtifact.type === "quiz" ? "Quiz Workspace"
         : workspaceArtifact.type === "draw_task" ? "Drawing Task"
         : workspaceArtifact.type === "conceptmap" ? "Concept Map"
+        : workspaceArtifact.type === "composition" ? "Writing Draft"
+        : workspaceArtifact.type === "timeline" ? "Timeline"
+        : workspaceArtifact.type === "geometry" ? "Geometry Construction"
+        : workspaceArtifact.type === "physics_sim" ? "Physics Simulation"
+        : workspaceArtifact.type === "molecule" ? "Molecule Viewer"
+        : workspaceArtifact.type === "free_body" ? "Force Diagram"
+        : workspaceArtifact.type === "financial" ? "Financial Calculator"
+        : workspaceArtifact.type === "anatomy" ? "Anatomy Diagram"
         : "Workspace Artifact";
       const fileContent = workspaceArtifact.caption || "";
       const fileName = `${workspaceArtifact.type}.json`;
@@ -232,7 +249,10 @@ export function AITutorChat() {
   // workspace-compatible attachment AND the workspace isn't already showing
   // that attachment, auto-open it after 2 seconds. This keeps the chat clean
   // (compact notification card shows briefly) then the workspace opens.
-  const WORKSPACE_TYPES_F15 = ["graph", "quiz", "draw_task", "manipulative", "code_project", "science_simulation", "conceptmap", "flowchart_v1"];
+  const WORKSPACE_TYPES_F15 = ["graph", "quiz", "draw_task", "manipulative", "code_project", "science_simulation", "conceptmap", "flowchart_v1",
+    // Phase 7 — 8 critical new plugin attachment types
+    "composition", "timeline", "geometry", "physics_sim", "molecule", "free_body", "financial", "anatomy",
+  ];
   useEffect(() => {
     if (!USE_WORKSPACE) return;
     const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant" && m.attachments?.length);
@@ -2342,6 +2362,14 @@ export function AITutorChat() {
                     : workspaceArtifact.type === "quiz" ? "📝 Quiz Workspace"
                     : workspaceArtifact.type === "draw_task" ? "✏️ Drawing Workspace"
                     : workspaceArtifact.type === "conceptmap" ? "🧠 Concept Map Workspace"
+                    : workspaceArtifact.type === "composition" ? "✍️ Writing Draft"
+                    : workspaceArtifact.type === "timeline" ? "📅 Timeline"
+                    : workspaceArtifact.type === "geometry" ? "📐 Geometry Construction"
+                    : workspaceArtifact.type === "physics_sim" ? "🔬 Physics Simulation"
+                    : workspaceArtifact.type === "molecule" ? "🧪 Molecule Viewer"
+                    : workspaceArtifact.type === "free_body" ? "➡️ Force Diagram"
+                    : workspaceArtifact.type === "financial" ? "💰 Financial Calculator"
+                    : workspaceArtifact.type === "anatomy" ? "🫀 Anatomy Diagram"
                     : "Workspace"}
                 </span>
               </div>
@@ -2367,6 +2395,14 @@ export function AITutorChat() {
                       : workspaceArtifact.type === "manipulative" ? "this math activity"
                       : workspaceArtifact.type === "code_project" ? "this code project"
                       : workspaceArtifact.type === "flowchart_v1" ? "this flowchart"
+                      : workspaceArtifact.type === "composition" ? "this writing draft"
+                      : workspaceArtifact.type === "timeline" ? "this timeline"
+                      : workspaceArtifact.type === "geometry" ? "this construction"
+                      : workspaceArtifact.type === "physics_sim" ? "this simulation"
+                      : workspaceArtifact.type === "molecule" ? "this molecule"
+                      : workspaceArtifact.type === "free_body" ? "this force diagram"
+                      : workspaceArtifact.type === "financial" ? "this calculation"
+                      : workspaceArtifact.type === "anatomy" ? "this anatomy diagram"
                       : "this workspace artifact";
                     setInput(`Explain ${typeLabel}.`);
                     // Focus the input so the user can edit the question
@@ -2472,6 +2508,186 @@ export function AITutorChat() {
                           </p>
                         </div>
                         <FlowchartRenderer spec={spec} />
+                      </div>
+                    );
+                  } catch {}
+                }
+                // Phase 7 — Route the 8 critical new plugin artifacts to their
+                // dedicated panels. Each branch adapts the adapter's payload
+                // shape into what the existing panel component expects.
+                if (workspaceArtifact.type === "composition") {
+                  try {
+                    const spec = JSON.parse(workspaceArtifact.caption);
+                    // Adapter produces { sections: [{heading, body}] }.
+                    // CompositionEditor expects a flat text blob — flatten
+                    // sections into "Heading\nbody\n\nHeading\nbody...".
+                    const text = Array.isArray(spec.sections)
+                      ? spec.sections.map((s: any) =>
+                          s?.heading ? `${s.heading}\n\n${s.body ?? ""}` : (s?.body ?? "")
+                        ).join("\n\n---\n\n")
+                      : (spec?.content || spec?.prompt || "");
+                    const editorSpec = { ...spec, content: text };
+                    return (
+                      <div className="p-4">
+                        <div className="mb-3 px-4 py-2 bg-purple-50 rounded-lg">
+                          <p className="text-[10px] font-bold uppercase text-purple-600">Writing</p>
+                          <p className="text-xs text-gray-700">
+                            Read and edit the draft below. Use "Save" to keep your changes.
+                          </p>
+                        </div>
+                        <CompositionEditor spec={editorSpec} onSave={(newText) => {
+                          setWorkspaceArtifact({
+                            ...workspaceArtifact,
+                            caption: JSON.stringify({ ...spec, content: newText }),
+                          });
+                        }} />
+                      </div>
+                    );
+                  } catch {}
+                }
+                if (workspaceArtifact.type === "timeline") {
+                  try {
+                    const spec = JSON.parse(workspaceArtifact.caption);
+                    return (
+                      <div className="p-4">
+                        <div className="mb-3 px-4 py-2 bg-amber-50 rounded-lg">
+                          <p className="text-[10px] font-bold uppercase text-amber-600">Timeline</p>
+                          <p className="text-xs text-gray-700">
+                            Events are shown in chronological order.
+                          </p>
+                        </div>
+                        <TimelinePanel spec={spec} />
+                      </div>
+                    );
+                  } catch {}
+                }
+                if (workspaceArtifact.type === "geometry") {
+                  try {
+                    const spec = JSON.parse(workspaceArtifact.caption);
+                    return (
+                      <div className="p-4">
+                        <div className="mb-3 px-4 py-2 bg-emerald-50 rounded-lg">
+                          <p className="text-[10px] font-bold uppercase text-emerald-600">Construction</p>
+                          <p className="text-xs text-gray-700">
+                            Shapes are drawn on a coordinate grid.
+                          </p>
+                        </div>
+                        <GeometryPanel spec={spec} />
+                      </div>
+                    );
+                  } catch {}
+                }
+                if (workspaceArtifact.type === "physics_sim") {
+                  try {
+                    const spec = JSON.parse(workspaceArtifact.caption);
+                    // Adapter produces { simType, parameters: {...} }.
+                    // PhysicsSimPanel expects flat fields (length, gravity,
+                    // initialAngle, etc.). Flatten parameters into the spec.
+                    const flatSpec = { ...spec, ...(spec.parameters || {}) };
+                    return (
+                      <div className="p-4">
+                        <div className="mb-3 px-4 py-2 bg-blue-50 rounded-lg">
+                          <p className="text-[10px] font-bold uppercase text-blue-600">Simulation</p>
+                          <p className="text-xs text-gray-700">
+                            Press Play to run the simulation. Adjust parameters to explore.
+                          </p>
+                        </div>
+                        <PhysicsSimPanel spec={flatSpec} />
+                      </div>
+                    );
+                  } catch {}
+                }
+                if (workspaceArtifact.type === "molecule") {
+                  try {
+                    const spec = JSON.parse(workspaceArtifact.caption);
+                    return (
+                      <div className="p-4">
+                        <div className="mb-3 px-4 py-2 bg-pink-50 rounded-lg">
+                          <p className="text-[10px] font-bold uppercase text-pink-600">Molecule</p>
+                          <p className="text-xs text-gray-700">
+                            Atoms and bonds are shown below. Reactions appear when present.
+                          </p>
+                        </div>
+                        <MoleculePanel spec={spec} />
+                      </div>
+                    );
+                  } catch {}
+                }
+                if (workspaceArtifact.type === "free_body") {
+                  try {
+                    const spec = JSON.parse(workspaceArtifact.caption);
+                    // Adapter produces { body: "string description", forces: [...] }.
+                    // FreeBodyPanel expects body to be an object with kind/
+                    // x/y/w/h. Convert the string into a labeled rect body.
+                    const panelSpec = {
+                      ...spec,
+                      body: typeof spec.body === "string"
+                        ? { kind: "rect", x: 150, y: 100, w: 100, h: 60, label: spec.body }
+                        : spec.body,
+                    };
+                    return (
+                      <div className="p-4">
+                        <div className="mb-3 px-4 py-2 bg-red-50 rounded-lg">
+                          <p className="text-[10px] font-bold uppercase text-red-600">Force Diagram</p>
+                          <p className="text-xs text-gray-700">
+                            Force vectors are drawn from the centre of the body.
+                          </p>
+                        </div>
+                        <FreeBodyPanel spec={panelSpec} />
+                      </div>
+                    );
+                  } catch {}
+                }
+                if (workspaceArtifact.type === "financial") {
+                  try {
+                    const spec = JSON.parse(workspaceArtifact.caption);
+                    // Adapter produces { calcType, parameters: {...}, result: {...} }.
+                    // FinancialCalculator expects flat fields + uses these
+                    // calcType values: "compound" | "simple" | "npv" | "breakeven".
+                    // Map adapter's calcType to the panel's calcType.
+                    const calcTypeMap: Record<string, string> = {
+                      compound_interest: "compound",
+                      simple_interest: "simple",
+                      npv: "npv",
+                      break_even: "breakeven",
+                      breakeven: "breakeven",
+                    };
+                    const p = spec.parameters || {};
+                    const flatSpec = {
+                      calcType: calcTypeMap[spec.calcType] || "npv",
+                      principal: p.initialInvestment ?? p.principal ?? 10000,
+                      rate: p.discountRate != null ? p.discountRate * 100
+                        : (p.rate ?? 12),
+                      periods: Array.isArray(p.cashFlows) ? p.cashFlows.length
+                        : (p.periods ?? 5),
+                      cashFlows: Array.isArray(p.cashFlows) ? p.cashFlows
+                        : [-10000, 3000, 4000, 4000, 5000],
+                    };
+                    return (
+                      <div className="p-4">
+                        <div className="mb-3 px-4 py-2 bg-green-50 rounded-lg">
+                          <p className="text-[10px] font-bold uppercase text-green-600">Calculator</p>
+                          <p className="text-xs text-gray-700">
+                            Adjust the inputs and the result updates instantly.
+                          </p>
+                        </div>
+                        <FinancialCalculator spec={flatSpec} />
+                      </div>
+                    );
+                  } catch {}
+                }
+                if (workspaceArtifact.type === "anatomy") {
+                  try {
+                    const spec = JSON.parse(workspaceArtifact.caption);
+                    return (
+                      <div className="p-4">
+                        <div className="mb-3 px-4 py-2 bg-rose-50 rounded-lg">
+                          <p className="text-[10px] font-bold uppercase text-rose-600">Anatomy</p>
+                          <p className="text-xs text-gray-700">
+                            Hover or tap each label to see its description.
+                          </p>
+                        </div>
+                        <AnatomyPanel spec={spec} />
                       </div>
                     );
                   } catch {}
@@ -2718,7 +2934,10 @@ function AttachmentRenderer({ attachment, onSpecChange, onOpenWorkspace, onOpenI
   // as a COMPACT notification card in the chat instead of the full interactive UI.
   // The full UI opens in the workspace panel. This keeps the chat clean — only
   // text + small notification cards flow through the conversation.
-  const WORKSPACE_TYPES = ["graph", "quiz", "draw_task", "manipulative", "code_project", "science_simulation", "conceptmap"];
+  const WORKSPACE_TYPES = ["graph", "quiz", "draw_task", "manipulative", "code_project", "science_simulation", "conceptmap",
+    // Phase 7 — 8 critical new plugin attachment types
+    "composition", "timeline", "geometry", "physics_sim", "molecule", "free_body", "financial", "anatomy",
+  ];
   if (onOpenInWorkspacePanel && WORKSPACE_TYPES.includes(attachment.type)) {
     // Auto-open the workspace panel after a short delay
     // (the useEffect in the parent handles the actual auto-open — here we just
@@ -2730,6 +2949,14 @@ function AttachmentRenderer({ attachment, onSpecChange, onOpenWorkspace, onOpenI
       : attachment.type === "manipulative" ? "🥭 Math Activity"
       : attachment.type === "code_project" ? "💻 Code Project"
       : attachment.type === "science_simulation" ? "🔌 Circuit Simulation"
+      : attachment.type === "composition" ? "✍️ Writing Draft"
+      : attachment.type === "timeline" ? "📅 Timeline"
+      : attachment.type === "geometry" ? "📐 Construction"
+      : attachment.type === "physics_sim" ? "🔬 Simulation"
+      : attachment.type === "molecule" ? "🧪 Molecule"
+      : attachment.type === "free_body" ? "➡️ Force Diagram"
+      : attachment.type === "financial" ? "💰 Calculator"
+      : attachment.type === "anatomy" ? "🫀 Anatomy Diagram"
       : "📦 Activity";
 
     // Extract a title from the spec if possible
@@ -2990,6 +3217,71 @@ function AttachmentRenderer({ attachment, onSpecChange, onOpenWorkspace, onOpenI
           </div>
         )}
         <FlowchartRenderer spec={fcSpec} compact={!!onOpenInWorkspacePanel} />
+      </div>
+    );
+  }
+
+  // Phase 7 — Inline renderers for the 8 critical new plugin attachment
+  // types. These show a COMPACT preview in the chat. The full interactive
+  // panel opens in the workspace (handled by the WORKSPACE_TYPES dispatch
+  // above).
+  if (["composition", "timeline", "geometry", "physics_sim", "molecule", "free_body", "financial", "anatomy"].includes(attachment.type)) {
+    let spec: any = null;
+    try { spec = JSON.parse(attachment.caption); } catch { return null; }
+    if (!spec) return null;
+
+    // Static class strings so Tailwind's compiler picks them up. Constructing
+    // class names dynamically (e.g. `border-${accent}-200`) does NOT work with
+    // Tailwind v3 — the compiler only sees literal strings in the source.
+    const STYLE_BY_TYPE: Record<string, { icon: string; label: string; cardClass: string; labelClass: string }> = {
+      composition: { icon: "✍️", label: "Writing Draft", cardClass: "rounded-xl border border-purple-200 bg-purple-50/40 p-3", labelClass: "text-[10px] font-bold uppercase text-purple-600" },
+      timeline: { icon: "📅", label: "Timeline", cardClass: "rounded-xl border border-amber-200 bg-amber-50/40 p-3", labelClass: "text-[10px] font-bold uppercase text-amber-600" },
+      geometry: { icon: "📐", label: "Construction", cardClass: "rounded-xl border border-emerald-200 bg-emerald-50/40 p-3", labelClass: "text-[10px] font-bold uppercase text-emerald-600" },
+      physics_sim: { icon: "🔬", label: "Simulation", cardClass: "rounded-xl border border-blue-200 bg-blue-50/40 p-3", labelClass: "text-[10px] font-bold uppercase text-blue-600" },
+      molecule: { icon: "🧪", label: "Molecule", cardClass: "rounded-xl border border-pink-200 bg-pink-50/40 p-3", labelClass: "text-[10px] font-bold uppercase text-pink-600" },
+      free_body: { icon: "➡️", label: "Force Diagram", cardClass: "rounded-xl border border-red-200 bg-red-50/40 p-3", labelClass: "text-[10px] font-bold uppercase text-red-600" },
+      financial: { icon: "💰", label: "Calculation", cardClass: "rounded-xl border border-green-200 bg-green-50/40 p-3", labelClass: "text-[10px] font-bold uppercase text-green-600" },
+      anatomy: { icon: "🫀", label: "Anatomy Diagram", cardClass: "rounded-xl border border-rose-200 bg-rose-50/40 p-3", labelClass: "text-[10px] font-bold uppercase text-rose-600" },
+    };
+    const style = STYLE_BY_TYPE[attachment.type];
+
+    // Summarize the spec for the compact card
+    let summary = "";
+    if (attachment.type === "composition" && Array.isArray(spec.sections)) {
+      summary = `${spec.sections.length} section${spec.sections.length === 1 ? "" : "s"} • ${spec.type || "essay"}`;
+    } else if (attachment.type === "timeline" && Array.isArray(spec.events)) {
+      summary = `${spec.events.length} event${spec.events.length === 1 ? "" : "s"} • ${spec.events[0]?.date ?? ""} → ${spec.events[spec.events.length - 1]?.date ?? ""}`;
+    } else if (attachment.type === "geometry" && Array.isArray(spec.shapes)) {
+      summary = `${spec.shapes.length} shape${spec.shapes.length === 1 ? "" : "s"}`;
+    } else if (attachment.type === "physics_sim") {
+      summary = `${(spec.simType || "").replace(/_/g, " ")}`;
+    } else if (attachment.type === "molecule") {
+      summary = spec.formula || (Array.isArray(spec.atoms) ? `${spec.atoms.length} atoms` : "Reaction");
+    } else if (attachment.type === "free_body" && Array.isArray(spec.forces)) {
+      summary = `${spec.forces.length} force${spec.forces.length === 1 ? "" : "s"} • ${spec.body || "object"}`;
+    } else if (attachment.type === "financial") {
+      summary = `${(spec.calcType || "").replace(/_/g, " ")}`;
+    } else if (attachment.type === "anatomy" && Array.isArray(spec.labels)) {
+      summary = `${spec.labels.length} label${spec.labels.length === 1 ? "" : "s"} • ${spec.system || "body"}`;
+    }
+
+    return (
+      <div>
+        {onOpenInWorkspacePanel && (
+          <div className="flex justify-end mb-1">
+            <WorkspaceButton />
+          </div>
+        )}
+        <div className={style.cardClass}>
+          <div className="flex items-center gap-1.5 mb-1">
+            <span className="text-base">{style.icon}</span>
+            <span className={style.labelClass}>{style.label}</span>
+          </div>
+          <p className="text-sm font-semibold text-gray-900 truncate">
+            {spec.title || style.label}
+          </p>
+          {summary && <p className="text-xs text-gray-500 mt-0.5">{summary}</p>}
+        </div>
       </div>
     );
   }
