@@ -2208,3 +2208,51 @@ Stage Summary:
   - "Could not extract enough text from this document. It might be a scanned PDF (images only) or empty." (only when extraction succeeded but returned < 10 chars — genuinely scanned)
 - Added standardFontDataUrl + cMapUrl to pdf-parse so PDFs with non-embedded standard fonts (Word/LibreOffice/Google Docs exports) extract correctly. This was likely the root cause of the user's 422 — pdf-parse v2 is stricter than v1 about resolving non-embedded fonts.
 - The user should: (1) restart dev server, (2) try the upload again. If it still 422s, the error message will now tell us exactly why.
+
+---
+Task ID: Phase 8 — Multi-tab workspace + persistence
+Agent: main
+Task: Upgrade the workspace from single-artifact to multi-tab. User wants a "full classroom workspace" — multiple artifacts open at once (graph + quiz + timeline), AI + learner both manipulating in real time, supports coding/web dev/ML/app dev. This round ships: multi-tab UI + persistence (load past artifacts on conversation open, save new ones to DB). Code execution stays disabled (Phase 0 kill switch) — separate task.
+
+Work Log:
+- Replaced single `workspaceArtifact` state with `workspaceTabs: WorkspaceTab[]` + `activeTabId: string | null`. Each tab = { id, artifact, persistedId, createdAt }.
+- Backward-compat shim: `workspaceArtifact` is now a DERIVED value = the active tab's artifact. Existing code that reads `workspaceArtifact` still works. `setWorkspaceArtifact(att)` now replaces the active tab's artifact (revise-in-place). `setWorkspaceArtifact(null)` closes the active tab.
+- `openInWorkspace(att)` now opens a NEW tab (previously replaced whatever was open). Dedupes — if a tab with the same type+caption already exists, switches to it instead of creating a duplicate.
+- `openInWorkspaceAndPersist(att)` — wraps openInWorkspace + persists to DB via POST /api/artifacts. Best-effort: if POST fails, tab still opens locally.
+- `closeTab(tabId)` — closes a specific tab + activates a neighbor.
+- `activateTab(tabId)` — switches active tab without closing others.
+- Tab bar UI in workspace header: only shows when 2+ tabs open. Each tab shows icon + title (truncated) + close X. Click to activate. X to close. Title extracted from caption JSON spec.title or falls back to type.
+- Auto-open useEffect now uses `openInWorkspaceAndPersist` (was `setWorkspaceArtifact`). 1.5s delay so user sees the chat notification card first. Dedup check prevents re-opening already-open artifacts.
+- Layout conditionals updated: `workspaceTabs.length > 0` instead of `workspaceArtifact` (single).
+- Persistence: `persistArtifactToDB(tabId, att)` — POSTs to /api/artifacts with { pluginId, title, artifactType, payload, conversationId, status }. Derives pluginId from attachment type via pluginIdMap (16 types covered). Extracts title from caption JSON spec.title. Best-effort try/catch — failure doesn't crash the UI. Saves returned artifact.id as tab.persistedId for future modifications.
+- `loadWorkspaceTabs(conversationId)` — called when user opens an existing conversation. GET /api/artifacts?conversationId=...&limit=10. Converts DB WorkspaceArtifact rows → WorkspaceTab shape. Caps at 5 most recent to avoid tab bar overflow. Best-effort: if fetch fails, keeps existing localStorage tabs.
+- `newConversation()` now clears workspaceTabs + activeTabId (artifacts belonged to the previous conversation).
+- Exposed `activeConversation.id` on `window.__studybuddyActiveConversationId` via useEffect — workaround for TS "used before declaration" error (persistArtifactToDB is declared before activeConversation in the file).
+- 16 attachment types → pluginId mapping: graph→graph.bar, quiz→assessment.quiz, draw_task→assessment.draw-task, conceptmap→diagram.concept-map, flowchart_v1→diagram.flowchart, manipulative→math.manipulative, code_project→code.html, science_simulation→diagram.circuit, composition→writing.composition, timeline→diagram.timeline, geometry→math.geometry, physics_sim→science.physics-sim, molecule→science.chemistry-sim, free_body→diagram.free-body, financial→business.financial, anatomy→diagram.anatomy.
+- localStorage persistence: tabs saved to `studybuddy.tutor.workspaceTabs` key (replaces old `studybuddy.tutor.workspaceArtifact` single-artifact key). Survives navigation away + back within the same session.
+- Wrote src/lib/__tests__/phase8-multi-tab-workspace.test.ts (28 tests):
+  * openInWorkspace: opens new tab + activates, opens second tab without losing first, dedupes same type+caption, opens two different graphs as separate tabs
+  * closeTab: closes active tab + activates neighbor, closing non-active doesn't change activeTabId, closing last tab leaves no active tab
+  * activateTab: switches without closing others
+  * setWorkspaceArtifact: replaces active tab's artifact (revise-in-place), passing null closes active tab + activates neighbor
+  * persistArtifactToDB: derives pluginId + title from attachment, sends correct body to /api/artifacts, extracts title from caption JSON, falls back to type as title, best-effort catches fetch errors
+  * loadWorkspaceTabs: converts DB rows → WorkspaceTab shape, caps at 5, handles empty list
+  * pluginId mapping: all 16 attachment types covered, falls back to graph.bar for unknown
+- Ran full vitest suite: 1142/1142 pass (was 1114, +28 new). 48s.
+- TypeScript: 0 new errors. 22 pre-existing baseline unchanged.
+- Committed as <HASH>. Pushed to main.
+
+Stage Summary:
+- Multi-tab workspace is live. Learner can have graph + quiz + timeline open at once.
+- Tab bar shows when 2+ tabs open. Each tab: icon + title + close X. Click to switch, X to close.
+- AI emits a new artifact → opens in a new tab (doesn't replace what's open).
+- AI revises an existing artifact ("change Diana to 8") → updates the active tab in place.
+- Refresh the page → tabs come back from localStorage.
+- Reopen a conversation → tabs come back from DB (loadWorkspaceTabs fetches past artifacts).
+- Start a new conversation → tabs clear (they belonged to the previous conversation).
+- Artifacts persist to DB via /api/artifacts (Phase 4 service, now wired to UI).
+- Code execution stays disabled (Phase 0 kill switch). Separate task.
+- Inline editing for the 8 new panels is Direction C (next round).
+- Export + share is Direction D (later).
+- 28 new tests covering tab state logic + persistence wiring shapes.
+- STOP after Phase 8 round 1. Next: Direction C (inline editing) OR code execution security decision.

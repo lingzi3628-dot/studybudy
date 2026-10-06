@@ -146,38 +146,238 @@ export function AITutorChat() {
   // AC1: pendingWorkspaceContext is sent as a SEPARATE field in the request body,
   // NOT mixed into the visible learner message. It's cleared after each send.
   const WORKSPACE_LS_KEY = "studybuddy.tutor.workspaceArtifact";
+  const WORKSPACE_TABS_LS_KEY = "studybuddy.tutor.workspaceTabs";
   const [pendingWorkspaceContext, setPendingWorkspaceContext] = useState<{
     artifactType: string;
     artifactCaption: string;
     action: string;
   } | null>(null);
-  // Phase F9 — Persisted to localStorage so it survives navigation away from
-  // the tutor screen and back within the same session.
-  const [workspaceArtifact, setWorkspaceArtifact] = useState<Attachment | null>(() => {
+
+  // ====================================================================
+  // Phase 8 — Multi-tab workspace state.
+  //
+  // Replaces the single-artifact `workspaceArtifact` model with an array
+  // of open tabs. Each tab is one Attachment (graph, quiz, timeline, etc.)
+  // open at the same time. The learner switches between tabs without
+  // losing context. Tabs persist to localStorage + (when wired) to the
+  // WorkspaceArtifact DB table.
+  //
+  // Backward compat:
+  //   - `workspaceArtifact` (single) is now a DERIVED value = the active
+  //     tab. Existing code that reads `workspaceArtifact` still works.
+  //   - `setWorkspaceArtifact` now opens/replaces the active tab.
+  //   - `openInWorkspace` now opens in a new tab (doesn't replace).
+  // ====================================================================
+  type WorkspaceTab = {
+    id: string;          // unique tab id (uuid-ish, generated client-side)
+    artifact: Attachment; // the Attachment being displayed
+    persistedId: string | null; // DB WorkspaceArtifact.id once saved (null until then)
+    createdAt: number;
+  };
+
+  const [workspaceTabs, setWorkspaceTabs] = useState<WorkspaceTab[]>(() => {
     if (typeof window !== "undefined" && USE_WORKSPACE) {
       try {
-        const stored = window.localStorage.getItem(WORKSPACE_LS_KEY);
-        if (stored) return JSON.parse(stored) as Attachment;
+        const stored = window.localStorage.getItem(WORKSPACE_TABS_LS_KEY);
+        if (stored) {
+          const parsed = JSON.parse(stored) as WorkspaceTab[];
+          if (Array.isArray(parsed)) return parsed;
+        }
+      } catch {}
+    }
+    return [];
+  });
+  const [activeTabId, setActiveTabId] = useState<string | null>(() => {
+    if (typeof window !== "undefined" && USE_WORKSPACE) {
+      try {
+        const stored = window.localStorage.getItem(WORKSPACE_TABS_LS_KEY);
+        if (stored) {
+          const parsed = JSON.parse(stored) as WorkspaceTab[];
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed[0].id;
+        }
       } catch {}
     }
     return null;
   });
 
-  // Persist workspace state to localStorage whenever it changes
+  // Persist tabs to localStorage whenever they change.
   useEffect(() => {
     if (typeof window === "undefined" || !USE_WORKSPACE) return;
     try {
-      if (workspaceArtifact) {
-        window.localStorage.setItem(WORKSPACE_LS_KEY, JSON.stringify(workspaceArtifact));
+      if (workspaceTabs.length > 0) {
+        window.localStorage.setItem(WORKSPACE_TABS_LS_KEY, JSON.stringify(workspaceTabs));
       } else {
-        window.localStorage.removeItem(WORKSPACE_LS_KEY);
+        window.localStorage.removeItem(WORKSPACE_TABS_LS_KEY);
       }
     } catch {}
-  }, [workspaceArtifact]);
+  }, [workspaceTabs]);
 
-  // Open an attachment in the workspace panel (Phase F8)
+  // The active tab's artifact (or null). This is the backward-compat shim
+  // for existing code that reads `workspaceArtifact` as a single value.
+  const activeTab = workspaceTabs.find((t) => t.id === activeTabId) ?? null;
+  const workspaceArtifact: Attachment | null = activeTab?.artifact ?? null;
+
+  // Generate a unique tab id (crypto.randomUUID with fallback for old browsers).
+  const newTabId = () => {
+    try {
+      if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+    } catch {}
+    return `tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  };
+
+  // Open an attachment in the workspace — opens a NEW tab (Phase 8 multi-tab).
+  // Previously this replaced whatever was open. Now it adds a tab.
+  // If the same caption (same spec) is already open in a tab, switch to it
+  // instead of creating a duplicate.
   const openInWorkspace = useCallback((att: Attachment) => {
-    setWorkspaceArtifact(att);
+    setWorkspaceTabs((prev) => {
+      // Dedup: if a tab with the same type + caption already exists, just activate it.
+      const existing = prev.find((t) => t.artifact.type === att.type && t.artifact.caption === att.caption);
+      if (existing) {
+        setActiveTabId(existing.id);
+        return prev;
+      }
+      const tab: WorkspaceTab = {
+        id: newTabId(),
+        artifact: att,
+        persistedId: null,
+        createdAt: Date.now(),
+      };
+      setActiveTabId(tab.id);
+      return [...prev, tab];
+    });
+  }, []);
+
+  // Phase 8 — Persist a new artifact to the DB via /api/artifacts.
+  // Called when openInWorkspace opens a tab that hasn't been persisted yet.
+  // Best-effort: if the POST fails (network, auth, etc.), the tab still opens
+  // locally — we just don't get a persistedId back. The learner can still use
+  // the artifact; it just won't survive a page reload from another device.
+  const persistArtifactToDB = useCallback(async (tabId: string, att: Attachment) => {
+    if (!USE_WORKSPACE) return;
+    try {
+      // Read activeConversation.id from a ref-like getter to avoid "used before
+      // declaration" TS error (activeConversation is declared further down).
+      // We use a function ref pattern: the setter updates a mutable closure.
+      // Simplest: read from a state ref we maintain alongside.
+      // Actually, since this callback is recreated when activeConversation?.id
+      // changes (it's in the deps), we can read it via a captured local.
+      // But activeConversation is declared AFTER this function in the file.
+      // Solution: use a lazy ref that reads the latest value at call time.
+      const convId = (window as any).__studybuddyActiveConversationId ?? null;
+      // Derive pluginId + title from the attachment.
+      // Most attachment types map 1:1 to a plugin ID; for graph we use "graph.bar"
+      // as a safe default (the adapter accepts any graph variant).
+      const pluginIdMap: Record<string, string> = {
+        graph: "graph.bar", quiz: "assessment.quiz", draw_task: "assessment.draw-task",
+        conceptmap: "diagram.concept-map", flowchart_v1: "diagram.flowchart",
+        manipulative: "math.manipulative", code_project: "code.html",
+        science_simulation: "diagram.circuit",
+        composition: "writing.composition", timeline: "diagram.timeline",
+        geometry: "math.geometry", physics_sim: "science.physics-sim",
+        molecule: "science.chemistry-sim", free_body: "diagram.free-body",
+        financial: "business.financial", anatomy: "diagram.anatomy",
+      };
+      const pluginId = pluginIdMap[att.type] ?? "graph.bar";
+      let title = att.type;
+      let payload: any = null;
+      try {
+        payload = JSON.parse(att.caption);
+        if (payload && typeof payload.title === "string") title = payload.title;
+      } catch {
+        payload = { caption: att.caption };
+      }
+      const r = await fetch("/api/artifacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pluginId,
+          title: String(title).slice(0, 120),
+          artifactType: att.type,
+          payload,
+          conversationId: convId,
+          status: "ready",
+        }),
+      });
+      if (!r.ok) return;
+      const d = await r.json();
+      if (d.artifact?.id) {
+        // Save the persistedId on the tab so future modifications can PUT to it.
+        setWorkspaceTabs((prev) => prev.map((t) =>
+          t.id === tabId ? { ...t, persistedId: d.artifact.id } : t
+        ));
+      }
+    } catch {
+      // Best-effort — failure here is fine. The tab is still open locally.
+    }
+  }, []);
+
+  // Wrapped version of openInWorkspace that also persists to DB.
+  // Used by the auto-open useEffect + the chat notification card click.
+  const openInWorkspaceAndPersist = useCallback((att: Attachment) => {
+    setWorkspaceTabs((prev) => {
+      const existing = prev.find((t) => t.artifact.type === att.type && t.artifact.caption === att.caption);
+      if (existing) {
+        setActiveTabId(existing.id);
+        return prev;
+      }
+      const tab: WorkspaceTab = {
+        id: newTabId(),
+        artifact: att,
+        persistedId: null,
+        createdAt: Date.now(),
+      };
+      setActiveTabId(tab.id);
+      // Persist in the background (don't block the UI).
+      persistArtifactToDB(tab.id, att);
+      return [...prev, tab];
+    });
+  }, [persistArtifactToDB]);
+
+  // Replace the active tab's artifact (used when AI revises an existing
+  // artifact — "change Diana to 8" updates the active graph in place
+  // instead of opening a new tab).
+  const setWorkspaceArtifact = useCallback((att: Attachment | null) => {
+    if (att === null) {
+      // Closing the active tab → remove it + activate the next one.
+      setWorkspaceTabs((prev) => {
+        if (!activeTabId) return prev;
+        const idx = prev.findIndex((t) => t.id === activeTabId);
+        if (idx === -1) return prev;
+        const next = [...prev];
+        next.splice(idx, 1);
+        // Activate the tab that took its place (or the last one).
+        const newActive = next[idx]?.id ?? next[next.length - 1]?.id ?? null;
+        setActiveTabId(newActive);
+        return next;
+      });
+      return;
+    }
+    // Replace the active tab's artifact (keep tab id + persistedId).
+    setWorkspaceTabs((prev) => prev.map((t) =>
+      t.id === activeTabId ? { ...t, artifact: att } : t
+    ));
+  }, [activeTabId]);
+
+  // Close a specific tab by id.
+  const closeTab = useCallback((tabId: string) => {
+    setWorkspaceTabs((prev) => {
+      const idx = prev.findIndex((t) => t.id === tabId);
+      if (idx === -1) return prev;
+      const next = [...prev];
+      next.splice(idx, 1);
+      // If we're closing the active tab, activate a neighbor.
+      if (tabId === activeTabId) {
+        const newActive = next[idx]?.id ?? next[next.length - 1]?.id ?? null;
+        setActiveTabId(newActive);
+      }
+      return next;
+    });
+  }, [activeTabId]);
+
+  // Activate a specific tab.
+  const activateTab = useCallback((tabId: string) => {
+    setActiveTabId(tabId);
   }, []);
 
   // Phase F9 — Save the current workspace artifact as a Project (uses existing Project model)
@@ -244,6 +444,15 @@ export function AITutorChat() {
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const chatSessionRef = useRef(0);
 
+  // Phase 8 — expose activeConversation.id on window so persistArtifactToDB
+  // (declared above, before activeConversation is in scope) can read it
+  // without a TS "used before declaration" error.
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      (window as any).__studybuddyActiveConversationId = activeConversation?.id ?? null;
+    }
+  }, [activeConversation?.id]);
+
   // Phase F15 — Auto-open workspace when a new attachment arrives.
   // Watches the last message's attachments. If the last AI message has a
   // workspace-compatible attachment AND the workspace isn't already showing
@@ -259,10 +468,20 @@ export function AITutorChat() {
     if (!lastAssistant?.attachments) return;
     const workspaceAtt = lastAssistant.attachments.find((a) => WORKSPACE_TYPES_F15.includes(a.type));
     if (!workspaceAtt) return;
-    if (workspaceArtifact?.caption === workspaceAtt.caption) return;
+    // Phase 8: openInWorkspace now opens in a NEW tab (multi-tab workspace).
+    // It dedupes — if a tab with the same type+caption already exists,
+    // it just activates it. So calling it here is safe even if the
+    // same artifact is already open.
+    // (Previously this checked `workspaceArtifact?.caption === workspaceAtt.caption`
+    // and skipped. With multi-tab, we want to open EVERY new artifact
+    // the AI emits — not just the first one. The dedup handles re-sends.)
+    const alreadyOpen = workspaceTabs.some(
+      (t) => t.artifact.type === workspaceAtt.type && t.artifact.caption === workspaceAtt.caption
+    );
+    if (alreadyOpen) return;
     const timer = setTimeout(() => {
-      setWorkspaceArtifact(workspaceAtt);
-    }, 2000);
+      openInWorkspaceAndPersist(workspaceAtt);
+    }, 1500); // 1.5s delay so the user sees the chat notification card first
     return () => clearTimeout(timer);
   }, [messages]); // eslint-disable-line react-hooks/exhaustive-deps
   const [input, setInput] = useState("");
@@ -499,6 +718,48 @@ export function AITutorChat() {
   }, [messages, busy]);
 
   // Load a conversation's messages
+  // Phase 8 — Load past workspace artifacts for a conversation from the DB.
+  // Called when the user opens an existing conversation. Fetches all
+  // WorkspaceArtifact rows for this conversation + opens the most recent
+  // few in tabs so the learner can pick up where they left off.
+  const loadWorkspaceTabs = useCallback(async (conversationId: string) => {
+    if (!USE_WORKSPACE) return;
+    try {
+      const r = await fetch(`/api/artifacts?conversationId=${conversationId}&limit=10`, {
+        cache: "no-store",
+      });
+      if (!r.ok) return;
+      const d = await r.json();
+      const artifacts: any[] = Array.isArray(d.artifacts) ? d.artifacts : [];
+      if (artifacts.length === 0) {
+        // No persisted artifacts for this conversation — keep whatever's
+        // already in localStorage tabs (so the learner doesn't lose their
+        // current workspace if they switched conversations briefly).
+        return;
+      }
+      // Convert DB WorkspaceArtifact rows → WorkspaceTab shape.
+      // Take the most recent 5 to avoid tab bar overflow.
+      const tabs: WorkspaceTab[] = artifacts.slice(0, 5).map((a) => ({
+        id: a.id ?? newTabId(),
+        artifact: {
+          // Map the persisted artifactType back to the Attachment type string.
+          type: a.artifactType ?? a.payload?.type ?? "graph",
+          url: null,
+          caption: typeof a.payload === "string" ? a.payload : JSON.stringify(a.payload ?? {}),
+        },
+        persistedId: a.id ?? null,
+        createdAt: a.createdAt ? new Date(a.createdAt).getTime() : Date.now(),
+      }));
+      if (tabs.length > 0) {
+        setWorkspaceTabs(tabs);
+        setActiveTabId(tabs[0].id);
+      }
+    } catch {
+      // Network error or auth failure — don't crash the conversation open.
+      // Just leave the existing localStorage tabs in place.
+    }
+  }, []);
+
   const openConversation = async (id: string) => {
     try {
       const r = await fetch(`/api/tutor/conversations?id=${id}`, { cache: "no-store" });
@@ -516,6 +777,11 @@ export function AITutorChat() {
           createdAt: m.createdAt,
         }));
         setMessages(convMessages);
+        // Phase 8 — load past workspace artifacts for this conversation.
+        // Best-effort: if the API call fails, we keep whatever's already
+        // in localStorage tabs (so the learner doesn't lose their current
+        // workspace if there's a transient network error).
+        loadWorkspaceTabs(id);
       }
     } catch {}
     setShowSidebar(false);
@@ -526,6 +792,10 @@ export function AITutorChat() {
     chatSessionRef.current += 1;
     setActiveConversation(null);
     setMessages([]);
+    // Phase 8 — clear the workspace tabs when starting a new conversation.
+    // (We don't persist them — they belonged to the previous conversation.)
+    setWorkspaceTabs([]);
+    setActiveTabId(null);
     window.localStorage.setItem(LAST_TUTOR_CONVERSATION_KEY, "__new__");
     setLearningMode(readTutorLearningModes().__new__ ?? "standard");
     setError(null);
@@ -1632,7 +1902,7 @@ export function AITutorChat() {
   }
 
   return (
-    <div className={`${USE_WORKSPACE && workspaceArtifact ? "h-screen overflow-hidden" : "min-h-screen"} bg-gray-50 flex flex-col`}>
+    <div className={`${USE_WORKSPACE && workspaceTabs.length > 0 ? "h-screen overflow-hidden" : "min-h-screen"} bg-gray-50 flex flex-col`}>
       {/* Header */}
       <header className="sticky top-0 z-30 bg-white border-b border-gray-200 flex-shrink-0">
         <div className="flex items-center justify-between h-14 px-4">
@@ -1775,7 +2045,7 @@ export function AITutorChat() {
 
         {/* Chat area — shrinks when workspace is open (Phase F8).
             overflow-hidden so messages scroll inside instead of pushing layout down */}
-        <div className={`flex flex-col w-full overflow-hidden ${USE_WORKSPACE && workspaceArtifact ? "md:flex-1 md:max-w-[58%]" : "flex-1 max-w-3xl mx-auto"}`}>
+        <div className={`flex flex-col w-full overflow-hidden ${USE_WORKSPACE && workspaceTabs.length > 0 ? "md:flex-1 md:max-w-[58%]" : "flex-1 max-w-3xl mx-auto"}`}>
           {/* Messages */}
           <div
             ref={scrollRef}
@@ -2358,7 +2628,7 @@ export function AITutorChat() {
         {/* Phase F8 — Workspace panel (side-by-side with chat on desktop, full-screen on mobile).
             Only renders when USE_WORKSPACE is true AND an artifact has been opened.
             Sits inside the flex-1 container as a sibling of the chat area. */}
-        {USE_WORKSPACE && workspaceArtifact && (
+        {USE_WORKSPACE && workspaceTabs.length > 0 && (
           <div className="fixed inset-0 z-50 md:relative md:z-auto md:flex-1 md:flex-shrink-0 md:w-[42%] flex flex-col bg-gray-50 border-l border-gray-200">
             {/* Mobile: tab to switch back to chat + Ask AI */}
             <div className="md:hidden flex items-center justify-between px-4 py-2.5 bg-white border-b border-gray-200 flex-shrink-0">
@@ -2381,22 +2651,80 @@ export function AITutorChat() {
                 <Bot className="w-3 h-3" /> Ask AI about this
               </button>
             </div>
+            {/* Phase 8 — Tab bar (only shows when 2+ tabs open) */}
+            {workspaceTabs.length > 1 && (
+              <div className="flex items-center gap-0.5 px-2 py-1 bg-gray-50 border-b border-gray-200 overflow-x-auto flex-shrink-0">
+                {workspaceTabs.map((tab) => {
+                  const isActive = tab.id === activeTabId;
+                  const titleText = (() => {
+                    try {
+                      const spec = JSON.parse(tab.artifact.caption);
+                      return spec.title || tab.artifact.type;
+                    } catch {
+                      return tab.artifact.type;
+                    }
+                  })();
+                  const icon = tab.artifact.type === "graph" ? "📊"
+                    : tab.artifact.type === "quiz" ? "📝"
+                    : tab.artifact.type === "draw_task" ? "✏️"
+                    : tab.artifact.type === "conceptmap" ? "🧠"
+                    : tab.artifact.type === "composition" ? "✍️"
+                    : tab.artifact.type === "timeline" ? "📅"
+                    : tab.artifact.type === "geometry" ? "📐"
+                    : tab.artifact.type === "physics_sim" ? "🔬"
+                    : tab.artifact.type === "molecule" ? "🧪"
+                    : tab.artifact.type === "free_body" ? "➡️"
+                    : tab.artifact.type === "financial" ? "💰"
+                    : tab.artifact.type === "anatomy" ? "🫀"
+                    : tab.artifact.type === "flowchart_v1" ? "🔀"
+                    : tab.artifact.type === "manipulative" ? "🥭"
+                    : tab.artifact.type === "code_project" ? "💻"
+                    : tab.artifact.type === "science_simulation" ? "🔌"
+                    : "📦";
+                  return (
+                    <button
+                      key={tab.id}
+                      onClick={() => activateTab(tab.id)}
+                      className={`group flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium whitespace-nowrap transition flex-shrink-0 ${
+                        isActive
+                          ? "bg-white text-gray-900 shadow-sm border border-gray-200"
+                          : "text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+                      }`}
+                      title={titleText}
+                    >
+                      <span>{icon}</span>
+                      <span className="max-w-[80px] truncate">{titleText}</span>
+                      <span
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          closeTab(tab.id);
+                        }}
+                        className="ml-0.5 w-4 h-4 rounded-full flex items-center justify-center text-gray-400 hover:bg-gray-200 hover:text-gray-600 opacity-0 group-hover:opacity-100 transition"
+                        title="Close tab"
+                      >
+                        <X className="w-3 h-3" />
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
             {/* Workspace header */}
             <div className="flex items-center justify-between px-4 py-2.5 bg-white border-b border-gray-200 flex-shrink-0">
               <div className="flex items-center gap-2 min-w-0">
                 <span className="text-sm font-semibold text-gray-900 truncate">
-                  {workspaceArtifact.type === "graph" ? "📊 Graph Workspace"
-                    : workspaceArtifact.type === "quiz" ? "📝 Quiz Workspace"
-                    : workspaceArtifact.type === "draw_task" ? "✏️ Drawing Workspace"
-                    : workspaceArtifact.type === "conceptmap" ? "🧠 Concept Map Workspace"
-                    : workspaceArtifact.type === "composition" ? "✍️ Writing Draft"
-                    : workspaceArtifact.type === "timeline" ? "📅 Timeline"
-                    : workspaceArtifact.type === "geometry" ? "📐 Geometry Construction"
-                    : workspaceArtifact.type === "physics_sim" ? "🔬 Physics Simulation"
-                    : workspaceArtifact.type === "molecule" ? "🧪 Molecule Viewer"
-                    : workspaceArtifact.type === "free_body" ? "➡️ Force Diagram"
-                    : workspaceArtifact.type === "financial" ? "💰 Financial Calculator"
-                    : workspaceArtifact.type === "anatomy" ? "🫀 Anatomy Diagram"
+                  {workspaceArtifact?.type === "graph" ? "📊 Graph Workspace"
+                    : workspaceArtifact?.type === "quiz" ? "📝 Quiz Workspace"
+                    : workspaceArtifact?.type === "draw_task" ? "✏️ Drawing Workspace"
+                    : workspaceArtifact?.type === "conceptmap" ? "🧠 Concept Map Workspace"
+                    : workspaceArtifact?.type === "composition" ? "✍️ Writing Draft"
+                    : workspaceArtifact?.type === "timeline" ? "📅 Timeline"
+                    : workspaceArtifact?.type === "geometry" ? "📐 Geometry Construction"
+                    : workspaceArtifact?.type === "physics_sim" ? "🔬 Physics Simulation"
+                    : workspaceArtifact?.type === "molecule" ? "🧪 Molecule Viewer"
+                    : workspaceArtifact?.type === "free_body" ? "➡️ Force Diagram"
+                    : workspaceArtifact?.type === "financial" ? "💰 Financial Calculator"
+                    : workspaceArtifact?.type === "anatomy" ? "🫀 Anatomy Diagram"
                     : "Workspace"}
                 </span>
               </div>
@@ -2457,7 +2785,11 @@ export function AITutorChat() {
                   Save
                 </button>
                 <button
-                  onClick={() => setWorkspaceArtifact(null)}
+                  onClick={() => {
+                    // Phase 8: Close the active tab. If it was the last one,
+                    // the workspace panel closes entirely.
+                    if (activeTabId) closeTab(activeTabId);
+                  }}
                   className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-500 flex-shrink-0"
                   title="Close workspace"
                 >
@@ -2468,6 +2800,17 @@ export function AITutorChat() {
             {/* Workspace content — uses GraphLab/QuizLab for supported types, AttachmentRenderer for others */}
             <div className="flex-1 overflow-auto min-h-0">
               {(() => {
+                // Phase 8 — workspaceArtifact is now the ACTIVE tab's artifact.
+                // When no tab is active (shouldn't happen since the panel only
+                // renders when workspaceTabs.length > 0, but TS can't know that),
+                // show a placeholder.
+                if (!workspaceArtifact) {
+                  return (
+                    <div className="p-4 text-center text-sm text-gray-400">
+                      No artifact selected. Open one from the chat.
+                    </div>
+                  );
+                }
                 // Phase G4 — Route bar graphs to GraphLab (interactive)
                 if (workspaceArtifact.type === "graph" || workspaceArtifact.type === "conceptmap") {
                   try {
