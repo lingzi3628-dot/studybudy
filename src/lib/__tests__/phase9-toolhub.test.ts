@@ -402,6 +402,34 @@ describe("code-sandbox.ts — Tools Hub routing", () => {
     expect(result.stderr).toMatch(/NameError/);
     expect(result.exitCode).toBe(1);
   });
+
+  it("Phase 9 fix — treats top-level `error` field as requestError (Tools Hub rejected)", async () => {
+    // Tools Hub returns `{ error: "unsupported language" }` when it can't
+    // process the request. Previously my code mapped this to stderr
+    // (misleading the user into thinking their code printed it). Now it's
+    // a requestError, surfaced as the "temporarily unavailable" message.
+    mockFetchOk({ error: "unsupported language" });
+    const { runPython } = await import("../code-sandbox");
+    const result = await runPython("print(1)");
+    // Marked as unsupported → user sees amber "not available" box, not red stderr
+    expect(result.unsupported).toBe(true);
+    // The error IS surfaced (so admin can debug), but as a "temporarily
+    // unavailable" prefix — not as raw code output.
+    expect(result.stderr).toMatch(/temporarily unavailable/);
+    expect(result.stderr).toMatch(/unsupported language/); // the original error preserved
+    expect(result.exitCode).toBe(null); // no exit code — code didn't actually run
+  });
+
+  it("Phase 9 fix — still extracts stderr when both stderr + error are present", async () => {
+    // Edge case: if Tools Hub returns both stderr AND error, prefer stderr
+    // (it's the code's runtime error, not a Tools Hub rejection).
+    mockFetchOk({ stdout: "", stderr: "RuntimeError: boom", error: "execution failed", exitCode: 1 });
+    const { runPython } = await import("../code-sandbox");
+    const result = await runPython("raise RuntimeError('boom')");
+    expect(result.unsupported).toBe(false);
+    expect(result.stderr).toMatch(/RuntimeError/);
+    expect(result.exitCode).toBe(1);
+  });
 });
 
 // === API key never leaked ===

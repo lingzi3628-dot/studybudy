@@ -273,28 +273,57 @@ export async function runCode(
     }
 
     const data = await res.json();
-    // Tools Hub sandbox response shape (per the cURL snippet):
-    //   { output?: string, stdout?: string, stderr?: string, exitCode?: number, error?: string }
-    // Different Tools Hub versions use slightly different field names.
-    // Be defensive: accept any of the common shapes.
+
+    // Phase 9 fix — distinguish between "code ran + errored" vs
+    // "Tools Hub itself rejected the request".
+    //
+    // Tools Hub sandbox response shapes (observed in the wild):
+    //   1. Code ran successfully:
+    //        { stdout: "...", stderr: "", exitCode: 0 }
+    //   2. Code ran + threw an exception:
+    //        { stdout: "", stderr: "NameError: ...", exitCode: 1 }
+    //   3. Tools Hub rejected the request (bad language, bad auth, etc.):
+    //        { error: "unsupported language" }  ← THIS WAS THE BUG
+    //
+    // Previously, my code mapped `data.error` to `stderr` as a fallback.
+    // That meant when Tools Hub returned `{ error: "unsupported language" }`
+    // (case 3), the learner saw "unsupported language" as if their code
+    // printed it — misleading. Now we treat top-level `error` as a
+    // requestError (Tools Hub couldn't process the request at all).
+    const hasTopLevelError = typeof data?.error === "string" && data.error.length > 0
+      && typeof data?.stdout !== "string"  // not case 1 or 2
+      && typeof data?.output !== "string";
+
+    if (hasTopLevelError) {
+      return {
+        ok: false,
+        error: data.error,
+        requestError: data.error, // surface as requestError so caller treats it as "Tools Hub rejected"
+      };
+    }
+
+    // Code ran (success or runtime error) — extract stdout/stderr/exitCode.
+    // Accept multiple field names for cross-version compatibility.
     const stdout: string =
       typeof data?.stdout === "string" ? data.stdout :
       typeof data?.output === "string" ? data.output :
       "";
     const stderr: string =
       typeof data?.stderr === "string" ? data.stderr :
-      typeof data?.error === "string" ? data.error :
       "";
     const exitCode: number | undefined =
       typeof data?.exitCode === "number" ? data.exitCode :
       typeof data?.returncode === "number" ? data.returncode :
+      typeof data?.code === "number" ? data.code :
       undefined;
     const durationMs: number | undefined =
       typeof data?.durationMs === "number" ? data.durationMs :
       typeof data?.duration === "number" ? data.duration :
+      typeof data?.time === "number" ? data.time :
       undefined;
     const ok: boolean =
       typeof data?.ok === "boolean" ? data.ok :
+      typeof data?.success === "boolean" ? data.success :
       exitCode === 0 || (exitCode === undefined && !stderr);
 
     return {

@@ -465,6 +465,24 @@ ${STUDY_PROMPT_GRAPH_RULES}`;
     systemContent += `\n\nLEARNER-SELECTED TUTOR MODE (${learningMode}): ${LEARNING_MODE_INSTRUCTIONS[learningMode]}`;
   }
   systemContent += `\n\nWORKSPACE OFFER (${clientPlatform}): On mobile, if a task needs a bigger screen (coding, exams, drawing), suggest the matching workspace (design/study/exam/code/web/modeling/simulation/data/tvet) using: \`\`\`computer_workspace\n{"title":"...","reason":"...","benefit":"...","workspace":"..."}\n\`\`\`. On web, don't suggest switching devices. Don't offer for low tokens (shared across devices).`;
+
+  // Phase 9 — Code language preference + sandbox awareness.
+  // CRITICAL: when the learner explicitly asks for a specific language
+  // (JavaScript, Python, etc.), you MUST use THAT language — not your
+  // default. If they say "use js" / "in javascript" / "no python", honor it.
+  // Common mistakes to avoid:
+  //   - Learner asks for JS → you write Python (WRONG)
+  //   - Learner says "don't use python" → you write Python (WRONG)
+  //   - Learner says "javascript please" → you ignore + write Python (WRONG)
+  // When in doubt, ASK which language before writing code. If they've
+  // already specified, USE that language for ALL code in the reply.
+  systemContent += `\n\nCODE LANGUAGE PREFERENCE: When the learner asks for a specific programming language (e.g. "use JavaScript", "in Python", "don't use python", "what about js"), you MUST write ALL code in that reply using the requested language. Never default to Python when the learner explicitly asked for JavaScript. If unclear which language they want, ASK before writing code. The code sandbox supports: python, javascript.`;
+
+  // Phase 9 — Code sandbox availability. When the learner wants to run
+  // code, emit a ```code_playground fence so the workspace opens with
+  // a runnable playground. They can then click Run to execute it.
+  systemContent += `\n\nCODE PLAYGROUND: When the learner wants to write + run code in the workspace (e.g. "open a code playground", "let me code", "open workspace and write code there"), emit a \`\`\`code_playground fence with this shape: \`\`\`code_playground\n{"language":"python","code":"# starter code here"}\n\`\`\`. The workspace opens with an editable code editor + Run button. Pick the language based on their request (default python). Keep starter code SHORT (5-15 lines) and well-commented.`;
+
   if (searchContext.includes("WEB SEARCH RESULTS")) {
     systemContent += "\n\nSOURCE CITATIONS: For claims from web results above, cite inline as a Markdown link. Do not invent links.";
   }
