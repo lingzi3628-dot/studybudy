@@ -393,6 +393,27 @@ export async function parseGraphAttachments(opts: {
       if (spec) foundSpecs.push(spec);
     }
 
+    // 1b) FALLBACK: Unterminated or malformed fences.
+    // AIs sometimes emit only 2 backticks (``) at the end instead of 3 (```),
+    // or forget the closing fence entirely. The regex above requires a proper
+    // 3-backtick close, so it misses these. This fallback catches:
+    //   - ```mathgraph ... `` (only 2 closing backticks)
+    //   - ```mathgraph ... (no closing fence at all — runs to end of reply)
+    // We only run this if the strict regex above found nothing for that fence
+    // name, to avoid double-parsing.
+    if (foundSpecs.length === 0) {
+      const unterminatedRe = /```(?:mathgraph|graph|conceptmap)\s*([\s\S]*?)(?:```|``|$)/g;
+      let untermMatch: RegExpExecArray | null;
+      while ((untermMatch = unterminatedRe.exec(reply)) !== null) {
+        const body = untermMatch[1] ?? "";
+        const spec = tryParseGraphSpec(body);
+        if (spec) {
+          console.log("[tutor-engine] recovered spec from malformed fence (2-backtick or unterminated)");
+          foundSpecs.push(spec);
+        }
+      }
+    }
+
     // 2) Inline JSON-looking text outside code blocks
     const inlineJsonRe = /\{\s*"(?:type|title)"\s*:[^{}]*\}/g;
     const strippedReply = reply.replace(/```[\s\S]*?```/g, "");
