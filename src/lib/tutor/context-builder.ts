@@ -435,6 +435,27 @@ Respond to the learner's question with specific reference to this artifact. Do N
 ${dataSaver ? `\nDATA SAVER: Keep replies to 1-2 short paragraphs (max ~150 words).\n` : ``}
 
 ${STUDY_PROMPT_GRAPH_RULES}`;
+  } else if (buddyId === "web") {
+    // Phase 9 fix — Web Buddy is a pure BUILDER, not a tutor. It should NOT
+    // receive tutor-specific context (curriculum, learner state, lesson
+    // state, "upload your syllabus" nags, RAG chunks). Only append the
+    // workspaceContextBlock (so the AI knows what's in the workspace).
+    // Dev Buddy + Backend Buddy still get tutor context (they teach code).
+    systemContent = buddy.buildSystemPrompt({
+      userGrade: user.grade ?? null,
+      languageOfInstruction: user.learningLanguage ?? "English",
+      currentModel: user.currentModel ?? "study_buddy_free",
+      userMessage,
+      dataSaver,
+      searchContext: completeContext,
+      curriculumContext,
+      dbCurriculumContext,
+      teachingProfileSuffix: teachingProfile.systemPromptSuffix,
+      hasImage: !!imageDataUrl,
+      gradeBand: undefined,
+    });
+    // Only workspace context — NO track/course/curriculum/learner/lesson context
+    systemContent += `\n${workspaceContextBlock}`;
   } else {
     // Phase 47 — delegate to the buddy's buildSystemPrompt().
     systemContent = buddy.buildSystemPrompt({

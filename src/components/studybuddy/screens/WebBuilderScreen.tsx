@@ -785,6 +785,7 @@ export function WebBuilderScreen() {
             </h3>
             <p className="text-xs text-gray-400 mb-3">Real, working starter sites — load one, then edit or ask WebBuddy to customize it. Replaces the current files.</p>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              {/* Built-in templates (always free) */}
               {WEB_TEMPLATES.map((t) => (
                 <button
                   key={t.id}
@@ -794,8 +795,11 @@ export function WebBuilderScreen() {
                   <div className="text-xl">{t.emoji}</div>
                   <div className="text-xs font-bold text-white mt-1">{t.name}</div>
                   <div className="text-[10px] text-gray-500 mt-0.5 line-clamp-2">{t.description}</div>
+                  <div className="text-[9px] mt-1 text-emerald-400 font-semibold">FREE</div>
                 </button>
               ))}
+              {/* Admin-uploaded templates (from DB via /api/web-templates) */}
+              <DbTemplates onLoadTemplate={loadTemplate} />
             </div>
             <button onClick={() => setShowTemplates(false)} className="mt-3 w-full h-9 rounded-lg bg-gray-700 text-gray-200 text-xs font-semibold hover:bg-gray-600">
               Cancel
@@ -853,5 +857,59 @@ export function WebBuilderScreen() {
         </div>
       )}
     </div>
+  );
+}
+
+// Phase 9 — DbTemplates component. Fetches admin-uploaded templates from
+// /api/web-templates and renders them alongside the built-in templates.
+// Admin uploads new templates via the Explore tab (zip upload with
+// category="template"). They appear here automatically.
+function DbTemplates({ onLoadTemplate }: { onLoadTemplate: (id: string) => void }) {
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch("/api/web-templates")
+      .then((r) => r.json())
+      .then((d) => {
+        // Filter to only DB-uploaded templates (source="db")
+        setTemplates((d.templates ?? []).filter((t: any) => t.source === "db"));
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return null;
+  if (templates.length === 0) return null;
+
+  return (
+    <>
+      {templates.map((t) => (
+        <button
+          key={t.id}
+          onClick={() => {
+            // For DB templates, we need to fetch the files from the serve URL
+            // and load them into the editor. For now, open the project URL
+            // in a new tab (the admin can use the "Load into editor" button
+            // from the explore page later). This is a Phase 9 placeholder —
+            // full fork-to-editor will come when the fork API is wired.
+            window.open(t.projectUrl, "_blank");
+          }}
+          className="text-left bg-gray-900 border border-gray-700 hover:border-amber-500 rounded-xl p-3 transition"
+        >
+          {t.thumbnailUrl ? (
+            <img src={t.thumbnailUrl} alt={t.name} className="w-full h-12 object-cover rounded mb-1" />
+          ) : (
+            <div className="text-xl">{t.emoji}</div>
+          )}
+          <div className="text-xs font-bold text-white mt-1 truncate">{t.name}</div>
+          <div className="text-[10px] text-gray-500 mt-0.5 line-clamp-2">{t.description}</div>
+          <div className="text-[9px] mt-1 flex items-center gap-1">
+            {t.isFeatured && <span className="text-amber-400 font-semibold">★ FEATURED</span>}
+            <span className="text-emerald-400 font-semibold">FREE</span>
+          </div>
+        </button>
+      ))}
+    </>
   );
 }
