@@ -2174,3 +2174,37 @@ Stage Summary:
 - STOP after Stage 1. Next stages (when user requests):
   - Stage 2: photo uploads via OCR (Tesseract.js + sharp preprocessing)
   - Stage 3: multi-page scanned PDFs via pdfjs-dist page rendering + OCR, moved to a background queue
+
+---
+Task ID: Phase 7 follow-up — Surface real PDF extraction errors
+Agent: main
+Task: User reported PDF upload still returning 422 "Could not extract enough text from this document. It might be a scanned PDF (images only) or empty." even after the pdf-parse v2 API fix. The silent `catch { text = ""; }` in upload-helpers.ts was hiding the actual error — could be a scanned PDF, a password-protected PDF, a corrupted file, or pdf-parse v2 returning empty text for PDFs that reference non-embedded standard fonts (very common for Word/LibreOffice/Google Docs exports).
+
+Work Log:
+- src/lib/upload-helpers.ts extractTextFromFile:
+  - Was: `catch { text = ""; }` (silent failure — caller couldn't tell scanned-PDF from corrupted-file from password-protected from pdf-parse bug)
+  - Now: `catch (err: any) { console.error("[upload-helpers] PDF extraction failed:", err?.message); extractionError = err?.message; text = ""; }`
+  - Return type changed from `Promise<string>` to `Promise<{ text: string; error: string | null }>`. Callers check `error` to surface the real failure reason.
+- src/app/api/tutor/upload-document/route.ts:
+  - Was: `if (!extractedText || extractedText.length < 10) return 422 "Could not extract enough text..."`
+  - Now: checks `extractionError` first. If non-null, returns 422 with the ACTUAL error message (e.g. "Could not extract text from this document: Invalid PDF structure" or "This PDF is password-protected. Please remove the password and try again."). Falls through to the generic "scanned PDF" message only when extraction succeeded but returned < 10 chars (genuinely scanned).
+- src/app/api/tutor/upload-outline/route.ts: same fix (mirror).
+- src/lib/pdf.ts extractPdfText:
+  - Added standardFontDataUrl + cMapUrl resolution via `require.resolve("pdfjs-dist/package.json")`. Points pdf-parse at node_modules/pdfjs-dist/standard_fonts/ + node_modules/pdfjs-dist/cmaps/.
+  - Why: without these, pdfjs logs the "Ensure that the standardFontDataUrl API parameter is provided" warning AND may return empty text for PDFs that reference non-embedded standard fonts (Helvetica/Times/Courier). This is extremely common — Word, LibreOffice, and Google Docs all generate PDFs that reference these fonts without embedding them. pdf-parse v2 is stricter than v1 about this.
+  - Also added cMapUrl for CJK/Arabic/Cyrillic character maps.
+  - Wrapped in try/catch with graceful fallback (if require.resolve fails, pdfjs still extracts Latin text — just logs a warning).
+- Tests: added 1 new test in src/lib/__tests__/phase7-pdf-extraction.test.ts:
+  - "extractTextFromFile surfaces the error when extraction throws" — passes a fake PDF (Buffer.from("not a real pdf")), asserts `error` is non-null + non-empty. Confirms the error-surfacing works (the test output shows "[upload-helpers] PDF extraction failed: Invalid PDF structure.").
+  - Updated existing integration test to destructure `{ text, error }` from the new return shape.
+- All 1109/1109 tests pass (was 1108, +1 new). TypeScript: 0 new errors (22 baseline unchanged).
+- Committed as <HASH>. Pushed to main.
+
+Stage Summary:
+- The 422 error message now tells the user (and you) what's ACTUALLY wrong:
+  - "This PDF is password-protected. Please remove the password and try again."
+  - "Could not extract text from this document: Invalid PDF structure"
+  - "Could not extract text from this document: <whatever pdfjs threw>"
+  - "Could not extract enough text from this document. It might be a scanned PDF (images only) or empty." (only when extraction succeeded but returned < 10 chars — genuinely scanned)
+- Added standardFontDataUrl + cMapUrl to pdf-parse so PDFs with non-embedded standard fonts (Word/LibreOffice/Google Docs exports) extract correctly. This was likely the root cause of the user's 422 — pdf-parse v2 is stricter than v1 about resolving non-embedded fonts.
+- The user should: (1) restart dev server, (2) try the upload again. If it still 422s, the error message will now tell us exactly why.

@@ -50,9 +50,18 @@ export async function POST(req: NextRequest) {
   }
 
   // Phase 90 — use shared text extraction
-  const rawText = await extractTextFromFile(file, { maxLength: 100_000 });
+  // Phase 7 Stage 1 — extractTextFromFile now returns { text, error }.
+  const { text: rawText, error: extractionError } = await extractTextFromFile(file, { maxLength: 100_000 });
+  if (extractionError) {
+    const isPasswordProtected = /password/i.test(extractionError);
+    return NextResponse.json({
+      error: isPasswordProtected
+        ? "This PDF is password-protected. Please remove the password and try again."
+        : `Could not extract text: ${extractionError}`,
+    }, { status: 422 });
+  }
   if (!rawText.trim()) {
-    return NextResponse.json({ error: "No text could be extracted from the file" }, { status: 400 });
+    return NextResponse.json({ error: "No text could be extracted from the file. It might be a scanned PDF (images only) — try Paste Text instead." }, { status: 422 });
   }
 
   // Call AI to summarize + extract structured topics

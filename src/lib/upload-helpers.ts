@@ -190,21 +190,41 @@ export async function extractZipToBase64(
 // Text extraction from files (PDF, DOCX, DOC, TXT, etc.)
 // ============================================================
 
+/**
+ * Extract text from a file (PDF, DOCX, XLSX, CSV, TXT, MD, JSON).
+ *
+ * Returns `{ text, error }`:
+ *   - `text`: the extracted plain text (truncated to `maxLength`).
+ *   - `error`: if extraction threw (e.g. password-protected PDF, corrupted
+ *     file), this is the error message. null on success.
+ *
+ * When `text` is empty AND `error` is null, the file genuinely has no
+ * extractable text (e.g. a scanned PDF with no text layer). When `error`
+ * is non-null, something went wrong during extraction — surface it to
+ * the user so they know it's not just an empty doc.
+ */
 export async function extractTextFromFile(
   file: File,
   opts: { maxLength?: number } = {}
-): Promise<string> {
+): Promise<{ text: string; error: string | null }> {
   const maxLength = opts.maxLength ?? 100_000;
   const ext = file.name.toLowerCase().split(".").pop() || "";
   const buffer = Buffer.from(await file.arrayBuffer());
 
   let text = "";
+  let extractionError: string | null = null;
 
   if (ext === "pdf") {
     try {
       const { extractPdfText } = await import("@/lib/pdf");
       text = await extractPdfText(buffer);
-    } catch {
+    } catch (err: any) {
+      // Don't swallow the error silently — surface it so the user knows
+      // whether it's a scanned PDF, a password-protected PDF, a corrupted
+      // file, or a pdf-parse bug. The previous `catch { text = ""; }` made
+      // every failure look like "empty PDF" which was misleading.
+      console.error("[upload-helpers] PDF extraction failed:", err?.message ?? err);
+      extractionError = err?.message ?? String(err);
       text = "";
     }
   } else if (ext === "docx" || ext === "doc") {
@@ -245,7 +265,11 @@ export async function extractTextFromFile(
     text = text.slice(0, maxLength);
   }
 
-  return text.trim();
+  // Trim + return both the text AND any extraction error. Callers can check
+  // `error` to surface a specific failure reason (e.g. "password-protected",
+  // "scanned PDF", "corrupted file") instead of the generic "could not
+  // extract enough text". When `error` is null, extraction succeeded.
+  return { text: text.trim(), error: extractionError };
 }
 
 // ============================================================

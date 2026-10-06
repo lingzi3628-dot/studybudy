@@ -164,13 +164,30 @@ describe("extractPdfText — integration with upload-helpers", () => {
     });
     // Build a File object (the shape upload-helpers expects)
     const file = new File([pdf], "test.pdf", { type: "application/pdf" });
-    const text = await extractTextFromFile(file, { maxLength: 100_000 });
+    // Phase 7 follow-up: extractTextFromFile now returns { text, error }
+    // (not a bare string) so callers can surface real extraction errors.
+    const { text, error } = await extractTextFromFile(file, { maxLength: 100_000 });
 
+    expect(error).toBeNull();
     expect(text).toMatch(/Integration test/);
     expect(text).toMatch(/Photosynthesis/);
     // pdfjs wraps text — "chemical energy" may break across lines.
     // Use a regex that tolerates any whitespace between words.
     expect(text).toMatch(/chemical\s+energy/);
+  });
+
+  it("extractTextFromFile surfaces the error when extraction throws", async () => {
+    const { extractTextFromFile } = await import("../upload-helpers");
+    // A non-PDF buffer masquerading as a PDF — pdf-parse will throw.
+    const file = new File([Buffer.from("not a real pdf")], "fake.pdf", { type: "application/pdf" });
+    const { text, error } = await extractTextFromFile(file);
+    expect(text).toBe("");
+    // The actual error message from pdfjs — NOT the generic "could not
+    // extract enough text". This is the fix that lets users distinguish
+    // "scanned PDF" from "corrupted file" from "password-protected".
+    expect(error).not.toBeNull();
+    expect(typeof error).toBe("string");
+    expect(error!.length).toBeGreaterThan(0);
   });
 });
 

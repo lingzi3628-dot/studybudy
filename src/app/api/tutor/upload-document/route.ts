@@ -22,7 +22,26 @@ export async function POST(req: NextRequest) {
   const { file } = parsed;
 
   // Phase 90 — use shared text extraction helper
-  const extractedText = await extractTextFromFile(file, { maxLength: 100_000 });
+  // Phase 7 Stage 1 — extractTextFromFile now returns { text, error }.
+  // Surface the actual error (e.g. "password-protected", "corrupted file",
+  // "standardFontDataUrl missing") instead of the generic "could not
+  // extract enough text" so the user knows what's really wrong.
+  const { text: extractedText, error: extractionError } = await extractTextFromFile(file, { maxLength: 100_000 });
+
+  if (extractionError) {
+    // Extraction threw — return the real error so the user + logs show
+    // what actually happened. Distinguish password-protected PDFs (friendly
+    // message) from other errors (technical message).
+    const isPasswordProtected = /password/i.test(extractionError);
+    return NextResponse.json(
+      {
+        error: isPasswordProtected
+          ? "This PDF is password-protected. Please remove the password and try again."
+          : `Could not extract text from this document: ${extractionError}`,
+      },
+      { status: 422 }
+    );
+  }
 
   if (!extractedText || extractedText.length < 10) {
     return NextResponse.json(
