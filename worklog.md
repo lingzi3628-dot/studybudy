@@ -2073,3 +2073,38 @@ Stage Summary:
 - Existing behavior preserved: all old attachment types (graph, quiz, draw_task, conceptmap, code_project, science_simulation, flowchart_v1, manipulative) work unchanged.
 - 44 new tests covering parsers + postProcessReply integration.
 - STOP after Phase 7. Next is Phase 8 (workspace persistence — save/load artifacts across sessions) when user requests.
+
+---
+Task ID: Phase 7 fix — PDF extraction regression
+Agent: main
+Task: User reported "ours doesn't extract PDFs doesn't read those text." Investigation found that pdf-parse@2.x silently broke ALL PDF uploads after the package was upgraded from v1 to v2. The v1 API was a default-function export: `pdfParse(buffer) → { numpages, text }`. The v2 API is a named class export: `new PDFParse(uint8array, opts).getText() → { pages, text, total }`. v2 also requires Uint8Array (not Buffer) — pdfjs-dist throws "Please provide binary data as Uint8Array" if you pass Buffer. The existing code did `(pdfModule.default || pdfModule)(buffer)` — neither `default` nor the namespace is callable, so every PDF silently failed with "Could not extract enough text."
+
+Work Log:
+- Diagnosed by generating a real PDF in-memory with pdf-lib and running the existing extractPdfText helper against it. Confirmed: pdfjs throws the Uint8Array error, the catch swallows it, the caller sees empty text.
+- Rewrote src/lib/pdf.ts extractPdfText():
+  * Detects v2 class export (`pdfParseModule.PDFParse`) and throws a clear error if missing (helps detect future package downgrades).
+  * Converts Buffer / ArrayBuffer / Uint8Array → Uint8Array (handles the pdfjs-dist v2+ type requirement).
+  * Calls `new PDFParse(uint8, { max: 30 }).getText()` — caps page count for runtime safety.
+  * Reads v2 return shape `{ pages, text, total }` and falls back to joining `pages[].text` if the top-level text is missing (defensive — handles edge cases where pdf-parse returns only the pages array).
+  * Truncates output to 30k chars (unchanged from before — token budget safety).
+- Replaced broken inline PDF call in src/lib/knowledge-ingest.ts:
+  * Was: `const pdfModule = await import("pdf-parse"); const pdfParse = (pdfModule as any).default || pdfModule; const data = await pdfParse(buffer); text = data.text;` (broken — same v1 assumption)
+  * Now: `text = await extractPdfText(buffer);` (single import, reuses the fixed helper — no more duplicate code)
+- Wrote src/lib/__tests__/phase7-pdf-extraction.test.ts (11 tests):
+  * Generates real PDFs in-memory with pdf-lib (no fixture files to lose track of)
+  * Tests: single-page extraction, return type is string (NOT the v2 object — catches the "helper forgot to slice .text" regression), Buffer/ArrayBuffer/Uint8Array all work, truncation to 30k chars, page count cap (30 pages defense in depth), corrupted PDF throws (caller decides how to handle), special characters preserved, integration with upload-helpers.extractTextFromFile, regression guard that documents why the old v1 pattern fails against v2.
+- Ran full vitest suite: 1088/1088 pass (was 1077, +11 new). 45s.
+- TypeScript check: 0 new errors. 22 pre-existing baseline unchanged.
+- Committed as <HASH>. Pushed to main.
+
+Stage Summary:
+- PDF extraction WORKS AGAIN for all of:
+  * /api/extract/file (CreateModal uploads — PDF → text)
+  * /api/tutor/upload-document (AI Tutor document uploads)
+  * /api/tutor/upload-outline (course outline uploads)
+  * /api/study-sets (study set generation from PDFs)
+  * src/lib/upload-helpers.ts extractTextFromFile (shared helper)
+  * src/lib/knowledge-ingest.ts ingestFile (admin bulk curriculum upload)
+- Both code paths now use the SAME fixed extractPdfText() helper — no more duplicate code drift risk.
+- Regression tests use real PDFs generated on the fly (pdf-lib is already a dependency) — if pdf-parse ever breaks again (v3? different package?), the tests will fail loudly instead of silently shipping "Could not extract enough text" to every learner.
+- STOP after this fix. Next is the user's original document-reader plugin idea — Stage 1 (text-PDF uploads only, no OCR) which the fix above makes much more reliable.

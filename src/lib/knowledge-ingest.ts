@@ -18,6 +18,7 @@
 import dns from "node:dns/promises";
 import { assertSafeUrl, isPrivateIp } from "@/lib/ssrf-guard";
 import { chunkText } from "@/lib/rag-engine";
+import { extractPdfText } from "@/lib/pdf";
 
 // === Types ===
 
@@ -340,11 +341,10 @@ export async function ingestFile(
   let text = "";
 
   if (ext === "pdf" || mimeType === "application/pdf") {
-    // Dynamic import — pdf-parse is heavy.
-    const pdfModule = await import("pdf-parse");
-    const pdfParse = (pdfModule as any).default || pdfModule;
-    const data = await pdfParse(buffer);
-    text = data.text;
+    // Phase 7 fix: use the shared extractPdfText() helper.
+    // The previous inline pdf-parse call assumed the v1 default-function
+    // API which broke silently when pdf-parse was upgraded to v2.
+    text = await extractPdfText(buffer);
   } else if (ext === "docx" || mimeType.includes("officedocument.wordprocessingml")) {
     // mammoth is already a dependency.
     const mammothModule = await import("mammoth");
