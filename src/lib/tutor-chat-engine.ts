@@ -382,6 +382,8 @@ export async function parseGraphAttachments(opts: {
       "freebody", "financial", "anatomy",
       // Phase 8 — workspace_edit fence (AI direct workspace writes)
       "workspace_edit",
+      // Phase 9 — code_playground fence (lets AI emit a runnable playground)
+      "code_playground",
     ]);
     const codeBlockRe = /```([\w-]*)\s*([\s\S]*?)```/g;
     let codeBlockMatch: RegExpExecArray | null;
@@ -969,6 +971,38 @@ export function parseWorkspaceEdit(reply: string): any | null {
 }
 
 // ---------------------------------------------------------------
+// 6d. Phase 9 — code_playground parser
+// ---------------------------------------------------------------
+//
+// The ```code_playground fence lets the AI emit a code playground
+// attachment that opens in the workspace. The learner can then edit +
+// run the code (via Tools Hub when enabled).
+//
+// Shape:
+//   ```code_playground
+//   { "language": "python", "code": "print('hello')" }
+//   ```
+//
+// If the AI emits a code block in chat (```python / ```javascript)
+// without a code_playground fence, we ALSO create a code_playground
+// attachment from it — so the learner can open it in the workspace
+// and run it there. This is the "open in workspace" affordance for
+// code blocks.
+
+export function parseCodePlayground(reply: string): any | null {
+  const spec = parseFencedSpec(reply, "code_playground", []);
+  if (!spec) return null;
+  // Validate: must have a code field (string) — language defaults to python
+  if (typeof spec.code !== "string" && typeof spec.content !== "string") return null;
+  const code = typeof spec.code === "string" ? spec.code : (spec.content as string);
+  const language =
+    typeof spec.language === "string" && ["python", "javascript"].includes(spec.language) ? spec.language :
+    typeof spec.lang === "string" && ["python", "javascript"].includes(spec.lang) ? spec.lang :
+    "python";
+  return { language, code, title: typeof spec.title === "string" ? spec.title : `${language} playground` };
+}
+
+// ---------------------------------------------------------------
 // 7. Post-process pipeline (graphs + examgen + proof engine)
 // ---------------------------------------------------------------
 
@@ -1127,6 +1161,13 @@ export async function postProcessReply(opts: {
   if (workspaceEditSpec) {
     learnerReply = learnerReply.replace(/```workspace_edit\s*[\s\S]*?```\s*/i, "").trim();
     attachments.push({ type: "workspace_edit", url: null, caption: JSON.stringify(workspaceEditSpec) });
+  }
+
+  // Phase 9 — code_playground (lets AI emit a runnable code playground)
+  const codePlaygroundSpec = parseCodePlayground(learnerReply);
+  if (codePlaygroundSpec) {
+    learnerReply = learnerReply.replace(/```code_playground\s*[\s\S]*?```\s*/i, "").trim();
+    attachments.push({ type: "code_playground", url: null, caption: JSON.stringify(codePlaygroundSpec) });
   }
 
   // Exam generation config

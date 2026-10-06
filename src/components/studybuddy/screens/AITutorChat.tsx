@@ -30,6 +30,7 @@ import {
   FileText,
   GraduationCap,
   PanelRightOpen,
+  Play,
 } from "lucide-react";
 import { useApp } from "../store";
 import { GraphRenderer, type GraphSpec } from "./GraphRenderers";
@@ -53,6 +54,8 @@ import { MoleculePanel } from "./tutor/MoleculePanel";
 import { FreeBodyPanel } from "./tutor/FreeBodyPanel";
 import { FinancialCalculator } from "./tutor/FinancialCalculator";
 import { AnatomyPanel } from "./tutor/AnatomyPanel";
+// Phase 9 — code playground (Tools Hub integration)
+import { CodePlayground } from "./tutor/CodePlayground";
 // Phase FC — Flowchart renderer feature flag.
 // NEXT_PUBLIC_FLOWCHART_RENDERER_ENABLED controls client-side rendering.
 // TUTOR_FLOWCHART_GENERATION_ENABLED (server-side, in context-builder.ts) controls AI prompt.
@@ -431,6 +434,7 @@ export function AITutorChat() {
         : workspaceArtifact.type === "free_body" ? "Force Diagram"
         : workspaceArtifact.type === "financial" ? "Financial Calculator"
         : workspaceArtifact.type === "anatomy" ? "Anatomy Diagram"
+        : workspaceArtifact.type === "code_playground" ? "Code Playground"
         : "Workspace Artifact";
       const fileContent = workspaceArtifact.caption || "";
       const fileName = `${workspaceArtifact.type}.json`;
@@ -493,6 +497,8 @@ export function AITutorChat() {
   const WORKSPACE_TYPES_F15 = ["graph", "quiz", "draw_task", "manipulative", "code_project", "science_simulation", "conceptmap", "flowchart_v1",
     // Phase 7 — 8 critical new plugin attachment types
     "composition", "timeline", "geometry", "physics_sim", "molecule", "free_body", "financial", "anatomy",
+    // Phase 9 — code playground (Tools Hub integration)
+    "code_playground",
   ];
   // Phase 8 — track which workspace_edit patches we've already applied, so
   // we don't re-apply the same patch on every messages change (the useEffect
@@ -2799,6 +2805,7 @@ export function AITutorChat() {
                     : workspaceArtifact?.type === "free_body" ? "➡️ Force Diagram"
                     : workspaceArtifact?.type === "financial" ? "💰 Financial Calculator"
                     : workspaceArtifact?.type === "anatomy" ? "🫀 Anatomy Diagram"
+                    : workspaceArtifact?.type === "code_playground" ? "💻 Code Playground"
                     : "Workspace"}
                 </span>
               </div>
@@ -2832,6 +2839,7 @@ export function AITutorChat() {
                       : workspaceArtifact.type === "free_body" ? "this force diagram"
                       : workspaceArtifact.type === "financial" ? "this calculation"
                       : workspaceArtifact.type === "anatomy" ? "this anatomy diagram"
+                      : workspaceArtifact.type === "code_playground" ? "this code playground"
                       : "this workspace artifact";
                     setInput(`Explain ${typeLabel}.`);
                     // Focus the input so the user can edit the question
@@ -3165,6 +3173,35 @@ export function AITutorChat() {
                     );
                   } catch {}
                 }
+                // Phase 9 — Code playground (Tools Hub integration).
+                // Lets learners write + run Python/JS in the workspace.
+                // Code runs on Tools Hub infrastructure (when enabled by admin),
+                // never on Study Buddy's server.
+                if (workspaceArtifact.type === "code_playground") {
+                  let spec: any = null;
+                  try { spec = JSON.parse(workspaceArtifact.caption); } catch { spec = {}; }
+                  return (
+                    <div className="h-full flex flex-col">
+                      <div className="px-4 py-2 bg-emerald-50 border-b border-emerald-200 flex-shrink-0">
+                        <p className="text-[10px] font-bold uppercase text-emerald-600">Code Playground</p>
+                        <p className="text-xs text-gray-700">
+                          Write code + click Run (or Ctrl+Enter). Code runs on Tools Hub sandbox.
+                        </p>
+                      </div>
+                      <div className="flex-1 min-h-0">
+                        <CodePlayground
+                          spec={spec}
+                          onChange={(newSpec) => {
+                            updateActiveArtifact({
+                              ...workspaceArtifact,
+                              caption: JSON.stringify(newSpec),
+                            });
+                          }}
+                        />
+                      </div>
+                    </div>
+                  );
+                }
                 // Fall through to regular renderer for non-bar graphs + other types
                 return (
                   <div className="p-4">
@@ -3410,6 +3447,8 @@ function AttachmentRenderer({ attachment, onSpecChange, onOpenWorkspace, onOpenI
   const WORKSPACE_TYPES = ["graph", "quiz", "draw_task", "manipulative", "code_project", "science_simulation", "conceptmap",
     // Phase 7 — 8 critical new plugin attachment types
     "composition", "timeline", "geometry", "physics_sim", "molecule", "free_body", "financial", "anatomy",
+    // Phase 9 — code playground (Tools Hub integration)
+    "code_playground",
   ];
   if (onOpenInWorkspacePanel && WORKSPACE_TYPES.includes(attachment.type)) {
     // Auto-open the workspace panel after a short delay
@@ -3430,6 +3469,7 @@ function AttachmentRenderer({ attachment, onSpecChange, onOpenWorkspace, onOpenI
       : attachment.type === "free_body" ? "➡️ Force Diagram"
       : attachment.type === "financial" ? "💰 Calculator"
       : attachment.type === "anatomy" ? "🫀 Anatomy Diagram"
+      : attachment.type === "code_playground" ? "💻 Code Playground"
       : "📦 Activity";
 
     // Extract a title from the spec if possible
@@ -3723,7 +3763,7 @@ function AttachmentRenderer({ attachment, onSpecChange, onOpenWorkspace, onOpenI
   // types. These show a COMPACT preview in the chat. The full interactive
   // panel opens in the workspace (handled by the WORKSPACE_TYPES dispatch
   // above).
-  if (["composition", "timeline", "geometry", "physics_sim", "molecule", "free_body", "financial", "anatomy"].includes(attachment.type)) {
+  if (["composition", "timeline", "geometry", "physics_sim", "molecule", "free_body", "financial", "anatomy", "code_playground"].includes(attachment.type)) {
     let spec: any = null;
     try { spec = JSON.parse(attachment.caption); } catch { return null; }
     if (!spec) return null;
@@ -3740,6 +3780,7 @@ function AttachmentRenderer({ attachment, onSpecChange, onOpenWorkspace, onOpenI
       free_body: { icon: "➡️", label: "Force Diagram", cardClass: "rounded-xl border border-red-200 bg-red-50/40 p-3", labelClass: "text-[10px] font-bold uppercase text-red-600" },
       financial: { icon: "💰", label: "Calculation", cardClass: "rounded-xl border border-green-200 bg-green-50/40 p-3", labelClass: "text-[10px] font-bold uppercase text-green-600" },
       anatomy: { icon: "🫀", label: "Anatomy Diagram", cardClass: "rounded-xl border border-rose-200 bg-rose-50/40 p-3", labelClass: "text-[10px] font-bold uppercase text-rose-600" },
+      code_playground: { icon: "💻", label: "Code Playground", cardClass: "rounded-xl border border-emerald-200 bg-emerald-50/40 p-3", labelClass: "text-[10px] font-bold uppercase text-emerald-600" },
     };
     const style = STYLE_BY_TYPE[attachment.type];
 
@@ -3761,6 +3802,10 @@ function AttachmentRenderer({ attachment, onSpecChange, onOpenWorkspace, onOpenI
       summary = `${(spec.calcType || "").replace(/_/g, " ")}`;
     } else if (attachment.type === "anatomy" && Array.isArray(spec.labels)) {
       summary = `${spec.labels.length} label${spec.labels.length === 1 ? "" : "s"} • ${spec.system || "body"}`;
+    } else if (attachment.type === "code_playground") {
+      const lang = spec.language || spec.lang || "python";
+      const lines = (spec.code || spec.content || "").split("\n").filter((l: string) => l.trim()).length;
+      summary = `${lang} • ${lines} line${lines === 1 ? "" : "s"}`;
     }
 
     return (
@@ -4176,20 +4221,117 @@ function MarkdownContent({ content, isUser }: { content: string; isUser: boolean
 
 function CodeBlock({ code, lang }: { code: string; lang?: string }) {
   const [copied, setCopied] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [output, setOutput] = useState<{ stdout?: string; stderr?: string; exitCode?: number | null; unsupported?: boolean } | null>(null);
+  const [showOutput, setShowOutput] = useState(false);
+
   const copy = () => {
     navigator.clipboard.writeText(code);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
+
+  // Phase 9 — Run button for Python + JavaScript code blocks.
+  // Calls /api/tools/sandbox which routes to Tools Hub when enabled.
+  // When Tools Hub is disabled, returns `unsupported: true` and the
+  // learner sees a friendly "code execution not available" message.
+  const runCode = async () => {
+    const normalizedLang = (lang ?? "").toLowerCase().trim();
+    const language: "python" | "javascript" | null =
+      normalizedLang === "python" || normalizedLang === "py" ? "python" :
+      normalizedLang === "javascript" || normalizedLang === "js" ? "javascript" :
+      null;
+    if (!language) return; // Run button only shows for python/js
+
+    setRunning(true);
+    setOutput(null);
+    setShowOutput(true);
+    try {
+      const r = await fetch("/api/tools/sandbox", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ language, code }),
+      });
+      const d = await r.json();
+      if (!r.ok) {
+        setOutput({ stderr: d.error ?? "Run failed", unsupported: true });
+      } else {
+        setOutput({
+          stdout: d.stdout,
+          stderr: d.stderr,
+          exitCode: d.exitCode,
+          unsupported: d.unsupported,
+        });
+      }
+    } catch (e: any) {
+      setOutput({ stderr: `Network error: ${e?.message ?? e}`, unsupported: true });
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const normalizedLang = (lang ?? "").toLowerCase().trim();
+  const canRun = normalizedLang === "python" || normalizedLang === "py" ||
+                  normalizedLang === "javascript" || normalizedLang === "js";
+
   return (
     <div className="relative rounded-lg bg-gray-900 text-gray-100 p-3 my-2 overflow-x-auto">
       <div className="flex items-center justify-between mb-1">
         <span className="text-[10px] uppercase text-gray-400 font-mono">{lang}</span>
-        <button onClick={copy} className="text-gray-400 hover:text-white">
-          {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-        </button>
+        <div className="flex items-center gap-1.5">
+          {/* Phase 9 — Run button (only for Python + JavaScript) */}
+          {canRun && (
+            <button
+              onClick={runCode}
+              disabled={running}
+              className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 transition"
+              title="Run this code in the sandbox"
+            >
+              {running ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <Play className="w-2.5 h-2.5" />}
+              {running ? "Running…" : "Run"}
+            </button>
+          )}
+          <button onClick={copy} className="text-gray-400 hover:text-white">
+            {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+          </button>
+        </div>
       </div>
       <pre className="text-xs font-mono whitespace-pre-wrap break-words leading-relaxed">{code}</pre>
+      {/* Phase 9 — Output panel (collapsible) */}
+      {showOutput && output && (
+        <div className="mt-2 pt-2 border-t border-gray-700">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[10px] uppercase text-gray-400 font-mono">Output</span>
+            <button
+              onClick={() => setShowOutput(false)}
+              className="text-gray-400 hover:text-white"
+              title="Hide output"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </div>
+          {output.unsupported ? (
+            <div className="text-xs text-amber-400 bg-amber-900/20 border border-amber-700/40 rounded p-2">
+              {output.stderr || "Code execution is not available right now."}
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {output.stdout && (
+                <pre className="text-xs font-mono text-emerald-300 bg-black/30 rounded p-2 whitespace-pre-wrap break-words">{output.stdout}</pre>
+              )}
+              {output.stderr && (
+                <pre className="text-xs font-mono text-red-300 bg-black/30 rounded p-2 whitespace-pre-wrap break-words">{output.stderr}</pre>
+              )}
+              {!output.stdout && !output.stderr && (
+                <pre className="text-xs font-mono text-gray-500 italic">(no output)</pre>
+              )}
+              {typeof output.exitCode === "number" && (
+                <div className="text-[10px] text-gray-500">Exit code: {output.exitCode}</div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
