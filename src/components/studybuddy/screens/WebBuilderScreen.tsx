@@ -145,10 +145,11 @@ export function WebBuilderScreen() {
   // Phase 9 fix — check for a pending workspace request from the AI Tutor.
   // When the learner clicks "Set up the full computer workspace" in the AI
   // Tutor chat, their original request (e.g. "build a funny meme site") is
-  // saved to localStorage. On mount, we read it + auto-send it as the first
-  // chat message so the Web Builder immediately generates the code — the
-  // learner doesn't have to re-type their request.
+  // saved to localStorage. On mount, we read it + store it in a ref.
+  // The auto-send effect (below sendChat) picks it up + sends it.
   const autoSentRef = useRef(false);
+  const pendingRequestRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (autoSentRef.current || loading || !project) return;
     try {
@@ -159,23 +160,10 @@ export function WebBuilderScreen() {
       // Clear it so we don't re-send on every re-render.
       localStorage.removeItem("studybuddy.pendingComputerWorkspace");
       autoSentRef.current = true;
-      // Use the user's original request as the first chat message.
-      // Also update the project title to reflect what they're building.
+      pendingRequestRef.current = pending.userRequest;
+      // Update the project title to reflect what they're building.
       const request = pending.userRequest;
       setProject((p) => p ? { ...p, title: pending.title || request.slice(0, 60) } : p);
-      // Auto-send the request to the Web Buddy chat after a short delay
-      // (so the component is fully mounted + ready to stream).
-      setTimeout(() => {
-        setInput(request);
-        // Trigger send after the input state is set.
-        setTimeout(() => {
-          // Simulate pressing Enter by calling sendChat with the request directly.
-          // We can't call sendChat directly because it reads `input` state which
-          // may not be updated yet. Instead, we set a flag that sendChat picks up.
-          const sendButton = document.querySelector('[data-send-button]') as HTMLButtonElement;
-          if (sendButton) sendButton.click();
-        }, 100);
-      }, 300);
     } catch {}
   }, [loading, project]);
 
@@ -289,8 +277,11 @@ export function WebBuilderScreen() {
   }, []);
 
   // ---------- chat with WebBuddy ----------
-  const sendChat = useCallback(async () => {
-    const text = input.trim();
+  // Phase 9 fix — sendChat now accepts an optional `overrideText` parameter.
+  // This is used by the auto-send effect (when arriving from AI Tutor) so
+  // the request is sent immediately without waiting for `input` state to update.
+  const sendChat = useCallback(async (overrideText?: string) => {
+    const text = (overrideText ?? input).trim();
     if (!text || streaming) return;
     setInput("");
     setMessages((m) => [...m, { role: "user", text }]);
@@ -424,6 +415,22 @@ export function WebBuilderScreen() {
       abortRef.current = null;
     }
   }, [input, streaming, project?.conversationId, messages, streamBuf]);
+
+  // Phase 9 — auto-send the pending request once sendChat is available.
+  // Watches pendingRequestRef — if it's set (from the localStorage effect
+  // above), calls sendChat(request) to auto-send the user's original request
+  // from the AI Tutor chat. This means the Web Builder immediately generates
+  // the code without the learner having to re-type their request.
+  useEffect(() => {
+    if (!pendingRequestRef.current || streaming) return;
+    const request = pendingRequestRef.current;
+    pendingRequestRef.current = null;
+    // Small delay to ensure the component is fully ready.
+    const timer = setTimeout(() => {
+      sendChat(request);
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [pendingRequestRef.current, sendChat, streaming]);
 
   const loadReplyIntoEditor = useCallback((replyText: string) => {
     const extracted = extractCodeFiles(replyText);
@@ -565,7 +572,7 @@ export function WebBuilderScreen() {
           />
           <button
             data-send-button
-            onClick={streaming ? () => abortRef.current?.abort() : sendChat}
+            onClick={streaming ? () => abortRef.current?.abort() : () => sendChat()}
             className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${streaming ? "bg-rose-600 hover:bg-rose-700" : "bg-amber-600 hover:bg-amber-700"} text-white`}
             aria-label={streaming ? "Stop" : "Send"}
           >
