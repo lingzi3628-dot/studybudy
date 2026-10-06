@@ -94,10 +94,19 @@ export function extractCodeFiles(reply: string): ExtractedFile[] | null {
     const path = match[2];  // may be undefined
     const content = match[3].trimEnd();
 
-    // Skip non-code blocks the AI might emit (mathgraph, examgen, text, etc.)
+    // Skip non-code blocks the AI might emit (these are structured artifacts,
+    // NOT code files — they should never be loaded into the editor).
     // BUT only if there's no path= annotation — if the AI explicitly tagged a
     // block with a path like `text path="config.json"`, that's a real file.
-    if (!path && ["mathgraph", "examgen", "text", "csv", "mermaid", "plain"].includes(lang)) continue;
+    const NON_CODE_FENCES = [
+      "mathgraph", "examgen", "text", "csv", "mermaid", "plain",
+      // Phase 7-9 — structured artifact fences (NOT code files)
+      "computer_workspace", "workspace_edit", "code_playground",
+      "composition", "timeline", "geometry", "physics", "molecule",
+      "freebody", "financial", "anatomy", "quiz", "draw_task",
+      "conceptmap", "examgen",
+    ];
+    if (!path && NON_CODE_FENCES.includes(lang)) continue;
 
     if (path) {
       foundAnnotated = true;
