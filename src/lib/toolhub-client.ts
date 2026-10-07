@@ -64,6 +64,16 @@ export type ToolhubSettings = {
   baseUrl: string;
   codeSandboxEnabled: boolean;
   tutorEnabled: boolean;
+  // Phase 9 — per-tool toggles. When the master `enabled` flag is off,
+  // ALL tools are off. When master is on, each tool can be individually
+  // toggled. Defaults to true so admin opts OUT of tools they don't want
+  // (rather than having to opt in to each one).
+  ttsEnabled: boolean;
+  asrEnabled: boolean;
+  vlmEnabled: boolean;
+  imageGenEnabled: boolean;
+  searchEnabled: boolean;
+  webReaderEnabled: boolean;
   lastTestedAt: Date | null;
   lastTestOk: boolean | null;
   lastTestError: string | null;
@@ -97,6 +107,12 @@ async function loadSettings(): Promise<{
         baseUrl: "https://toolhub.space-z.ai",
         codeSandboxEnabled: false,
         tutorEnabled: false,
+        ttsEnabled: false,
+        asrEnabled: false,
+        vlmEnabled: false,
+        imageGenEnabled: false,
+        searchEnabled: false,
+        webReaderEnabled: false,
         lastTestedAt: null,
         lastTestOk: null,
         lastTestError: null,
@@ -111,6 +127,15 @@ async function loadSettings(): Promise<{
     baseUrl: row?.baseUrl ?? "https://toolhub.space-z.ai",
     codeSandboxEnabled: row?.codeSandboxEnabled ?? false,
     tutorEnabled: row?.tutorEnabled ?? false,
+    // Phase 9 — per-tool toggles. Default to true so admin can enable
+    // just the ones they want. When the master `enabled` flag is off,
+    // ALL tools are off regardless of these per-tool flags.
+    ttsEnabled: row?.ttsEnabled ?? true,
+    asrEnabled: row?.asrEnabled ?? true,
+    vlmEnabled: row?.vlmEnabled ?? true,
+    imageGenEnabled: row?.imageGenEnabled ?? true,
+    searchEnabled: row?.searchEnabled ?? true,
+    webReaderEnabled: row?.webReaderEnabled ?? true,
     lastTestedAt: row?.lastTestedAt ?? null,
     lastTestOk: row?.lastTestOk ?? null,
     lastTestError: row?.lastTestError ?? null,
@@ -145,6 +170,42 @@ export async function isToolhubCodeExecutionEnabled(): Promise<boolean> {
 export async function isToolhubTutorEnabled(): Promise<boolean> {
   const { settings, apiKey } = await loadSettings();
   return settings.enabled && settings.tutorEnabled && Boolean(apiKey);
+}
+
+// ============================================================
+// Phase 9 — Per-tool enabled checks.
+// Each checks: master enabled flag + per-tool flag + API key present.
+// When ANY of these is false, the tool returns `unsupported`.
+// ============================================================
+
+export async function isTTSEnabled(): Promise<boolean> {
+  const { settings, apiKey } = await loadSettings();
+  return settings.enabled && settings.ttsEnabled && Boolean(apiKey);
+}
+
+export async function isASREnabled(): Promise<boolean> {
+  const { settings, apiKey } = await loadSettings();
+  return settings.enabled && settings.asrEnabled && Boolean(apiKey);
+}
+
+export async function isVLMEnabled(): Promise<boolean> {
+  const { settings, apiKey } = await loadSettings();
+  return settings.enabled && settings.vlmEnabled && Boolean(apiKey);
+}
+
+export async function isImageGenEnabled(): Promise<boolean> {
+  const { settings, apiKey } = await loadSettings();
+  return settings.enabled && settings.imageGenEnabled && Boolean(apiKey);
+}
+
+export async function isSearchEnabled(): Promise<boolean> {
+  const { settings, apiKey } = await loadSettings();
+  return settings.enabled && settings.searchEnabled && Boolean(apiKey);
+}
+
+export async function isWebReaderEnabled(): Promise<boolean> {
+  const { settings, apiKey } = await loadSettings();
+  return settings.enabled && settings.webReaderEnabled && Boolean(apiKey);
 }
 
 // ============================================================

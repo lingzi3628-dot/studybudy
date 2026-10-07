@@ -41,6 +41,13 @@ export async function GET() {
     baseUrl: settings?.baseUrl ?? "https://toolhub.space-z.ai",
     codeSandboxEnabled: settings?.codeSandboxEnabled ?? true,
     tutorEnabled: settings?.tutorEnabled ?? false,
+    // Phase 9 — per-tool toggles
+    ttsEnabled: settings?.ttsEnabled ?? true,
+    asrEnabled: settings?.asrEnabled ?? true,
+    vlmEnabled: settings?.vlmEnabled ?? true,
+    imageGenEnabled: settings?.imageGenEnabled ?? true,
+    searchEnabled: settings?.searchEnabled ?? true,
+    webReaderEnabled: settings?.webReaderEnabled ?? true,
     lastTestedAt: settings?.lastTestedAt ?? null,
     lastTestOk: settings?.lastTestOk ?? null,
     lastTestError: settings?.lastTestError ?? null,
@@ -69,6 +76,13 @@ export async function PUT(req: NextRequest) {
   }
   if (typeof body.codeSandboxEnabled === "boolean") data.codeSandboxEnabled = body.codeSandboxEnabled;
   if (typeof body.tutorEnabled === "boolean") data.tutorEnabled = body.tutorEnabled;
+  // Phase 9 — per-tool toggles
+  if (typeof body.ttsEnabled === "boolean") data.ttsEnabled = body.ttsEnabled;
+  if (typeof body.asrEnabled === "boolean") data.asrEnabled = body.asrEnabled;
+  if (typeof body.vlmEnabled === "boolean") data.vlmEnabled = body.vlmEnabled;
+  if (typeof body.imageGenEnabled === "boolean") data.imageGenEnabled = body.imageGenEnabled;
+  if (typeof body.searchEnabled === "boolean") data.searchEnabled = body.searchEnabled;
+  if (typeof body.webReaderEnabled === "boolean") data.webReaderEnabled = body.webReaderEnabled;
   if (typeof body.apiKey === "string" && body.apiKey.trim()) {
     data.apiKeyEncrypted = encryptApiKey(body.apiKey.trim());
   }

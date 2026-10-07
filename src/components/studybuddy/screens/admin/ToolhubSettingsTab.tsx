@@ -36,6 +36,13 @@ export function ToolhubSettingsTab() {
   const [baseUrl, setBaseUrl] = useState("https://toolhub.space-z.ai");
   const [codeSandboxEnabled, setCodeSandboxEnabled] = useState(true);
   const [tutorEnabled, setTutorEnabled] = useState(false);
+  // Phase 9 — per-tool toggles
+  const [ttsEnabled, setTtsEnabled] = useState(true);
+  const [asrEnabled, setAsrEnabled] = useState(true);
+  const [vlmEnabled, setVlmEnabled] = useState(true);
+  const [imageGenEnabled, setImageGenEnabled] = useState(true);
+  const [searchEnabled, setSearchEnabled] = useState(true);
+  const [webReaderEnabled, setWebReaderEnabled] = useState(true);
   const [lastTestedAt, setLastTestedAt] = useState<string | null>(null);
   const [lastTestOk, setLastTestOk] = useState<boolean | null>(null);
   const [lastTestError, setLastTestError] = useState<string | null>(null);
@@ -53,6 +60,12 @@ export function ToolhubSettingsTab() {
       setBaseUrl(d.baseUrl ?? "https://toolhub.space-z.ai");
       setCodeSandboxEnabled(d.codeSandboxEnabled ?? true);
       setTutorEnabled(d.tutorEnabled ?? false);
+      setTtsEnabled(d.ttsEnabled ?? true);
+      setAsrEnabled(d.asrEnabled ?? true);
+      setVlmEnabled(d.vlmEnabled ?? true);
+      setImageGenEnabled(d.imageGenEnabled ?? true);
+      setSearchEnabled(d.searchEnabled ?? true);
+      setWebReaderEnabled(d.webReaderEnabled ?? true);
       setLastTestedAt(d.lastTestedAt ?? null);
       setLastTestOk(d.lastTestOk ?? null);
       setLastTestError(d.lastTestError ?? null);
@@ -75,6 +88,12 @@ export function ToolhubSettingsTab() {
         baseUrl,
         codeSandboxEnabled,
         tutorEnabled,
+        ttsEnabled,
+        asrEnabled,
+        vlmEnabled,
+        imageGenEnabled,
+        searchEnabled,
+        webReaderEnabled,
       };
       // Only update the key if admin typed a new one
       if (apiKey.trim()) body.apiKey = apiKey.trim();
@@ -198,31 +217,34 @@ export function ToolhubSettingsTab() {
 
       {/* Per-tool toggles */}
       <div className="space-y-2">
-        <div className="text-xs font-bold uppercase text-gray-500">Tool scopes</div>
-        <label className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg cursor-pointer">
-          <input
-            type="checkbox"
-            checked={codeSandboxEnabled}
-            onChange={(e) => setCodeSandboxEnabled(e.target.checked)}
-            className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-          />
-          <div className="flex-1">
-            <div className="text-sm font-semibold text-gray-900">Code Sandbox</div>
-            <p className="text-xs text-gray-500">Run Python + JavaScript in the Tools Hub sandbox. This is what enables "Run" buttons in the workspace.</p>
-          </div>
-        </label>
-        <label className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg cursor-pointer">
-          <input
-            type="checkbox"
-            checked={tutorEnabled}
-            onChange={(e) => setTutorEnabled(e.target.checked)}
-            className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-          />
-          <div className="flex-1">
-            <div className="text-sm font-semibold text-gray-900">AI Tutor routing</div>
-            <p className="text-xs text-gray-500">Route tutor chat through Tools Hub instead of the built-in ZAI pipeline. Off by default — only enable if you want to A/B test.</p>
-          </div>
-        </label>
+        <div className="text-xs font-bold uppercase text-gray-500">Tool scopes — toggle each on/off (free trial API)</div>
+
+        {[
+          { label: "💻 Code Sandbox", desc: "Run Python + JavaScript in the workspace.", get: codeSandboxEnabled, set: setCodeSandboxEnabled },
+          { label: "🔊 Lesson Narrator (TTS)", desc: "Text → spoken audio. Read-aloud button on AI replies.", get: ttsEnabled, set: setTtsEnabled },
+          { label: "🎤 Voice Answer (ASR)", desc: "Voice → transcribed text. Mic button in chat.", get: asrEnabled, set: setAsrEnabled },
+          { label: "🖼️ Diagram Explainer (VLM)", desc: "Upload a photo of a diagram → AI explains it + OCR.", get: vlmEnabled, set: setVlmEnabled },
+          { label: "🎨 Study Image Studio", desc: "Generate study illustrations from text prompts.", get: imageGenEnabled, set: setImageGenEnabled },
+          { label: "🔍 Research Assistant", desc: "Web search with ranked sources + AI summary.", get: searchEnabled, set: setSearchEnabled },
+          { label: "📄 Web Content Extractor", desc: "Paste a URL → clean, ad-free text for study notes.", get: webReaderEnabled, set: setWebReaderEnabled },
+          { label: "🤖 AI Tutor routing", desc: "Route tutor chat through Tools Hub (A/B test — off by default).", get: tutorEnabled, set: setTutorEnabled },
+        ].map((tool, i) => (
+          <label key={i} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg cursor-pointer">
+            <input
+              type="checkbox"
+              checked={tool.get}
+              onChange={(e) => tool.set(e.target.checked)}
+              className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+            />
+            <div className="flex-1">
+              <div className="text-sm font-semibold text-gray-900">{tool.label}</div>
+              <p className="text-xs text-gray-500">{tool.desc}</p>
+            </div>
+          </label>
+        ))}
+        <p className="text-[10px] text-gray-400 px-1 pt-1">
+          💡 These tools run on the Tools Hub free trial API. Toggle off the ones you don't need to save API calls. When the master "Enable Tools Hub" switch is off, ALL tools are off regardless of these toggles.
+        </p>
       </div>
 
       {/* Test connection */}
