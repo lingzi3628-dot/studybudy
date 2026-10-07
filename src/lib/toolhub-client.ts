@@ -451,3 +451,294 @@ export async function testConnection(): Promise<{
   }
   return { ok: false, error: error ?? "No tools returned.", rawBody };
 }
+
+// ============================================================
+// Phase 9 — Extended tool callers (all 9 Tools Hub plugins)
+// ============================================================
+
+/**
+ * Generic helper — calls any Tools Hub tool endpoint with the API key.
+ * All tool endpoints follow the same pattern: POST /api/tools/<toolId>
+ * with Authorization: Bearer + X-Hub-Key headers.
+ *
+ * Returns { ok, data?, error? } — the caller decides how to interpret `data`.
+ */
+async function callToolHubEndpoint(
+  toolId: string,
+  body: Record<string, unknown>,
+  timeoutMs: number = 30_000,
+): Promise<{ ok: boolean; data?: any; error?: string; status?: number }> {
+  const { settings, apiKey } = await loadSettings();
+  if (!settings.enabled || !apiKey) {
+    return { ok: false, error: "Tools Hub is not enabled." };
+  }
+
+  try {
+    const res = await fetch(`${settings.baseUrl}/api/tools/${toolId}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+        "X-Hub-Key": apiKey,
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      return { ok: false, error: `Tools Hub returned ${res.status}: ${text.slice(0, 500)}`, status: res.status };
+    }
+
+    const data = await res.json().catch(() => ({}));
+    return { ok: true, data };
+  } catch (err: any) {
+    return {
+      ok: false,
+      error: `Failed to reach Tools Hub: ${err?.message ?? err}`,
+    };
+  }
+}
+
+// ============================================================
+// 3. Text-to-Speech (Lesson Narrator)
+// ============================================================
+
+export type ToolhubTTSResult = {
+  ok: boolean;
+  audioUrl?: string;   // URL to the generated audio (Tools Hub hosted)
+  audioBase64?: string; // OR base64-encoded audio data
+  format?: string;    // "mp3" | "wav" | "ogg"
+  error?: string;
+};
+
+/**
+ * callTTS — convert lesson text to natural spoken audio.
+ * Tools Hub plugin: "tts" (Lesson Narrator)
+ *
+ * Body: { text, voice?, speed?, format? }
+ * Response: { audio: "base64...", format: "mp3" } or { url: "https://..." }
+ */
+export async function callTTS(opts: {
+  text: string;
+  voice?: string;
+  speed?: number;
+  format?: string;
+}): Promise<ToolhubTTSResult> {
+  const result = await callToolHubEndpoint("tts", {
+    text: opts.text.slice(0, 5000), // cap at 5k chars
+    voice: opts.voice ?? "default",
+    speed: opts.speed ?? 1.0,
+    format: opts.format ?? "mp3",
+  });
+
+  if (!result.ok) return { ok: false, error: result.error };
+  const d = result.data;
+  return {
+    ok: true,
+    audioUrl: typeof d?.url === "string" ? d.url : undefined,
+    audioBase64: typeof d?.audio === "string" ? d.audio : (typeof d?.audio_base64 === "string" ? d.audio_base64 : undefined),
+    format: typeof d?.format === "string" ? d.format : "mp3",
+  };
+}
+
+// ============================================================
+// 4. Speech-to-Text (Voice Answer / Dictation)
+// ============================================================
+
+export type ToolhubASRResult = {
+  ok: boolean;
+  text?: string;
+  confidence?: number;
+  error?: string;
+};
+
+/**
+ * callASR — transcribe audio (voice answer) to text.
+ * Tools Hub plugin: "asr" (Voice Answer / Dictation)
+ *
+ * Body: { audio: "base64...", format: "wav" | "mp3" | "webm", language? }
+ * Response: { text: "transcribed text", confidence: 0.95 }
+ */
+export async function callASR(opts: {
+  audioBase64: string;
+  format?: string;
+  language?: string;
+}): Promise<ToolhubASRResult> {
+  const result = await callToolHubEndpoint("asr", {
+    audio: opts.audioBase64,
+    format: opts.format ?? "webm",
+    language: opts.language ?? "en",
+  }, 60_000); // 60s timeout — ASR can be slow
+
+  if (!result.ok) return { ok: false, error: result.error };
+  const d = result.data;
+  return {
+    ok: true,
+    text: typeof d?.text === "string" ? d.text : (typeof d?.transcript === "string" ? d.transcript : ""),
+    confidence: typeof d?.confidence === "number" ? d.confidence : undefined,
+  };
+}
+
+// ============================================================
+// 5. Vision / Image Understanding (Diagram Explainer)
+// ============================================================
+
+export type ToolhubVLMResult = {
+  ok: boolean;
+  reply?: string;
+  ocrText?: string;
+  error?: string;
+};
+
+/**
+ * callVLM — analyze an image (diagram, chart, textbook page) + explain it.
+ * Tools Hub plugin: "vlm" (Diagram Explainer)
+ *
+ * Body: { image: "base64...", mimeType: "image/png", prompt: "Explain this diagram" }
+ * Response: { reply: "explanation text", ocr: "extracted text" }
+ */
+export async function callVLM(opts: {
+  imageBase64: string;
+  mimeType?: string;
+  prompt?: string;
+}): Promise<ToolhubVLMResult> {
+  const result = await callToolHubEndpoint("vlm", {
+    image: opts.imageBase64,
+    mimeType: opts.mimeType ?? "image/png",
+    prompt: opts.prompt ?? "Explain this diagram in detail. Include any text you can read (OCR).",
+  }, 60_000);
+
+  if (!result.ok) return { ok: false, error: result.error };
+  const d = result.data;
+  return {
+    ok: true,
+    reply: typeof d?.reply === "string" ? d.reply : (typeof d?.content === "string" ? d.content : (typeof d?.text === "string" ? d.text : "")),
+    ocrText: typeof d?.ocr === "string" ? d.ocr : (typeof d?.ocr_text === "string" ? d.ocr_text : undefined),
+  };
+}
+
+// ============================================================
+// 6. Image Generation (Study Image Studio)
+// ============================================================
+
+export type ToolhubImageGenResult = {
+  ok: boolean;
+  imageUrl?: string;
+  imageBase64?: string;
+  error?: string;
+};
+
+/**
+ * callImageGen — generate a study illustration from a text prompt.
+ * Tools Hub plugin: "image-gen" (Study Image Studio)
+ *
+ * Body: { prompt, size?, style? }
+ * Response: { url: "https://..." } or { image: "base64..." }
+ */
+export async function callImageGen(opts: {
+  prompt: string;
+  size?: string;
+  style?: string;
+}): Promise<ToolhubImageGenResult> {
+  const result = await callToolHubEndpoint("image-gen", {
+    prompt: opts.prompt.slice(0, 1000),
+    size: opts.size ?? "1024x1024",
+    style: opts.style ?? "educational",
+  }, 60_000);
+
+  if (!result.ok) return { ok: false, error: result.error };
+  const d = result.data;
+  return {
+    ok: true,
+    imageUrl: typeof d?.url === "string" ? d.url : (typeof d?.image_url === "string" ? d.image_url : undefined),
+    imageBase64: typeof d?.image === "string" ? d.image : (typeof d?.image_base64 === "string" ? d.image_base64 : undefined),
+  };
+}
+
+// ============================================================
+// 7. Web Search (Research Assistant)
+// ============================================================
+
+export type ToolhubSearchResult = {
+  ok: boolean;
+  results?: Array<{ title: string; url: string; snippet: string }>;
+  summary?: string;
+  error?: string;
+};
+
+/**
+ * callWebSearch — search the web for a topic + get ranked sources + AI summary.
+ * Tools Hub plugin: "search" (Research Assistant)
+ *
+ * Body: { query, num? }
+ * Response: { results: [...], summary: "AI-written summary with citations" }
+ */
+export async function callWebSearch(opts: {
+  query: string;
+  num?: number;
+}): Promise<ToolhubSearchResult> {
+  const result = await callToolHubEndpoint("search", {
+    query: opts.query.slice(0, 500),
+    num: opts.num ?? 5,
+  }, 30_000);
+
+  if (!result.ok) return { ok: false, error: result.error };
+  const d = result.data;
+  const results = Array.isArray(d?.results) ? d.results :
+                  Array.isArray(d?.sources) ? d.sources : [];
+  return {
+    ok: true,
+    results: results.map((r: any) => ({
+      title: String(r?.title ?? r?.name ?? ""),
+      url: String(r?.url ?? r?.link ?? ""),
+      snippet: String(r?.snippet ?? r?.description ?? r?.content ?? ""),
+    })),
+    summary: typeof d?.summary === "string" ? d.summary : undefined,
+  };
+}
+
+// ============================================================
+// 8. Web Content Extraction (Web Content Extractor)
+// ============================================================
+
+export type ToolhubWebReaderResult = {
+  ok: boolean;
+  title?: string;
+  content?: string;     // clean, ad-free text
+  url?: string;
+  error?: string;
+};
+
+/**
+ * callWebReader — extract clean text from a URL (article, blog post, etc.).
+ * Tools Hub plugin: "web-reader" (Web Content Extractor)
+ *
+ * Body: { url }
+ * Response: { title: "...", content: "clean text...", url: "..." }
+ */
+export async function callWebReader(opts: {
+  url: string;
+}): Promise<ToolhubWebReaderResult> {
+  const result = await callToolHubEndpoint("web-reader", {
+    url: opts.url,
+  }, 30_000);
+
+  if (!result.ok) return { ok: false, error: result.error };
+  const d = result.data;
+  return {
+    ok: true,
+    title: typeof d?.title === "string" ? d.title : undefined,
+    content: typeof d?.content === "string" ? d.content : (typeof d?.text === "string" ? d.text : (typeof d?.html === "string" ? d.html : "")),
+    url: typeof d?.url === "string" ? d.url : opts.url,
+  };
+}
+
+// ============================================================
+// Convenience — check if any tool is enabled
+// ============================================================
+
+export async function isToolhubEnabled(): Promise<boolean> {
+  const { settings, apiKey } = await loadSettings();
+  return settings.enabled && Boolean(apiKey);
+}
