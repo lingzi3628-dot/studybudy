@@ -6,6 +6,8 @@ import {
   Send,
   Loader2,
   Sparkles,
+  Search,
+  Link,
   Trash2,
   Plus,
   MessageSquare,
@@ -3467,6 +3469,11 @@ function MessageBubble({
                   <RotateCw className="w-3 h-3" /> Retry
                 </button>
               )}
+              {/* Phase 9 — Tools Hub quick actions. These call the Tools Hub
+                  API endpoints (when enabled by admin). Each button sends a
+                  request to the corresponding tool + injects the result into
+                  the chat as a new user message with context. */}
+              <ToolsHubQuickActions msgContent={msg.content} />
               {/* Phase 48 — Save AI-generated code as a Project. Only shown when
                   the active buddy supports code files AND the reply contains
                   extractable code blocks. The parent component computes the
@@ -4878,5 +4885,99 @@ function TopicCardsBar() {
         ))}
       </div>
     </div>
+  );
+}
+
+// ============================================================
+// Phase 9 — ToolsHubQuickActions
+// Shows buttons for each Tools Hub tool (Image Gen, Web Search, URL
+// Extract) on AI messages. When clicked, calls the corresponding
+// /api/tools/* endpoint + dispatches a CustomEvent with the result
+// so the parent chat component can inject it as context.
+// Each button gracefully handles "unsupported" (tool disabled) by
+// showing a brief tooltip.
+// ============================================================
+function ToolsHubQuickActions({ msgContent }: { msgContent: string }) {
+  const [loading, setLoading] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const callTool = async (tool: string, body: Record<string, unknown>, label: string) => {
+    setLoading(tool);
+    setError(null);
+    try {
+      const r = await fetch(`/api/tools/${tool}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const d = await r.json();
+      if (d.unsupported) {
+        setError(`${label} is not enabled. Ask an admin to turn it on in Tools Hub settings.`);
+        setTimeout(() => setError(null), 4000);
+        return;
+      }
+      if (!r.ok) {
+        setError(d.error ?? `${label} failed`);
+        setTimeout(() => setError(null), 4000);
+        return;
+      }
+      // Dispatch a custom event with the result — the parent chat listens
+      // for this and injects the result as context for the next AI message.
+      window.dispatchEvent(new CustomEvent("studybuddy:tool-result", {
+        detail: { tool, data: d, sourceContent: msgContent },
+      }));
+    } catch (e: any) {
+      setError(`Network error: ${e?.message ?? e}`);
+      setTimeout(() => setError(null), 4000);
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  // Extract URLs from the AI reply for the "Extract URL" button
+  const urls = (msgContent.match(/https?:\/\/[^\s)<>"']+/g) ?? []).slice(0, 1);
+
+  return (
+    <>
+      <button
+        onClick={() => callTool("image-gen", {
+          prompt: `Create an educational illustration for: ${msgContent.slice(0, 200)}`,
+          size: "1024x1024",
+          style: "educational",
+        }, "Image generation")}
+        disabled={loading !== null}
+        className="px-2 py-1 rounded-md hover:bg-purple-50 text-purple-600 text-[10px] flex items-center gap-1 disabled:opacity-50"
+        title="Generate an illustration for this topic (Tools Hub)"
+      >
+        {loading === "image-gen" ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+        Image
+      </button>
+      <button
+        onClick={() => callTool("search", {
+          query: msgContent.slice(0, 200),
+          num: 5,
+        }, "Web search")}
+        disabled={loading !== null}
+        className="px-2 py-1 rounded-md hover:bg-blue-50 text-blue-600 text-[10px] flex items-center gap-1 disabled:opacity-50"
+        title="Search the web for more info on this topic (Tools Hub)"
+      >
+        {loading === "search" ? <Loader2 className="w-3 h-3 animate-spin" /> : <Search className="w-3 h-3" />}
+        Search
+      </button>
+      {urls.length > 0 && (
+        <button
+          onClick={() => callTool("web-reader", { url: urls[0] }, "URL extractor")}
+          disabled={loading !== null}
+          className="px-2 py-1 rounded-md hover:bg-emerald-50 text-emerald-600 text-[10px] flex items-center gap-1 disabled:opacity-50"
+          title={`Extract clean text from: ${urls[0].slice(0, 60)}...`}
+        >
+          {loading === "web-reader" ? <Loader2 className="w-3 h-3 animate-spin" /> : <Link className="w-3 h-3" />}
+          Extract
+        </button>
+      )}
+      {error && (
+        <span className="text-[10px] text-amber-600 px-1">{error}</span>
+      )}
+    </>
   );
 }
