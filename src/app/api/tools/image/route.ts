@@ -5,7 +5,7 @@ import { isImageGenEnabled, callImageGen } from "@/lib/toolhub-client";
 export const runtime = "nodejs";
 export const maxDuration = 65;
 
-/** POST /api/tools/image-gen — generate study illustration (Study Image Studio) */
+/** POST /api/tools/image — generate study illustration (Study Image Studio) */
 export async function POST(req: NextRequest) {
   try { await getCurrentUser(); }
   catch { return NextResponse.json({ error: "Auth required" }, { status: 401 }); }

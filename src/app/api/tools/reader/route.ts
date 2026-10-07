@@ -5,7 +5,7 @@ import { isWebReaderEnabled, callWebReader } from "@/lib/toolhub-client";
 export const runtime = "nodejs";
 export const maxDuration = 35;
 
-/** POST /api/tools/web-reader — extract text from URL (Web Content Extractor) */
+/** POST /api/tools/reader — extract text from URL (Web Content Extractor) */
 export async function POST(req: NextRequest) {
   try { await getCurrentUser(); }
   catch { return NextResponse.json({ error: "Auth required" }, { status: 401 }); }
