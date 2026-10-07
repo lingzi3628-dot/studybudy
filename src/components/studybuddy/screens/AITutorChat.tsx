@@ -4940,7 +4940,7 @@ function ToolsHubQuickActions({ msgContent }: { msgContent: string }) {
   return (
     <>
       <button
-        onClick={() => callTool("image-gen", {
+        onClick={() => callTool("image", {
           prompt: `Create an educational illustration for: ${msgContent.slice(0, 200)}`,
           size: "1024x1024",
           style: "educational",
@@ -4966,7 +4966,7 @@ function ToolsHubQuickActions({ msgContent }: { msgContent: string }) {
       </button>
       {urls.length > 0 && (
         <button
-          onClick={() => callTool("web-reader", { url: urls[0] }, "URL extractor")}
+          onClick={() => callTool("reader", { url: urls[0] }, "URL extractor")}
           disabled={loading !== null}
           className="px-2 py-1 rounded-md hover:bg-emerald-50 text-emerald-600 text-[10px] flex items-center gap-1 disabled:opacity-50"
           title={`Extract clean text from: ${urls[0].slice(0, 60)}...`}
