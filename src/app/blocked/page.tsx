@@ -1,9 +1,10 @@
 "use client";
 
+import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { Globe, MapPin, ShieldAlert } from "lucide-react";
 
-export default function BlockedPage() {
+function BlockedContent() {
   const searchParams = useSearchParams();
   const country = searchParams.get("country") || "your country";
 
@@ -46,5 +47,19 @@ export default function BlockedPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+export default function BlockedPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="w-16 h-16 rounded-full bg-amber-100 flex items-center justify-center">
+          <ShieldAlert className="w-8 h-8 text-amber-600" />
+        </div>
+      </div>
+    }>
+      <BlockedContent />
+    </Suspense>
   );
 }
