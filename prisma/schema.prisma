@@ -2709,3 +2709,31 @@ model ToolhubSettings {
   lastTestError           String?
   updatedAt               DateTime  @updatedAt
 }
+
+// ════════════════════════════════════════════════════════════════
+// Phase 10 — Geo-blocking (IP blocker)
+// ════════════════════════════════════════════════════════════════
+//
+// Restricts access to the site by country. Only allowed countries can
+// access; others get a block page. Admin can generate proxy tokens
+// for specific users to bypass the block.
+//
+// Uses Vercel's x-vercel-ip-country header (ISO 3166-1 alpha-2 codes)
+// for geolocation — no external API needed, no latency added.
+
+model GeoBlockSettings {
+  id                  Int       @id @default(1)
+  // Master toggle — when false, ALL countries can access
+  enabled             Boolean   @default(false)
+  // Comma-separated ISO country codes that ARE allowed (e.g. "KE")
+  // Default: Kenya only
+  allowedCountries    String    @default("KE")
+  // Custom block message shown to blocked users
+  blockTitle           String    @default("Access Restricted")
+  blockMessage         String    @default("This service is currently only available in Kenya. If you believe this is an error, please contact support.")
+  // Admin can generate proxy tokens — users with a valid token in their
+  // cookie or URL param bypass the geo-block. Stored as JSON array:
+  // [{ token: "proxy_xxx", label: "Ghana student", createdAt: "...", expiresAt: "..." }]
+  proxyTokens         Json?     // Array of { token, label, createdAt, expiresAt }
+  updatedAt           DateTime  @updatedAt
+}
