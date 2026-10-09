@@ -125,16 +125,20 @@ export async function GET(
   if (filePath.endsWith('.html') || filePath.endsWith('.htm')) {
     let html = buffer.toString('utf-8');
 
-    // Phase 10 — Detect React/Vite/Next.js projects that need a build step.
-    // These projects have <script type="module" src="/src/main.tsx"> or similar.
-    // Browsers can't run TypeScript directly — the project needs to be built
-    // (compiled) first. We detect this pattern and show a helpful message
-    // instead of a broken blank page.
+    // Phase 10 — Detect React/Vite projects that TRULY need a build step.
+    // VERY conservative detection — only trigger if the HTML references
+    // .tsx or .jsx files (which browsers CANNOT run directly).
+    // Do NOT trigger for:
+    //   - Static sites with plain .js/.css files (they work fine)
+    //   - Sites that happen to have package.json but use regular .js
+    //   - Sites with <script type="module" src="/src/main.js"> (regular JS works)
     const isUnbuiltReact =
-      /<script[^>]+type=["']module["'][^>]+src=["']\/?src\//i.test(html) ||
-      /<script[^>]+src=["']\/?src\/main\.(ts|js)x?["']/i.test(html) ||
-      (filesMap['package.json'] && filesMap['vite.config.ts']) ||
-      (filesMap['package.json'] && filesMap['vite.config.js']);
+      // HTML references a .tsx file — browsers can't run TypeScript JSX
+      /<script[^>]+src=["'][^"']*\.tsx["']/i.test(html) ||
+      // HTML references a .jsx file in a /src/ folder with type=module
+      /<script[^>]+type=["']module["'][^>]+src=["'][^"']*\.jsx["']/i.test(html) ||
+      // HTML references /src/main.tsx specifically (Vite default entry)
+      /<script[^>]+src=["']\/?src\/main\.tsx["']/i.test(html);
 
     if (isUnbuiltReact && filePath === project.entryFile) {
       // Show a "needs build" page instead of the broken HTML
