@@ -583,6 +583,14 @@ body { font-family: ${fontFamily}; background: var(--bg); color: var(--text); }`
               <p>📱 Toggle device sizes above</p>
             </div>
           </div>
+
+          {/* Phase 12 — AI Design Suggestions */}
+          <DesignSuggestions
+            htmlContent={files.find(f => f.path === "index.html")?.content ?? ""}
+            primaryColor={primaryColor}
+            bgColor={bgColor}
+            textColor={textColor}
+          />
         </div>
       </div>
 
@@ -598,4 +606,115 @@ body { font-family: ${fontFamily}; background: var(--bg); color: var(--text); }`
       )}
     </div>
   );
+}
+
+// ============================================================
+// Phase 12 — DesignSuggestions
+// Analyzes the current HTML + color choices and shows real-time
+// design feedback: contrast warnings, missing elements, responsive tips.
+// ============================================================
+function DesignSuggestions({
+  htmlContent,
+  primaryColor,
+  bgColor,
+  textColor,
+}: {
+  htmlContent: string;
+  primaryColor: string;
+  bgColor: string;
+  textColor: string;
+}) {
+  const suggestions: Array<{ type: "warning" | "info" | "success"; text: string }> = [];
+
+  // 1. Contrast check — WCAG AA requires 4.5:1 for text
+  const contrast = getContrastRatio(textColor, bgColor);
+  if (contrast < 4.5) {
+    suggestions.push({
+      type: "warning",
+      text: `Text contrast is ${contrast.toFixed(1)}:1 — WCAG AA requires 4.5:1. Darken text color or lighten background.`,
+    });
+  } else if (contrast >= 7) {
+    suggestions.push({ type: "success", text: `Text contrast is ${contrast.toFixed(1)}:1 — AAA compliant ✓` });
+  }
+
+  // 2. Check for missing elements
+  if (!htmlContent.includes("<nav") && !htmlContent.includes("<header")) {
+    suggestions.push({ type: "info", text: "No navigation bar detected. Add one from the Components panel → Headers." });
+  }
+  if (!htmlContent.includes("<footer")) {
+    suggestions.push({ type: "info", text: "No footer detected. Add one from Components panel → Footer." });
+  }
+  if (!htmlContent.includes("<h1")) {
+    suggestions.push({ type: "info", text: "No H1 heading found. Add a hero section for your main headline." });
+  }
+  if (!htmlContent.includes("<form") && !htmlContent.includes("input")) {
+    suggestions.push({ type: "info", text: "No form or input found. Consider adding a contact form or newsletter signup." });
+  }
+
+  // 3. Responsive check
+  if (htmlContent.includes("width: ") && !htmlContent.includes("max-width")) {
+    suggestions.push({ type: "warning", text: "Fixed-width elements detected. Use max-width + percentage for responsive design." });
+  }
+  if (!htmlContent.includes("viewport") && htmlContent.includes("<html")) {
+    suggestions.push({ type: "warning", text: "No viewport meta tag found. Mobile devices won't render correctly." });
+  }
+
+  // 4. Image alt text check
+  const imgCount = (htmlContent.match(/<img /g) ?? []).length;
+  const altCount = (htmlContent.match(/alt=["']/g) ?? []).length;
+  if (imgCount > altCount) {
+    suggestions.push({ type: "warning", text: `${imgCount - altCount} image(s) missing alt text — important for accessibility + SEO.` });
+  }
+
+  // 5. Empty canvas
+  if (htmlContent.replace(/<[^>]*>/g, "").trim().length < 20) {
+    suggestions.push({ type: "info", text: "Your canvas is empty. Click a component on the left to start building!" });
+  }
+
+  if (suggestions.length === 0) {
+    suggestions.push({ type: "success", text: "Design looks good! No issues detected." });
+  }
+
+  return (
+    <div className="p-2 border-t border-gray-800">
+      <div className="text-[10px] font-bold uppercase text-gray-400 mb-1 flex items-center gap-1">
+        <Sparkles className="w-3 h-3 text-amber-500" /> AI Design Check
+      </div>
+      <div className="space-y-1">
+        {suggestions.slice(0, 5).map((s, i) => (
+          <div key={i} className={`text-[9px] leading-tight p-1.5 rounded ${
+            s.type === "warning" ? "bg-amber-900/30 text-amber-300" :
+            s.type === "success" ? "bg-emerald-900/30 text-emerald-300" :
+            "bg-blue-900/30 text-blue-300"
+          }`}>
+            {s.type === "warning" ? "⚠️ " : s.type === "success" ? "✅ " : "💡 "}
+            {s.text}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Helper — calculate WCAG contrast ratio between two hex colors
+function getContrastRatio(color1: string, color2: string): number {
+  const lum1 = getLuminance(color1);
+  const lum2 = getLuminance(color2);
+  const lighter = Math.max(lum1, lum2);
+  const darker = Math.min(lum1, lum2);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+function getLuminance(hex: string): number {
+  // Parse hex color (#RRGGBB) to RGB
+  const hex2 = hex.replace("#", "");
+  if (hex2.length !== 6) return 0.5; // fallback
+  const r = parseInt(hex2.slice(0, 2), 16) / 255;
+  const g = parseInt(hex2.slice(2, 4), 16) / 255;
+  const b = parseInt(hex2.slice(4, 6), 16) / 255;
+  // WCAG luminance formula
+  const linearR = r <= 0.03928 ? r / 12.92 : Math.pow((r + 0.055) / 1.055, 2.4);
+  const linearG = g <= 0.03928 ? g / 12.92 : Math.pow((g + 0.055) / 1.055, 2.4);
+  const linearB = b <= 0.03928 ? b / 12.92 : Math.pow((b + 0.055) / 1.055, 2.4);
+  return 0.2126 * linearR + 0.7152 * linearG + 0.0722 * linearB;
 }

@@ -279,22 +279,30 @@ export function ExploreScreen() {
   );
 
   function forkProject(p: Project) {
-    // Phase 11 — in-app fork: copy project files to user's project list
-    if (!confirm(`Fork "${p.title}"?\n\nThis copies all files to your projects. You can then edit them in the Web Builder.`)) return;
+    // Phase 12 — ask user: Web Builder (code) or Web Design (visual)?
+    const choice = confirm(
+      `Fork "${p.title}"?\n\n` +
+      `Choose where to open:\n\n` +
+      `  OK = Web Design Studio (visual editor — drag-drop components)\n` +
+      `  Cancel = Web Builder (code editor — edit HTML/CSS/JS directly)\n\n` +
+      `Both copy all files to your projects.`
+    );
+
+    const buddyId = "web";
+    const screen = choice ? "webDesign" : "webBuilder";
 
     fetch(`/api/explore/${p.id}/fork`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ buddyId: "web" }),
+      body: JSON.stringify({ buddyId }),
     })
       .then(r => r.json())
       .then(d => {
         if (d.ok) {
-          alert(`✅ Forked "${p.title}"!\n\nThe project is now in your projects list.${d.githubRepoUrl ? `\n\nGitHub repo created: ${d.githubRepoUrl}` : ""}`);
-          // Navigate to the Web Builder with the new project
+          alert(`✅ Forked "${p.title}"!\n\nOpening in ${choice ? "Web Design Studio" : "Web Builder"}…${d.githubRepoUrl ? `\n\nGitHub repo: ${d.githubRepoUrl}` : ""}`);
           const { setActiveProjectId, setScreen } = useApp.getState();
           setActiveProjectId(d.project.id);
-          setScreen("webBuilder");
+          setScreen(screen);
         } else {
           alert(`❌ Fork failed: ${d.error || "Unknown error"}`);
         }
