@@ -55,6 +55,11 @@ model User {
   // Phase 13 — coin economy
   coinBalance       Int      @default(0)     // earned via engagement, spent on rentals
   freeModelRestingUntil DateTime?             // null = not resting; future = resting until
+  // Phase 11 — GitHub integration
+  githubId            String?
+  githubUsername      String?
+  githubTokenEncrypted String?
+  githubConnectedAt   DateTime?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -2735,5 +2740,20 @@ model GeoBlockSettings {
   // cookie or URL param bypass the geo-block. Stored as JSON array:
   // [{ token: "proxy_xxx", label: "Ghana student", createdAt: "...", expiresAt: "..." }]
   proxyTokens         Json?     // Array of { token, label, createdAt, expiresAt }
+  updatedAt           DateTime  @updatedAt
+}
+
+// ════════════════════════════════════════════════════════════════
+// Phase 11 — GitHub integration (fork, clone, OAuth)
+// ════════════════════════════════════════════════════════════════
+
+// GitHub OAuth settings (admin configures)
+model GithubSettings {
+  id                  Int       @id @default(1)
+  enabled             Boolean   @default(false)
+  clientId            String?
+  clientSecretEncrypted String?
+  // Optional: restrict to specific orgs/users
+  allowedOrgs         String?   // comma-separated org names
   updatedAt           DateTime  @updatedAt
 }

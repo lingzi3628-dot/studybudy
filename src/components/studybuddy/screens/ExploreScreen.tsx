@@ -279,8 +279,27 @@ export function ExploreScreen() {
   );
 
   function forkProject(p: Project) {
-    // Fork = copy to user's DevBuddy workspace (best-effort — TODO)
-    alert(`Forking "${p.title}" — coming soon! For now, use "Open in new tab" and copy the source.`);
+    // Phase 11 — in-app fork: copy project files to user's project list
+    if (!confirm(`Fork "${p.title}"?\n\nThis copies all files to your projects. You can then edit them in the Web Builder.`)) return;
+
+    fetch(`/api/explore/${p.id}/fork`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ buddyId: "web" }),
+    })
+      .then(r => r.json())
+      .then(d => {
+        if (d.ok) {
+          alert(`✅ Forked "${p.title}"!\n\nThe project is now in your projects list.${d.githubRepoUrl ? `\n\nGitHub repo created: ${d.githubRepoUrl}` : ""}`);
+          // Navigate to the Web Builder with the new project
+          const { setActiveProjectId, setScreen } = useApp.getState();
+          setActiveProjectId(d.project.id);
+          setScreen("webBuilder");
+        } else {
+          alert(`❌ Fork failed: ${d.error || "Unknown error"}`);
+        }
+      })
+      .catch(e => alert(`❌ Network error: ${e?.message ?? e}`));
   }
 }
 
