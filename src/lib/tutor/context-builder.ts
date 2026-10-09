@@ -35,6 +35,7 @@
 import { db } from "@/lib/db";
 import { buildTeachingProfile } from "@/lib/aware-engine";
 import { buildCurriculumContextResolved } from "@/lib/curriculum-engine";
+import { buildTechCurriculumContext } from "@/lib/tech-curriculum";
 import { getBuddy } from "@/lib/buddies/registry";
 import type { Buddy } from "@/lib/buddies/types";
 import { getLearnerStatePromptBlock } from "./learner-state";
@@ -250,6 +251,26 @@ If they ask "what can you teach", list subjects/topics relevant to ${course} —
 Be professional but warm — like a knowledgeable course tutor.
 === END STUDENT CONTEXT ===
 `;
+
+    // Phase 10 — inject tech curriculum for AI/ML/Data Science/Web Dev/DevOps/ICT courses
+    const TECH_COURSE_KEYWORDS: Record<string, string> = {
+      "ai": "ai-ml", "machine learning": "ai-ml", "ml": "ai-ml",
+      "data science": "data-science", "data analytics": "data-science",
+      "web development": "web-dev", "web dev": "web-dev", "software": "web-dev",
+      "devops": "devops-cloud", "cloud": "devops-cloud",
+      "ict": "ai-ml", "computer science": "ai-ml", "information technology": "ai-ml",
+      "computer": "ai-ml", "cs": "ai-ml",
+    };
+    const courseLower = course.toLowerCase();
+    for (const [keyword, courseId] of Object.entries(TECH_COURSE_KEYWORDS)) {
+      if (courseLower.includes(keyword)) {
+        const techCtx = buildTechCurriculumContext(courseId);
+        if (techCtx) {
+          trackContext += `\n${techCtx}\n`;
+        }
+        break;
+      }
+    }
   } else if (track === "secondary" && user.grade) {
     trackContext = `
 === STUDENT CONTEXT ===
