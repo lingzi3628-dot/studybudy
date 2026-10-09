@@ -125,25 +125,29 @@ export async function GET(
   if (filePath.endsWith('.html') || filePath.endsWith('.htm')) {
     let html = buffer.toString('utf-8');
 
-    // Phase 10 — Detect React/Vite projects that TRULY need a build step.
-    // VERY conservative detection — only trigger if the HTML references
-    // .tsx or .jsx files (which browsers CANNOT run directly).
-    // Do NOT trigger for:
-    //   - Static sites with plain .js/.css files (they work fine)
-    //   - Sites that happen to have package.json but use regular .js
-    //   - Sites with <script type="module" src="/src/main.js"> (regular JS works)
+    // Phase 10 — Detect React/Vite projects that reference .tsx/.jsx files.
+    // Instead of showing a "build required" page, we REWRITE the HTML to
+    // use Babel Standalone (loaded from CDN) which transforms .tsx/.jsx
+    // to plain JS IN THE BROWSER. This works on ALL Vercel plans — no
+    // server-side build needed.
+    //
+    // What we do:
+    //   1. Load React + ReactDOM from CDN (replaces npm imports)
+    //   2. Load Babel Standalone from CDN (transforms JSX in browser)
+    //   3. Rewrite <script src="/src/main.tsx"> → <script type="text/babel" src="...">
+    //   4. Babel fetches + transforms the .tsx file at runtime
+    //
+    // This is how CodePen, JSFiddle, etc. run React without a build step.
     const isUnbuiltReact =
-      // HTML references a .tsx file — browsers can't run TypeScript JSX
       /<script[^>]+src=["'][^"']*\.tsx["']/i.test(html) ||
-      // HTML references a .jsx file in a /src/ folder with type=module
       /<script[^>]+type=["']module["'][^>]+src=["'][^"']*\.jsx["']/i.test(html) ||
-      // HTML references /src/main.tsx specifically (Vite default entry)
       /<script[^>]+src=["']\/?src\/main\.tsx["']/i.test(html);
 
     if (isUnbuiltReact && filePath === project.entryFile) {
-      // Show a "needs build" page instead of the broken HTML
-      const buildPage = generateBuildRequiredPage(project, filesMap);
-      return new NextResponse(new Uint8Array(Buffer.from(buildPage, 'utf-8')), {
+      // Rewrite the HTML to use Babel Standalone + CDN React
+      const entryDir = filePath.includes('/') ? filePath.slice(0, filePath.lastIndexOf('/') + 1) : '';
+      const rewritten = rewriteReactForBrowser(html, id, entryDir);
+      return new NextResponse(new Uint8Array(Buffer.from(rewritten, 'utf-8')), {
         headers: {
           'Content-Type': 'text/html; charset=utf-8',
           'Cache-Control': 'no-cache',
@@ -226,103 +230,243 @@ export async function GET(
 }
 
 // ============================================================
-// Phase 10 — generateBuildRequiredPage
+// Phase 10 — rewriteReactForBrowser
 //
-// When a React/Vite/Next.js project is uploaded as a zip (source code,
-// not a built site), the browser can't run TypeScript/JSX directly.
-// Instead of showing a broken blank page, we show a helpful page that:
-//   1. Explains the project needs to be built
-//   2. Lists the source files in the zip
-//   3. Shows the package.json contents (so the user knows what framework)
-//   4. Provides instructions on how to build it locally
+// Rewrites a React/Vite project's HTML so it runs IN THE BROWSER without
+// a build step. Uses:
+//   - React + ReactDOM from CDN (unpkg.com)
+//   - Babel Standalone from CDN (transforms JSX/TSX at runtime)
+//
+// This is the same approach CodePen/JSFiddle use. It's slower than a
+// pre-built site (Babel transforms ~2-3s on first load) but it WORKS
+// on all Vercel plans with zero server-side processing.
 // ============================================================
 
-function generateBuildRequiredPage(
-  project: { id: string; title: string; description: string | null },
-  filesMap: Record<string, string>,
+function rewriteReactForBrowser(
+  html: string,
+  projectId: string,
+  fileDir: string,
 ): string {
-  const fileList = Object.keys(filesMap).sort();
-  const hasPackageJson = Boolean(filesMap['package.json']);
+  const serveBase = `/api/explore/serve/${projectId}/${fileDir}`;
 
-  // Try to read package.json for the project name + framework
-  let projectName = project.title;
-  let framework = "Unknown";
-  let buildCmd = "npm run build";
-  if (hasPackageJson) {
-    try {
-      const pkg = JSON.parse(Buffer.from(filesMap['package.json'], 'base64').toString('utf-8'));
-      projectName = pkg.name || projectName;
-      buildCmd = pkg.scripts?.build || buildCmd;
-      if (pkg.dependencies?.react) framework = "React";
-      if (pkg.dependencies?.vue) framework = "Vue";
-      if (pkg.dependencies?.svelte) framework = "Svelte";
-      if (pkg.dependencies?.next) framework = "Next.js";
-      if (pkg.devDependencies?.vite) framework += " + Vite";
-    } catch {}
-  }
-
-  const sourceFiles = fileList.filter(f =>
-    f.endsWith('.tsx') || f.endsWith('.jsx') || f.endsWith('.ts') ||
-    f.endsWith('.vue') || f.endsWith('.svelte') ||
-    f.endsWith('.css') || f.endsWith('.scss')
+  // 1. Find the original script tag that references .tsx/.jsx
+  // e.g. <script type="module" src="/src/main.tsx"></script>
+  // We replace it with a Babel-powered version
+  const scriptTagMatch = html.match(
+    /<script[^>]*(?:type=["']module["'])?[^>]*src=["']([^"']*\.(?:tsx|jsx))["'][^>]*>\s*<\/script>/i
   );
 
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${projectName} — Source Code Preview</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, system-ui, sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 2rem; }
-    .container { max-width: 600px; width: 100%; }
-    .card { background: #1e293b; border: 1px solid #334155; border-radius: 16px; padding: 2rem; }
-    .icon { font-size: 3rem; margin-bottom: 1rem; }
-    h1 { font-size: 1.5rem; color: #f1f5f9; margin-bottom: 0.5rem; }
-    .framework { display: inline-block; background: #312e81; color: #a5b4fc; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; margin-bottom: 1rem; }
-    p { color: #94a3b8; font-size: 0.875rem; line-height: 1.6; margin-bottom: 1rem; }
-    .code { background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 1rem; font-family: monospace; font-size: 0.8rem; color: #4ade80; margin: 1rem 0; overflow-x: auto; }
-    .files { margin: 1rem 0; }
-    .files h3 { font-size: 0.75rem; text-transform: uppercase; color: #64748b; margin-bottom: 0.5rem; }
-    .file-list { display: flex; flex-wrap: wrap; gap: 0.5rem; }
-    .file { background: #334155; color: #cbd5e1; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-family: monospace; }
-    .note { background: #1e3a5f; border: 1px solid #2563eb; border-radius: 8px; padding: 1rem; margin-top: 1rem; }
-    .note p { color: #93c5fd; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="card">
-      <div class="icon">📦</div>
-      <h1>${projectName}</h1>
-      <div class="framework">${framework}</div>
-      <p>This is a <strong>${framework}</strong> project uploaded as source code. It needs to be <strong>built</strong> (compiled) before it can run in the browser.</p>
-      <p>Source files detected: ${sourceFiles.length}</p>
+  const entryScript = scriptTagMatch?.[1] || "/src/main.tsx";
+  // Rewrite the entry script path to be relative (remove leading /)
+  const entryPath = entryScript.replace(/^\//, "");
 
-      <div class="files">
-        <h3>Source Files</h3>
-        <div class="file-list">
-          ${sourceFiles.slice(0, 15).map(f => `<span class="file">${f}</span>`).join('')}
-          ${sourceFiles.length > 15 ? `<span class="file">+ ${sourceFiles.length - 15} more</span>` : ''}
-        </div>
-      </div>
+  // 2. Rewrite the HTML
+  let rewritten = html;
 
-      <div class="code">
-        # Build this project locally:<br>
-        npm install<br>
-        ${buildCmd}<br><br>
-        # The built files will be in:<br>
-        # dist/ (Vite) or .next/ (Next.js) or build/ (CRA)
-      </div>
+  // Remove the original module script tag (we'll replace it with Babel)
+  rewritten = rewritten.replace(
+    /<script[^>]*(?:type=["']module["'])?[^>]*src=["'][^"']*\.(?:tsx|jsx)["'][^>]*>\s*<\/script>/i,
+    ""
+  );
 
-      <div class="note">
-        <p>💡 <strong>For administrators:</strong> To display this project properly, build it locally and re-upload the <code>dist/</code> folder (or <code>build/</code> for CRA) as a zip. The built output contains plain HTML/CSS/JS that browsers can run directly.</p>
-      </div>
+  // Also remove any other <script type="module"> tags that import from the entry
+  rewritten = rewritten.replace(
+    /<script[^>]*type=["']module["'][^>]*>\s*<\/script>/gi,
+    ""
+  );
 
-      ${project.description ? `<p style="margin-top:1rem;color:#64748b;font-size:0.75rem;">${project.description}</p>` : ''}
-    </div>
-  </div>
-</body>
-</html>`;
+  // 3. Inject React + ReactDOM + Babel from CDN + a loader script
+  const cdnScripts = `
+<!-- Phase 10 — Auto-injected for in-browser React transformation -->
+<script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js" crossorigin></script>
+
+<!-- Fetch + transform the entry .tsx/.jsx file -->
+<script>
+(function() {
+  const SERVE_BASE = "${serveBase}";
+  const ENTRY = "${entryPath}";
+
+  // Fetch the entry file
+  fetch(SERVE_BASE + ENTRY)
+    .then(r => r.text())
+    .then(code => {
+      // Resolve relative imports (import './App.tsx' → fetch + inline)
+      // We need to handle:
+      //   1. import X from './file' → fetch file, transform, inline
+      //   2. import X from 'react' → use global React
+      //   3. import X from 'react-dom' → use global ReactDOM
+      //   4. import './file.css' → inject as <link>
+
+      // Simple approach: replace known imports with globals
+      let transformedCode = code;
+
+      // Replace react imports with globals
+      transformedCode = transformedCode
+        .replace(/import\s+React[,{][^;]*from\s+['"]react['"];?/gi, 'const { useState, useEffect, useRef, useCallback, useMemo, useContext, useReducer } = React;')
+        .replace(/import\s+\*\s+as\s+React\s+from\s+['"]react['"];?/gi, '')
+        .replace(/import\s+ReactDOM\s+from\s+['"]react-dom['"];?/gi, 'const ReactDOM = window.ReactDOM;')
+        .replace(/import\s+{[^}]+}\s+from\s+['"]react['"];?/gi, (match) => {
+          // Extract the named imports
+          const namedMatch = match.match(/import\s+{([^}]+)}\s+from\s+['"]react['"];?/);
+          if (namedMatch) {
+            const names = namedMatch[1].trim();
+            return 'const { ' + names + ' } = React;';
+          }
+          return match;
+        })
+        .replace(/import\s+{[^}]+}\s+from\s+['"]react-dom['"];?/gi, (match) => {
+          const namedMatch = match.match(/import\s+{([^}]+)}\s+from\s+['"]react-dom['"];?/);
+          if (namedMatch) {
+            const names = namedMatch[1].trim();
+            return 'const { ' + names + ' } = ReactDOM;';
+          }
+          return match;
+        });
+
+      // Collect CSS imports
+      const cssImports = [];
+      transformedCode = transformedCode.replace(
+        /import\s+['"]([^'"]+\.css)['"];?/gi,
+        (match, cssPath) => {
+          cssImports.push(cssPath.replace(/^\\.\\//, '').replace(/^\\.\\.\\//, ''));
+          return '';
+        }
+      );
+
+      // Inject CSS links
+      cssImports.forEach(cssPath => {
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = SERVE_BASE + cssPath.replace(/^\\.\\//, '');
+        document.head.appendChild(link);
+      });
+
+      // Collect + resolve local component imports (./App, ../utils/cn, etc.)
+      const localImports = [];
+      transformedCode = transformedCode.replace(
+        /import\s+(?:(?:{[^}]+})|(?:\w+)|(?:\*\s+as\s+\w+))\s+from\s+['"](\.[^'"]+)['"];?/gi,
+        (match, importPath) => {
+          localImports.push(importPath);
+          return '';
+        }
+      );
+
+      // Fetch all local imports in parallel, then transform + evaluate
+      const importPromises = localImports.map(async (importPath) => {
+        // Resolve the path relative to the entry file's directory
+        let resolvedPath = importPath.replace(/^\\.\\//, '');
+        const entryDir = ENTRY.includes('/') ? ENTRY.slice(0, ENTRY.lastIndexOf('/') + 1) : '';
+        resolvedPath = entryDir + resolvedPath;
+
+        // Try .tsx, .jsx, .ts, .js extensions
+        const extensions = ['.tsx', '.jsx', '.ts', '.js', '/index.tsx', '/index.jsx', '/index.ts', '/index.js'];
+        for (const ext of extensions) {
+          try {
+            const r = await fetch(SERVE_BASE + resolvedPath + (resolvedPath.match(/\\.(tsx|jsx|ts|js)$/) ? '' : ext));
+            if (r.ok) {
+              const code = await r.text();
+              // Transform with Babel
+              const transformed = Babel.transform(code, {
+                presets: ['react', 'typescript'],
+                plugins: [],
+              }).code;
+              return { path: importPath, code: transformed };
+            }
+          } catch (e) {
+            // Try next extension
+          }
+        }
+        return null;
+      });
+
+      Promise.all(importPromises).then(results => {
+        // Concatenate all transformed imports + the entry code
+        const allCode = results.filter(r => r).map(r => r.code).join('\\n\\n') + '\\n\\n' + transformedCode;
+
+        // Transform the entry code with Babel
+        const finalTransformed = Babel.transform(allCode, {
+          presets: ['react', 'typescript'],
+          plugins: [],
+        }).code;
+
+        // Evaluate the transformed code
+        const script = document.createElement('script');
+        script.textContent = finalTransformed;
+        document.body.appendChild(script);
+      }).catch(err => {
+        document.body.innerHTML = '<div style="font-family:sans-serif;padding:2rem;color:#dc2626;">' +
+          '<h2>Failed to load React components</h2>' +
+          '<pre style="white-space:pre-wrap;font-size:0.8rem;">' + err.message + '</pre>' +
+          '<p>Some imports may not be resolvable in browser mode. ' +
+          'Try building the project locally and uploading the dist/ folder.</p></div>';
+      });
+    })
+    .catch(err => {
+      document.body.innerHTML = '<div style="font-family:sans-serif;padding:2rem;color:#dc2626;">' +
+        '<h2>Failed to load entry file: ' + ENTRY + '</h2>' +
+        '<pre style="white-space:pre-wrap;font-size:0.8rem;">' + err.message + '</pre></div>';
+    });
+})();
+</script>
+<!-- End auto-injected -->`;
+
+  // 4. Inject the CDN scripts before </body> (or at the end)
+  if (rewritten.includes("</body>")) {
+    rewritten = rewritten.replace("</body>", `${cdnScripts}\n</body>`);
+  } else if (rewritten.includes("</html>")) {
+    rewritten = rewritten.replace("</html>", `${cdnScripts}\n</html>`);
+  } else {
+    rewritten = rewritten + cdnScripts;
+  }
+
+  // 5. Add a loading indicator (shows while Babel is transforming)
+  const loadingStyle = `
+<style id="babel-loading">
+  #babel-loading-overlay {
+    position: fixed; inset: 0; background: #0f172a; z-index: 9999;
+    display: flex; align-items: center; justify-content: center;
+    font-family: -apple-system, system-ui, sans-serif; color: #93c5fd;
+  }
+  #babel-loading-overlay .spinner {
+    width: 32px; height: 32px; border: 3px solid #1e3a5f;
+    border-top: 3px solid #60a5fa; border-radius: 50%;
+    animation: spin 0.8s linear infinite; margin-right: 12px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+<div id="babel-loading-overlay"><div class="spinner"></div>Loading React app…</div>
+<script>
+  // Remove loading overlay once the app renders
+  const observer = new MutationObserver(() => {
+    if (document.querySelector('#root')?.children.length > 0) {
+      const overlay = document.getElementById('babel-loading-overlay');
+      if (overlay) overlay.remove();
+      observer.disconnect();
+    }
+    // Also check body for apps that don't use #root
+    if (document.body.children.length > 5 && !document.getElementById('babel-loading-overlay')) {
+      observer.disconnect();
+    }
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+  // Fallback: remove after 10 seconds regardless
+  setTimeout(() => {
+    const overlay = document.getElementById('babel-loading-overlay');
+    if (overlay) overlay.remove();
+  }, 10000);
+</script>`;
+
+  // Inject loading indicator after <body> tag
+  if (rewritten.includes("<body>")) {
+    rewritten = rewritten.replace("<body>", `<body>${loadingStyle}`);
+  } else if (rewritten.match(/<body[^>]*>/i)) {
+    rewritten = rewritten.replace(/(<body[^>]*>)/i, `$1${loadingStyle}`);
+  } else {
+    rewritten = loadingStyle + rewritten;
+  }
+
+  return rewritten;
 }
+
