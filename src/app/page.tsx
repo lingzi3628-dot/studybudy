@@ -81,6 +81,7 @@ const DevBuddyScreen = dynamic(() => import("@/components/studybuddy/screens/Dev
 const NotebookScreen = dynamic(() => import("@/components/studybuddy/screens/NotebookScreen").then(m => ({ default: m.NotebookScreen })), { loading: () => <LoadingFallback /> });
 const MLPlaygroundScreen = dynamic(() => import("@/components/studybuddy/screens/MLPlaygroundScreen").then(m => ({ default: m.MLPlaygroundScreen })), { loading: () => <LoadingFallback /> });
 const WebBuilderScreen = dynamic(() => import("@/components/studybuddy/screens/WebBuilderScreen").then(m => ({ default: m.WebBuilderScreen })), { loading: () => <LoadingFallback /> });
+const WebDesignScreen = dynamic(() => import("@/components/studybuddy/screens/WebDesignScreen").then(m => ({ default: m.WebDesignScreen })), { loading: () => <LoadingFallback /> });
 const BackendBuddyScreen = dynamic(() => import("@/components/studybuddy/screens/BackendBuddyScreen").then(m => ({ default: m.BackendBuddyScreen })), { loading: () => <LoadingFallback /> });
 const PromptPlaygroundScreen = dynamic(() => import("@/components/studybuddy/screens/PromptPlaygroundScreen").then(m => ({ default: m.PromptPlaygroundScreen })), { loading: () => <LoadingFallback /> });
 const ServerBuddyScreen = dynamic(() => import("@/components/studybuddy/screens/ServerBuddyScreen").then(m => ({ default: m.ServerBuddyScreen })), { loading: () => <LoadingFallback /> });
@@ -303,7 +304,7 @@ export default function Page() {
   }, [setScreen]);
 
   // Immersive study modes have their own full-screen layout (no top bar / bottom nav).
-  const immersive = ["flashcards", "quiz", "graph", "language", "tutor", "path", "study", "admin", "adminLogin", "landing", "onboarding", "auth", "premium", "conceptMap", "earnCenter", "classroom", "schoolRegister", "schoolDashboard", "schoolSubject", "schoolTimedTest", "familyRegister", "familyChildLogin", "familyDashboard", "curriculumSubject", "curriculumTopic", "exam", "calendar", "timetable", "studyBuddy", "bookshelf", "printableExam", "examHub", "studyGroup", "codeRunner", "lab", "calculator", "projects", "devBuddy", "notebook", "mlPlayground", "webBuilder", "backendBuddy", "promptPlayground", "serverBuddy", "tvetBuddy", "explore", "chatbotPlayground", "aiTemplates", "dataLab", "gameHub"];
+  const immersive = ["flashcards", "quiz", "graph", "language", "tutor", "path", "study", "admin", "adminLogin", "landing", "onboarding", "auth", "premium", "conceptMap", "earnCenter", "classroom", "schoolRegister", "schoolDashboard", "schoolSubject", "schoolTimedTest", "familyRegister", "familyChildLogin", "familyDashboard", "curriculumSubject", "curriculumTopic", "exam", "calendar", "timetable", "studyBuddy", "bookshelf", "printableExam", "examHub", "studyGroup", "codeRunner", "lab", "calculator", "projects", "devBuddy", "notebook", "mlPlayground", "webBuilder", "webDesign", "backendBuddy", "promptPlayground", "serverBuddy", "tvetBuddy", "explore", "chatbotPlayground", "aiTemplates", "dataLab", "gameHub"];
 
   if (screen === "onboarding") {
     return (
@@ -383,6 +384,7 @@ export default function Page() {
         {screen === "notebook" && <NotebookScreen />}
         {screen === "mlPlayground" && <MLPlaygroundScreen />}
         {screen === "webBuilder" && <WebBuilderScreen />}
+        {screen === "webDesign" && <WebDesignScreen />}
         {screen === "backendBuddy" && <BackendBuddyScreen />}
         {screen === "promptPlayground" && <PromptPlaygroundScreen />}
         {screen === "serverBuddy" && <ServerBuddyScreen />}

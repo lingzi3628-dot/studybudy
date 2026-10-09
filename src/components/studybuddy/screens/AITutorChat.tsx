@@ -2353,6 +2353,9 @@ export function AITutorChat() {
                       if (ws === "web") {
                         setScreen("webBuilder");
                         return;
+                      } else if (ws === "design") {
+                        setScreen("webDesign");
+                        return;
                       } else if (ws === "code") {
                         setScreen("devBuddy");
                         return;

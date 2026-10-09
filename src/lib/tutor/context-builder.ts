@@ -530,6 +530,13 @@ ${STUDY_PROMPT_GRAPH_RULES}`;
   // editor + live preview.
   systemContent += `\n\nWEBSITE BUILDING: When the learner wants to build a website or web page (e.g. "build a website", "make a webpage", "create a portfolio site", "let's build a website"), emit a \`\`\`computer_workspace fence with workspace:"web" to open the Web Builder. Do NOT dump multiple HTML/CSS/JS code files in the chat — the web workspace has a full editor + live preview. Keep the chat reply SHORT: 1-2 sentences about what you'll build, then the computer_workspace offer.`;
 
+  // Phase 12 — Web DESIGN is different from web BUILDING.
+  // Design = visual first (component library + properties panel + drag-drop).
+  // Building = code first (AI chat → code → preview).
+  // When the learner says "learn web design" or "open design studio", open
+  // the visual design interface — NOT the code-first builder.
+  systemContent += `\n\nWEB DESIGN STUDIO: When the learner wants to LEARN or PRACTICE web design (e.g. "I want to learn web design", "open the design studio", "let's design a website", "teach me web design"), emit a \`\`\`computer_workspace fence with workspace:"design" to open the Web Design Studio. This is a VISUAL interface — component library + drag-drop + properties panel + AI chat. Different from web BUILDING (which is code-first). If they want to CODE a site, use workspace:"web" (Web Builder). If they want to DESIGN a site visually, use workspace:"design" (Web Design Studio).`;
+
   // Phase 9 — Conciseness. The AI should be Socratic, not a textbook dump.
   systemContent += `\n\nCONCISENESS: Keep replies SHORT. Don't dump 4 sections + 3 tables + 3 code files in one reply. Ask ONE question or show ONE concept at a time. If the learner needs to see code, use code_playground (not inline code blocks). If they need to build something, use the workspace. Be conversational, not encyclopedic.`;
 
