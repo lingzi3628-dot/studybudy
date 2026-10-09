@@ -128,6 +128,55 @@ export function DashboardTab() {
           </div>
         )}
       </div>
+
+      {/* Phase 10 — Seed Tech Curriculum button */}
+      <div className="rounded-xl border border-violet-200 bg-violet-50/40 p-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
+              <Sparkles className="w-4 h-4 text-violet-500" /> AI/ML/Tech Curriculum
+            </h3>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Seed 4 tech courses (AI & ML, Data Science, Web Dev, DevOps) with 25+ lessons into the knowledge base.
+            </p>
+          </div>
+          <SeedTechButton />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SeedTechButton() {
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+
+  const seed = async () => {
+    setLoading(true);
+    setResult(null);
+    try {
+      const r = await fetch("/api/admin/seed-tech-curriculum", { method: "POST" });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Failed");
+      setResult(`✅ ${d.summary}`);
+    } catch (e: any) {
+      setResult(`❌ ${e?.message ?? "Failed"}`);
+    } finally {
+      setLoading(false);
+      setTimeout(() => setResult(null), 8000);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-2">
+      {result && <span className="text-xs text-gray-600">{result}</span>}
+      <button
+        onClick={seed}
+        disabled={loading}
+        className="px-3 py-1.5 rounded-full bg-violet-600 text-white text-xs font-bold disabled:opacity-50 hover:bg-violet-700 flex items-center gap-1"
+      >
+        {loading ? "Seeding…" : "Seed Curriculum"}
+      </button>
     </div>
   );
 }
