@@ -292,6 +292,27 @@ function ProjectCard({ project, onPlay, featured }: { project: Project; onPlay: 
         {project.thumbnailUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={project.thumbnailUrl} alt={project.title} className="w-full h-full object-cover" />
+        ) : project.projectUrl ? (
+          // Phase 10 — When no thumbnail image was uploaded, render a live
+          // mini-preview of the actual site using an iframe. This shows the
+          // site's own code as the thumbnail instead of a generic emoji.
+          // The iframe is scaled down to fit the card + pointer-events-none
+          // so clicks pass through to the button.
+          <div className="w-full h-full relative overflow-hidden">
+            <iframe
+              src={project.projectUrl}
+              className="absolute top-0 left-0 border-0 pointer-events-none"
+              style={{
+                width: "800px",
+                height: featured ? "450px" : "800px",
+                transform: featured ? "scale(0.18)" : "scale(0.5)",
+                transformOrigin: "top left",
+              }}
+              sandbox="allow-scripts"
+              loading="lazy"
+              title={project.title}
+            />
+          </div>
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center gap-1">
             <span className="text-3xl">{cat.emoji}</span>
