@@ -121,35 +121,43 @@ export async function GET(
   const mimeType = getMimeType(filePath);
   let body: Uint8Array = buffer;
 
-  // For HTML files: inject <base href> + rewrite absolute paths
+  // For HTML files: inject <base href> + rewrite absolute paths + detect React/Vite
   if (filePath.endsWith('.html') || filePath.endsWith('.htm')) {
     let html = buffer.toString('utf-8');
+
+    // Phase 10 — Detect React/Vite/Next.js projects that need a build step.
+    // These projects have <script type="module" src="/src/main.tsx"> or similar.
+    // Browsers can't run TypeScript directly — the project needs to be built
+    // (compiled) first. We detect this pattern and show a helpful message
+    // instead of a broken blank page.
+    const isUnbuiltReact =
+      /<script[^>]+type=["']module["'][^>]+src=["']\/?src\//i.test(html) ||
+      /<script[^>]+src=["']\/?src\/main\.(ts|js)x?["']/i.test(html) ||
+      (filesMap['package.json'] && filesMap['vite.config.ts']) ||
+      (filesMap['package.json'] && filesMap['vite.config.js']);
+
+    if (isUnbuiltReact && filePath === project.entryFile) {
+      // Show a "needs build" page instead of the broken HTML
+      const buildPage = generateBuildRequiredPage(project, filesMap);
+      return new NextResponse(new Uint8Array(Buffer.from(buildPage, 'utf-8')), {
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'no-cache',
+        },
+      });
+    }
 
     // The serve base URL for this project — all relative URLs resolve here
     const fileDir = filePath.includes('/') ? filePath.slice(0, filePath.lastIndexOf('/') + 1) : '';
     const serveBase = `/api/explore/serve/${id}/${fileDir}`;
 
     // Phase 10 fix #1 — rewrite ABSOLUTE paths to relative.
-    // Common patterns in uploaded sites:
-    //   href="/styles.css"     → href="styles.css"
-    //   src="/js/app.js"       → src="js/app.js"
-    //   href="/images/logo.png" → href="images/logo.png"
-    // We rewrite ALL src="/..." and href="/..." to remove the leading slash,
-    // so the <base href> makes them resolve through the serve route.
-    // BUT we DON'T rewrite:
-    //   - Protocol URLs (https://..., http://...)
-    //   - Data URLs (data:image/...)
-    //   - Hash links (#section)
-    //   - Already-relative paths (./styles.css, ../styles.css)
     html = html.replace(
       /((?:src|href)\s*=\s*["'])\/(?!\/|api\/|_next\/)/gi,
       `$1${fileDir}`
     );
 
     // Phase 10 fix #2 — inject <base href> into the HTML.
-    // The <base> tag tells the browser where to resolve relative URLs.
-    // We inject it as the FIRST element inside <head>, or before the
-    // first <link>/<script> if there's no <head>, or at the very start.
     const baseTag = `<base href="${serveBase}">`;
 
     if (html.includes('<head>')) {
@@ -157,16 +165,13 @@ export async function GET(
     } else if (html.match(/<head[^>]*>/i)) {
       html = html.replace(/(<head[^>]*>)/i, `$1${baseTag}`);
     } else if (html.includes('<link') || html.includes('<script')) {
-      // No <head> but has link/script tags — inject before the first one
       html = html.replace(
         /(<link|<script)/i,
         `${baseTag}$1`
       );
     } else if (html.match(/<html[^>]*>/i)) {
-      // Has <html> but no <head> — inject a <head> with the base tag
       html = html.replace(/(<html[^>]*>)/i, `$1<head>${baseTag}</head>`);
     } else {
-      // No HTML structure at all — prepend the base tag
       html = baseTag + html;
     }
 
@@ -214,4 +219,106 @@ export async function GET(
       'Access-Control-Allow-Origin': '*',
     },
   });
+}
+
+// ============================================================
+// Phase 10 — generateBuildRequiredPage
+//
+// When a React/Vite/Next.js project is uploaded as a zip (source code,
+// not a built site), the browser can't run TypeScript/JSX directly.
+// Instead of showing a broken blank page, we show a helpful page that:
+//   1. Explains the project needs to be built
+//   2. Lists the source files in the zip
+//   3. Shows the package.json contents (so the user knows what framework)
+//   4. Provides instructions on how to build it locally
+// ============================================================
+
+function generateBuildRequiredPage(
+  project: { id: string; title: string; description: string | null },
+  filesMap: Record<string, string>,
+): string {
+  const fileList = Object.keys(filesMap).sort();
+  const hasPackageJson = Boolean(filesMap['package.json']);
+
+  // Try to read package.json for the project name + framework
+  let projectName = project.title;
+  let framework = "Unknown";
+  let buildCmd = "npm run build";
+  if (hasPackageJson) {
+    try {
+      const pkg = JSON.parse(Buffer.from(filesMap['package.json'], 'base64').toString('utf-8'));
+      projectName = pkg.name || projectName;
+      buildCmd = pkg.scripts?.build || buildCmd;
+      if (pkg.dependencies?.react) framework = "React";
+      if (pkg.dependencies?.vue) framework = "Vue";
+      if (pkg.dependencies?.svelte) framework = "Svelte";
+      if (pkg.dependencies?.next) framework = "Next.js";
+      if (pkg.devDependencies?.vite) framework += " + Vite";
+    } catch {}
+  }
+
+  const sourceFiles = fileList.filter(f =>
+    f.endsWith('.tsx') || f.endsWith('.jsx') || f.endsWith('.ts') ||
+    f.endsWith('.vue') || f.endsWith('.svelte') ||
+    f.endsWith('.css') || f.endsWith('.scss')
+  );
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${projectName} — Source Code Preview</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, system-ui, sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 2rem; }
+    .container { max-width: 600px; width: 100%; }
+    .card { background: #1e293b; border: 1px solid #334155; border-radius: 16px; padding: 2rem; }
+    .icon { font-size: 3rem; margin-bottom: 1rem; }
+    h1 { font-size: 1.5rem; color: #f1f5f9; margin-bottom: 0.5rem; }
+    .framework { display: inline-block; background: #312e81; color: #a5b4fc; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; margin-bottom: 1rem; }
+    p { color: #94a3b8; font-size: 0.875rem; line-height: 1.6; margin-bottom: 1rem; }
+    .code { background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 1rem; font-family: monospace; font-size: 0.8rem; color: #4ade80; margin: 1rem 0; overflow-x: auto; }
+    .files { margin: 1rem 0; }
+    .files h3 { font-size: 0.75rem; text-transform: uppercase; color: #64748b; margin-bottom: 0.5rem; }
+    .file-list { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+    .file { background: #334155; color: #cbd5e1; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-family: monospace; }
+    .note { background: #1e3a5f; border: 1px solid #2563eb; border-radius: 8px; padding: 1rem; margin-top: 1rem; }
+    .note p { color: #93c5fd; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <div class="icon">📦</div>
+      <h1>${projectName}</h1>
+      <div class="framework">${framework}</div>
+      <p>This is a <strong>${framework}</strong> project uploaded as source code. It needs to be <strong>built</strong> (compiled) before it can run in the browser.</p>
+      <p>Source files detected: ${sourceFiles.length}</p>
+
+      <div class="files">
+        <h3>Source Files</h3>
+        <div class="file-list">
+          ${sourceFiles.slice(0, 15).map(f => `<span class="file">${f}</span>`).join('')}
+          ${sourceFiles.length > 15 ? `<span class="file">+ ${sourceFiles.length - 15} more</span>` : ''}
+        </div>
+      </div>
+
+      <div class="code">
+        # Build this project locally:<br>
+        npm install<br>
+        ${buildCmd}<br><br>
+        # The built files will be in:<br>
+        # dist/ (Vite) or .next/ (Next.js) or build/ (CRA)
+      </div>
+
+      <div class="note">
+        <p>💡 <strong>For administrators:</strong> To display this project properly, build it locally and re-upload the <code>dist/</code> folder (or <code>build/</code> for CRA) as a zip. The built output contains plain HTML/CSS/JS that browsers can run directly.</p>
+      </div>
+
+      ${project.description ? `<p style="margin-top:1rem;color:#64748b;font-size:0.75rem;">${project.description}</p>` : ''}
+    </div>
+  </div>
+</body>
+</html>`;
 }
