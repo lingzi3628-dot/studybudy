@@ -623,6 +623,10 @@ export function AITutorChat() {
   const [compareBuddies, setCompareBuddies] = useState<string[]>([]);
   const [compareResults, setCompareResults] = useState<any[]>([]);
   const [comparing, setComparing] = useState(false);
+  // Phase 10 — Tools Hub enabled state. When false, ALL Tools Hub buttons
+  // (🔍 Explain, 🟣 ASR mic, 🎨 Image, 🔍 Search, 📎 Extract) are hidden.
+  // Checked once on mount via /api/tools/status.
+  const [toolshubEnabled, setToolshubEnabled] = useState(false);
   const [preferredIndex, setPreferredIndex] = useState<number | null>(null);
   // Exam generator state
   const [showExamForm, setShowExamForm] = useState(false);
@@ -771,6 +775,15 @@ export function AITutorChat() {
   useEffect(() => {
     loadConversations();
   }, [loadConversations]);
+
+  // Phase 10 — check if Tools Hub is enabled on mount. If not, hide ALL
+  // Tools Hub buttons so they don't clutter the UI or cause errors.
+  useEffect(() => {
+    fetch("/api/tools/status")
+      .then((r) => r.ok ? r.json() : Promise.reject())
+      .then((d) => setToolshubEnabled(Boolean(d.enabled)))
+      .catch(() => setToolshubEnabled(false));
+  }, []);
 
   // Phase 86.2 — Listen for drawing submissions from DrawTaskRenderer
   // When the user submits a drawing, send it to the AI as an image for review
@@ -2154,7 +2167,8 @@ export function AITutorChat() {
             >
               <Mic className="w-4 h-4" />
             </button>
-            {/* Phase 10 — Tools Hub ASR (voice input → text via Tools Hub sandbox) */}
+            {/* Phase 10 — Tools Hub ASR (hidden when TH disabled) */}
+            {toolshubEnabled && (
             <button
               onClick={asrRecording ? stopToolsHubASR : startToolsHubASR}
               disabled={busy && !asrRecording}
@@ -2167,6 +2181,7 @@ export function AITutorChat() {
             >
               {asrRecording ? <Square className="w-3 h-3" /> : <Mic className="w-4 h-4 text-violet-600" />}
             </button>
+            )}
             <button
               onClick={newConversation}
               className="w-8 h-8 rounded-full bg-indigo-50 text-indigo-600 hover:bg-indigo-100 flex items-center justify-center"
@@ -2368,6 +2383,7 @@ export function AITutorChat() {
                       ? () => handleSaveAsProject(msg)
                       : undefined
                   }
+                  toolshubEnabled={toolshubEnabled}
                   onAttachmentChange={(attIdx, newCaption) => {
                     // Update the attachment's caption (which contains the JSON spec)
                     setMessages((prev) =>
@@ -2652,7 +2668,8 @@ export function AITutorChat() {
                   <p className="text-xs font-semibold text-emerald-700">Image ready to send</p>
                   <p className="text-[10px] text-emerald-600">Vision AI will analyze this with your question</p>
                 </div>
-                {/* Phase 10 — VLM button: explain the image via Tools Hub */}
+                {/* Phase 10 — VLM button: explain the image via Tools Hub (hidden when TH disabled) */}
+                {toolshubEnabled && (
                 <button
                   onClick={async () => {
                     if (!pendingImage) return;
@@ -2695,6 +2712,7 @@ export function AITutorChat() {
                 >
                   🔍 Explain
                 </button>
+                )}
                 <button onClick={() => setPendingImage(null)} className="text-emerald-700 hover:text-rose-600" title="Remove image">
                   <X className="w-4 h-4" />
                 </button>
@@ -3431,6 +3449,7 @@ function MessageBubble({
   // Phase 48 — callback to save the AI's code blocks as a Project.
   // Only passed when the active buddy supports code files (dev, web, backend).
   onSaveAsProject,
+  toolshubEnabled = false,
 }: {
   msg: ChatMsg;
   onCopy: () => void;
@@ -3441,6 +3460,7 @@ function MessageBubble({
   /** Phase F8 — opens the attachment in the workspace panel (side-by-side with chat) */
   onOpenInWorkspacePanel?: (attachment: Attachment) => void;
   onSaveAsProject?: (fileCount: number) => void;
+  toolshubEnabled?: boolean;
 }) {
   const isUser = msg.role === "user";
   const [speaking, setSpeaking] = useState(false);
@@ -3602,7 +3622,8 @@ function MessageBubble({
                   API endpoints (when enabled by admin). Each button sends a
                   request to the corresponding tool + injects the result into
                   the chat as a new user message with context. */}
-              <ToolsHubQuickActions msgContent={msg.content} />
+              {/* Phase 9 — Tools Hub quick actions. Hidden when TH disabled. */}
+              {toolshubEnabled && <ToolsHubQuickActions msgContent={msg.content} />}
               {/* Phase 48 — Save AI-generated code as a Project. Only shown when
                   the active buddy supports code files AND the reply contains
                   extractable code blocks. The parent component computes the
