@@ -1411,6 +1411,79 @@ export function AITutorChat() {
     }
   };
 
+  // Phase 10 — Tools Hub ASR fallback. When browser SpeechRecognition
+  // is NOT supported (e.g. Firefox), we use MediaRecorder to capture audio
+  // and send it to /api/tools/asr for transcription via Tools Hub.
+  const [asrRecording, setAsrRecording] = useState(false);
+  const asrRecorderRef = useRef<MediaRecorder | null>(null);
+
+  const startToolsHubASR = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      const chunks: Blob[] = [];
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const audioBlob = new Blob(chunks, { type: "audio/webm" });
+        if (audioBlob.size < 1000) return; // too small — probably silence
+        // Convert to base64 + send to Tools Hub ASR
+        const reader = new FileReader();
+        reader.onload = async () => {
+          const dataUrl = reader.result as string;
+          const base64 = dataUrl.split(",")[1] || "";
+          if (!base64) return;
+          try {
+            setBusy(true);
+            setActivityStatus("Transcribing your voice…");
+            const r = await fetch("/api/tools/asr", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ audio: base64, format: "webm", language: "en" }),
+            });
+            const d = await r.json();
+            if (d.unsupported) {
+              setError("Voice transcription is not enabled. Ask an admin to turn on ASR in Tools Hub settings.");
+              setTimeout(() => setError(null), 5000);
+            } else if (d.text) {
+              setInput(d.text);
+            } else {
+              setError(d.error || "Failed to transcribe audio");
+              setTimeout(() => setError(null), 5000);
+            }
+          } catch (e: any) {
+            setError(`Transcription failed: ${e?.message ?? e}`);
+            setTimeout(() => setError(null), 5000);
+          } finally {
+            setBusy(false);
+            setActivityStatus("Waiting for your tutor…");
+          }
+        };
+        reader.readAsDataURL(audioBlob);
+      };
+      recorder.start();
+      asrRecorderRef.current = recorder;
+      setAsrRecording(true);
+      // Auto-stop after 10 seconds (prevent infinite recording)
+      setTimeout(() => {
+        if (recorder.state === "recording") {
+          recorder.stop();
+          setAsrRecording(false);
+        }
+      }, 10_000);
+    } catch (e: any) {
+      setError("Microphone access denied. Allow mic permission to use voice input.");
+      setTimeout(() => setError(null), 5000);
+    }
+  };
+
+  const stopToolsHubASR = () => {
+    if (asrRecorderRef.current && asrRecorderRef.current.state === "recording") {
+      asrRecorderRef.current.stop();
+    }
+    setAsrRecording(false);
+  };
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -2081,6 +2154,19 @@ export function AITutorChat() {
             >
               <Mic className="w-4 h-4" />
             </button>
+            {/* Phase 10 — Tools Hub ASR (voice input → text via Tools Hub sandbox) */}
+            <button
+              onClick={asrRecording ? stopToolsHubASR : startToolsHubASR}
+              disabled={busy && !asrRecording}
+              className={`w-8 h-8 rounded-full flex items-center justify-center transition ${
+                asrRecording
+                  ? "bg-violet-600 text-white animate-pulse"
+                  : "bg-gray-100 text-gray-600 hover:bg-violet-100 disabled:opacity-50"
+              }`}
+              title={asrRecording ? "Recording… tap to stop + transcribe" : "Voice input (Tools Hub ASR — works on Firefox too)"}
+            >
+              {asrRecording ? <Square className="w-3 h-3" /> : <Mic className="w-4 h-4 text-violet-600" />}
+            </button>
             <button
               onClick={newConversation}
               className="w-8 h-8 rounded-full bg-indigo-50 text-indigo-600 hover:bg-indigo-100 flex items-center justify-center"
@@ -2566,6 +2652,49 @@ export function AITutorChat() {
                   <p className="text-xs font-semibold text-emerald-700">Image ready to send</p>
                   <p className="text-[10px] text-emerald-600">Vision AI will analyze this with your question</p>
                 </div>
+                {/* Phase 10 — VLM button: explain the image via Tools Hub */}
+                <button
+                  onClick={async () => {
+                    if (!pendingImage) return;
+                    // Extract base64 from data URL (strip "data:image/jpeg;base64,")
+                    const base64 = pendingImage.split(",")[1] || "";
+                    if (!base64) return;
+                    try {
+                      setBusy(true);
+                      const r = await fetch("/api/tools/vlm", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          image: base64,
+                          mimeType: "image/jpeg",
+                          prompt: "Explain this image in detail. If it's a diagram, chart, or textbook page, explain what it shows. Include any text you can read (OCR).",
+                        }),
+                      });
+                      const d = await r.json();
+                      if (d.unsupported) {
+                        setError("Diagram analysis is not enabled. Ask an admin to turn on the VLM tool in Tools Hub settings.");
+                        setTimeout(() => setError(null), 5000);
+                      } else if (d.reply) {
+                        // Inject the VLM result as a user message with context
+                        setInput(`I uploaded an image. Here's what the diagram analyzer found:\n\n${d.reply}${d.ocrText ? `\n\nOCR text:\n${d.ocrText}` : ""}\n\nBased on this, explain it to me.`);
+                        setPendingImage(null);
+                      } else {
+                        setError(d.error || "Failed to analyze image");
+                        setTimeout(() => setError(null), 5000);
+                      }
+                    } catch (e: any) {
+                      setError(`Network error: ${e?.message ?? e}`);
+                      setTimeout(() => setError(null), 5000);
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                  disabled={busy}
+                  className="text-[10px] font-bold px-2 py-1 rounded-full bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
+                  title="Explain this image using AI (Tools Hub Diagram Explainer)"
+                >
+                  🔍 Explain
+                </button>
                 <button onClick={() => setPendingImage(null)} className="text-emerald-700 hover:text-rose-600" title="Remove image">
                   <X className="w-4 h-4" />
                 </button>
