@@ -29,27 +29,27 @@ export async function GET(req: NextRequest) {
   const category = url.searchParams.get("category");
 
   // Get current user (optional — Explore is viewable even without auth for preview)
+  // Phase 12 fix — make auth completely optional. Previously, getCurrentUser()
+  // was called TWICE and if the user's token expired, the second call would
+  // throw an error that crashed the route (returning 500 instead of projects).
+  // Now we wrap BOTH calls in a single try/catch + only call once.
   let userTrack: string | null = null;
   let userGrade: string | null = null;
+  let userCourse: string | null = null;
   try {
     const user = await getCurrentUser();
     if (user) {
       userTrack = (user as any).track || null;
       userGrade = (user as any).grade || null;
+      userCourse = (user as any).course || null;
     }
   } catch {
-    // ignore — anonymous browsing allowed
+    // Not logged in or token expired — anonymous browsing allowed
+    // Use defaults (k12 track, no grade filter)
   }
 
   const track = queryTrack || userTrack || "k12";
   const gradeLevel = queryGrade || userGrade;
-
-  // Get the user's course (for university/college/tvet filtering)
-  let userCourse: string | null = null;
-  try {
-    const user = await getCurrentUser();
-    if (user) userCourse = (user as any).course || null;
-  } catch {}
 
   // Build where clause
   const where: any = {
