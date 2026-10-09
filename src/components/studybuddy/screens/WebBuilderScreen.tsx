@@ -32,6 +32,7 @@ import {
   ChevronLeft, Loader2, Save, CheckCircle2, X, AlertCircle, Plus,
   Globe, Send, Monitor, Tablet, Smartphone, RefreshCw, Download,
   Rocket, LayoutTemplate, MessageSquare, Code2, Eye, Trash2,
+  Github,
 } from "lucide-react";
 import { useApp } from "../store";
 import { CodeEditor, detectLanguageFromPath, type CodeLanguage } from "./CodeEditor";
@@ -715,6 +716,35 @@ export function WebBuilderScreen() {
           title="Start from a template"
         >
           <LayoutTemplate className="w-3.5 h-3.5" /> Templates
+        </button>
+        {/* Phase 11 — Clone from GitHub URL */}
+        <button
+          onClick={() => {
+            const url = prompt("Paste a GitHub repo URL to clone:\n(e.g. https://github.com/user/repo)");
+            if (!url?.trim()) return;
+            // Call the clone API
+            fetch("/api/github/clone", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ repoUrl: url.trim(), buddyId: "web" }),
+            })
+              .then(r => r.json())
+              .then(d => {
+                if (d.ok) {
+                  alert(`✅ Cloned ${d.filesCloned} files from GitHub!\nOpening project…`);
+                  const { setActiveProjectId } = useApp.getState() as any;
+                  setActiveProjectId(d.project.id);
+                  window.location.reload();
+                } else {
+                  alert(`❌ Clone failed: ${d.error || "Unknown error"}`);
+                }
+              })
+              .catch(e => alert(`❌ Network error: ${e?.message ?? e}`));
+          }}
+          className="hidden md:flex px-2.5 h-8 rounded-full bg-gray-700 text-gray-200 text-xs font-semibold items-center gap-1 hover:bg-gray-600 flex-shrink-0"
+          title="Clone a GitHub repository"
+        >
+          <Github className="w-3.5 h-3.5" /> Clone
         </button>
         <button
           onClick={downloadZip}
