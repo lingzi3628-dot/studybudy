@@ -435,36 +435,66 @@ body { font-family: ${fontFamily}; background: var(--bg); color: var(--text); }`
             ))}
             <div className="flex-1" />
             <button onClick={() => setShowCode(!showCode)}
-              className={`p-1.5 rounded ${showCode ? "bg-gray-900 text-white" : "text-gray-400 hover:bg-gray-100"}`}
-              title="Toggle code view">
-              <Code2 className="w-4 h-4" />
+              className={`px-2 py-1.5 rounded text-xs font-semibold flex items-center gap-1 ${showCode ? "bg-gray-900 text-white" : "text-gray-400 hover:bg-gray-100"}`}
+              title="Toggle split code/preview view">
+              <Code2 className="w-4 h-4" /> {showCode ? "Visual" : "Split"}
             </button>
             <button onClick={refreshPreview} className="p-1.5 rounded text-gray-400 hover:bg-gray-100" title="Refresh">
               <RefreshCw className="w-4 h-4" />
             </button>
           </div>
 
-          {/* Canvas */}
-          <div className="flex-1 overflow-auto p-4 flex justify-center">
-            <div className={`bg-white shadow-2xl transition-all duration-300 ${
-              device === "mobile" ? "w-[375px]" : device === "tablet" ? "w-[768px]" : "w-full max-w-[1200px]"
-            }`}>
-              {showCode && activeFile ? (
+          {/* Canvas — bi-directional: code edits live-update preview */}
+          <div className="flex-1 overflow-auto p-4 flex justify-center gap-2">
+            {/* Code editor (when showCode is on, show SIDE BY SIDE with preview — not toggle) */}
+            {showCode && activeFile && (
+              <div className="w-[45%] flex-shrink-0 rounded-lg overflow-hidden border border-gray-700 shadow-xl">
+                <div className="bg-gray-800 px-3 py-1.5 flex items-center justify-between border-b border-gray-700">
+                  <div className="flex items-center gap-1">
+                    {files.map((f) => (
+                      <button key={f.id} onClick={() => setActiveFilePath(f.path)}
+                        className={`px-2 py-0.5 rounded text-[10px] font-mono ${activeFilePath === f.path ? "bg-amber-600 text-white" : "text-gray-400 hover:bg-gray-700"}`}>
+                        {f.isEntry && "★ "}{f.path}
+                      </button>
+                    ))}
+                  </div>
+                  <button onClick={() => setShowCode(false)} className="text-gray-400 hover:text-white">
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
                 <textarea
                   value={activeFile.content}
                   onChange={(e) => updateFileContent(activeFilePath, e.target.value)}
                   className="w-full h-[60vh] p-4 font-mono text-xs bg-gray-900 text-gray-100 resize-none focus:outline-none"
                   spellCheck={false}
+                  onKeyDown={(e) => {
+                    // Tab key inserts 2 spaces instead of changing focus
+                    if (e.key === "Tab") {
+                      e.preventDefault();
+                      const start = e.currentTarget.selectionStart;
+                      const end = e.currentTarget.selectionEnd;
+                      const newValue = activeFile.content.substring(0, start) + "  " + activeFile.content.substring(end);
+                      updateFileContent(activeFilePath, newValue);
+                      e.currentTarget.selectionStart = e.currentTarget.selectionEnd = start + 2;
+                    }
+                  }}
                 />
-              ) : (
-                <iframe
-                  srcDoc={previewDoc ?? "<html><body style='display:flex;align-items:center;justify-content:center;height:100vh;color:#999;font-family:sans-serif;'>Loading…</body></html>"}
-                  className="w-full border-0"
-                  style={{ minHeight: "60vh" }}
-                  sandbox="allow-scripts allow-forms allow-popups"
-                  title="Design Preview"
-                />
-              )}
+              </div>
+            )}
+
+            {/* Preview — always visible, updates in real-time as code changes */}
+            <div className={`bg-white shadow-2xl transition-all duration-300 ${
+              showCode ? "w-[52%]" : "w-full max-w-[1200px]"
+            } ${
+              device === "mobile" ? "!w-[375px]" : device === "tablet" ? "!w-[768px]" : ""
+            }`}>
+              <iframe
+                srcDoc={previewDoc ?? "<html><body style='display:flex;align-items:center;justify-content:center;height:100vh;color:#999;font-family:sans-serif;'>Loading…</body></html>"}
+                className="w-full border-0"
+                style={{ minHeight: "60vh" }}
+                sandbox="allow-scripts allow-forms allow-popups"
+                title="Design Preview"
+              />
             </div>
           </div>
 
@@ -563,7 +593,8 @@ body { font-family: ${fontFamily}; background: var(--bg); color: var(--text); }`
             </button>
           </div>
 
-          {/* File list */}
+          {/* File list — only shown when NOT in split mode */}
+          {!showCode && (
           <div className="p-2 flex-1">
             <div className="text-[10px] font-bold uppercase text-gray-400 mb-1">Files</div>
             {files.map((f) => (
@@ -573,6 +604,7 @@ body { font-family: ${fontFamily}; background: var(--bg); color: var(--text); }`
               </button>
             ))}
           </div>
+          )}
 
           {/* Quick tips */}
           <div className="p-2 border-t border-gray-800">
