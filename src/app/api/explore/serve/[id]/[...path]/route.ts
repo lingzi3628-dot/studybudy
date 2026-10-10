@@ -166,7 +166,11 @@ export async function GET(
     );
 
     // Phase 10 fix #2 — inject <base href> into the HTML.
-    const baseTag = `<base href="${serveBase}">`;
+    // Also inject <base target="_blank"> so ALL links inside the project
+    // open in a new tab instead of navigating the iframe away from
+    // the served project (which would load the StudyBuddy app homepage
+    // inside the iframe — the bug the user reported).
+    const baseTag = `<base href="${serveBase}" target="_blank">`;
 
     if (html.includes('<head>')) {
       html = html.replace('<head>', `<head>${baseTag}`);

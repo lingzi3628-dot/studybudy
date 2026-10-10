@@ -149,7 +149,7 @@ export function ExploreScreen() {
             </button>
           </div>
         </div>
-        <iframe src={playing.projectUrl} className="flex-1 w-full border-0" title={playing.title} allow="autoplay; fullscreen" />
+        <iframe src={playing.projectUrl} className="flex-1 w-full border-0" title={playing.title} allow="autoplay; fullscreen" sandbox="allow-scripts allow-forms allow-popups allow-same-origin" />
       </div>
     );
   }
