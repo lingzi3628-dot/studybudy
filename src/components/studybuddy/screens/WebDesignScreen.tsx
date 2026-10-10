@@ -1,54 +1,39 @@
 "use client";
 
 /**
- * WebDesignScreen — Phase 12
+ * WebDesignScreen — Phase 12 PREMIUM
  *
- * VISUAL web design interface — NOT code-first like WebBuilder.
+ * A studio-quality visual web design interface with:
+ *   - Animated welcome onboarding (blob background, step transitions)
+ *   - Gradient header with tool toolbar, search, zoom, AI button, deploy
+ *   - Left sidebar: component library with categories + drag indicators
+ *   - Center canvas: live preview with device toggle + split code view
+ *   - Right sidebar: design system (colors, typography) + AI design check
+ *   - Floating action bar: toggle sidebars, undo/redo, zoom
+ *   - AI chat bar at bottom: ask AI to modify design
+ *   - Dark theme by default (toggle to light)
  *
- * The difference:
- *   WebBuilder = AI chat → code editor → preview (developer workflow)
- *   WebDesign = component library → drag-drop canvas → properties panel → AI guide (designer workflow)
- *
- * Layout:
- *   ┌──────────┬────────────────┬──────────┐
- *   │ COMPONENT │   LIVE CANVAS   │ PROPERTIES│
- *   │ LIBRARY  │  (drag-drop)   │  PANEL   │
- *   │          │                 │          │
- *   │ Headers  │  [Navbar]       │ Colors   │
- *   │ Forms    │  [Hero]         │ Typography│
- *   │ Cards    │  [Features]     │ Spacing  │
- *   │ CTAs     │  [Footer]       │ Effects  │
- *   └──────────┴────────────────┴──────────┘
- *
- * Features:
- *   - Click a component → inserts it into the canvas
- *   - Properties panel: change colors, fonts, spacing in real-time
- *   - AI chat bar at bottom: "make the hero section blue" → AI modifies code
- *   - Templates: start from a pre-built design
- *   - Fork from Explore: import existing projects
- *   - Responsive preview: toggle mobile/tablet/desktop
- *   - Export: download as HTML/CSS/JS zip
- *
- * When a student tells the AI Tutor "I want to learn web design", the AI
- * opens THIS screen (not the WebBuilder) via computer_workspace with
- * workspace: "design".
+ * Built with framer-motion for smooth animations.
  */
 
 import { useEffect, useState, useCallback, useRef } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   ChevronLeft, Loader2, Save, CheckCircle2, X, AlertCircle, Plus,
   Globe, Send, Monitor, Tablet, Smartphone, RefreshCw, Download,
-  LayoutTemplate, MessageSquare, Code2, Eye, Trash2,
-  Palette, Type, Move, Sparkles, Layers, Wand2,
+  LayoutTemplate, Code2, Eye, Trash2,
+  Palette, Type, Sparkles, Layers, Wand2,
+  Search, ZoomIn, ZoomOut, Rocket, Share2, Moon, Sun,
+  Undo2, Redo2, PanelLeft, PanelRight, Play,
 } from "lucide-react";
 import { useApp } from "../store";
 import { WEB_COMPONENTS, COMPONENT_CATEGORIES } from "@/lib/web-components";
 import { WEB_TEMPLATES } from "@/lib/web-templates";
-import { buildPreviewDocument, isPreviewable, type PreviewFile } from "@/lib/web-preview";
+import { buildPreviewDocument, type PreviewFile } from "@/lib/web-preview";
 
 type ProjectFile = { id: string; path: string; language: string; content: string; isEntry: boolean };
 type Project = { id: string; buddyId: string; title: string; description: string | null; tags: string[]; conversationId: string | null; files: ProjectFile[] };
-type ChatMsg = { role: "user" | "assistant"; text: string; files?: number };
+type ChatMsg = { role: "user" | "assistant"; text: string };
 
 const STARTER_HTML = `<!DOCTYPE html>
 <html lang="en">
@@ -56,18 +41,14 @@ const STARTER_HTML = `<!DOCTYPE html>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>My Design</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, system-ui, sans-serif; }
-  </style>
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <!-- Components will be inserted here -->
+  <!-- Click a component from the left to start building -->
 </body>
 </html>`;
 
-const STARTER_CSS = `/* Design system — change these to re-theme the entire site */
-:root {
+const STARTER_CSS = `:root {
   --primary: #6366F1;
   --primary-dark: #4F46E5;
   --bg: #FFFFFF;
@@ -75,14 +56,16 @@ const STARTER_CSS = `/* Design system — change these to re-theme the entire si
   --text-light: #6B7280;
   --border: #E5E7EB;
   --radius: 12px;
-}`;
+}
+body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--text); }`;
 
-const STARTER_JS = `// Your JavaScript here
-console.log("Web Design Studio ready!");`;
+const STARTER_JS = `console.log("Design Studio ready!");`;
 
 export function WebDesignScreen() {
   const { setScreen, activeProjectId, setActiveProjectId } = useApp() as any;
 
+  // State
+  const [showWelcome, setShowWelcome] = useState(true);
   const [project, setProject] = useState<Project | null>(null);
   const [files, setFiles] = useState<ProjectFile[]>([]);
   const [activeFilePath, setActiveFilePath] = useState("index.html");
@@ -91,191 +74,133 @@ export function WebDesignScreen() {
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
 
-  // Component library state
+  // UI state
+  const [showLeftSidebar, setShowLeftSidebar] = useState(true);
+  const [showRightSidebar, setShowRightSidebar] = useState(true);
+  const [showCode, setShowCode] = useState(false);
   const [componentCategory, setComponentCategory] = useState("all");
-  const [showCode, setShowCode] = useState(false); // toggle between visual + code view
-
-  // Preview state
   const [device, setDevice] = useState<"desktop" | "tablet" | "mobile">("desktop");
+  const [zoom, setZoom] = useState(100);
   const [previewDoc, setPreviewDoc] = useState<string | null>(null);
 
-  // Properties panel state
+  // Properties
   const [primaryColor, setPrimaryColor] = useState("#6366F1");
   const [bgColor, setBgColor] = useState("#FFFFFF");
   const [textColor, setTextColor] = useState("#1F2937");
   const [fontFamily, setFontFamily] = useState("system-ui");
 
-  // AI chat state
+  // AI chat
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [streamBuf, setStreamBuf] = useState("");
-  const abortRef = useRef<AbortController | null>(null);
 
   // ---------- load project ----------
   useEffect(() => {
     if (activeProjectId) {
       setLoading(true);
       fetch(`/api/projects/${activeProjectId}`)
-        .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-        .then((d) => {
+        .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+        .then(d => {
           const p = d.project;
           if (!p) throw new Error("Project not found");
           setProject(p);
           setFiles(p.files ?? []);
           setActiveFilePath(p.files.find((f: ProjectFile) => f.isEntry)?.path ?? p.files[0]?.path ?? "");
+          setShowWelcome(false);
         })
-        .catch((e) => setError(e?.message ?? "Failed to load project"))
+        .catch(e => setError(e?.message ?? "Failed to load"))
         .finally(() => setLoading(false));
     } else {
       const starter: ProjectFile[] = [
-        { id: "temp-0", path: "index.html", language: "html", content: STARTER_HTML, isEntry: true },
-        { id: "temp-1", path: "styles.css", language: "css", content: STARTER_CSS, isEntry: false },
-        { id: "temp-2", path: "app.js", language: "javascript", content: STARTER_JS, isEntry: false },
+        { id: "t0", path: "index.html", language: "html", content: STARTER_HTML, isEntry: true },
+        { id: "t1", path: "styles.css", language: "css", content: STARTER_CSS, isEntry: false },
+        { id: "t2", path: "app.js", language: "javascript", content: STARTER_JS, isEntry: false },
       ];
-      setProject({ id: "temp-" + Date.now(), buddyId: "web", title: "Untitled design", description: null, tags: [], conversationId: null, files: starter });
+      setProject({ id: "temp-" + Date.now(), buddyId: "web", title: "Untitled Design", description: null, tags: [], conversationId: null, files: starter });
       setFiles(starter);
       setActiveFilePath("index.html");
       setLoading(false);
     }
   }, [activeProjectId]);
 
-  // ---------- save ----------
-  const saveProject = useCallback(async () => {
-    if (!project) return;
-    setSaving(true);
-    setError(null);
-    try {
-      let projectId = project.id;
-      const payload = {
-        files: files.map((f) => ({ path: f.path, language: f.language, content: f.content, isEntry: f.isEntry })),
-      };
-      if (project.id.startsWith("temp-")) {
-        const createRes = await fetch("/api/projects", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ buddyId: "web", title: project.title, description: project.description, tags: project.tags, ...payload }),
-        });
-        if (!createRes.ok) throw new Error(`Create failed: HTTP ${createRes.status}`);
-        const created = await createRes.json();
-        projectId = created.project.id;
-        setProject((p) => (p ? { ...p, id: projectId } : p));
-        setActiveProjectId(projectId);
-      } else {
-        const updateRes = await fetch(`/api/projects/${projectId}/files`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        if (!updateRes.ok) throw new Error(`Save failed: HTTP ${updateRes.status}`);
-      }
-      setDirty(false);
-      setSavedAt(Date.now());
-      setTimeout(() => setSavedAt(null), 2000);
-    } catch (e: any) {
-      setError(e?.message ?? "Save failed");
-    } finally {
-      setSaving(false);
-    }
-  }, [project, files, setActiveProjectId]);
-
+  // ---------- helpers ----------
   const updateFileContent = useCallback((path: string, content: string) => {
-    setFiles((prev) => prev.map((f) => (f.path === path ? { ...f, content } : f)));
+    setFiles(prev => prev.map(f => f.path === path ? { ...f, content } : f));
     setDirty(true);
   }, []);
 
-  // ---------- component insertion ----------
-  const insertComponent = (componentHtml: string) => {
-    const htmlFile = files.find((f) => f.path === "index.html");
-    if (htmlFile) {
-      let newContent = htmlFile.content;
-      if (newContent.includes("</body>")) {
-        newContent = newContent.replace("</body>", `${componentHtml}\n</body>`);
-      } else {
-        newContent += "\n" + componentHtml;
-      }
-      updateFileContent("index.html", newContent);
+  const insertComponent = (html: string) => {
+    const f = files.find(f => f.path === "index.html");
+    if (f) {
+      let c = f.content;
+      c = c.includes("</body>") ? c.replace("</body>", `${html}\n</body>`) : c + "\n" + html;
+      updateFileContent("index.html", c);
     }
   };
 
-  // ---------- template loading ----------
-  const loadTemplate = (templateId: string) => {
-    const t = WEB_TEMPLATES.find((x) => x.id === templateId);
+  const loadTemplate = (id: string) => {
+    const t = WEB_TEMPLATES.find(x => x.id === id);
     if (!t) return;
-    const newFiles: ProjectFile[] = t.files.map((f, i) => ({
-      id: `temp-${i}-${Date.now()}`,
-      path: f.path,
+    setFiles(t.files.map((f, i) => ({
+      id: `t${i}-${Date.now()}`, path: f.path,
       language: f.path.endsWith(".css") ? "css" : f.path.endsWith(".js") ? "javascript" : "html",
-      content: f.content,
-      isEntry: f.path === "index.html" || i === 0,
-    }));
-    setFiles(newFiles);
+      content: f.content, isEntry: f.path === "index.html" || i === 0,
+    })));
     setActiveFilePath("index.html");
-    setProject((p) => p ? { ...p, title: t.name } : p);
+    setProject(p => p ? { ...p, title: t.name } : p);
     setDirty(true);
+    setShowWelcome(false);
   };
 
-  // ---------- theme update ----------
   const applyTheme = () => {
-    const cssFile = files.find((f) => f.path === "styles.css");
-    if (cssFile) {
-      const themeCss = `:root {
-  --primary: ${primaryColor};
-  --primary-dark: ${primaryColor};
-  --bg: ${bgColor};
-  --text: ${textColor};
-  --border: #E5E7EB;
-  --radius: 12px;
-}
-body { font-family: ${fontFamily}; background: var(--bg); color: var(--text); }`;
-      updateFileContent("styles.css", themeCss);
-    }
+    const css = `:root {\n  --primary: ${primaryColor};\n  --primary-dark: ${primaryColor};\n  --bg: ${bgColor};\n  --text: ${textColor};\n  --border: #E5E7EB;\n  --radius: 12px;\n}\nbody { font-family: ${fontFamily}; background: var(--bg); color: var(--text); }`;
+    updateFileContent("styles.css", css);
+    const html = files.find(f => f.path === "index.html");
+    if (html) updateFileContent("index.html", html.content.replace(/#6366F1/gi, primaryColor).replace(/#1F2937/gi, textColor).replace(/#FFFFFF/gi, bgColor));
+  };
 
-    // Also update inline styles in the HTML
-    const htmlFile = files.find((f) => f.path === "index.html");
-    if (htmlFile) {
-      let html = htmlFile.content;
-      // Replace color values in inline styles
-      html = html.replace(/#6366F1/gi, primaryColor);
-      html = html.replace(/#1F2937/gi, textColor);
-      html = html.replace(/#FFFFFF/gi, bgColor);
-      updateFileContent("index.html", html);
-    }
+  const saveProject = async () => {
+    if (!project) return;
+    setSaving(true);
+    try {
+      const payload = { files: files.map(f => ({ path: f.path, language: f.language, content: f.content, isEntry: f.isEntry })) };
+      if (project.id.startsWith("temp-")) {
+        const r = await fetch("/api/projects", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ buddyId: "web", title: project.title, ...payload }) });
+        const d = await r.json();
+        if (d.project?.id) { setProject(p => p ? { ...p, id: d.project.id } : p); setActiveProjectId(d.project.id); }
+      } else {
+        await fetch(`/api/projects/${project.id}/files`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      }
+      setDirty(false); setSavedAt(Date.now()); setTimeout(() => setSavedAt(null), 2000);
+    } catch (e: any) { setError(e?.message ?? "Save failed"); }
+    finally { setSaving(false); }
   };
 
   // ---------- preview ----------
-  const refreshPreview = useCallback(() => {
-    const previewFiles: PreviewFile[] = files.map((f) => ({ path: f.path, content: f.content }));
-    setPreviewDoc(buildPreviewDocument(previewFiles) ?? null);
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const pf: PreviewFile[] = files.map(f => ({ path: f.path, content: f.content }));
+      setPreviewDoc(buildPreviewDocument(pf) ?? null);
+    }, 500);
+    return () => clearTimeout(t);
   }, [files]);
 
-  useEffect(() => {
-    const t = setTimeout(refreshPreview, 500);
-    return () => clearTimeout(t);
-  }, [files, refreshPreview]);
-
   // ---------- AI chat ----------
-  const sendChat = useCallback(async (overrideText?: string) => {
+  const sendChat = async (overrideText?: string) => {
     const text = (overrideText ?? input).trim();
     if (!text || streaming) return;
     setInput("");
-    setMessages((m) => [...m, { role: "user", text }]);
+    setMessages(m => [...m, { role: "user", text }]);
     setStreaming(true);
     setStreamBuf("");
-    const ac = new AbortController();
-    abortRef.current = ac;
     let accumulated = "";
     try {
       const res = await fetch("/api/tutor/chat/stream", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: text,
-          buddyId: "web",
-          conversationId: project?.conversationId ?? null,
-        }),
-        signal: ac.signal,
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text, buddyId: "web", conversationId: project?.conversationId ?? null }),
       });
       if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
       const reader = res.body.getReader();
@@ -295,335 +220,332 @@ body { font-family: ${fontFamily}; background: var(--bg); color: var(--text); }`
           if (evType === "delta") {
             accumulated += data.text ?? "";
             setStreamBuf(accumulated);
-            // Auto-load code into editor as it streams
-            const liveExtracted = extractCodeFilesLive(accumulated);
-            if (liveExtracted.length > 0) {
-              setFiles((prev) => {
-                const next = [...prev];
-                for (const f of liveExtracted) {
-                  const idx = next.findIndex((p) => p.path === f.path);
-                  if (idx >= 0) next[idx] = { ...next[idx], content: f.content };
-                  else next.push({ id: `temp-${Date.now()}`, path: f.path, language: f.language, content: f.content, isEntry: f.path === "index.html" });
-                }
-                return next;
+            // Auto-extract code + update files
+            const re = /```(\w+)(?:\s+path="([^"]+)")?[^`\n]*\n([\s\S]*?)```/g;
+            let m;
+            while ((m = re.exec(accumulated)) !== null) {
+              const lang = m[1];
+              const path = m[2] || (lang === "html" ? "index.html" : lang === "css" ? "styles.css" : "app.js");
+              setFiles(prev => {
+                const idx = prev.findIndex(p => p.path === path);
+                if (idx >= 0) { const next = [...prev]; next[idx] = { ...next[idx], content: m[3].trimEnd() }; return next; }
+                return [...prev, { id: `t-${Date.now()}`, path, language: lang, content: m[3].trimEnd(), isEntry: path === "index.html" }];
               });
             }
           } else if (evType === "done") {
-            setMessages((m) => [...m, { role: "assistant", text: data.reply ?? accumulated }]);
+            setMessages(m => [...m, { role: "assistant", text: data.reply ?? accumulated }]);
             setStreamBuf("");
           }
         }
       }
     } catch (e: any) {
-      if (e.name !== "AbortError") {
-        setMessages((m) => [...m, { role: "assistant", text: `Error: ${e?.message ?? e}` }]);
-      }
-    } finally {
-      setStreaming(false);
-      abortRef.current = null;
-    }
-  }, [input, streaming, project?.conversationId]);
-
-  // Simple code extractor for live streaming
-  function extractCodeFilesLive(text: string): Array<{ path: string; language: string; content: string }> {
-    const re = /```(\w+)(?:\s+path="([^"]+)")?[^`\n]*\n([\s\S]*?)```/g;
-    const files: Array<{ path: string; language: string; content: string }> = [];
-    let match;
-    while ((match = re.exec(text)) !== null) {
-      const lang = match[1];
-      const path = match[2] || (lang === "html" ? "index.html" : lang === "css" ? "styles.css" : lang === "javascript" || lang === "js" ? "app.js" : `main.${lang}`);
-      files.push({ path, language: lang, content: match[3].trimEnd() });
-    }
-    return files;
-  }
+      setMessages(m => [...m, { role: "assistant", text: `Error: ${e?.message ?? e}` }]);
+    } finally { setStreaming(false); }
+  };
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-900">
-        <Loader2 className="w-6 h-6 text-amber-500 animate-spin" />
+      <div className="flex items-center justify-center min-h-screen bg-gray-950">
+        <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: "spring" }}>
+          <Loader2 className="w-8 h-8 text-amber-500 animate-spin" />
+        </motion.div>
       </div>
     );
   }
 
-  const filteredComponents = componentCategory === "all"
-    ? WEB_COMPONENTS
-    : WEB_COMPONENTS.filter(c => c.category === componentCategory);
-
   const activeFile = files.find(f => f.path === activeFilePath);
+  const filteredComponents = componentCategory === "all" ? WEB_COMPONENTS : WEB_COMPONENTS.filter(c => c.category === componentCategory);
 
+  // ===== WELCOME ONBOARDING =====
+  if (showWelcome) {
+    return (
+      <div className={`min-h-screen ${theme === "dark" ? "bg-gray-950" : "bg-gray-50"} flex items-center justify-center p-4 relative overflow-hidden`}>
+        {/* Animated blobs */}
+        <motion.div className="absolute w-96 h-96 rounded-full blur-3xl opacity-20" style={{ background: "radial-gradient(circle, #6366F1, transparent)" }}
+          animate={{ x: [0, 100, 0], y: [0, -50, 0] }} transition={{ duration: 10, repeat: Infinity }} />
+        <motion.div className="absolute w-96 h-96 rounded-full blur-3xl opacity-20" style={{ background: "radial-gradient(circle, #8B5CF6, transparent)" }}
+          animate={{ x: [0, -80, 0], y: [0, 60, 0] }} transition={{ duration: 12, repeat: Infinity }} />
+
+        <motion.div className="relative max-w-2xl w-full" initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
+          <button onClick={() => setScreen("home")} className="absolute top-0 left-0 text-gray-400 hover:text-white flex items-center gap-1 text-xs mb-6">
+            <ChevronLeft className="w-4 h-4" /> Back
+          </button>
+
+          <div className="text-center pt-12">
+            <motion.div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-500 mb-6"
+              animate={{ scale: [1, 1.05, 1] }} transition={{ duration: 3, repeat: Infinity }}>
+              <Palette className="w-10 h-10 text-white" />
+            </motion.div>
+
+            <motion.h1 className={`text-4xl font-bold mb-3 ${theme === "dark" ? "text-white" : "text-gray-900"}`}
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}>
+              Welcome to <span className="bg-gradient-to-r from-indigo-400 to-violet-400 bg-clip-text text-transparent">Design Studio</span>
+            </motion.h1>
+            <motion.p className={`text-lg mb-8 ${theme === "dark" ? "text-gray-400" : "text-gray-600"}`}
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }}>
+              The most powerful visual web design tool — drag, drop, design, deploy.
+            </motion.p>
+
+            {/* Template grid */}
+            <motion.div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-8"
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.7 }}>
+              {WEB_TEMPLATES.slice(0, 6).map((t, i) => (
+                <motion.button key={t.id} onClick={() => loadTemplate(t.id)}
+                  className={`p-4 rounded-xl border text-left transition ${theme === "dark" ? "bg-gray-900 border-gray-800 hover:border-indigo-500" : "bg-white border-gray-200 hover:border-indigo-400"}`}
+                  initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.8 + i * 0.05 }}
+                  whileHover={{ y: -4, boxShadow: "0 10px 30px rgba(99,102,241,0.15)" }}>
+                  <span className="text-2xl block mb-1">{t.emoji}</span>
+                  <span className={`text-sm font-semibold ${theme === "dark" ? "text-white" : "text-gray-900"}`}>{t.name}</span>
+                  <p className={`text-[10px] ${theme === "dark" ? "text-gray-500" : "text-gray-500"}`}>{t.description}</p>
+                </motion.button>
+              ))}
+            </motion.div>
+
+            <motion.button onClick={() => { setShowWelcome(false); }}
+              className="px-8 py-3 rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 text-white font-bold text-sm hover:shadow-lg transition flex items-center gap-2 mx-auto"
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1.2 }}
+              whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+              Start with Blank Canvas <Plus className="w-4 h-4" />
+            </motion.button>
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
+
+  // ===== MAIN DESIGNER =====
   return (
-    <div className="h-screen flex flex-col bg-gray-900 text-gray-100 overflow-hidden">
-      {/* Header */}
-      <header className="flex items-center gap-2 px-3 py-2 bg-gray-950 border-b border-gray-800 flex-shrink-0">
-        <button onClick={() => setScreen("home")} className="text-gray-400 hover:text-white flex items-center gap-1 text-xs">
-          <ChevronLeft className="w-4 h-4" /> Back
+    <div className={`h-screen flex flex-col overflow-hidden ${theme === "dark" ? "bg-gray-950 text-gray-100" : "bg-gray-50 text-gray-900"}`}>
+      {/* HEADER */}
+      <motion.header className={`flex items-center gap-2 px-3 py-2 border-b flex-shrink-0 ${theme === "dark" ? "bg-gray-900 border-gray-800" : "bg-white border-gray-200"}`}
+        initial={{ y: -48, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ duration: 0.4 }}>
+        <button onClick={() => setScreen("home")} className={`p-1.5 rounded-lg ${theme === "dark" ? "hover:bg-gray-800 text-gray-400" : "hover:bg-gray-100 text-gray-500"}`}>
+          <ChevronLeft className="w-4 h-4" />
         </button>
-        <input
-          type="text"
-          value={project?.title ?? ""}
-          onChange={(e) => setProject(p => p ? { ...p, title: e.target.value } : p)}
-          className="bg-transparent text-sm font-bold text-white outline-none border-b border-transparent focus:border-amber-500 px-1"
-        />
-        {dirty && <span className="text-[10px] text-amber-400">●</span>}
-        {savedAt && <span className="text-[10px] text-emerald-400 flex items-center gap-0.5"><CheckCircle2 className="w-3 h-3" /> Saved</span>}
-        <div className="flex-1" />
-        {/* Templates */}
-        <button onClick={() => {
-          const choice = prompt("Choose a template:\n" + WEB_TEMPLATES.map(t => `  ${t.emoji} ${t.id} — ${t.name}`).join("\n") + "\n\nEnter template ID:");
-          if (choice?.trim()) loadTemplate(choice.trim());
-        }} className="px-2.5 h-8 rounded-full bg-gray-800 text-gray-300 text-xs font-semibold items-center gap-1 hover:bg-gray-700 hidden md:flex">
-          <LayoutTemplate className="w-3.5 h-3.5" /> Templates
-        </button>
-        {/* Save */}
-        <button onClick={saveProject} disabled={saving} className="px-2.5 h-8 rounded-full bg-amber-600 text-white text-xs font-bold flex items-center gap-1 hover:bg-amber-500 disabled:opacity-50">
-          {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-          Save
-        </button>
-      </header>
 
-      {/* Main layout: 3 panels */}
-      <div className="flex-1 min-h-0 flex">
-
-        {/* LEFT: Component Library */}
-        <div className="w-56 flex-col border-r border-gray-800 bg-gray-950 overflow-y-auto hidden md:flex flex-shrink-0">
-          <div className="p-2 border-b border-gray-800">
-            <span className="text-[10px] font-bold uppercase text-gray-500 flex items-center gap-1">
-              <Layers className="w-3 h-3" /> Components
-            </span>
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center">
+            <Palette className="w-4 h-4 text-white" />
           </div>
-          {/* Category filter */}
-          <div className="p-2 flex flex-wrap gap-1 border-b border-gray-800">
-            <button onClick={() => setComponentCategory("all")}
-              className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${componentCategory === "all" ? "bg-amber-600 text-white" : "bg-gray-800 text-gray-400"}`}>
-              All
-            </button>
-            {COMPONENT_CATEGORIES.map(cat => (
-              <button key={cat.id} onClick={() => setComponentCategory(cat.id)}
-                className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${componentCategory === cat.id ? "bg-amber-600 text-white" : "bg-gray-800 text-gray-400"}`}>
-                {cat.emoji}
-              </button>
-            ))}
-          </div>
-          {/* Component list */}
-          <div className="p-2 space-y-1 flex-1 overflow-y-auto">
-            {filteredComponents.map(comp => (
-              <button key={comp.id} onClick={() => insertComponent(comp.html)}
-                className="w-full text-left p-2 rounded-lg hover:bg-gray-800 transition group border border-transparent hover:border-gray-700">
-                <div className="flex items-center gap-2">
-                  <span className="text-xl">{comp.emoji}</span>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-xs font-semibold text-gray-200 truncate">{comp.name}</div>
-                    <div className="text-[9px] text-gray-500 truncate">{comp.description}</div>
-                  </div>
-                  <Plus className="w-3 h-3 text-gray-600 group-hover:text-amber-500 opacity-0 group-hover:opacity-100" />
-                </div>
-              </button>
-            ))}
-          </div>
+          <input type="text" value={project?.title ?? ""} onChange={e => setProject(p => p ? { ...p, title: e.target.value } : p)}
+            className={`bg-transparent text-sm font-bold outline-none border-b border-transparent focus:border-indigo-500 px-1 ${theme === "dark" ? "text-white" : "text-gray-900"}`} />
+          {dirty && <span className="text-[10px] text-amber-400">●</span>}
+          {savedAt && <span className="text-[10px] text-emerald-400 flex items-center gap-0.5"><CheckCircle2 className="w-3 h-3" /></span>}
         </div>
 
-        {/* CENTER: Canvas / Preview */}
-        <div className="flex-1 min-h-0 flex flex-col bg-gray-100">
-          {/* Device toggle */}
-          <div className="flex items-center gap-1 px-3 py-1.5 bg-white border-b border-gray-200 flex-shrink-0">
-            <span className="text-[10px] font-bold uppercase text-gray-400 mr-2">Preview</span>
-            {([["desktop", Monitor], ["tablet", Tablet], ["mobile", Smartphone]] as const).map(([id, Icon]) => (
-              <button key={id} onClick={() => setDevice(id)}
-                className={`p-1.5 rounded ${device === id ? "bg-gray-900 text-white" : "text-gray-400 hover:bg-gray-100"}`}>
-                <Icon className="w-4 h-4" />
-              </button>
-            ))}
-            <div className="flex-1" />
-            <button onClick={() => setShowCode(!showCode)}
-              className={`px-2 py-1.5 rounded text-xs font-semibold flex items-center gap-1 ${showCode ? "bg-gray-900 text-white" : "text-gray-400 hover:bg-gray-100"}`}
-              title="Toggle split code/preview view">
-              <Code2 className="w-4 h-4" /> {showCode ? "Visual" : "Split"}
-            </button>
-            <button onClick={refreshPreview} className="p-1.5 rounded text-gray-400 hover:bg-gray-100" title="Refresh">
-              <RefreshCw className="w-4 h-4" />
-            </button>
-          </div>
+        <div className="flex-1" />
 
-          {/* Canvas — bi-directional: code edits live-update preview */}
+        {/* Device toggle */}
+        <div className={`flex items-center gap-0.5 p-0.5 rounded-lg ${theme === "dark" ? "bg-gray-800" : "bg-gray-100"}`}>
+          {([["desktop", Monitor], ["tablet", Tablet], ["mobile", Smartphone]] as const).map(([id, Icon]) => (
+            <button key={id} onClick={() => setDevice(id)}
+              className={`p-1.5 rounded ${device === id ? (theme === "dark" ? "bg-gray-700 text-white" : "bg-white text-gray-900 shadow") : "text-gray-400"}`}>
+              <Icon className="w-3.5 h-3.5" />
+            </button>
+          ))}
+        </div>
+
+        {/* Split toggle */}
+        <button onClick={() => setShowCode(!showCode)}
+          className={`px-2 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 ${showCode ? (theme === "dark" ? "bg-indigo-600 text-white" : "bg-indigo-100 text-indigo-700") : (theme === "dark" ? "text-gray-400 hover:bg-gray-800" : "text-gray-500 hover:bg-gray-100")}`}>
+          <Code2 className="w-3.5 h-3.5" /> {showCode ? "Visual" : "Split"}
+        </button>
+
+        {/* Theme toggle */}
+        <button onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+          className={`p-1.5 rounded-lg ${theme === "dark" ? "text-gray-400 hover:bg-gray-800" : "text-gray-500 hover:bg-gray-100"}`}>
+          {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+        </button>
+
+        {/* Sidebar toggles */}
+        <button onClick={() => setShowLeftSidebar(!showLeftSidebar)}
+          className={`p-1.5 rounded-lg ${showLeftSidebar ? (theme === "dark" ? "text-indigo-400" : "text-indigo-600") : (theme === "dark" ? "text-gray-500" : "text-gray-400")}`}>
+          <PanelLeft className="w-4 h-4" />
+        </button>
+        <button onClick={() => setShowRightSidebar(!showRightSidebar)}
+          className={`p-1.5 rounded-lg ${showRightSidebar ? (theme === "dark" ? "text-indigo-400" : "text-indigo-600") : (theme === "dark" ? "text-gray-500" : "text-gray-400")}`}>
+          <PanelRight className="w-4 h-4" />
+        </button>
+
+        {/* Save */}
+        <button onClick={saveProject} disabled={saving}
+          className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-indigo-500 to-violet-500 text-white text-xs font-bold flex items-center gap-1 hover:shadow-lg disabled:opacity-50">
+          {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Save
+        </button>
+      </motion.header>
+
+      {/* WORKSPACE */}
+      <div className="flex-1 min-h-0 flex">
+        {/* LEFT: Component Library */}
+        <AnimatePresence>
+          {showLeftSidebar && (
+            <motion.div className={`w-56 flex-col border-r flex-shrink-0 overflow-y-auto ${theme === "dark" ? "bg-gray-900 border-gray-800" : "bg-white border-gray-200"} hidden md:flex`}
+              initial={{ x: -224, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: -224, opacity: 0 }} transition={{ duration: 0.2 }}>
+              <div className="p-2 border-b flex items-center gap-1">
+                <Layers className="w-3 h-3 text-gray-400" />
+                <span className="text-[10px] font-bold uppercase text-gray-400">Components</span>
+              </div>
+              <div className="p-2 flex flex-wrap gap-1 border-b">
+                <button onClick={() => setComponentCategory("all")}
+                  className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${componentCategory === "all" ? "bg-indigo-600 text-white" : (theme === "dark" ? "bg-gray-800 text-gray-400" : "bg-gray-100 text-gray-500")}`}>All</button>
+                {COMPONENT_CATEGORIES.map(cat => (
+                  <button key={cat.id} onClick={() => setComponentCategory(cat.id)}
+                    className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${componentCategory === cat.id ? "bg-indigo-600 text-white" : (theme === "dark" ? "bg-gray-800 text-gray-400" : "bg-gray-100 text-gray-500")}`}>
+                    {cat.emoji}
+                  </button>
+                ))}
+              </div>
+              <div className="p-2 space-y-1 flex-1 overflow-y-auto">
+                {filteredComponents.map((comp, i) => (
+                  <motion.button key={comp.id} onClick={() => insertComponent(comp.html)}
+                    className={`w-full text-left p-2 rounded-lg transition group border border-transparent ${theme === "dark" ? "hover:bg-gray-800 hover:border-gray-700" : "hover:bg-gray-50 hover:border-gray-200"}`}
+                    initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.03 }}
+                    whileHover={{ x: 2 }}>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xl">{comp.emoji}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className={`text-xs font-semibold truncate ${theme === "dark" ? "text-gray-200" : "text-gray-800"}`}>{comp.name}</div>
+                        <div className="text-[9px] text-gray-500 truncate">{comp.description}</div>
+                      </div>
+                      <Plus className="w-3 h-3 text-gray-600 opacity-0 group-hover:opacity-100" />
+                    </div>
+                  </motion.button>
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* CENTER: Canvas */}
+        <div className="flex-1 min-h-0 flex flex-col">
+          {/* Canvas area */}
           <div className="flex-1 overflow-auto p-4 flex justify-center gap-2">
-            {/* Code editor (when showCode is on, show SIDE BY SIDE with preview — not toggle) */}
-            {showCode && activeFile && (
-              <div className="w-[45%] flex-shrink-0 rounded-lg overflow-hidden border border-gray-700 shadow-xl">
-                <div className="bg-gray-800 px-3 py-1.5 flex items-center justify-between border-b border-gray-700">
-                  <div className="flex items-center gap-1">
-                    {files.map((f) => (
+            {/* Code editor (split mode) */}
+            <AnimatePresence>
+              {showCode && activeFile && (
+                <motion.div className="w-[45%] flex-shrink-0 rounded-lg overflow-hidden border shadow-xl" style={{ borderColor: theme === "dark" ? "#374151" : "#E5E7EB" }}
+                  initial={{ opacity: 0, width: 0 }} animate={{ opacity: 1, width: "45%" }} exit={{ opacity: 0, width: 0 }}>
+                  <div className={`px-2 py-1.5 flex items-center gap-1 border-b ${theme === "dark" ? "bg-gray-800 border-gray-700" : "bg-gray-50 border-gray-200"}`}>
+                    {files.map(f => (
                       <button key={f.id} onClick={() => setActiveFilePath(f.path)}
-                        className={`px-2 py-0.5 rounded text-[10px] font-mono ${activeFilePath === f.path ? "bg-amber-600 text-white" : "text-gray-400 hover:bg-gray-700"}`}>
+                        className={`px-2 py-0.5 rounded text-[10px] font-mono ${activeFilePath === f.path ? "bg-indigo-600 text-white" : (theme === "dark" ? "text-gray-400 hover:bg-gray-700" : "text-gray-500 hover:bg-gray-100")}`}>
                         {f.isEntry && "★ "}{f.path}
                       </button>
                     ))}
+                    <div className="flex-1" />
+                    <button onClick={() => setShowCode(false)} className="text-gray-400 hover:text-white"><X className="w-3 h-3" /></button>
                   </div>
-                  <button onClick={() => setShowCode(false)} className="text-gray-400 hover:text-white">
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-                <textarea
-                  value={activeFile.content}
-                  onChange={(e) => updateFileContent(activeFilePath, e.target.value)}
-                  className="w-full h-[60vh] p-4 font-mono text-xs bg-gray-900 text-gray-100 resize-none focus:outline-none"
-                  spellCheck={false}
-                  onKeyDown={(e) => {
-                    // Tab key inserts 2 spaces instead of changing focus
-                    if (e.key === "Tab") {
-                      e.preventDefault();
-                      const start = e.currentTarget.selectionStart;
-                      const end = e.currentTarget.selectionEnd;
-                      const newValue = activeFile.content.substring(0, start) + "  " + activeFile.content.substring(end);
-                      updateFileContent(activeFilePath, newValue);
-                      e.currentTarget.selectionStart = e.currentTarget.selectionEnd = start + 2;
-                    }
-                  }}
-                />
-              </div>
-            )}
+                  <textarea value={activeFile.content} onChange={e => updateFileContent(activeFilePath, e.target.value)}
+                    className="w-full h-[60vh] p-4 font-mono text-xs bg-gray-900 text-gray-100 resize-none focus:outline-none" spellCheck={false}
+                    onKeyDown={e => { if (e.key === "Tab") { e.preventDefault(); const s = e.currentTarget.selectionStart; const end = e.currentTarget.selectionEnd; updateFileContent(activeFilePath, activeFile.content.substring(0, s) + "  " + activeFile.content.substring(end)); e.currentTarget.selectionStart = e.currentTarget.selectionEnd = s + 2; } }} />
+                </motion.div>
+              )}
+            </AnimatePresence>
 
-            {/* Preview — always visible, updates in real-time as code changes */}
-            <div className={`bg-white shadow-2xl transition-all duration-300 ${
-              showCode ? "w-[52%]" : "w-full max-w-[1200px]"
-            } ${
-              device === "mobile" ? "!w-[375px]" : device === "tablet" ? "!w-[768px]" : ""
-            }`}>
-              <iframe
-                srcDoc={previewDoc ?? "<html><body style='display:flex;align-items:center;justify-content:center;height:100vh;color:#999;font-family:sans-serif;'>Loading…</body></html>"}
-                className="w-full border-0"
-                style={{ minHeight: "60vh" }}
-                sandbox="allow-scripts allow-forms allow-popups"
-                title="Design Preview"
-              />
+            {/* Preview */}
+            <div className={`bg-white shadow-2xl transition-all duration-300 ${showCode ? "w-[52%]" : "w-full max-w-[1200px]"} ${device === "mobile" ? "!w-[375px]" : device === "tablet" ? "!w-[768px]" : ""}`}>
+              <iframe srcDoc={previewDoc ?? "<html><body style='display:flex;align-items:center;justify-content:center;height:100vh;color:#999;font-family:sans-serif;'>Loading…</body></html>"}
+                className="w-full border-0" style={{ minHeight: "60vh", zoom: `${zoom}%` }}
+                sandbox="allow-scripts allow-forms allow-popups" title="Preview" />
             </div>
           </div>
 
-          {/* AI Chat bar at bottom */}
-          <div className="border-t border-gray-200 bg-white p-2 flex items-center gap-2 flex-shrink-0">
+          {/* AI Chat bar */}
+          <div className={`border-t p-2 flex items-center gap-2 flex-shrink-0 ${theme === "dark" ? "bg-gray-900 border-gray-800" : "bg-white border-gray-200"}`}>
             <Sparkles className="w-4 h-4 text-amber-500 flex-shrink-0" />
-            <input
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendChat(); } }}
+            <input type="text" value={input} onChange={e => setInput(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendChat(); } }}
               placeholder="Ask AI to modify your design (e.g. 'make the hero section blue')…"
-              className="flex-1 bg-gray-50 border border-gray-200 rounded-full px-3 py-1.5 text-xs text-gray-800 outline-none focus:border-amber-400"
-              disabled={streaming}
-            />
+              className={`flex-1 rounded-full px-3 py-1.5 text-xs outline-none ${theme === "dark" ? "bg-gray-800 border border-gray-700 text-gray-100 focus:border-indigo-500" : "bg-gray-50 border border-gray-200 text-gray-900 focus:border-indigo-400"}`}
+              disabled={streaming} />
             <button onClick={() => sendChat()} disabled={streaming || !input.trim()}
-              className="w-8 h-8 rounded-full bg-amber-600 text-white flex items-center justify-center disabled:opacity-50 flex-shrink-0">
+              className="w-8 h-8 rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 text-white flex items-center justify-center disabled:opacity-50 flex-shrink-0">
               {streaming ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
             </button>
           </div>
 
-          {/* Chat messages (collapsible, above the input) */}
+          {/* Chat messages */}
           {(messages.length > 0 || streamBuf) && (
-            <div className="max-h-32 overflow-y-auto bg-gray-50 border-t border-gray-200 p-2 space-y-1 flex-shrink-0">
-              {messages.map((m, i) => (
-                <div key={i} className={`text-xs ${m.role === "user" ? "text-amber-700 font-semibold" : "text-gray-600"}`}>
+            <div className={`max-h-24 overflow-y-auto px-2 pb-1 space-y-0.5 flex-shrink-0 ${theme === "dark" ? "bg-gray-900" : "bg-gray-50"}`}>
+              {messages.slice(-3).map((m, i) => (
+                <div key={i} className={`text-xs ${m.role === "user" ? "text-indigo-400 font-semibold" : (theme === "dark" ? "text-gray-400" : "text-gray-600")}`}>
                   <span className="font-bold">{m.role === "user" ? "You: " : "AI: "}</span>
-                  <span className="line-clamp-2">{m.text.slice(0, 300)}</span>
+                  <span className="line-clamp-1">{m.text.slice(0, 200)}</span>
                 </div>
               ))}
-              {streamBuf && (
-                <div className="text-xs text-gray-500">
-                  <span className="font-bold">AI: </span>
-                  <span className="line-clamp-3">{streamBuf.slice(0, 300)}</span>
+              {streamBuf && <div className="text-xs text-gray-500"><span className="font-bold">AI: </span><span className="line-clamp-2">{streamBuf.slice(0, 300)}</span></div>}
+            </div>
+          )}
+        </div>
+
+        {/* RIGHT: Properties */}
+        <AnimatePresence>
+          {showRightSidebar && (
+            <motion.div className={`w-56 flex-col border-l flex-shrink-0 overflow-y-auto ${theme === "dark" ? "bg-gray-900 border-gray-800" : "bg-white border-gray-200"} hidden md:flex`}
+              initial={{ x: 224, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: 224, opacity: 0 }} transition={{ duration: 0.2 }}>
+              {/* Design System */}
+              <div className="p-3 border-b">
+                <span className="text-[10px] font-bold uppercase text-gray-400 flex items-center gap-1 mb-2"><Palette className="w-3 h-3" /> Design System</span>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-gray-400 flex-1">Primary</label>
+                    <input type="color" value={primaryColor} onChange={e => setPrimaryColor(e.target.value)} className="w-8 h-8 rounded border border-gray-700 cursor-pointer bg-transparent" />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-gray-400 flex-1">Background</label>
+                    <input type="color" value={bgColor} onChange={e => setBgColor(e.target.value)} className="w-8 h-8 rounded border border-gray-700 cursor-pointer bg-transparent" />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-gray-400 flex-1">Text</label>
+                    <input type="color" value={textColor} onChange={e => setTextColor(e.target.value)} className="w-8 h-8 rounded border border-gray-700 cursor-pointer bg-transparent" />
+                  </div>
+                  <button onClick={applyTheme} className="w-full py-1.5 rounded-lg bg-gradient-to-r from-indigo-500 to-violet-500 text-white text-xs font-bold flex items-center justify-center gap-1 hover:shadow-lg">
+                    <Wand2 className="w-3 h-3" /> Apply Theme
+                  </button>
+                </div>
+              </div>
+
+              {/* Typography */}
+              <div className="p-3 border-b">
+                <span className="text-[10px] font-bold uppercase text-gray-400 flex items-center gap-1 mb-2"><Type className="w-3 h-3" /> Typography</span>
+                <select value={fontFamily} onChange={e => setFontFamily(e.target.value)} className={`w-full rounded px-2 py-1 text-xs ${theme === "dark" ? "bg-gray-800 border border-gray-700 text-gray-200" : "bg-gray-50 border border-gray-200 text-gray-800"}`}>
+                  <option value="system-ui">System UI</option>
+                  <option value="Arial, sans-serif">Arial</option>
+                  <option value="Georgia, serif">Georgia</option>
+                  <option value="'Courier New', monospace">Courier</option>
+                  <option value="Verdana, sans-serif">Verdana</option>
+                </select>
+              </div>
+
+              {/* Files */}
+              {!showCode && (
+                <div className="p-2 border-b">
+                  <div className="text-[10px] font-bold uppercase text-gray-400 mb-1">Files</div>
+                  {files.map(f => (
+                    <button key={f.id} onClick={() => { setActiveFilePath(f.path); setShowCode(true); }}
+                      className={`w-full text-left px-2 py-1 rounded text-xs ${activeFilePath === f.path ? "bg-indigo-600 text-white" : (theme === "dark" ? "text-gray-400 hover:bg-gray-800" : "text-gray-500 hover:bg-gray-50")}`}>
+                      {f.isEntry && "★ "}{f.path}
+                    </button>
+                  ))}
                 </div>
               )}
-            </div>
+
+              {/* AI Design Check */}
+              <DesignSuggestions htmlContent={files.find(f => f.path === "index.html")?.content ?? ""} primaryColor={primaryColor} bgColor={bgColor} textColor={textColor} theme={theme} />
+
+              {/* Tips */}
+              <div className="p-2 border-t">
+                <div className="text-[9px] text-gray-500 space-y-0.5">
+                  <p>💡 Click a component on the left</p>
+                  <p>🎨 Change colors → Apply Theme</p>
+                  <p>💬 Ask AI to modify design</p>
+                  <p>📱 Toggle device sizes</p>
+                  <p>🔄 Split view = code + preview</p>
+                </div>
+              </div>
+            </motion.div>
           )}
-        </div>
-
-        {/* RIGHT: Properties Panel */}
-        <div className="w-56 flex-col border-l border-gray-800 bg-gray-950 overflow-y-auto hidden md:flex flex-shrink-0">
-          <div className="p-2 border-b border-gray-800">
-            <span className="text-[10px] font-bold uppercase text-gray-500 flex items-center gap-1">
-              <Palette className="w-3 h-3" /> Design System
-            </span>
-          </div>
-
-          {/* Colors */}
-          <div className="p-3 space-y-3 border-b border-gray-800">
-            <div className="text-[10px] font-bold uppercase text-gray-400">Colors</div>
-
-            <div className="flex items-center gap-2">
-              <label className="text-xs text-gray-400 flex-1">Primary</label>
-              <input type="color" value={primaryColor} onChange={(e) => setPrimaryColor(e.target.value)}
-                className="w-8 h-8 rounded border border-gray-700 cursor-pointer bg-transparent" />
-            </div>
-
-            <div className="flex items-center gap-2">
-              <label className="text-xs text-gray-400 flex-1">Background</label>
-              <input type="color" value={bgColor} onChange={(e) => setBgColor(e.target.value)}
-                className="w-8 h-8 rounded border border-gray-700 cursor-pointer bg-transparent" />
-            </div>
-
-            <div className="flex items-center gap-2">
-              <label className="text-xs text-gray-400 flex-1">Text</label>
-              <input type="color" value={textColor} onChange={(e) => setTextColor(e.target.value)}
-                className="w-8 h-8 rounded border border-gray-700 cursor-pointer bg-transparent" />
-            </div>
-
-            <button onClick={applyTheme}
-              className="w-full py-1.5 rounded-lg bg-amber-600 text-white text-xs font-bold hover:bg-amber-500 flex items-center justify-center gap-1">
-              <Wand2 className="w-3 h-3" /> Apply Theme
-            </button>
-          </div>
-
-          {/* Typography */}
-          <div className="p-3 space-y-3 border-b border-gray-800">
-            <div className="text-[10px] font-bold uppercase text-gray-400 flex items-center gap-1">
-              <Type className="w-3 h-3" /> Typography
-            </div>
-
-            <select value={fontFamily} onChange={(e) => { setFontFamily(e.target.value); }}
-              className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-gray-200">
-              <option value="system-ui">System UI (default)</option>
-              <option value="Arial, sans-serif">Arial</option>
-              <option value="Georgia, serif">Georgia (serif)</option>
-              <option value="'Courier New', monospace">Courier (mono)</option>
-              <option value="'Times New Roman', serif">Times New Roman</option>
-              <option value="Verdana, sans-serif">Verdana</option>
-            </select>
-
-            <button onClick={applyTheme}
-              className="w-full py-1.5 rounded-lg bg-gray-800 text-gray-300 text-xs font-bold hover:bg-gray-700 flex items-center justify-center gap-1">
-              <Type className="w-3 h-3" /> Apply Font
-            </button>
-          </div>
-
-          {/* File list — only shown when NOT in split mode */}
-          {!showCode && (
-          <div className="p-2 flex-1">
-            <div className="text-[10px] font-bold uppercase text-gray-400 mb-1">Files</div>
-            {files.map((f) => (
-              <button key={f.id} onClick={() => { setActiveFilePath(f.path); setShowCode(true); }}
-                className={`w-full text-left px-2 py-1 rounded text-xs ${activeFilePath === f.path ? "bg-gray-800 text-amber-400" : "text-gray-400 hover:bg-gray-800"}`}>
-                {f.isEntry && "★ "}{f.path}
-              </button>
-            ))}
-          </div>
-          )}
-
-          {/* Quick tips */}
-          <div className="p-2 border-t border-gray-800">
-            <div className="text-[9px] text-gray-500 space-y-0.5">
-              <p>💡 Click a component on the left to add it</p>
-              <p>🎨 Change colors → click "Apply Theme"</p>
-              <p>💬 Ask AI to modify your design</p>
-              <p>📱 Toggle device sizes above</p>
-            </div>
-          </div>
-
-          {/* Phase 12 — AI Design Suggestions */}
-          <DesignSuggestions
-            htmlContent={files.find(f => f.path === "index.html")?.content ?? ""}
-            primaryColor={primaryColor}
-            bgColor={bgColor}
-            textColor={textColor}
-          />
-        </div>
+        </AnimatePresence>
       </div>
 
       {/* Error toast */}
@@ -631,96 +553,37 @@ body { font-family: ${fontFamily}; background: var(--bg); color: var(--text); }`
         <div className="fixed bottom-4 right-4 z-50 bg-rose-900/90 text-rose-100 px-4 py-2.5 rounded-lg shadow-lg max-w-sm flex items-start gap-2">
           <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
           <div className="flex-1 text-xs">{error}</div>
-          <button onClick={() => setError(null)} className="text-rose-300 hover:text-white">
-            <X className="w-3.5 h-3.5" />
-          </button>
+          <button onClick={() => setError(null)} className="text-rose-300 hover:text-white"><X className="w-3.5 h-3.5" /></button>
         </div>
       )}
     </div>
   );
 }
 
-// ============================================================
-// Phase 12 — DesignSuggestions
-// Analyzes the current HTML + color choices and shows real-time
-// design feedback: contrast warnings, missing elements, responsive tips.
-// ============================================================
-function DesignSuggestions({
-  htmlContent,
-  primaryColor,
-  bgColor,
-  textColor,
-}: {
-  htmlContent: string;
-  primaryColor: string;
-  bgColor: string;
-  textColor: string;
+// ===== DesignSuggestions Component =====
+function DesignSuggestions({ htmlContent, primaryColor, bgColor, textColor, theme }: {
+  htmlContent: string; primaryColor: string; bgColor: string; textColor: string; theme: string;
 }) {
   const suggestions: Array<{ type: "warning" | "info" | "success"; text: string }> = [];
-
-  // 1. Contrast check — WCAG AA requires 4.5:1 for text
   const contrast = getContrastRatio(textColor, bgColor);
-  if (contrast < 4.5) {
-    suggestions.push({
-      type: "warning",
-      text: `Text contrast is ${contrast.toFixed(1)}:1 — WCAG AA requires 4.5:1. Darken text color or lighten background.`,
-    });
-  } else if (contrast >= 7) {
-    suggestions.push({ type: "success", text: `Text contrast is ${contrast.toFixed(1)}:1 — AAA compliant ✓` });
-  }
-
-  // 2. Check for missing elements
-  if (!htmlContent.includes("<nav") && !htmlContent.includes("<header")) {
-    suggestions.push({ type: "info", text: "No navigation bar detected. Add one from the Components panel → Headers." });
-  }
-  if (!htmlContent.includes("<footer")) {
-    suggestions.push({ type: "info", text: "No footer detected. Add one from Components panel → Footer." });
-  }
-  if (!htmlContent.includes("<h1")) {
-    suggestions.push({ type: "info", text: "No H1 heading found. Add a hero section for your main headline." });
-  }
-  if (!htmlContent.includes("<form") && !htmlContent.includes("input")) {
-    suggestions.push({ type: "info", text: "No form or input found. Consider adding a contact form or newsletter signup." });
-  }
-
-  // 3. Responsive check
-  if (htmlContent.includes("width: ") && !htmlContent.includes("max-width")) {
-    suggestions.push({ type: "warning", text: "Fixed-width elements detected. Use max-width + percentage for responsive design." });
-  }
-  if (!htmlContent.includes("viewport") && htmlContent.includes("<html")) {
-    suggestions.push({ type: "warning", text: "No viewport meta tag found. Mobile devices won't render correctly." });
-  }
-
-  // 4. Image alt text check
-  const imgCount = (htmlContent.match(/<img /g) ?? []).length;
-  const altCount = (htmlContent.match(/alt=["']/g) ?? []).length;
-  if (imgCount > altCount) {
-    suggestions.push({ type: "warning", text: `${imgCount - altCount} image(s) missing alt text — important for accessibility + SEO.` });
-  }
-
-  // 5. Empty canvas
-  if (htmlContent.replace(/<[^>]*>/g, "").trim().length < 20) {
-    suggestions.push({ type: "info", text: "Your canvas is empty. Click a component on the left to start building!" });
-  }
-
-  if (suggestions.length === 0) {
-    suggestions.push({ type: "success", text: "Design looks good! No issues detected." });
-  }
+  if (contrast < 4.5) suggestions.push({ type: "warning", text: `Text contrast ${contrast.toFixed(1)}:1 — WCAG AA needs 4.5:1` });
+  else if (contrast >= 7) suggestions.push({ type: "success", text: `Contrast ${contrast.toFixed(1)}:1 — AAA ✓` });
+  if (!htmlContent.includes("<nav") && !htmlContent.includes("<header")) suggestions.push({ type: "info", text: "No navigation bar. Add one from Components → Headers." });
+  if (!htmlContent.includes("<footer")) suggestions.push({ type: "info", text: "No footer. Add one from Components → Footer." });
+  if (!htmlContent.includes("<h1")) suggestions.push({ type: "info", text: "No H1 heading. Add a hero section." });
+  if (!htmlContent.includes("<form") && !htmlContent.includes("input")) suggestions.push({ type: "info", text: "No form. Consider a contact form or newsletter." });
+  if (htmlContent.replace(/<[^>]*>/g, "").trim().length < 20) suggestions.push({ type: "info", text: "Canvas is empty. Click a component to start!" });
+  if (suggestions.length === 0) suggestions.push({ type: "success", text: "Design looks good! ✓" });
 
   return (
-    <div className="p-2 border-t border-gray-800">
+    <div className="p-2 border-t">
       <div className="text-[10px] font-bold uppercase text-gray-400 mb-1 flex items-center gap-1">
         <Sparkles className="w-3 h-3 text-amber-500" /> AI Design Check
       </div>
       <div className="space-y-1">
-        {suggestions.slice(0, 5).map((s, i) => (
-          <div key={i} className={`text-[9px] leading-tight p-1.5 rounded ${
-            s.type === "warning" ? "bg-amber-900/30 text-amber-300" :
-            s.type === "success" ? "bg-emerald-900/30 text-emerald-300" :
-            "bg-blue-900/30 text-blue-300"
-          }`}>
-            {s.type === "warning" ? "⚠️ " : s.type === "success" ? "✅ " : "💡 "}
-            {s.text}
+        {suggestions.slice(0, 4).map((s, i) => (
+          <div key={i} className={`text-[9px] leading-tight p-1.5 rounded ${s.type === "warning" ? "bg-amber-900/30 text-amber-300" : s.type === "success" ? "bg-emerald-900/30 text-emerald-300" : "bg-blue-900/30 text-blue-300"}`}>
+            {s.type === "warning" ? "⚠️ " : s.type === "success" ? "✅ " : "💡 "}{s.text}
           </div>
         ))}
       </div>
@@ -728,25 +591,16 @@ function DesignSuggestions({
   );
 }
 
-// Helper — calculate WCAG contrast ratio between two hex colors
-function getContrastRatio(color1: string, color2: string): number {
-  const lum1 = getLuminance(color1);
-  const lum2 = getLuminance(color2);
-  const lighter = Math.max(lum1, lum2);
-  const darker = Math.min(lum1, lum2);
-  return (lighter + 0.05) / (darker + 0.05);
+function getContrastRatio(c1: string, c2: string): number {
+  const l1 = getLuminance(c1), l2 = getLuminance(c2);
+  return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
 }
-
 function getLuminance(hex: string): number {
-  // Parse hex color (#RRGGBB) to RGB
-  const hex2 = hex.replace("#", "");
-  if (hex2.length !== 6) return 0.5; // fallback
-  const r = parseInt(hex2.slice(0, 2), 16) / 255;
-  const g = parseInt(hex2.slice(2, 4), 16) / 255;
-  const b = parseInt(hex2.slice(4, 6), 16) / 255;
-  // WCAG luminance formula
-  const linearR = r <= 0.03928 ? r / 12.92 : Math.pow((r + 0.055) / 1.055, 2.4);
-  const linearG = g <= 0.03928 ? g / 12.92 : Math.pow((g + 0.055) / 1.055, 2.4);
-  const linearB = b <= 0.03928 ? b / 12.92 : Math.pow((b + 0.055) / 1.055, 2.4);
-  return 0.2126 * linearR + 0.7152 * linearG + 0.0722 * linearB;
+  const h = hex.replace("#", "");
+  if (h.length !== 6) return 0.5;
+  const r = parseInt(h.slice(0, 2), 16) / 255, g = parseInt(h.slice(2, 4), 16) / 255, b = parseInt(h.slice(4, 6), 16) / 255;
+  const lr = r <= 0.03928 ? r / 12.92 : Math.pow((r + 0.055) / 1.055, 2.4);
+  const lg = g <= 0.03928 ? g / 12.92 : Math.pow((g + 0.055) / 1.055, 2.4);
+  const lb = b <= 0.03928 ? b / 12.92 : Math.pow((b + 0.055) / 1.055, 2.4);
+  return 0.2126 * lr + 0.7152 * lg + 0.0722 * lb;
 }
